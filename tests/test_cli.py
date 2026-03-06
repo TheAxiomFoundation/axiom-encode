@@ -1490,6 +1490,37 @@ class TestCmdEncode:
         captured = capsys.readouterr()
         assert "Backend: api" in captured.out
 
+    def test_encode_auto_syncs_to_supabase(self, capsys, tmp_path):
+        """Encoding auto-syncs session to Supabase when credentials are set."""
+        args = self._make_args(tmp_path)
+        mock_run = self._make_mock_run()
+
+        with patch(
+            "autorac.supabase_sync.sync_sdk_sessions_to_supabase",
+            return_value={"synced": 1, "failed": 0, "total": 1},
+            create=True,
+        ) as mock_sync:
+            self._run_encode(args, mock_run)
+            mock_sync.assert_called_once_with(session_id=mock_run.session_id)
+
+        captured = capsys.readouterr()
+        assert "Synced to Supabase" in captured.out
+
+    def test_encode_skips_sync_without_credentials(self, capsys, tmp_path):
+        """Encoding skips Supabase sync silently when credentials missing."""
+        args = self._make_args(tmp_path)
+
+        with patch(
+            "autorac.supabase_sync.sync_sdk_sessions_to_supabase",
+            side_effect=ValueError("Missing credentials"),
+            create=True,
+        ):
+            _, exit_code = self._run_encode(args, self._make_mock_run())
+
+        captured = capsys.readouterr()
+        assert "Synced to Supabase" not in captured.out
+        assert exit_code == 0
+
 
 # =========================================================================
 # Test session commands

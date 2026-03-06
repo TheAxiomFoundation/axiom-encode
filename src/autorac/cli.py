@@ -1412,6 +1412,17 @@ def cmd_encode(args):
     if run.oracle_taxsim_match is not None:
         print(f"TAXSIM match: {run.oracle_taxsim_match}%")
 
+    # Auto-sync to Supabase (skip silently if credentials not set)
+    try:
+        from .supabase_sync import sync_sdk_sessions_to_supabase
+
+        stats = sync_sdk_sessions_to_supabase(session_id=run.session_id)
+        print(f"Synced to Supabase: {stats['synced']} sessions")
+    except ValueError:
+        pass  # No Supabase credentials — skip sync
+    except Exception as e:
+        print(f"Supabase sync failed: {e}")
+
     # Return exit code based on success
     has_errors = any(a.error for a in run.agent_runs)
     sys.exit(1 if has_errors else 0)
