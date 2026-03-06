@@ -5,14 +5,8 @@ Key insight: We learn from the JOURNEY (errors, fixes, iterations),
 not from comparing predictions to actuals.
 
 Now also tracks full session transcripts for replay and analysis.
-
-Schema includes:
-- SCD2 artifact versioning (plugin, RAC spec, etc.)
-- Token usage tracking (via OpenTelemetry or manual entry)
-- Full session transcripts
 """
 
-import hashlib
 import json
 import os
 import sqlite3
@@ -21,34 +15,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
-
-# Artifact types for SCD2 tracking
-ArtifactType = Literal[
-    "plugin",  # rac-claude Claude Code plugin
-    "rac_spec",  # RAC_SPEC.md
-    "encoder_prompt",  # encoder agent system prompt
-    "reviewer_prompt",  # reviewer agent prompts
-    "test_runner",  # test runner version
-]
-
-
-@dataclass
-class ArtifactVersion:
-    """A versioned artifact (SCD2 pattern)."""
-
-    id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
-    artifact_type: str = ""  # ArtifactType
-    content_hash: str = ""  # SHA-256 of content for quick comparison
-    version_label: str = ""  # e.g., "0.2.1" or git commit hash
-    content: str = ""  # Full content (may be large)
-    effective_from: datetime = field(default_factory=datetime.now)
-    effective_to: Optional[datetime] = None  # None = current version
-    metadata: dict = field(default_factory=dict)  # Extra info (file paths, etc.)
-
-    @staticmethod
-    def compute_hash(content: str) -> str:
-        """Compute SHA-256 hash of content."""
-        return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 @dataclass
@@ -247,6 +213,7 @@ class EncodingRun:
     # Agent info
     agent_type: str = "encoder"
     agent_model: str = ""
+    autorac_version: str = ""
 
     # Session linkage
     session_id: Optional[str] = None
@@ -327,6 +294,8 @@ def create_run(
     lessons: str = "",
 ) -> EncodingRun:
     """Factory function to create an EncodingRun with defaults."""
+    from autorac import __version__
+
     return EncodingRun(
         file_path=file_path,
         citation=citation,
@@ -338,6 +307,7 @@ def create_run(
         parent_run_id=parent_run_id,
         review_results=review_results,
         lessons=lessons,
+        autorac_version=__version__,
     )
 
 
@@ -397,6 +367,7 @@ class EncodingDB:
             ("suggestions_json", "TEXT", None),
             ("review_results_json", "TEXT", None),
             ("lessons", "TEXT", "''"),
+            ("autorac_version", "TEXT", "''"),
         ]:
             try:
                 stmt = f"ALTER TABLE encoding_runs ADD COLUMN {col} {col_type}"
@@ -468,46 +439,6 @@ class EncodingDB:
         """)
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_event_type ON session_events(event_type)
-        """)
-
-        # =====================================================================
-        # Artifact Versions table (SCD2 pattern)
-        # Tracks plugin, RAC spec, prompts, etc. with version history
-        # =====================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS artifact_versions (
-                id TEXT PRIMARY KEY,
-                artifact_type TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                version_label TEXT,
-                content TEXT,
-                effective_from TEXT NOT NULL,
-                effective_to TEXT,
-                metadata_json TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_artifact_type ON artifact_versions(artifact_type)
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_artifact_current ON artifact_versions(artifact_type, effective_to)
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_artifact_hash ON artifact_versions(content_hash)
-        """)
-
-        # =====================================================================
-        # Run-Artifact junction table
-        # Links runs to the artifact versions that were active at encoding time
-        # =====================================================================
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS run_artifacts (
-                run_id TEXT NOT NULL,
-                artifact_version_id TEXT NOT NULL,
-                PRIMARY KEY (run_id, artifact_version_id),
-                FOREIGN KEY (run_id) REFERENCES runs(id),
-                FOREIGN KEY (artifact_version_id) REFERENCES artifact_versions(id)
-            )
         """)
 
         # =====================================================================
@@ -598,8 +529,9 @@ class EncodingDB:
             (id, timestamp, citation, file_path, complexity_json, iterations_json,
              total_duration_ms, final_scores_json, agent_type, agent_model, rac_content,
              predicted_scores_json, session_id, iteration, parent_run_id,
-             actual_scores_json, suggestions_json, review_results_json, lessons)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             actual_scores_json, suggestions_json, review_results_json, lessons,
+             autorac_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 run.id,
@@ -621,6 +553,7 @@ class EncodingDB:
                 None,  # suggestions_json (legacy, no longer written)
                 review_results_json,
                 run.lessons,
+                run.autorac_version,
             ),
         )
 
@@ -757,6 +690,7 @@ class EncodingDB:
         - 19 columns: added review_results_json, lessons
         """
         # Extract columns by position with defaults for missing columns
+        autorac_version = ""
         if len(row) == 11:
             (
                 id,
@@ -846,6 +780,7 @@ class EncodingDB:
                 review_results_json,
                 lessons,
             ) = row[:19]
+            autorac_version = row[19] if len(row) > 19 else ""
 
         # Parse complexity
         c = json.loads(complexity_json) if complexity_json else {}
@@ -957,6 +892,7 @@ class EncodingDB:
             total_duration_ms=total_duration_ms or 0,
             agent_type=agent_type or "encoder",
             agent_model=agent_model or "",
+            autorac_version=autorac_version or "",
             rac_content=rac_content or "",
             session_id=session_id,
         )
@@ -1202,238 +1138,6 @@ class EncodingDB:
             "avg_events_per_session": round(avg_events, 1),
         }
 
-    # =========================================================================
-    # Artifact Version Methods (SCD2)
-    # =========================================================================
-
-    def log_artifact_version(
-        self,
-        artifact_type: str,
-        content: str,
-        version_label: str = "",
-        metadata: Optional[dict] = None,
-    ) -> ArtifactVersion:
-        """
-        Log a new artifact version. Uses SCD2 pattern:
-        - If content hash matches current version, returns existing
-        - Otherwise, closes current version and creates new one
-        """
-        content_hash = ArtifactVersion.compute_hash(content)
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Check if this exact version already exists
-        cursor.execute(
-            """
-            SELECT id, version_label, effective_from FROM artifact_versions
-            WHERE artifact_type = ? AND content_hash = ? AND effective_to IS NULL
-        """,
-            (artifact_type, content_hash),
-        )
-        existing = cursor.fetchone()
-
-        if existing:
-            conn.close()
-            return ArtifactVersion(
-                id=existing[0],
-                artifact_type=artifact_type,
-                content_hash=content_hash,
-                version_label=existing[1] or version_label,
-                content=content,
-                effective_from=datetime.fromisoformat(existing[2]),
-                effective_to=None,
-                metadata=metadata or {},
-            )
-
-        # Close any existing current version
-        now = datetime.now()
-        cursor.execute(
-            """
-            UPDATE artifact_versions
-            SET effective_to = ?
-            WHERE artifact_type = ? AND effective_to IS NULL
-        """,
-            (now.isoformat(), artifact_type),
-        )
-
-        # Create new version
-        version = ArtifactVersion(
-            artifact_type=artifact_type,
-            content_hash=content_hash,
-            version_label=version_label,
-            content=content,
-            effective_from=now,
-            effective_to=None,
-            metadata=metadata or {},
-        )
-
-        cursor.execute(
-            """
-            INSERT INTO artifact_versions
-            (id, artifact_type, content_hash, version_label, content, effective_from, effective_to, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                version.id,
-                version.artifact_type,
-                version.content_hash,
-                version.version_label,
-                version.content,
-                version.effective_from.isoformat(),
-                None,
-                json.dumps(version.metadata),
-            ),
-        )
-
-        conn.commit()
-        conn.close()
-
-        return version
-
-    def get_current_artifact_version(
-        self, artifact_type: str
-    ) -> Optional[ArtifactVersion]:
-        """Get the current (effective_to IS NULL) version of an artifact."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT id, artifact_type, content_hash, version_label, content, effective_from, effective_to, metadata_json
-            FROM artifact_versions
-            WHERE artifact_type = ? AND effective_to IS NULL
-        """,
-            (artifact_type,),
-        )
-
-        row = cursor.fetchone()
-        conn.close()
-
-        if not row:
-            return None
-
-        return ArtifactVersion(
-            id=row[0],
-            artifact_type=row[1],
-            content_hash=row[2],
-            version_label=row[3] or "",
-            content=row[4] or "",
-            effective_from=datetime.fromisoformat(row[5]),
-            effective_to=datetime.fromisoformat(row[6]) if row[6] else None,
-            metadata=json.loads(row[7]) if row[7] else {},
-        )
-
-    def get_artifact_history(self, artifact_type: str) -> list[ArtifactVersion]:
-        """Get version history for an artifact type, ordered by effective_from DESC."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT id, artifact_type, content_hash, version_label, content, effective_from, effective_to, metadata_json
-            FROM artifact_versions
-            WHERE artifact_type = ?
-            ORDER BY effective_from DESC
-        """,
-            (artifact_type,),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        return [
-            ArtifactVersion(
-                id=row[0],
-                artifact_type=row[1],
-                content_hash=row[2],
-                version_label=row[3] or "",
-                content=row[4] or "",
-                effective_from=datetime.fromisoformat(row[5]),
-                effective_to=datetime.fromisoformat(row[6]) if row[6] else None,
-                metadata=json.loads(row[7]) if row[7] else {},
-            )
-            for row in rows
-        ]
-
-    def link_run_to_artifacts(
-        self, run_id: str, artifact_version_ids: list[str]
-    ) -> None:
-        """Link a run to the artifact versions that were active during encoding."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        for av_id in artifact_version_ids:
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO run_artifacts (run_id, artifact_version_id)
-                VALUES (?, ?)
-            """,
-                (run_id, av_id),
-            )
-
-        conn.commit()
-        conn.close()
-
-    def link_run_to_current_artifacts(self, run_id: str) -> list[str]:
-        """Link a run to all current artifact versions. Returns list of artifact version IDs."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Get all current artifact versions
-        cursor.execute("""
-            SELECT id FROM artifact_versions WHERE effective_to IS NULL
-        """)
-        current_ids = [row[0] for row in cursor.fetchall()]
-
-        # Link to run
-        for av_id in current_ids:
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO run_artifacts (run_id, artifact_version_id)
-                VALUES (?, ?)
-            """,
-                (run_id, av_id),
-            )
-
-        conn.commit()
-        conn.close()
-
-        return current_ids
-
-    def get_run_artifacts(self, run_id: str) -> list[ArtifactVersion]:
-        """Get all artifact versions linked to a run."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT av.id, av.artifact_type, av.content_hash, av.version_label, av.content,
-                   av.effective_from, av.effective_to, av.metadata_json
-            FROM artifact_versions av
-            JOIN run_artifacts ra ON av.id = ra.artifact_version_id
-            WHERE ra.run_id = ?
-        """,
-            (run_id,),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        return [
-            ArtifactVersion(
-                id=row[0],
-                artifact_type=row[1],
-                content_hash=row[2],
-                version_label=row[3] or "",
-                content=row[4] or "",
-                effective_from=datetime.fromisoformat(row[5]),
-                effective_to=datetime.fromisoformat(row[6]) if row[6] else None,
-                metadata=json.loads(row[7]) if row[7] else {},
-            )
-            for row in rows
-        ]
-
     def update_session_tokens(
         self,
         session_id: str,
@@ -1478,57 +1182,6 @@ class EncodingDB:
         conn.commit()
         conn.close()
 
-    def snapshot_plugin(
-        self, plugin_path: Path, version_label: str = ""
-    ) -> ArtifactVersion:
-        """
-        Snapshot the entire rac-claude plugin as a single artifact.
-        Concatenates all agent, skill, command, and hook files.
-        """
-        content_parts = []
-        file_list = []
-
-        # Collect all plugin files
-        for subdir in ["agents", "skills", "commands", "hooks"]:
-            subdir_path = plugin_path / subdir
-            if subdir_path.exists():
-                for file in sorted(subdir_path.rglob("*")):
-                    if file.is_file() and file.suffix in [".md", ".sh", ".py"]:
-                        rel_path = file.relative_to(plugin_path)
-                        file_list.append(str(rel_path))
-                        content_parts.append(f"=== {rel_path} ===\n")
-                        content_parts.append(file.read_text())
-                        content_parts.append("\n\n")
-
-        # Also include plugin.json
-        plugin_json = plugin_path / "plugin.json"
-        if plugin_json.exists():
-            file_list.insert(0, "plugin.json")
-            content_parts.insert(
-                0, f"=== plugin.json ===\n{plugin_json.read_text()}\n\n"
-            )
-
-        full_content = "".join(content_parts)
-
-        return self.log_artifact_version(
-            artifact_type="plugin",
-            content=full_content,
-            version_label=version_label,
-            metadata={"files": file_list, "path": str(plugin_path)},
-        )
-
-    def snapshot_rac_spec(
-        self, spec_path: Path, version_label: str = ""
-    ) -> ArtifactVersion:
-        """Snapshot the RAC_SPEC.md file."""
-        content = spec_path.read_text() if spec_path.exists() else ""
-
-        return self.log_artifact_version(
-            artifact_type="rac_spec",
-            content=content,
-            version_label=version_label,
-            metadata={"path": str(spec_path)},
-        )
 
 
 # Backward compatibility alias

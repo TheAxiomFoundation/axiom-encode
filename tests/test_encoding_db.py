@@ -631,137 +631,38 @@ class TestMigration:
         conn.close()
 
 
-class TestArtifactVersioning:
-    """Tests for SCD2 artifact versioning."""
+class TestAutoracVersion:
+    """Tests for autorac version tracking on encoding runs."""
 
-    def test_log_artifact_version_new(self, experiment_db):
-        """Test creating a new artifact version."""
-        version = experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="plugin content v1",
-            version_label="1.0.0",
-            metadata={"files": ["a.md"]},
+    def test_create_run_sets_version(self):
+        """Test that create_run auto-populates autorac_version."""
+        from autorac import __version__
+        from autorac.harness.encoding_db import create_run
+
+        run = create_run(
+            file_path="/tmp/test.rac",
+            citation="26 USC 21",
+            agent_type="encoder",
+            agent_model="opus",
+            rac_content="test",
         )
-        assert version.artifact_type == "plugin"
-        assert version.content == "plugin content v1"
-        assert version.version_label == "1.0.0"
-        assert version.effective_to is None
+        assert run.autorac_version == __version__
 
-    def test_log_artifact_version_duplicate_returns_existing(self, experiment_db):
-        """Test that duplicate content returns existing version."""
-        v1 = experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="same content",
-            version_label="1.0.0",
-        )
-        v2 = experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="same content",
-            version_label="1.0.1",
-        )
-        assert v1.id == v2.id  # Same version returned
-
-    def test_log_artifact_version_new_content_closes_old(self, experiment_db):
-        """Test that new content closes old version."""
-        v1 = experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="content v1",
-            version_label="1.0.0",
-        )
-        v2 = experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="content v2",
-            version_label="2.0.0",
-        )
-
-        # v1 and v2 should be different
-        assert v1.id != v2.id
-
-        # v1 should be closed (effective_to set)
-        history = experiment_db.get_artifact_history("plugin")
-        assert len(history) == 2
-        # Most recent first
-        assert history[0].id == v2.id
-        assert history[0].effective_to is None
-        assert history[1].id == v1.id
-        assert history[1].effective_to is not None
-
-    def test_get_current_artifact_version(self, experiment_db):
-        """Test getting the current artifact version."""
-        experiment_db.log_artifact_version(
-            artifact_type="rac_spec",
-            content="spec v1",
-        )
-        experiment_db.log_artifact_version(
-            artifact_type="rac_spec",
-            content="spec v2",
-        )
-
-        current = experiment_db.get_current_artifact_version("rac_spec")
-        assert current is not None
-        assert current.content == "spec v2"
-        assert current.effective_to is None
-
-    def test_get_current_artifact_version_none(self, experiment_db):
-        """Test returns None when no artifact exists."""
-        result = experiment_db.get_current_artifact_version("nonexistent")
-        assert result is None
-
-    def test_get_artifact_history(self, experiment_db):
-        """Test getting full artifact history."""
-        experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="v1",
-            version_label="1.0",
-        )
-        experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="v2",
-            version_label="2.0",
-        )
-        experiment_db.log_artifact_version(
-            artifact_type="plugin",
-            content="v3",
-            version_label="3.0",
-        )
-
-        history = experiment_db.get_artifact_history("plugin")
-        assert len(history) == 3
-        # Ordered by effective_from DESC
-        assert history[0].version_label == "3.0"
-        assert history[2].version_label == "1.0"
-
-    def test_link_run_to_artifacts(self, experiment_db, sample_encoding_run):
-        """Test linking a run to artifact versions."""
+    def test_version_persisted_in_db(self, experiment_db, sample_encoding_run):
+        """Test that autorac_version is persisted and retrieved from DB."""
+        sample_encoding_run.autorac_version = "0.2.0"
         experiment_db.log_run(sample_encoding_run)
 
-        v1 = experiment_db.log_artifact_version(
-            artifact_type="plugin", content="plugin code"
-        )
-        v2 = experiment_db.log_artifact_version(
-            artifact_type="rac_spec", content="spec code"
-        )
+        retrieved = experiment_db.get_run(sample_encoding_run.id)
+        assert retrieved.autorac_version == "0.2.0"
 
-        experiment_db.link_run_to_artifacts(sample_encoding_run.id, [v1.id, v2.id])
-
-        artifacts = experiment_db.get_run_artifacts(sample_encoding_run.id)
-        assert len(artifacts) == 2
-        artifact_types = {a.artifact_type for a in artifacts}
-        assert "plugin" in artifact_types
-        assert "rac_spec" in artifact_types
-
-    def test_link_run_to_current_artifacts(self, experiment_db, sample_encoding_run):
-        """Test linking a run to all current artifact versions."""
+    def test_version_defaults_empty_for_old_runs(self, experiment_db, sample_encoding_run):
+        """Test that runs without autorac_version default to empty string."""
+        sample_encoding_run.autorac_version = ""
         experiment_db.log_run(sample_encoding_run)
 
-        experiment_db.log_artifact_version(artifact_type="plugin", content="plugin")
-        experiment_db.log_artifact_version(artifact_type="rac_spec", content="spec")
-
-        ids = experiment_db.link_run_to_current_artifacts(sample_encoding_run.id)
-        assert len(ids) == 2
-
-        artifacts = experiment_db.get_run_artifacts(sample_encoding_run.id)
-        assert len(artifacts) == 2
+        retrieved = experiment_db.get_run(sample_encoding_run.id)
+        assert retrieved.autorac_version == ""
 
 
 class TestUpdateSessionTokens:
@@ -783,43 +684,3 @@ class TestUpdateSessionTokens:
         session = experiment_db.get_session("token-test")
         # Session.total_tokens = input_tokens + output_tokens = 1500
         assert session.total_tokens == 1500
-
-
-class TestSnapshotPlugin:
-    """Tests for snapshot_plugin method."""
-
-    def test_snapshot_plugin(self, experiment_db, tmp_path):
-        """Test snapshotting a plugin directory."""
-        plugin_dir = tmp_path / "test-plugin"
-        plugin_dir.mkdir()
-
-        # Create plugin structure
-        (plugin_dir / "plugin.json").write_text('{"name": "test"}')
-        agents_dir = plugin_dir / "agents"
-        agents_dir.mkdir()
-        (agents_dir / "encoder.md").write_text("# Encoder agent")
-        skills_dir = plugin_dir / "skills"
-        skills_dir.mkdir()
-        (skills_dir / "encode.md").write_text("# Encode skill")
-
-        version = experiment_db.snapshot_plugin(plugin_dir, version_label="1.0")
-        assert version.artifact_type == "plugin"
-        assert "plugin.json" in version.metadata.get("files", [])
-        assert "agents/encoder.md" in version.metadata.get("files", [])
-        assert "Encoder agent" in version.content
-
-    def test_snapshot_rac_spec(self, experiment_db, tmp_path):
-        """Test snapshotting RAC spec."""
-        spec_file = tmp_path / "RAC_SPEC.md"
-        spec_file.write_text("# RAC Specification\nVersion 2.0")
-
-        version = experiment_db.snapshot_rac_spec(spec_file, version_label="2.0")
-        assert version.artifact_type == "rac_spec"
-        assert "RAC Specification" in version.content
-        assert version.metadata["path"] == str(spec_file)
-
-    def test_snapshot_rac_spec_missing_file(self, experiment_db, tmp_path):
-        """Test snapshotting RAC spec when file doesn't exist."""
-        spec_file = tmp_path / "MISSING_SPEC.md"
-        version = experiment_db.snapshot_rac_spec(spec_file)
-        assert version.content == ""
