@@ -200,6 +200,14 @@ class Orchestrator:
 
         self.encoding_db = EncodingDB(db_path) if db_path else None
 
+        # Cache env without CLAUDECODE (prevents nested launch errors)
+        self._cli_env = (
+            {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+            if self.backend == Backend.CLI
+            else None
+        )
+        self._context_section = self._build_context_section()
+
     async def encode(
         self,
         citation: str,
@@ -242,9 +250,12 @@ class Orchestrator:
                 / section.replace("(", "/").replace(")", "")
             )
 
+        from autorac import __version__
+
         run = EncodingRun(
             citation=citation,
             session_id=f"orch-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
+            autorac_version=__version__,
         )
 
         try:
@@ -397,9 +408,6 @@ class Orchestrator:
 
         cmd = ["claude", "--print", "--model", self.model, "-p", prompt]
 
-        # Remove CLAUDECODE env var to allow nested CLI launches
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-
         try:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
@@ -409,7 +417,7 @@ class Orchestrator:
                     capture_output=True,
                     text=True,
                     timeout=600,
-                    env=env,
+                    env=self._cli_env,
                 ),
             )
             text = result.stdout + result.stderr
@@ -620,7 +628,7 @@ Output path: {output_path}
 
 Write .rac files to the output path. Run tests after each file.
 {DSL_CHEATSHEET}
-{self._build_context_section()}"""
+{self._context_section}"""
 
     def _parse_analyzer_output(self, analysis_text: str) -> list[SubsectionTask]:
         """Parse analyzer output into structured subsection tasks."""
@@ -786,9 +794,8 @@ Write .rac files to the output path. Run tests after each file.
             parts.append(f"Full statute text (excerpt):\n{statute_text[:5000]}")
 
         parts.append(DSL_CHEATSHEET)
-        context = self._build_context_section()
-        if context:
-            parts.append(context)
+        if self._context_section:
+            parts.append(self._context_section)
 
         return "\n".join(parts)
 
