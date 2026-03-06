@@ -105,6 +105,7 @@ class EncodingRun:
 
     total_tokens: Optional[TokenUsage] = None
     total_cost_usd: float = 0.0
+    autorac_version: str = ""
 
 
 # Agent prompt mapping -- all embedded, no plugin needed
