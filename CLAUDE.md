@@ -18,12 +18,17 @@ This runs the full pipeline: analyze statute, encode subsections, validate again
 Uses Claude Code CLI subprocess. Works with Max subscription. No API billing.
 
 ```bash
-autorac encode "26 USC 32"
+autorac encode "26 USC 32"                  # default --backend cli
+autorac encode "26 USC 32" --backend cli    # explicit
 ```
 
 ### 2. API backend
 
-Uses Claude API directly (anthropic SDK). Works on Modal or any server.
+Uses Claude API directly (anthropic SDK). Requires `ANTHROPIC_API_KEY`. Works on Modal or any server.
+
+```bash
+autorac encode "26 USC 32" --backend api
+```
 
 ```python
 from autorac import Orchestrator

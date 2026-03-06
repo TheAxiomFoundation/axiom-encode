@@ -1383,22 +1383,37 @@ class TestCmdCoverage:
 
 
 class TestCmdEncode:
-    def test_encode_success(self, capsys, tmp_path):
+    def _make_args(self, tmp_path, **overrides):
+        """Helper to create args with sensible defaults."""
         args = MagicMock()
-        args.citation = "26 USC 1(j)(2)"
-        args.output = tmp_path / "statute"
-        args.model = "test-model"
-        args.db = tmp_path / "test.db"
+        args.citation = overrides.get("citation", "26 USC 1(j)(2)")
+        args.output = overrides.get("output", tmp_path / "statute")
+        args.model = overrides.get("model", "test-model")
+        args.db = overrides.get("db", tmp_path / "test.db")
+        args.backend = overrides.get("backend", "cli")
+        return args
 
+    def _make_mock_run(self, success=True):
+        """Helper to create a mock encoding run."""
         mock_run = MagicMock()
         mock_run.session_id = "test-session"
-        mock_run.files_created = ["a.rac"]
-        mock_run.total_tokens = MagicMock(input_tokens=100, output_tokens=50)
-        mock_run.total_tokens.estimated_cost_usd = 0.01
-        mock_run.oracle_pe_match = 95.0
-        mock_run.oracle_taxsim_match = 90.0
-        mock_run.agent_runs = [MagicMock(error=None)]
+        if success:
+            mock_run.files_created = ["a.rac"]
+            mock_run.total_tokens = MagicMock(input_tokens=100, output_tokens=50)
+            mock_run.total_tokens.estimated_cost_usd = 0.01
+            mock_run.oracle_pe_match = 95.0
+            mock_run.oracle_taxsim_match = 90.0
+            mock_run.agent_runs = [MagicMock(error=None)]
+        else:
+            mock_run.files_created = []
+            mock_run.total_tokens = None
+            mock_run.oracle_pe_match = None
+            mock_run.oracle_taxsim_match = None
+            mock_run.agent_runs = [MagicMock(error="some error")]
+        return mock_run
 
+    def _run_encode(self, args, mock_run):
+        """Run cmd_encode with a mocked orchestrator, return (Orchestrator_cls, exit_code)."""
         mock_orchestrator = MagicMock()
         mock_orchestrator.print_report.return_value = "Report content"
 
@@ -1410,73 +1425,72 @@ class TestCmdEncode:
         with patch(
             "autorac.harness.orchestrator.Orchestrator",
             return_value=mock_orchestrator,
-        ):
+        ) as mock_cls:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_encode(args)
-            assert exc_info.value.code == 0
+            return mock_cls, exc_info.value.code
+
+    def test_encode_success(self, capsys, tmp_path):
+        args = self._make_args(tmp_path)
+        mock_cls, exit_code = self._run_encode(args, self._make_mock_run(success=True))
+        assert exit_code == 0
 
     def test_encode_with_errors(self, capsys, tmp_path):
-        args = MagicMock()
-        args.citation = "26 USC 1"
-        args.output = tmp_path / "statute"
-        args.model = None
-        args.db = tmp_path / "test.db"
-
-        mock_run = MagicMock()
-        mock_run.session_id = "test-session"
-        mock_run.files_created = []
-        mock_run.total_tokens = None
-        mock_run.oracle_pe_match = None
-        mock_run.oracle_taxsim_match = None
-        mock_run.agent_runs = [MagicMock(error="some error")]
-
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.print_report.return_value = "Report"
-
-        async def mock_encode(**kwargs):
-            return mock_run
-
-        mock_orchestrator.encode = mock_encode
-
-        with patch(
-            "autorac.harness.orchestrator.Orchestrator",
-            return_value=mock_orchestrator,
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_encode(args)
-            assert exc_info.value.code == 1
+        args = self._make_args(tmp_path, citation="26 USC 1", model=None)
+        mock_cls, exit_code = self._run_encode(
+            args, self._make_mock_run(success=False)
+        )
+        assert exit_code == 1
 
     def test_encode_path_format(self, capsys, tmp_path):
         """Citation without spaces (e.g., '26/1') uses fallback parsing."""
-        args = MagicMock()
-        args.citation = "26/1"
-        args.output = tmp_path / "statute"
-        args.model = None
-        args.db = tmp_path / "test.db"
+        args = self._make_args(tmp_path, citation="26/1", model=None)
+        mock_cls, exit_code = self._run_encode(args, self._make_mock_run(success=True))
+        assert exit_code == 0
 
-        mock_run = MagicMock()
-        mock_run.session_id = "test-session"
-        mock_run.files_created = []
-        mock_run.total_tokens = None
-        mock_run.oracle_pe_match = None
-        mock_run.oracle_taxsim_match = None
-        mock_run.agent_runs = [MagicMock(error=None)]
+    def test_encode_defaults_to_cli_backend(self, capsys, tmp_path):
+        """No --backend flag defaults to CLI backend."""
+        args = self._make_args(tmp_path, backend="cli")
+        mock_cls, _ = self._run_encode(args, self._make_mock_run())
+        mock_cls.assert_called_once_with(
+            model="test-model", db_path=tmp_path / "test.db", backend="cli"
+        )
 
-        mock_orchestrator = MagicMock()
-        mock_orchestrator.print_report.return_value = "Report"
+    def test_encode_api_backend(self, capsys, tmp_path):
+        """--backend api passes 'api' to Orchestrator."""
+        args = self._make_args(tmp_path, backend="api")
+        mock_cls, _ = self._run_encode(args, self._make_mock_run())
+        mock_cls.assert_called_once_with(
+            model="test-model", db_path=tmp_path / "test.db", backend="api"
+        )
 
-        async def mock_encode(**kwargs):
-            return mock_run
+    def test_encode_cli_backend_explicit(self, capsys, tmp_path):
+        """--backend cli explicitly passes 'cli' to Orchestrator."""
+        args = self._make_args(tmp_path, backend="cli")
+        mock_cls, _ = self._run_encode(args, self._make_mock_run())
+        mock_cls.assert_called_once_with(
+            model="test-model", db_path=tmp_path / "test.db", backend="cli"
+        )
 
-        mock_orchestrator.encode = mock_encode
+    def test_encode_api_backend_no_key_errors(self, tmp_path):
+        """API backend without ANTHROPIC_API_KEY raises clear error."""
+        from autorac.harness.orchestrator import Orchestrator
 
-        with patch(
-            "autorac.harness.orchestrator.Orchestrator",
-            return_value=mock_orchestrator,
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_encode(args)
-            assert exc_info.value.code == 0
+        with patch.dict("os.environ", {}, clear=True):
+            # Remove key if present
+            import os
+
+            env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+            with patch.dict("os.environ", env, clear=True):
+                with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+                    Orchestrator(backend="api")
+
+    def test_encode_backend_shown_in_output(self, capsys, tmp_path):
+        """Backend name is printed in the output."""
+        args = self._make_args(tmp_path, backend="api")
+        self._run_encode(args, self._make_mock_run())
+        captured = capsys.readouterr()
+        assert "Backend: api" in captured.out
 
 
 # =========================================================================

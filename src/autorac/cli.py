@@ -206,6 +206,12 @@ def main():
         help="Model to use for encoding (default: autorac.DEFAULT_MODEL)",
     )
     encode_parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    encode_parser.add_argument(
+        "--backend",
+        choices=["cli", "api"],
+        default="cli",
+        help="Backend: 'cli' uses Claude Code CLI (no API key), 'api' uses Agent SDK (requires ANTHROPIC_API_KEY)",
+    )
 
     # =========================================================================
     # Session logging commands (for hooks)
@@ -1334,8 +1340,7 @@ def cmd_encode(args):
     import asyncio
     from datetime import datetime
 
-    from .harness.encoding_db import EncodingDB
-    from .harness.sdk_orchestrator import SDKOrchestrator
+    from .harness.orchestrator import Orchestrator
 
     # Parse citation to get output path
     # Keep original case for subsection letters (a), (b), etc.
@@ -1355,6 +1360,7 @@ def cmd_encode(args):
 
     print(f"=== Encoding: {args.citation} ===")
     print(f"Output: {output_path}")
+    print(f"Backend: {args.backend}")
     print(f"Model: {args.model}")
     print(f"DB: {args.db}")
     print()
@@ -1362,12 +1368,12 @@ def cmd_encode(args):
     # Create output directory
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Initialize SDK orchestrator with encoding DB
+    # Initialize orchestrator with chosen backend
     args.db.parent.mkdir(parents=True, exist_ok=True)
-    encoding_db = EncodingDB(args.db)
-    orchestrator = SDKOrchestrator(
+    orchestrator = Orchestrator(
         model=args.model,
-        encoding_db=encoding_db,
+        db_path=args.db,
+        backend=args.backend,
     )
 
     print(f"Starting encoding at {datetime.now().strftime('%H:%M:%S')}...")
