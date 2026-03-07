@@ -407,7 +407,17 @@ class Orchestrator:
         """Run via Claude Code CLI subprocess."""
         import subprocess
 
-        cmd = ["claude", "--print", "--model", self.model, "-p", prompt]
+        cmd = [
+            "claude",
+            "--print",
+            "--model",
+            self.model,
+            "--mcp-config",
+            "{}",
+            "--strict-mcp-config",
+            "-p",
+            prompt,
+        ]
 
         try:
             loop = asyncio.get_event_loop()
