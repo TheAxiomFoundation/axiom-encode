@@ -42,6 +42,7 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
     "ruff",
+    "towncrier",
 ]
 all = [
     "autorac[api,dev]",
@@ -67,6 +68,33 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "--cov=src/autorac --cov-report=term-missing"
+
+[tool.towncrier]
+package = "autorac"
+package_dir = "src"
+directory = "changes"
+filename = "CHANGELOG.md"
+title_format = "{name} {version} ({project_date})"
+
+[[tool.towncrier.type]]
+directory = "feature"
+name = "Features"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "bugfix"
+name = "Bug fixes"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "misc"
+name = "Miscellaneous"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "doc"
+name = "Documentation"
+showcontent = true
 
 [tool.ruff]
 line-length = 88
