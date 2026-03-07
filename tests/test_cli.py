@@ -468,17 +468,11 @@ class TestCmdCompile:
         mock_compile = MagicMock(return_value=mock_ir)
         mock_execute = MagicMock()
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(parse_dsl=mock_parse),
-                "rac.engine": MagicMock(compile=mock_compile, execute=mock_execute),
-                "rac.engine.converter": MagicMock(
-                    convert_v2_to_engine_module=mock_convert
-                ),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = mock_parse
+        mock_rac.compile = mock_compile
+        mock_rac.execute = mock_execute
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_compile(args)
             assert exc_info.value.code == 0
@@ -503,17 +497,11 @@ class TestCmdCompile:
         mock_compile = MagicMock(return_value=mock_ir)
         mock_execute = MagicMock()
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(parse_dsl=mock_parse),
-                "rac.engine": MagicMock(compile=mock_compile, execute=mock_execute),
-                "rac.engine.converter": MagicMock(
-                    convert_v2_to_engine_module=mock_convert
-                ),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = mock_parse
+        mock_rac.compile = mock_compile
+        mock_rac.execute = mock_execute
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_compile(args)
             assert exc_info.value.code == 0
@@ -541,17 +529,11 @@ class TestCmdCompile:
         mock_compile = MagicMock(return_value=mock_ir)
         mock_execute = MagicMock(return_value=mock_result)
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(parse_dsl=mock_parse),
-                "rac.engine": MagicMock(compile=mock_compile, execute=mock_execute),
-                "rac.engine.converter": MagicMock(
-                    convert_v2_to_engine_module=mock_convert
-                ),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = mock_parse
+        mock_rac.compile = mock_compile
+        mock_rac.execute = mock_execute
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_compile(args)
             assert exc_info.value.code == 0
@@ -577,17 +559,11 @@ class TestCmdCompile:
         mock_compile = MagicMock(return_value=mock_ir)
         mock_execute = MagicMock(return_value=mock_result)
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(parse_dsl=mock_parse),
-                "rac.engine": MagicMock(compile=mock_compile, execute=mock_execute),
-                "rac.engine.converter": MagicMock(
-                    convert_v2_to_engine_module=mock_convert
-                ),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = mock_parse
+        mock_rac.compile = mock_compile
+        mock_rac.execute = mock_execute
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_compile(args)
             assert exc_info.value.code == 0
@@ -604,17 +580,9 @@ class TestCmdCompile:
         args.as_of = None
         args.execute = False
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(
-                    parse_dsl=MagicMock(side_effect=Exception("Parse error"))
-                ),
-                "rac.engine": MagicMock(),
-                "rac.engine.converter": MagicMock(),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = MagicMock(side_effect=Exception("Parse error"))
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_compile(args)
             assert exc_info.value.code == 1
@@ -630,17 +598,9 @@ class TestCmdCompile:
         args.as_of = None
         args.execute = False
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(
-                    parse_dsl=MagicMock(side_effect=Exception("Parse error"))
-                ),
-                "rac.engine": MagicMock(),
-                "rac.engine.converter": MagicMock(),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = MagicMock(side_effect=Exception("Parse error"))
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_compile(args)
             assert exc_info.value.code == 1
@@ -679,17 +639,11 @@ class TestCmdBenchmark:
         mock_compile = MagicMock(return_value=mock_ir)
         mock_execute = MagicMock()
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(parse_dsl=mock_parse),
-                "rac.engine": MagicMock(compile=mock_compile, execute=mock_execute),
-                "rac.engine.converter": MagicMock(
-                    convert_v2_to_engine_module=mock_convert
-                ),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = mock_parse
+        mock_rac.compile = mock_compile
+        mock_rac.execute = mock_execute
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_benchmark(args)
             assert exc_info.value.code == 0
@@ -716,17 +670,11 @@ class TestCmdBenchmark:
         mock_compile = MagicMock(return_value=mock_ir)
         mock_execute = MagicMock()
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(parse_dsl=mock_parse),
-                "rac.engine": MagicMock(compile=mock_compile, execute=mock_execute),
-                "rac.engine.converter": MagicMock(
-                    convert_v2_to_engine_module=mock_convert
-                ),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = mock_parse
+        mock_rac.compile = mock_compile
+        mock_rac.execute = mock_execute
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_benchmark(args)
             assert exc_info.value.code == 0
@@ -740,17 +688,9 @@ class TestCmdBenchmark:
         args.iterations = 1
         args.rows = 1
 
-        with patch.dict(
-            "sys.modules",
-            {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(
-                    parse_dsl=MagicMock(side_effect=Exception("Parse error"))
-                ),
-                "rac.engine": MagicMock(),
-                "rac.engine.converter": MagicMock(),
-            },
-        ):
+        mock_rac = MagicMock()
+        mock_rac.parse = MagicMock(side_effect=Exception("Parse error"))
+        with patch.dict("sys.modules", {"rac": mock_rac}):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_benchmark(args)
             assert exc_info.value.code == 1

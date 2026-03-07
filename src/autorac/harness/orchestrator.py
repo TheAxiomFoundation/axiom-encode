@@ -626,7 +626,7 @@ Output path: {output_path}
 1. **FILEPATH = CITATION** - File names MUST be subsection names
 2. **One subsection per file**
 3. **Only statute values** - No indexed/derived/computed values
-4. **COMPILE PRE-FLIGHT** - `autorac compile` may be broken (missing `rac.dsl_parser`). If compile fails with a module import error, ignore it — this is an infrastructure issue, not your encoding. Only use `autorac test` for validation.
+4. **COMPILE CHECK** - Run `autorac compile <file>` after writing each .rac file to verify it parses and compiles correctly.
 5. **WRITE TESTS** - Write 3-5 test cases in a companion `.rac.test` file next to your `.rac` file. Tests should cover the main computation, edge cases (zero values, thresholds), and boundary conditions.
 6. **PARENT IMPORTS FROM CHILDREN** - Parent files MUST import from their children using `from ./{{child}}` — NEVER re-define parameters or formulas that exist in child files. Parents are aggregators/routers only.
 7. **INDEXED_BY FOR INFLATION** - For parameters subject to inflation/COLA adjustments (e.g., dollar thresholds in 26 USC 1(f)), include `indexed_by: <index_variable>` in the parameter definition.
@@ -785,22 +785,27 @@ Write .rac files to the output path. Run `autorac test` after each file.
         statute_text: str | None = None,
     ) -> str:
         """Build a focused encoding prompt for a single subsection."""
+        # Strip leading prefix from file_name if it duplicates output_path's tail.
+        # E.g. output_path=.../24/d and file_name=d/1.rac → file_name=1.rac
+        file_name = task.file_name
+        tail = output_path.name
+        if file_name.startswith(f"{tail}/"):
+            file_name = file_name[len(tail) + 1 :]
+
         parts = [
             f"Encode {citation} subsection ({task.subsection_id}) - "
             f'"{task.title}" into RAC format.',
             "",
-            f"Output: {output_path / task.file_name}",
-            f"Scope: ONLY this subsection. One file: {task.file_name}",
+            f"Output: {output_path / file_name}",
+            f"Scope: ONLY this subsection. One file: {file_name}",
             "",
             "## CRITICAL RULES:",
             "",
             "1. **FILEPATH = CITATION** - File names MUST be subsection names",
             "2. **One subsection per file**",
             "3. **Only statute values** - No indexed/derived/computed values",
-            "4. **COMPILE PRE-FLIGHT** - `autorac compile` may be broken (missing "
-            "`rac.dsl_parser`). If compile fails with a module import error, ignore "
-            "it — this is an infrastructure issue, not your encoding. Only use "
-            "`autorac test` for validation.",
+            "4. **COMPILE CHECK** - Run `autorac compile <file>` after writing "
+            "each .rac file to verify it parses and compiles correctly.",
             "5. **WRITE TESTS** - Write 3-5 test cases in a companion `.rac.test` "
             "file next to your `.rac` file. Tests should cover the main computation, "
             "edge cases (zero values, thresholds), and boundary conditions.",
@@ -900,7 +905,10 @@ Write .rac files to the output path. Run `autorac test` after each file.
         )
         parts_list = citation_clean.split()
         section = parts_list[-1] if parts_list else "root"
-        root_file = f"{section}.rac"
+        # Strip parentheses for filepath — "24(d)" → "d" (last path component)
+        section_clean = section.replace("(", "/").replace(")", "").rstrip("/")
+        root_name = section_clean.split("/")[-1] if "/" in section_clean else section_clean
+        root_file = f"{root_name}.rac"
 
         children_lines = []
         for t in tasks:
@@ -989,12 +997,28 @@ Read any .rac file for reference on style and patterns."""
                 a = Arch(db_path=db_path)
                 section = a.get(citation)
                 if section and section.text:
+                    print(f"  Statute text loaded from atlas ({len(section.text)} chars)", flush=True)
                     return section.text
+
+                # Try stripping subsection — e.g. "26 USC 24(d)" → "26 USC 24"
+                base_citation = re.sub(r"\([^)]+\)\s*$", "", citation).strip()
+                if base_citation != citation:
+                    section = a.get(base_citation)
+                    if section and section.text:
+                        print(f"  Statute text loaded from atlas via {base_citation} ({len(section.text)} chars)", flush=True)
+                        return section.text
         except ImportError:
-            pass
+            print("  Warning: atlas not installed, cannot fetch statute text", flush=True)
+        except Exception as e:
+            print(f"  Warning: atlas fetch failed: {e}", flush=True)
 
         # Fallback to legacy XML
-        return self._fetch_statute_text_legacy(citation)
+        text = self._fetch_statute_text_legacy(citation)
+        if text:
+            print(f"  Statute text loaded from USC XML ({len(text)} chars)", flush=True)
+        else:
+            print(f"  Warning: no statute text found for {citation}", flush=True)
+        return text
 
     def _fetch_statute_text_legacy(self, citation: str) -> str | None:
         """Fetch statute text from local USC XML."""

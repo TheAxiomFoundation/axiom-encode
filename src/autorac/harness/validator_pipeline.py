@@ -462,7 +462,7 @@ class ValidatorPipeline:
                     f"""
 import sys
 sys.path.insert(0, '{self.rac_path}/src')
-from rac.dsl_parser import parse_file
+from rac import parse_file
 parse_file('{rac_file}')
 print('PARSE_OK')
 """,

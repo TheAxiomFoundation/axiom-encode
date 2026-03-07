@@ -458,27 +458,20 @@ def cmd_compile(args):
         as_of = date_type.today()
 
     try:
-        from rac.dsl_parser import parse_dsl
-        from rac.engine import compile as engine_compile
-        from rac.engine import execute as engine_execute
-        from rac.engine.converter import convert_v2_to_engine_module
+        from rac import parse, compile as rac_compile, execute as rac_execute
 
         # Step 1: Parse
         rac_content = args.file.read_text()
-        v2_module = parse_dsl(rac_content)
+        module = parse(rac_content, path=str(args.file))
 
-        # Step 2: Convert
-        module_path = args.file.stem
-        engine_module = convert_v2_to_engine_module(v2_module, module_path=module_path)
-
-        # Step 3: Compile
-        ir = engine_compile([engine_module], as_of=as_of)
+        # Step 2: Compile
+        ir = rac_compile([module], as_of=as_of)
 
         var_names = list(ir.variables.keys())
 
         if args.execute:
             # Execute with empty data
-            result = engine_execute(ir, {})
+            result = rac_execute(ir, {})
             scalars = dict(result.scalars) if hasattr(result, "scalars") else {}
 
         if args.json:
@@ -535,17 +528,12 @@ def cmd_benchmark(args):
         as_of = date_type.today()
 
     try:
-        from rac.dsl_parser import parse_dsl
-        from rac.engine import compile as engine_compile
-        from rac.engine import execute as engine_execute
-        from rac.engine.converter import convert_v2_to_engine_module
+        from rac import parse, compile as rac_compile, execute as rac_execute
 
         # Parse and compile once
         rac_content = args.file.read_text()
-        v2_module = parse_dsl(rac_content)
-        module_path = args.file.stem
-        engine_module = convert_v2_to_engine_module(v2_module, module_path=module_path)
-        ir = engine_compile([engine_module], as_of=as_of)
+        module = parse(rac_content, path=str(args.file))
+        ir = rac_compile([module], as_of=as_of)
 
         # Build test data with specified number of rows
         # Detect entity types from IR
@@ -562,13 +550,13 @@ def cmd_benchmark(args):
 
         # Warmup
         for _ in range(min(5, args.iterations)):
-            engine_execute(ir, data)
+            rac_execute(ir, data)
 
         # Benchmark
         times = []
         for _ in range(args.iterations):
             start = time.perf_counter()
-            engine_execute(ir, data)
+            rac_execute(ir, data)
             elapsed = (time.perf_counter() - start) * 1000  # ms
             times.append(elapsed)
 
