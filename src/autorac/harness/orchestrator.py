@@ -626,8 +626,12 @@ Output path: {output_path}
 1. **FILEPATH = CITATION** - File names MUST be subsection names
 2. **One subsection per file**
 3. **Only statute values** - No indexed/derived/computed values
+4. **COMPILE PRE-FLIGHT** - `autorac compile` may be broken (missing `rac.dsl_parser`). If compile fails with a module import error, ignore it — this is an infrastructure issue, not your encoding. Only use `autorac test` for validation.
+5. **WRITE TESTS** - Write 3-5 test cases in a companion `.rac.test` file next to your `.rac` file. Tests should cover the main computation, edge cases (zero values, thresholds), and boundary conditions.
+6. **PARENT IMPORTS FROM CHILDREN** - Parent files MUST import from their children using `from ./{{child}}` — NEVER re-define parameters or formulas that exist in child files. Parents are aggregators/routers only.
+7. **INDEXED_BY FOR INFLATION** - For parameters subject to inflation/COLA adjustments (e.g., dollar thresholds in 26 USC 1(f)), include `indexed_by: <index_variable>` in the parameter definition.
 
-Write .rac files to the output path. Run tests after each file.
+Write .rac files to the output path. Run `autorac test` after each file.
 {DSL_CHEATSHEET}
 {self._context_section}"""
 
@@ -756,6 +760,21 @@ Write .rac files to the output path. Run tests after each file.
                 else:
                     all_runs.append(r)
 
+        # Final aggregation wave: produce root .rac file
+        if len(tasks) > 1:
+            print(
+                f"\n[{datetime.utcnow().strftime('%H:%M:%S')}] "
+                f"ENCODING WAVE {len(waves)}: ROOT AGGREGATOR",
+                flush=True,
+            )
+            aggregator_prompt = self._build_aggregator_prompt(
+                citation, output_path, tasks
+            )
+            aggregator_run = await self._run_agent(
+                "encoder", aggregator_prompt, Phase.ENCODING
+            )
+            all_runs.append(aggregator_run)
+
         return all_runs
 
     def _build_subsection_prompt(
@@ -778,8 +797,21 @@ Write .rac files to the output path. Run tests after each file.
             "1. **FILEPATH = CITATION** - File names MUST be subsection names",
             "2. **One subsection per file**",
             "3. **Only statute values** - No indexed/derived/computed values",
+            "4. **COMPILE PRE-FLIGHT** - `autorac compile` may be broken (missing "
+            "`rac.dsl_parser`). If compile fails with a module import error, ignore "
+            "it — this is an infrastructure issue, not your encoding. Only use "
+            "`autorac test` for validation.",
+            "5. **WRITE TESTS** - Write 3-5 test cases in a companion `.rac.test` "
+            "file next to your `.rac` file. Tests should cover the main computation, "
+            "edge cases (zero values, thresholds), and boundary conditions.",
+            "6. **PARENT IMPORTS FROM CHILDREN** - Parent files MUST import from "
+            "their children using `from ./{child}` — NEVER re-define parameters or "
+            "formulas that exist in child files. Parents are aggregators/routers only.",
+            "7. **INDEXED_BY FOR INFLATION** - For parameters subject to "
+            "inflation/COLA adjustments (e.g., dollar thresholds in 26 USC 1(f)), "
+            "include `indexed_by: <index_variable>` in the parameter definition.",
             "",
-            "Write the .rac file to the output path. Run tests after writing.",
+            "Write the .rac file to the output path. Run `autorac test` after writing.",
         ]
 
         if task.dependencies:
@@ -791,10 +823,121 @@ Write .rac files to the output path. Run tests after each file.
             )
 
         if statute_text:
-            parts.append("")
-            parts.append(f"Full statute text (excerpt):\n{statute_text[:5000]}")
+            subsection_text = self._extract_subsection_text(
+                statute_text, task.subsection_id
+            )
+            if subsection_text:
+                parts.append("")
+                parts.append(
+                    f"## Statute text for subsection ({task.subsection_id}):\n"
+                    f"{subsection_text}"
+                )
+            else:
+                # Fallback: provide truncated full text
+                parts.append("")
+                parts.append(f"Full statute text (excerpt):\n{statute_text[:5000]}")
 
         parts.append(DSL_CHEATSHEET)
+        if self._context_section:
+            parts.append(self._context_section)
+
+        return "\n".join(parts)
+
+    def _extract_subsection_text(
+        self, statute_text: str, subsection_id: str
+    ) -> str | None:
+        """Extract the text for a specific subsection from the full statute.
+
+        Looks for patterns like "(a)" in the statute text and extracts from
+        that marker to the next sibling subsection marker.
+        """
+        if not statute_text or not subsection_id:
+            return None
+
+        clean_id = subsection_id.strip("()")
+
+        escaped_id = re.escape(clean_id)
+        start_pattern = rf"\({escaped_id}\)"
+        start_match = re.search(start_pattern, statute_text)
+        if not start_match:
+            return None
+
+        start_pos = start_match.start()
+
+        # Find next sibling subsection to determine end boundary
+        if clean_id.isalpha() and len(clean_id) == 1:
+            next_letter = chr(ord(clean_id) + 1)
+            end_pattern = rf"\({re.escape(next_letter)}\)"
+        elif clean_id.isdigit():
+            next_num = str(int(clean_id) + 1)
+            end_pattern = rf"\({re.escape(next_num)}\)"
+        else:
+            end_pos = min(start_pos + 10000, len(statute_text))
+            return statute_text[start_pos:end_pos].strip()
+
+        end_match = re.search(end_pattern, statute_text[start_pos + 1:])
+        if end_match:
+            end_pos = start_pos + 1 + end_match.start()
+        else:
+            end_pos = len(statute_text)
+
+        extracted = statute_text[start_pos:end_pos].strip()
+
+        if len(extracted) > 15000:
+            extracted = extracted[:15000] + "\n... [truncated]"
+
+        return extracted if extracted else None
+
+    def _build_aggregator_prompt(
+        self,
+        citation: str,
+        output_path: Path,
+        tasks: list[SubsectionTask],
+    ) -> str:
+        """Build prompt for the final aggregation wave that produces the root .rac file."""
+        citation_clean = (
+            citation.replace("USC", "")
+            .replace("usc", "")
+            .replace("\u00a7", "")
+            .strip()
+        )
+        parts_list = citation_clean.split()
+        section = parts_list[-1] if parts_list else "root"
+        root_file = f"{section}.rac"
+
+        children_lines = []
+        for t in tasks:
+            children_lines.append(
+                f"- `{t.file_name}`: subsection ({t.subsection_id}) - {t.title}"
+            )
+        children_list = "\n".join(children_lines)
+
+        parts = [
+            f"Create the ROOT aggregator file for {citation}.",
+            "",
+            f"Output: {output_path / root_file}",
+            f"File name: {root_file}",
+            "",
+            "## Purpose",
+            "",
+            "This root file imports from all subsection files and composes the",
+            "final top-level computation. It should NOT duplicate any logic from",
+            "the subsection files -- only import and combine them.",
+            "",
+            "## Subsection files (already encoded):",
+            "",
+            children_list,
+            "",
+            "## CRITICAL RULES:",
+            "",
+            "1. Import each subsection file using `imports:` with `path#name` syntax",
+            "2. Do NOT re-encode any subsection logic -- only import and compose",
+            "3. The root file defines the top-level variable(s) that combine subsection results",
+            "4. Use the same entity/period/dtype patterns as the subsection files",
+            "",
+            DSL_CHEATSHEET,
+        ]
+
         if self._context_section:
             parts.append(self._context_section)
 
@@ -957,7 +1100,7 @@ Read any .rac file for reference on style and patterns."""
         self.encoding_db.log_event(
             session_id=session_id,
             event_type="agent_start",
-            content=agent_run.prompt[:2000],
+            content=agent_run.prompt,
             metadata={
                 "agent_type": agent_run.agent_type,
                 "phase": agent_run.phase.value,
@@ -977,7 +1120,7 @@ Read any .rac file for reference on style and patterns."""
         self.encoding_db.log_event(
             session_id=session_id,
             event_type="agent_end",
-            content=agent_run.result[:2000] if agent_run.result else "",
+            content=agent_run.result if agent_run.result else "",
             metadata={
                 "agent_type": agent_run.agent_type,
                 "phase": agent_run.phase.value,
