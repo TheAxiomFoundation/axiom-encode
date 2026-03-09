@@ -939,8 +939,8 @@ Output ONLY valid JSON:
                 error=str(e),
             )
 
-        # Extract tests
-        tests = self._extract_tests_from_rac(rac_content)
+        # Extract tests (v2 parser handles .rac.test format)
+        tests = self._extract_tests_from_rac_v2(rac_content)
 
         if not tests:
             duration = int((time.time() - start) * 1000)
