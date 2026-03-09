@@ -188,6 +188,7 @@ class Orchestrator:
         db_path: Path | None = None,
         backend: Backend | str = Backend.CLI,
         api_key: str | None = None,
+        atlas_path: Path | None = None,
     ):
         """Initialize the orchestrator.
 
@@ -197,6 +198,8 @@ class Orchestrator:
             db_path: Path to encoding database. None to skip logging.
             backend: "cli" for Claude Code CLI, "api" for direct API calls.
             api_key: Anthropic API key (required for API backend).
+            atlas_path: Path to atlas repo. Falls back to ATLAS_PATH env var,
+                        then ~/RulesFoundation/atlas.
         """
         if isinstance(backend, str):
             backend = Backend(backend)
@@ -214,9 +217,22 @@ class Orchestrator:
 
         self.encoding_db = EncodingDB(db_path) if db_path else None
 
+        # Resolve atlas path: explicit > env var > default
+        if atlas_path:
+            self.atlas_path = Path(atlas_path)
+        elif os.environ.get("ATLAS_PATH"):
+            self.atlas_path = Path(os.environ["ATLAS_PATH"])
+        else:
+            self.atlas_path = Path.home() / "RulesFoundation" / "atlas"
+
         # Cache env without CLAUDECODE (prevents nested launch errors)
+        # Preserve PYTHONPATH so subprocess can import atlas and other packages
         self._cli_env = (
-            {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+            {
+                k: v
+                for k, v in os.environ.items()
+                if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+            }
             if self.backend == Backend.CLI
             else None
         )
@@ -1303,24 +1319,39 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
     def _extract_rac_content(self, llm_response: str) -> str | None:
         """Extract .rac file content from LLM response.
 
-        Handles both raw content and markdown-fenced responses.
+        Handles raw content, markdown-fenced responses, and CLI artifacts.
         """
-        # Try to extract from code fence
+        if not llm_response or not llm_response.strip():
+            return None
+
+        # Strip common CLI artifacts (timestamps, status lines, ANSI codes)
+        cleaned = re.sub(r"\x1b\[[0-9;]*m", "", llm_response)  # ANSI codes
+
+        # Try to extract from code fence (flexible: yaml, rac, or bare)
         fence_match = re.search(
-            r"```(?:yaml|rac)?\s*\n(.*?)```", llm_response, re.DOTALL
+            r"```(?:yaml|rac|text)?\s*\n(.*?)\n```", cleaned, re.DOTALL
         )
         if fence_match:
-            return fence_match.group(1).strip() + "\n"
+            content = fence_match.group(1).strip()
+            if content:
+                return content + "\n"
 
         # If response starts with # (raw .rac content), use as-is
-        stripped = llm_response.strip()
+        stripped = cleaned.strip()
         if stripped.startswith("#"):
             return stripped + "\n"
 
         # Look for the first line that starts with # (skip preamble)
         lines = stripped.split("\n")
         for i, line in enumerate(lines):
-            if line.startswith("# "):
+            if line.startswith("#"):
+                return "\n".join(lines[i:]).strip() + "\n"
+
+        # Last resort: look for RAC structure keywords (status:, entity:, imports:)
+        rac_keywords = ("status:", "entity:", "imports:", "period:", "dtype:")
+        for i, line in enumerate(lines):
+            stripped_line = line.strip()
+            if any(stripped_line.startswith(kw) for kw in rac_keywords):
                 return "\n".join(lines[i:]).strip() + "\n"
 
         return None
@@ -1333,9 +1364,20 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
         """Fetch statute text from atlas or local USC XML."""
         # Try atlas first
         try:
-            from atlas import Arch
+            try:
+                from atlas import Arch
+            except ImportError:
+                # Try adding atlas repo to path if installed locally
+                atlas_src = self.atlas_path
+                if (atlas_src / "atlas").is_dir():
+                    import sys
 
-            db_path = Path.home() / "RulesFoundation" / "atlas" / "atlas.db"
+                    sys.path.insert(0, str(atlas_src))
+                    from atlas import Arch
+                else:
+                    raise
+
+            db_path = self.atlas_path / "atlas.db"
             if db_path.exists():
                 a = Arch(db_path=db_path)
                 section = a.get(citation)
@@ -1375,7 +1417,7 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
         """Fetch statute text from local USC XML."""
         import html as html_mod
 
-        xml_path = Path.home() / "RulesFoundation" / "atlas" / "data" / "uscode"
+        xml_path = self.atlas_path / "data" / "uscode"
 
         citation_clean = (
             citation.upper().replace("USC", "").replace("\u00a7", "").strip()
