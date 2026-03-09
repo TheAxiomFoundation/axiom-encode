@@ -126,6 +126,28 @@ class TestExtractRacContent:
         result = orchestrator._extract_rac_content(response)
         assert result is None
 
+    def test_ansi_codes_stripped(self, orchestrator):
+        response = "\x1b[32m# 26 USC 62\x1b[0m\nstatus: stub\n"
+        result = orchestrator._extract_rac_content(response)
+        assert result.startswith("# 26 USC 62")
+
+    def test_rac_keywords_fallback(self, orchestrator):
+        """When no # header, falls back to RAC keyword detection."""
+        response = "Here is the stub content:\n\nstatus: stub\nsome_var:\n    entity: TaxUnit\n"
+        result = orchestrator._extract_rac_content(response)
+        assert result is not None
+        assert result.startswith("status: stub")
+
+    def test_hash_without_space(self, orchestrator):
+        """Lines starting with # (no space) are still detected."""
+        response = "Preamble text\n#26 USC 62\nstatus: stub\n"
+        result = orchestrator._extract_rac_content(response)
+        assert "#26 USC 62" in result
+
+    def test_empty_response(self, orchestrator):
+        assert orchestrator._extract_rac_content("") is None
+        assert orchestrator._extract_rac_content("   \n  ") is None
+
 
 class TestResolveExternalDependencies:
     @pytest.mark.asyncio

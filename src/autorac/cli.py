@@ -210,6 +210,12 @@ def main():
         default="cli",
         help="Backend: 'cli' uses Claude Code CLI (no API key), 'api' uses Agent SDK (requires ANTHROPIC_API_KEY)",
     )
+    encode_parser.add_argument(
+        "--atlas-path",
+        type=Path,
+        default=None,
+        help="Path to atlas repo (default: ATLAS_PATH env var or ~/RulesFoundation/atlas)",
+    )
 
     # =========================================================================
     # Session logging commands (for hooks)
@@ -1364,6 +1370,7 @@ def cmd_encode(args):
         model=args.model,
         db_path=args.db,
         backend=args.backend,
+        atlas_path=getattr(args, "atlas_path", None),
     )
 
     print(f"Starting encoding at {datetime.now().strftime('%H:%M:%S')}...")
