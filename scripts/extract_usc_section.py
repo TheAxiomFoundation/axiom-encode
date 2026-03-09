@@ -45,9 +45,9 @@ def extract_section(title: int, section: str) -> str:
 
     i = start_pos
     while i < len(content):
-        if content[i:i+8] == '<section':
+        if content[i : i + 8] == "<section":
             depth += 1
-        elif content[i:i+10] == '</section>':
+        elif content[i : i + 10] == "</section>":
             depth -= 1
             if depth == 0:
                 end_pos = i + 10
@@ -67,7 +67,9 @@ def xml_to_text(xml: str) -> str:
 
     # Extract section heading
     sec_num = re.search(r'<num[^>]*value="([^"]+)"[^>]*>', xml)
-    sec_head = re.search(r'<section[^>]*>.*?<heading[^>]*>(.*?)</heading>', xml, re.DOTALL)
+    sec_head = re.search(
+        r"<section[^>]*>.*?<heading[^>]*>(.*?)</heading>", xml, re.DOTALL
+    )
 
     if sec_num:
         header = f"Section {sec_num.group(1)}."
@@ -79,14 +81,14 @@ def xml_to_text(xml: str) -> str:
     # Process subsections recursively
     process_element(xml, lines, level=0)
 
-    return '\n'.join(lines)
+    return "\n".join(lines)
 
 
 def clean_tags(text: str) -> str:
     """Remove XML tags and clean up text."""
-    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r"<[^>]+>", "", text)
     text = html.unescape(text)
-    text = ' '.join(text.split())
+    text = " ".join(text.split())
     return text.strip()
 
 
@@ -105,9 +107,9 @@ def process_element(xml: str, lines: list, level: int):
         depth = 1
         i = start + len(match.group(0))
         while i < len(xml) and depth > 0:
-            if xml[i:i+11] == '<subsection':
+            if xml[i : i + 11] == "<subsection":
                 depth += 1
-            elif xml[i:i+13] == '</subsection>':
+            elif xml[i : i + 13] == "</subsection>":
                 depth -= 1
             i += 1
 
@@ -116,7 +118,11 @@ def process_element(xml: str, lines: list, level: int):
 
         # Extract num and heading
         num_match = re.search(r'<num[^>]*value="([^"]+)"[^>]*>', subsection_xml)
-        head_match = re.search(r'<subsection[^>]*>.*?<heading[^>]*>(.*?)</heading>', subsection_xml, re.DOTALL)
+        head_match = re.search(
+            r"<subsection[^>]*>.*?<heading[^>]*>(.*?)</heading>",
+            subsection_xml,
+            re.DOTALL,
+        )
 
         if num_match:
             indent = "  " * level
@@ -126,16 +132,24 @@ def process_element(xml: str, lines: list, level: int):
             lines.append(header)
 
             # Extract content (paragraphs at this level)
-            content_match = re.search(r'<content>(.*?)</content>', subsection_xml, re.DOTALL)
+            content_match = re.search(
+                r"<content>(.*?)</content>", subsection_xml, re.DOTALL
+            )
             if content_match:
                 content_text = clean_tags(content_match.group(1))
                 if content_text:
                     lines.append(f"{indent}  {content_text}")
 
         # Find paragraphs
-        for para_match in re.finditer(r'<paragraph[^>]*identifier="([^"]+)"[^>]*>(.*?)</paragraph>', subsection_xml, re.DOTALL):
+        for para_match in re.finditer(
+            r'<paragraph[^>]*identifier="([^"]+)"[^>]*>(.*?)</paragraph>',
+            subsection_xml,
+            re.DOTALL,
+        ):
             para_num = re.search(r'<num[^>]*value="([^"]+)"', para_match.group(0))
-            para_content = re.search(r'<content>(.*?)</content>', para_match.group(2), re.DOTALL)
+            para_content = re.search(
+                r"<content>(.*?)</content>", para_match.group(2), re.DOTALL
+            )
 
             if para_num:
                 indent = "  " * (level + 1)

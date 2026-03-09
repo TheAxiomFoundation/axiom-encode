@@ -139,9 +139,7 @@ class TestResolveExternalDependencies:
     @pytest.mark.asyncio
     async def test_creates_stub_for_unresolved(self, orchestrator, dir_21):
         """Creates stub file for unresolved import."""
-        (dir_21 / "a.rac").write_text(
-            "x:\n    imports:\n        - 26/9999#some_var\n"
-        )
+        (dir_21 / "a.rac").write_text("x:\n    imports:\n        - 26/9999#some_var\n")
 
         stub_content = "# 26 USC 9999\nstatus: stub\nsome_var:\n    entity: TaxUnit\n"
         mock_run = AgentRun(
@@ -151,10 +149,16 @@ class TestResolveExternalDependencies:
             result=stub_content,
         )
 
-        with patch.object(
-            orchestrator, "_run_agent", new_callable=AsyncMock, return_value=mock_run
-        ), patch.object(
-            orchestrator, "_fetch_statute_text", return_value="Some statute text"
+        with (
+            patch.object(
+                orchestrator,
+                "_run_agent",
+                new_callable=AsyncMock,
+                return_value=mock_run,
+            ),
+            patch.object(
+                orchestrator, "_fetch_statute_text", return_value="Some statute text"
+            ),
         ):
             result = await orchestrator._resolve_external_dependencies(dir_21)
 
