@@ -1331,6 +1331,7 @@ class TestCmdEncode:
         args.model = overrides.get("model", "test-model")
         args.db = overrides.get("db", tmp_path / "test.db")
         args.backend = overrides.get("backend", "cli")
+        args.atlas_path = overrides.get("atlas_path", None)
         return args
 
     def _make_mock_run(self, success=True):
@@ -1391,7 +1392,10 @@ class TestCmdEncode:
         args = self._make_args(tmp_path, backend="cli")
         mock_cls, _ = self._run_encode(args, self._make_mock_run())
         mock_cls.assert_called_once_with(
-            model="test-model", db_path=tmp_path / "test.db", backend="cli"
+            model="test-model",
+            db_path=tmp_path / "test.db",
+            backend="cli",
+            atlas_path=None,
         )
 
     def test_encode_api_backend(self, capsys, tmp_path):
@@ -1399,7 +1403,10 @@ class TestCmdEncode:
         args = self._make_args(tmp_path, backend="api")
         mock_cls, _ = self._run_encode(args, self._make_mock_run())
         mock_cls.assert_called_once_with(
-            model="test-model", db_path=tmp_path / "test.db", backend="api"
+            model="test-model",
+            db_path=tmp_path / "test.db",
+            backend="api",
+            atlas_path=None,
         )
 
     def test_encode_cli_backend_explicit(self, capsys, tmp_path):
@@ -1407,7 +1414,10 @@ class TestCmdEncode:
         args = self._make_args(tmp_path, backend="cli")
         mock_cls, _ = self._run_encode(args, self._make_mock_run())
         mock_cls.assert_called_once_with(
-            model="test-model", db_path=tmp_path / "test.db", backend="cli"
+            model="test-model",
+            db_path=tmp_path / "test.db",
+            backend="cli",
+            atlas_path=None,
         )
 
     def test_encode_api_backend_no_key_errors(self, tmp_path):
