@@ -242,6 +242,70 @@ amend 26/63/c/2#basic_standard_deduction_joint:
 
 Amendments override the baseline parameter values for the specified date range. Multiple amendments stack -- later ones win for overlapping dates.
 
+## Encoding Depth
+
+When the statute defines HOW to determine something, encode the determination
+logic as a formula — do NOT create a pre-computed boolean input.
+
+WRONG (stub input — punts determination to human):
+```yaml
+ccap_is_qualified_immigrant:
+    entity: Person
+    period: Month
+    dtype: Boolean
+    default: false
+```
+
+RIGHT (encodes the actual determination from raw facts):
+```yaml
+immigration_status:
+    entity: Person
+    period: Month
+    dtype: Enum
+    values: [citizen, lpr, refugee, asylee, cuban_haitian_entrant, battered_spouse_child, trafficking_victim, other]
+    default: citizen
+
+is_qualified_immigrant:
+    entity: Person
+    period: Month
+    dtype: Boolean
+    from 1998-01-01:
+        immigration_status in [lpr, refugee, asylee, cuban_haitian_entrant, battered_spouse_child, trafficking_victim]
+```
+
+**Rule:** If the statute lists specific categories, conditions, or criteria, those
+become the formula. INPUTS should be raw personal facts (date of birth, income,
+immigration status, employment hours, household composition) — not pre-determined
+eligibility flags like `is_eligible` or `meets_requirement`.
+
+## Derived vs. Input Variables
+
+If two variables have a mathematical relationship (e.g., age in weeks and age
+in years), take the most granular raw input (e.g., `date_of_birth`) and derive
+the others. Never create two independent inputs for the same underlying fact —
+this allows contradictory states and requires human conversion.
+
+WRONG:
+```yaml
+child_age_weeks:
+    dtype: Integer
+    default: 0
+child_age_years:
+    dtype: Integer
+    default: 0
+```
+
+RIGHT:
+```yaml
+child_date_of_birth:
+    dtype: Date
+
+child_age_years:
+    dtype: Integer
+    from 1998-01-01:
+        (current_date - child_date_of_birth).years
+```
+
 ## DO NOT
 
 - Use `syntax: python`
