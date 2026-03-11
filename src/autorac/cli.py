@@ -1334,25 +1334,30 @@ def cmd_coverage(args):
 def cmd_encode(args):
     """Encode a statute using the SDK orchestrator with full logging."""
     import asyncio
+    import re
     from datetime import datetime
 
     from .harness.orchestrator import Orchestrator
 
     # Parse citation to get output path
     # Keep original case for subsection letters (a), (b), etc.
-    citation = (
-        args.citation.replace("USC", "").replace("usc", "").replace("§", "").strip()
-    )
-    parts = citation.split()
-    if len(parts) >= 2:
-        title = parts[0]
-        section = parts[1]
+    is_usc = bool(re.search(r"\bUSC\b", args.citation, re.IGNORECASE))
+    if is_usc:
+        citation = (
+            args.citation.replace("USC", "").replace("usc", "").replace("§", "").strip()
+        )
+        parts = citation.split()
+        if len(parts) >= 2:
+            title = parts[0]
+            section = parts[1]
+        else:
+            path_parts = citation.replace(" ", "/").split("/")
+            title = path_parts[0]
+            section = "/".join(path_parts[1:])
+        output_path = args.output / title / section.replace("(", "/").replace(")", "")
     else:
-        path_parts = citation.replace(" ", "/").split("/")
-        title = path_parts[0]
-        section = "/".join(path_parts[1:])
-
-    output_path = args.output / title / section.replace("(", "/").replace(")", "")
+        # Non-USC citation: use --output as-is (don't append parsed components)
+        output_path = args.output
 
     print(f"=== Encoding: {args.citation} ===")
     print(f"Output: {output_path}")

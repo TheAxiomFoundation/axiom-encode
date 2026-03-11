@@ -1471,6 +1471,36 @@ class TestCmdEncode:
         assert "Synced to Supabase" not in captured.out
         assert exit_code == 0
 
+    def test_encode_non_usc_citation_uses_output_as_is(self, capsys, tmp_path):
+        """Non-USC citations (state regs) use --output path directly, not USC parsing."""
+        output_dir = tmp_path / "ri-ccap"
+        args = self._make_args(
+            tmp_path,
+            citation="RI CCAP 218-RICR-20-00-4",
+            output=output_dir,
+        )
+        mock_cls, exit_code = self._run_encode(args, self._make_mock_run())
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        # Non-USC: output_path should be the --output dir as-is
+        assert f"Output: {output_dir}" in captured.out
+
+    def test_encode_usc_citation_still_parses_path(self, capsys, tmp_path):
+        """USC citations still get title/section path parsing."""
+        output_dir = tmp_path / "statute"
+        args = self._make_args(
+            tmp_path,
+            citation="26 USC 21",
+            output=output_dir,
+        )
+        mock_cls, exit_code = self._run_encode(args, self._make_mock_run())
+        assert exit_code == 0
+
+        captured = capsys.readouterr()
+        # Should parse into title/section: statute/26/21
+        assert f"Output: {output_dir / '26' / '21'}" in captured.out
+
 
 # =========================================================================
 # Test session commands
