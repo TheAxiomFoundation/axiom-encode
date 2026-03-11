@@ -455,9 +455,7 @@ class TestRunViaCliAcceptEdits:
         mock_result.returncode = 0
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            asyncio.run(
-                cli_orchestrator._run_via_cli("test prompt", accept_edits=True)
-            )
+            asyncio.run(cli_orchestrator._run_via_cli("test prompt", accept_edits=True))
             cmd = mock_run.call_args[0][0]
             assert "--permission-mode" in cmd
             assert "acceptEdits" in cmd
@@ -500,9 +498,7 @@ class TestEncodeNonUscPathDerivation:
         assert not is_usc
 
         slug = citation.replace(" ", "-").lower()
-        output_path = (
-            Path.home() / "RulesFoundation" / "rac-us" / "statute" / slug
-        )
+        output_path = Path.home() / "RulesFoundation" / "rac-us" / "statute" / slug
         assert "ri-ccap-218-ricr-20-00-4" in str(output_path)
         # Should NOT have title/section splitting
         assert "/ri/" not in str(output_path).split("statute/")[-1]
@@ -522,7 +518,11 @@ class TestEncodeNonUscPathDerivation:
         title = parts[0]
         section = parts[1]
         output_path = (
-            Path.home() / "RulesFoundation" / "rac-us" / "statute"
-            / title / section.replace("(", "/").replace(")", "")
+            Path.home()
+            / "RulesFoundation"
+            / "rac-us"
+            / "statute"
+            / title
+            / section.replace("(", "/").replace(")", "")
         )
         assert "/26/21" in str(output_path)

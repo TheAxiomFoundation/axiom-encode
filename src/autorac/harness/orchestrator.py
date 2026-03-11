@@ -285,11 +285,7 @@ class Orchestrator:
                 # Non-USC citation: use citation as path slug
                 slug = citation.replace(" ", "-").lower()
                 output_path = (
-                    Path.home()
-                    / "RulesFoundation"
-                    / "rac-us"
-                    / "statute"
-                    / slug
+                    Path.home() / "RulesFoundation" / "rac-us" / "statute" / slug
                 )
 
         from autorac import __version__
@@ -467,15 +463,17 @@ class Orchestrator:
         ]
         if accept_edits:
             cmd.extend(["--permission-mode", "acceptEdits"])
-        cmd.extend([
-            "--model",
-            self.model,
-            "--mcp-config",
-            '{"mcpServers":{}}',
-            "--strict-mcp-config",
-            "-p",
-            prompt,
-        ])
+        cmd.extend(
+            [
+                "--model",
+                self.model,
+                "--mcp-config",
+                '{"mcpServers":{}}',
+                "--strict-mcp-config",
+                "-p",
+                prompt,
+            ]
+        )
 
         try:
             loop = asyncio.get_event_loop()
