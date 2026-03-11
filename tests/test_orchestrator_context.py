@@ -447,7 +447,7 @@ class TestRunViaCliAcceptEdits:
     def test_accept_edits_adds_permission_mode(self, cli_orchestrator):
         """accept_edits=True adds --permission-mode acceptEdits."""
         import asyncio
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_result = MagicMock()
         mock_result.stdout = '{"result": "ok"}'
@@ -469,7 +469,7 @@ class TestRunViaCliAcceptEdits:
     def test_no_accept_edits_omits_permission_mode(self, cli_orchestrator):
         """accept_edits=False (default) omits --permission-mode."""
         import asyncio
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
 
         mock_result = MagicMock()
         mock_result.stdout = '{"result": "ok"}'
