@@ -188,7 +188,7 @@ Score each dimension from 1-10. Output ONLY valid JSON:
         timeout: int = 300,
     ) -> tuple[str, int]:
         """Run Claude Code CLI as subprocess."""
-        cmd = ["claude", "--print"]
+        cmd = ["claude", "--print", "--permission-mode", "acceptEdits"]
 
         if model:
             cmd.extend(["--model", model])

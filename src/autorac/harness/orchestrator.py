@@ -257,28 +257,40 @@ class Orchestrator:
         """
         # Derive output path from citation if not provided
         if output_path is None:
-            citation_clean = (
-                citation.replace("USC", "")
-                .replace("usc", "")
-                .replace("\u00a7", "")
-                .strip()
-            )
-            parts = citation_clean.split()
-            if len(parts) >= 2:
-                title = parts[0]
-                section = parts[1]
+            is_usc = "USC" in citation.upper()
+            if is_usc:
+                citation_clean = (
+                    citation.replace("USC", "")
+                    .replace("usc", "")
+                    .replace("\u00a7", "")
+                    .strip()
+                )
+                parts = citation_clean.split()
+                if len(parts) >= 2:
+                    title = parts[0]
+                    section = parts[1]
+                else:
+                    path_parts = citation_clean.replace(" ", "/").split("/")
+                    title = path_parts[0]
+                    section = "/".join(path_parts[1:])
+                output_path = (
+                    Path.home()
+                    / "RulesFoundation"
+                    / "rac-us"
+                    / "statute"
+                    / title
+                    / section.replace("(", "/").replace(")", "")
+                )
             else:
-                path_parts = citation_clean.replace(" ", "/").split("/")
-                title = path_parts[0]
-                section = "/".join(path_parts[1:])
-            output_path = (
-                Path.home()
-                / "RulesFoundation"
-                / "rac-us"
-                / "statute"
-                / title
-                / section.replace("(", "/").replace(")", "")
-            )
+                # Non-USC citation: use citation as path slug
+                slug = citation.replace(" ", "-").lower()
+                output_path = (
+                    Path.home()
+                    / "RulesFoundation"
+                    / "rac-us"
+                    / "statute"
+                    / slug
+                )
 
         from autorac import __version__
 
@@ -426,7 +438,8 @@ class Orchestrator:
 
         try:
             if self.backend == Backend.CLI:
-                result = await self._run_via_cli(full_prompt)
+                needs_write = phase in (Phase.ENCODING,)
+                result = await self._run_via_cli(full_prompt, accept_edits=needs_write)
             else:
                 result = await self._run_via_api(full_prompt, system_prompt, prompt)
 
@@ -444,13 +457,17 @@ class Orchestrator:
 
         return agent_run
 
-    async def _run_via_cli(self, prompt: str) -> dict:
+    async def _run_via_cli(self, prompt: str, accept_edits: bool = False) -> dict:
         """Run via Claude Code CLI subprocess."""
         import subprocess
 
         cmd = [
             "claude",
             "--print",
+        ]
+        if accept_edits:
+            cmd.extend(["--permission-mode", "acceptEdits"])
+        cmd.extend([
             "--model",
             self.model,
             "--mcp-config",
@@ -458,7 +475,7 @@ class Orchestrator:
             "--strict-mcp-config",
             "-p",
             prompt,
-        ]
+        ])
 
         try:
             loop = asyncio.get_event_loop()
@@ -759,8 +776,9 @@ Write .rac files to the output path. Run `autorac test` after each file.
                 pass
 
         # Fallback: parse markdown table rows
+        # Supports both USC-style (a) and dot-notation (4.3) subsection IDs
         row_pattern = re.compile(
-            r"\|\s*\((\w+)\)\s*\|\s*([^|]+?)\s*\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|"
+            r"\|\s*\(([\w./]+)\)\s*\|\s*([^|]+?)\s*\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|"
         )
         for m in row_pattern.finditer(analysis_text):
             sub_id, title, disposition, file_name = (

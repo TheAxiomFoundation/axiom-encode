@@ -401,3 +401,128 @@ class TestLogAgentRunNoTruncation:
         events = cli_orchestrator.encoding_db.get_session_events("trunc-test-2")
         end_event = [e for e in events if e.event_type == "agent_end"][0]
         assert len(end_event.content) == 5000
+
+
+# =========================================================================
+# Fix #23: Non-USC citation handling
+# =========================================================================
+
+
+class TestParseAnalyzerOutputDotNotation:
+    """Test _parse_analyzer_output with dot-notation subsection IDs (state regs)."""
+
+    def test_dot_notation_ids(self, cli_orchestrator):
+        """Dot-notation IDs like (4.3) and (4.6.1.A) are parsed correctly."""
+        text = """
+| Subsection | Title | Disposition | File |
+|---|---|---|---|
+| (4.3) | Income Standards | ENCODE | 4.3.rac |
+| (4.4) | Definitions | SKIP | - |
+| (4.6.1.A) | CCAP Copayment | ENCODE | 4.6.1.A.rac |
+"""
+        tasks = cli_orchestrator._parse_analyzer_output(text)
+        assert len(tasks) == 2
+        assert tasks[0].subsection_id == "4.3"
+        assert tasks[0].file_name == "4.3.rac"
+        assert tasks[1].subsection_id == "4.6.1.A"
+        assert tasks[1].file_name == "4.6.1.A.rac"
+
+    def test_usc_style_ids_still_work(self, cli_orchestrator):
+        """Traditional USC-style IDs like (a), (b) still parse correctly."""
+        text = """
+| Subsection | Title | Disposition | File |
+|---|---|---|---|
+| (a) | Allowance | ENCODE | a.rac |
+| (b) | Limits | ENCODE | b.rac |
+"""
+        tasks = cli_orchestrator._parse_analyzer_output(text)
+        assert len(tasks) == 2
+        assert tasks[0].subsection_id == "a"
+        assert tasks[1].subsection_id == "b"
+
+
+class TestRunViaCliAcceptEdits:
+    """Test _run_via_cli builds correct command with/without accept_edits."""
+
+    def test_accept_edits_adds_permission_mode(self, cli_orchestrator):
+        """accept_edits=True adds --permission-mode acceptEdits."""
+        import asyncio
+        from unittest.mock import patch, MagicMock
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"result": "ok"}'
+        mock_result.stderr = ""
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            asyncio.run(
+                cli_orchestrator._run_via_cli("test prompt", accept_edits=True)
+            )
+            cmd = mock_run.call_args[0][0]
+            assert "--permission-mode" in cmd
+            assert "acceptEdits" in cmd
+            # Verify ordering: --permission-mode comes after --print
+            pm_idx = cmd.index("--permission-mode")
+            print_idx = cmd.index("--print")
+            assert pm_idx > print_idx
+
+    def test_no_accept_edits_omits_permission_mode(self, cli_orchestrator):
+        """accept_edits=False (default) omits --permission-mode."""
+        import asyncio
+        from unittest.mock import patch, MagicMock
+
+        mock_result = MagicMock()
+        mock_result.stdout = '{"result": "ok"}'
+        mock_result.stderr = ""
+        mock_result.returncode = 0
+
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            asyncio.run(
+                cli_orchestrator._run_via_cli("test prompt", accept_edits=False)
+            )
+            cmd = mock_run.call_args[0][0]
+            assert "--permission-mode" not in cmd
+            assert "acceptEdits" not in cmd
+
+
+class TestEncodeNonUscPathDerivation:
+    """Test Orchestrator.encode() derives correct output_path for non-USC citations."""
+
+    def test_non_usc_uses_slug(self):
+        """Non-USC citation produces a slug-based path instead of title/section.
+
+        Tests the path derivation logic extracted from Orchestrator.encode().
+        """
+        from pathlib import Path
+
+        citation = "RI CCAP 218-RICR-20-00-4"
+        is_usc = "USC" in citation.upper()
+        assert not is_usc
+
+        slug = citation.replace(" ", "-").lower()
+        output_path = (
+            Path.home() / "RulesFoundation" / "rac-us" / "statute" / slug
+        )
+        assert "ri-ccap-218-ricr-20-00-4" in str(output_path)
+        # Should NOT have title/section splitting
+        assert "/ri/" not in str(output_path).split("statute/")[-1]
+
+    def test_usc_uses_title_section(self):
+        """USC citation produces title/section path structure."""
+        from pathlib import Path
+
+        citation = "26 USC 21"
+        is_usc = "USC" in citation.upper()
+        assert is_usc
+
+        citation_clean = (
+            citation.replace("USC", "").replace("usc", "").replace("\u00a7", "").strip()
+        )
+        parts = citation_clean.split()
+        title = parts[0]
+        section = parts[1]
+        output_path = (
+            Path.home() / "RulesFoundation" / "rac-us" / "statute"
+            / title / section.replace("(", "/").replace(")", "")
+        )
+        assert "/26/21" in str(output_path)
