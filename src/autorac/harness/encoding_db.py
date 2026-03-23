@@ -25,10 +25,19 @@ class TokenUsage:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
+    reasoning_output_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
+
+    @property
+    def non_cached_input_tokens(self) -> int:
+        """Prompt tokens billed at the standard input rate."""
+        return max(
+            self.input_tokens - self.cache_read_tokens - self.cache_creation_tokens,
+            0,
+        )
 
     @property
     def estimated_cost_usd(self) -> float:
@@ -38,7 +47,7 @@ class TokenUsage:
         Source: https://platform.claude.com/docs/en/about-claude/pricing
         """
         return (
-            self.input_tokens * 5 / 1_000_000
+            self.non_cached_input_tokens * 5 / 1_000_000
             + self.output_tokens * 25 / 1_000_000
             + self.cache_read_tokens * 0.50 / 1_000_000
             + self.cache_creation_tokens * 6.25 / 1_000_000
@@ -55,6 +64,16 @@ EventType = Literal[
     "tool_result",
     "subagent_start",
     "subagent_end",
+    "agent_start",
+    "agent_assistant",
+    "agent_end",
+    "provenance_plan",
+    "provenance_decision",
+    "provenance_reasoning",
+    "provenance_artifact",
+    "provenance_sidecar",
+    "provenance_validation",
+    "provenance_review",
     # Validation events (3-tier pipeline)
     "validation_ci_start",
     "validation_ci_end",
@@ -89,6 +108,7 @@ class Session:
     ended_at: Optional[datetime] = None
     model: str = ""
     cwd: str = ""
+    autorac_version: str = ""
     event_count: int = 0
     total_tokens: int = 0
 
@@ -450,11 +470,13 @@ class EncodingDB:
             "cache_read_tokens",
             "cache_creation_tokens",
             "estimated_cost_usd",
+            "autorac_version",
         ]:
             try:
-                cursor.execute(
-                    f"ALTER TABLE sessions ADD COLUMN {col} INTEGER DEFAULT 0"
+                col_type = (
+                    "TEXT DEFAULT ''" if col == "autorac_version" else "INTEGER DEFAULT 0"
                 )
+                cursor.execute(f"ALTER TABLE sessions ADD COLUMN {col} {col_type}")
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
@@ -902,12 +924,17 @@ class EncodingDB:
     # =========================================================================
 
     def start_session(
-        self, model: str = "", cwd: str = "", session_id: str = None
+        self,
+        model: str = "",
+        cwd: str = "",
+        session_id: str = None,
+        autorac_version: str = "",
     ) -> Session:
         """Start a new session and return it."""
         session = Session(
             model=model,
             cwd=cwd or os.getcwd(),
+            autorac_version=autorac_version,
         )
         # Allow custom session_id for SDK orchestrator
         if session_id:
@@ -918,10 +945,18 @@ class EncodingDB:
 
         cursor.execute(
             """
-            INSERT INTO sessions (id, started_at, model, cwd, event_count, total_tokens)
-            VALUES (?, ?, ?, ?, 0, 0)
+            INSERT INTO sessions (
+                id, started_at, model, cwd, event_count, total_tokens, autorac_version
+            )
+            VALUES (?, ?, ?, ?, 0, 0, ?)
         """,
-            (session.id, session.started_at.isoformat(), session.model, session.cwd),
+            (
+                session.id,
+                session.started_at.isoformat(),
+                session.model,
+                session.cwd,
+                session.autorac_version,
+            ),
         )
 
         conn.commit()
@@ -1021,6 +1056,7 @@ class EncodingDB:
             ended_at=datetime.fromisoformat(row[3]) if row[3] else None,
             model=row[4] or "",
             cwd=row[5] or "",
+            autorac_version=row[13] if len(row) > 13 and row[13] else "",
             event_count=row[6] or 0,
             total_tokens=row[7] or 0,
         )
@@ -1089,6 +1125,7 @@ class EncodingDB:
                     ended_at=datetime.fromisoformat(row[3]) if row[3] else None,
                     model=row[4] or "",
                     cwd=row[5] or "",
+                    autorac_version=row[13] if len(row) > 13 and row[13] else "",
                     event_count=row[6] or 0,
                     total_tokens=row[7] or 0,
                 )

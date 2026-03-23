@@ -24,7 +24,9 @@ from .harness.encoding_db import (
     ReviewResult,
     ReviewResults,
 )
+from .harness.evals import run_model_eval
 from .harness.validator_pipeline import ValidatorPipeline
+from .statute import parse_usc_citation
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "RulesFoundation" / "autorac" / "encodings.db"
@@ -206,15 +208,66 @@ def main():
     encode_parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     encode_parser.add_argument(
         "--backend",
-        choices=["cli", "api"],
+        choices=["cli", "api", "openai"],
         default="cli",
-        help="Backend: 'cli' uses Claude Code CLI (no API key), 'api' uses Agent SDK (requires ANTHROPIC_API_KEY)",
+        help=(
+            "Backend: 'cli' uses Claude Code CLI (no API key), "
+            "'api' uses Anthropic API (requires ANTHROPIC_API_KEY), "
+            "'openai' uses OpenAI Responses API (requires OPENAI_API_KEY)"
+        ),
     )
     encode_parser.add_argument(
         "--atlas-path",
         type=Path,
         default=None,
         help="Path to atlas repo (default: ATLAS_PATH env var or ~/RulesFoundation/atlas)",
+    )
+
+    # eval command - run deterministic model comparisons on one or more citations
+    eval_parser = subparsers.add_parser(
+        "eval", help="Compare model runners on one or more citations"
+    )
+    eval_parser.add_argument("citations", nargs="+", help="Citation(s) to encode")
+    eval_parser.add_argument(
+        "--runner",
+        action="append",
+        default=[],
+        help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
+    )
+    eval_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("/tmp/autorac-evals"),
+        help="Directory for eval artifacts and traces",
+    )
+    eval_parser.add_argument(
+        "--atlas-path",
+        type=Path,
+        default=None,
+        help="Path to atlas repo (defaults to sibling repo checkout)",
+    )
+    eval_parser.add_argument(
+        "--rac-path",
+        type=Path,
+        default=None,
+        help="Path to rac repo (defaults to sibling repo checkout)",
+    )
+    eval_parser.add_argument(
+        "--mode",
+        choices=["cold", "repo-augmented"],
+        default="repo-augmented",
+        help="Whether the eval gets only source text or a logged bundle of repo precedent files",
+    )
+    eval_parser.add_argument(
+        "--allow-context",
+        action="append",
+        default=[],
+        help="Extra file path to copy into the repo-augmented eval workspace (repeatable)",
+    )
+    eval_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON summary",
     )
 
     # =========================================================================
@@ -319,6 +372,8 @@ def main():
         cmd_coverage(args)
     elif args.command == "encode":
         cmd_encode(args)
+    elif args.command == "eval":
+        cmd_eval(args)
     elif args.command == "session-start":
         cmd_session_start(args)
     elif args.command == "session-end":
@@ -1336,28 +1391,19 @@ def cmd_encode(args):
     import asyncio
     from datetime import datetime
 
+    from . import __version__
     from .harness.orchestrator import Orchestrator
 
-    # Parse citation to get output path
-    # Keep original case for subsection letters (a), (b), etc.
-    citation = (
-        args.citation.replace("USC", "").replace("usc", "").replace("§", "").strip()
-    )
-    parts = citation.split()
-    if len(parts) >= 2:
-        title = parts[0]
-        section = parts[1]
-    else:
-        path_parts = citation.replace(" ", "/").split("/")
-        title = path_parts[0]
-        section = "/".join(path_parts[1:])
-
-    output_path = args.output / title / section.replace("(", "/").replace(")", "")
+    citation_parts = parse_usc_citation(args.citation)
+    output_path = args.output / citation_parts.title / citation_parts.section
+    if citation_parts.fragments[:-1]:
+        output_path /= Path(*citation_parts.fragments[:-1])
 
     print(f"=== Encoding: {args.citation} ===")
     print(f"Output: {output_path}")
     print(f"Backend: {args.backend}")
     print(f"Model: {args.model}")
+    print(f"AutoRAC: {__version__}")
     print(f"DB: {args.db}")
     print()
 
@@ -1405,7 +1451,11 @@ def cmd_encode(args):
         print(
             f"Total tokens: {run.total_tokens.input_tokens:,} in + {run.total_tokens.output_tokens:,} out"
         )
-        print(f"Estimated cost: ${run.total_tokens.estimated_cost_usd:.2f}")
+        cost = getattr(run, "total_cost_usd", None)
+        if isinstance(cost, (int, float)) and cost > 0:
+            print(f"Estimated cost: ${cost:.2f}")
+        else:
+            print(f"Estimated cost: ${run.total_tokens.estimated_cost_usd:.2f}")
     if run.oracle_pe_match is not None:
         print(f"PE match: {run.oracle_pe_match}%")
     if run.oracle_taxsim_match is not None:
@@ -1427,6 +1477,78 @@ def cmd_encode(args):
     sys.exit(1 if has_errors else 0)
 
 
+def _default_repo_checkout(name: str) -> Path:
+    """Resolve sibling repo checkouts relative to this autorac repo."""
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / name
+
+
+def cmd_eval(args):
+    """Run deterministic model comparisons on one or more citations."""
+    runners = args.runner or ["claude:opus", "codex:gpt-5.4"]
+    atlas_path = args.atlas_path or _default_repo_checkout("atlas")
+    rac_path = args.rac_path or _default_repo_checkout("rac")
+
+    if not atlas_path.exists():
+        print(f"Atlas repo not found: {atlas_path}")
+        sys.exit(1)
+    if not rac_path.exists():
+        print(f"rac repo not found: {rac_path}")
+        sys.exit(1)
+
+    results = run_model_eval(
+        citations=args.citations,
+        runner_specs=runners,
+        output_root=args.output,
+        rac_path=rac_path,
+        atlas_path=atlas_path,
+        mode=args.mode,
+        extra_context_paths=[Path(path) for path in args.allow_context],
+    )
+
+    if args.json:
+        print(json.dumps([result.to_dict() for result in results], indent=2))
+        return
+
+    print(f"Output root: {args.output}")
+    print(f"Atlas: {atlas_path}")
+    print(f"rac: {rac_path}")
+    print(f"Mode: {args.mode}")
+    print()
+
+    for result in results:
+        print(f"{result.citation} [{result.runner}]")
+        print(
+            f"  success={result.success} duration_ms={result.duration_ms} cost_est=${result.estimated_cost_usd or 0:.4f}"
+        )
+        print(
+            f"  tokens in={result.input_tokens} out={result.output_tokens} cache_read={result.cache_read_tokens} reasoning_out={result.reasoning_output_tokens}"
+        )
+        print(f"  retrieved_files={len(result.retrieved_files)}")
+        if result.unexpected_accesses:
+            print(f"  unexpected_accesses={len(result.unexpected_accesses)}")
+        if result.metrics:
+            print(
+                f"  compile={'yes' if result.metrics.compile_pass else 'no'} ci={'yes' if result.metrics.ci_pass else 'no'}"
+            )
+            print(
+                f"  grounded={result.metrics.grounded_numeric_count} ungrounded={result.metrics.ungrounded_numeric_count} embedded_source={'yes' if result.metrics.embedded_source_present else 'no'}"
+            )
+            if result.metrics.ungrounded_numeric_count:
+                offenders = [
+                    item.raw
+                    for item in result.metrics.grounding
+                    if not item.grounded
+                ]
+                print(f"  ungrounded_values={', '.join(offenders[:10])}")
+        if result.error:
+            print(f"  error={result.error}")
+        print(f"  file={result.output_file}")
+        print(f"  trace={result.trace_file}")
+        print(f"  manifest={result.context_manifest_file}")
+        print()
+
+
 # =========================================================================
 # Session Commands
 # =========================================================================
@@ -1435,7 +1557,13 @@ def cmd_encode(args):
 def cmd_session_start(args):
     """Start a new session."""
     db = EncodingDB(args.db)
-    session = db.start_session(model=args.model, cwd=args.cwd or str(Path.cwd()))
+    from . import __version__
+
+    session = db.start_session(
+        model=args.model,
+        cwd=args.cwd or str(Path.cwd()),
+        autorac_version=__version__,
+    )
 
     # Output just the session ID for hooks to capture
     print(session.id)
@@ -1479,14 +1607,19 @@ def cmd_sessions(args):
         print("No sessions found.")
         return
 
-    print(f"{'ID':<10} {'Started':<20} {'Events':<8} {'Model':<15} {'Status'}")
-    print("-" * 70)
+    print(
+        f"{'ID':<10} {'Started':<20} {'Events':<8} {'Model':<15} {'Version':<10} {'Status'}"
+    )
+    print("-" * 82)
 
     for s in sessions:
         started = s.started_at.strftime("%Y-%m-%d %H:%M") if s.started_at else "?"
         status = "ended" if s.ended_at else "active"
         model = s.model[:15] if s.model else "-"
-        print(f"{s.id:<10} {started:<20} {s.event_count:<8} {model:<15} {status}")
+        version = s.autorac_version[:10] if s.autorac_version else "-"
+        print(
+            f"{s.id:<10} {started:<20} {s.event_count:<8} {model:<15} {version:<10} {status}"
+        )
 
 
 def cmd_session_show(args):
@@ -1510,6 +1643,7 @@ def cmd_session_show(args):
                 "ended_at": session.ended_at.isoformat() if session.ended_at else None,
                 "model": session.model,
                 "cwd": session.cwd,
+                "autorac_version": session.autorac_version,
                 "event_count": session.event_count,
             },
             "events": [
@@ -1530,6 +1664,7 @@ def cmd_session_show(args):
     else:
         print(f"Session: {session.id}")
         print(f"Model: {session.model}")
+        print(f"AutoRAC: {session.autorac_version or '-'}")
         print(f"Started: {session.started_at}")
         print(f"Ended: {session.ended_at or 'active'}")
         print(f"Events: {session.event_count}")

@@ -4,9 +4,10 @@ Encoding Orchestrator -- self-contained pipeline for statute encoding.
 Replaces the plugin-dependent SDKOrchestrator and encoding-orchestrator agent.
 All prompts are embedded -- `pip install autorac` is sufficient.
 
-Supports two backends:
+Supports three backends:
 - Claude Code CLI (subprocess) -- works with Max subscription
 - Claude API (via anthropic SDK) -- works on Modal or any server
+- OpenAI Responses API (direct HTTPS) -- captures reasoning summaries and usage
 
 Usage:
     from autorac.harness.orchestrator import Orchestrator
@@ -24,9 +25,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from autorac.constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL
+from autorac.constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL, DEFAULT_OPENAI_MODEL
 from autorac.prompts.encoder import ENCODER_PROMPT
 from autorac.prompts.reviewers import (
     FORMULA_REVIEWER_PROMPT,
@@ -39,9 +40,18 @@ from autorac.prompts.reviewers import (
     get_rac_reviewer_prompt,
 )
 from autorac.prompts.validator import VALIDATOR_PROMPT
+from autorac.statute import find_citation_text, parse_usc_citation
 
+from .backends import parse_claude_cli_json_output
 from .encoding_db import EncodingDB, TokenUsage
-from .validator_pipeline import ValidatorPipeline
+from .observability import emit_agent_run, extract_reasoning_entries
+from .pricing import estimate_usage_cost_usd
+from .validator_pipeline import (
+    ValidatorPipeline,
+    extract_embedded_source_text,
+    extract_grounding_values,
+    extract_numbers_from_text,
+)
 
 
 class Phase(Enum):
@@ -58,6 +68,7 @@ class Backend(Enum):
 
     CLI = "cli"  # Claude Code CLI (subprocess)
     API = "api"  # Claude API (anthropic SDK)
+    OPENAI = "openai"  # OpenAI Responses API
 
 
 @dataclass
@@ -86,6 +97,7 @@ class AgentRun:
     total_cost: Optional[float] = None
     result: Optional[str] = None
     error: Optional[str] = None
+    provider_trace: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -110,6 +122,65 @@ class EncodingRun:
     autorac_version: str = ""
 
 
+PROVENANCE_VALUE_METADATA_KEYS = {
+    "imports",
+    "status",
+    "description",
+    "label",
+    "entity",
+    "period",
+    "dtype",
+    "unit",
+    "indexed_by",
+    "tests",
+}
+
+
+def _summarize_agent_message(content: str) -> str:
+    """Generate a concise summary for a provider response."""
+    if not content:
+        return "Empty response"
+
+    if "STRUCTURED_OUTPUT" in content:
+        return "Produced structured subsection plan"
+    if '"score"' in content and '"passed"' in content:
+        return "Produced structured review result"
+    if "```" in content:
+        return f"Code-heavy response ({len(content):,} chars)"
+    if "Error" in content or "error" in content:
+        return "Reported an error"
+    if "Created" in content or "Successfully" in content:
+        return "Completed successfully"
+
+    lines = [
+        line.strip()
+        for line in content.split("\n")
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    if not lines:
+        return f"Response ({len(content):,} chars)"
+
+    first = lines[0][:120]
+    return first + ("..." if len(lines[0]) > 120 else "")
+
+
+def _build_cli_trace_command(model: str) -> list[str]:
+    """Describe the CLI invocation without duplicating the full prompt."""
+    return [
+        "claude",
+        "--print",
+        "--output-format",
+        "json",
+        "--model",
+        model,
+        "--mcp-config",
+        "<omitted>",
+        "--strict-mcp-config",
+        "-p",
+        "<prompt omitted>",
+    ]
+
+
 STUB_GENERATOR_PROMPT = """You generate .rac stub files for external dependencies.
 
 You categorize variables into three types:
@@ -117,7 +188,16 @@ You categorize variables into three types:
 2. **Stub** (status: stub) — statutory definition exists but full encoding needs more context
 3. **Input** (status: input) — an observable real-world fact no statute defines (wages, age, etc.)
 
-Always output raw .rac content with no markdown fencing or explanation."""
+Always output raw .rac content with no markdown fencing or explanation.
+
+Stub files must use the same RAC DSL as normal section files:
+- Do NOT use a `variable:` keyword
+- Put `status:` immediately after the docstring for file-level stubs
+- Use normal definition blocks like `some_name:`
+- Use `entity: TaxUnit|Person|Household|Family`, `period: Year|Month|Day`, `dtype: Money|Boolean|Integer|Rate|String`
+- Quote `label:` and `description:` strings
+- Use 4 spaces for fields under a definition
+- Never emit lowercase schema names like `tax_unit` or `taxable_year`"""
 
 
 # Agent prompt mapping -- all embedded, no plugin needed
@@ -135,9 +215,17 @@ AGENT_PROMPTS = {
 DSL_CHEATSHEET = """
 ## RAC DSL quick reference (unified syntax)
 
+### Required file shape
+- Every `.rac` file MUST include `status:` explicitly
+- Put `status:` immediately after the docstring when a docstring exists
+- Use 4 spaces for fields under each definition
+- Use 8 spaces for expressions nested under `from yyyy-mm-dd:`
+- Quote all `description:` and `label:` string values
+- Do NOT emit generic 2-space YAML indentation
+
 ### Declaration types
 - `name:` with `from yyyy-mm-dd:` -- policy value with temporal entries
-- `name:` with `formula:` -- computed value
+- `name:` with `from yyyy-mm-dd:` expression -- computed value
 - `name:` with `default:` -- user-provided input
 - `enum Name:` -- enumeration with `values:` list
 
@@ -145,7 +233,6 @@ DSL_CHEATSHEET = """
 - `entity:` Person | TaxUnit | Household | Family
 - `period:` Year | Month | Day
 - `dtype:` Money | Rate | Boolean | Integer | String | Enum[Name]
-- `formula: |` -- Python-like formula (see below)
 - `imports:` -- list of `path#name` (optional)
 
 ### Temporal syntax
@@ -156,12 +243,46 @@ ctc_base_amount:
 ```
 
 ### Formula syntax
-**Allowed:** `if`/`elif`/`else`, `return`, `and`/`or`/`not`, `=` assignment
+**Write formulas as temporal expressions after `from yyyy-mm-dd:`**
+**Allowed:** `if`/`elif`/`else`, `and`/`or`/`not`, `=` assignment, final expression value
 **Operators:** `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `<=`, `>=`
 **Built-in functions:** `min(a,b)`, `max(a,b)`, `abs(x)`, `floor(x)`, `ceil(x)`, `round(x,n)`, `clamp(x,lo,hi)`, `sum(...)`, `len(...)`
-**FORBIDDEN:** `for`/`while` loops, list comprehensions, `def`/`lambda`, `try`/`except`, `+=`, imports
+**FORBIDDEN:** `return`, `formula: |`, `for`/`while` loops, list comprehensions, list literals (`[...]`), membership tests with `in`, `def`/`lambda`, `try`/`except`, `+=`, imports
 **Numeric literals:** ONLY -1, 0, 1, 2, 3 allowed. ALL other numbers must come from named definitions.
+
+### Conditional shape rules
+- Use repo-style conditional expressions like `if cond: value`, `elif cond: value`, `else: value`
+- A conditional block may return a value directly; it must NOT assign helper variables inside branches
+- Straight-line assignments before the final expression are allowed
+- If a branch only selects among upstream values, make that selector its own variable or imported dependency
+
+Valid:
+```yaml
+threshold_amount:
+    from 2021-01-01:
+        if is_joint_return: threshold_joint
+        elif is_head_of_household: threshold_head_of_household
+        else: threshold_other
+```
+
+Invalid:
+```yaml
+threshold_amount:
+    from 2021-01-01:
+        if is_joint_return:
+            selected_threshold = threshold_joint
+        elif is_head_of_household:
+            selected_threshold = threshold_head_of_household
+        else:
+            selected_threshold = threshold_other
+        selected_threshold
+```
+
+Use explicit enum comparisons like `status == joint or status == surviving_spouse`.
+Do NOT write `status in [joint, surviving_spouse]`.
 """
+
+MAX_COMPILE_REPAIR_ATTEMPTS = 2
 
 
 @dataclass
@@ -194,10 +315,12 @@ class Orchestrator:
 
         Args:
             model: Model to use. For CLI backend, short names like "opus".
-                   For API backend, full model IDs like "claude-opus-4-6".
+                   For Anthropic API backend, full model IDs like "claude-opus-4-6".
+                   For OpenAI backend, use Responses-compatible models like "gpt-5.4".
             db_path: Path to encoding database. None to skip logging.
-            backend: "cli" for Claude Code CLI, "api" for direct API calls.
-            api_key: Anthropic API key (required for API backend).
+            backend: "cli" for Claude Code CLI, "api" for Anthropic API,
+                     "openai" for OpenAI Responses API.
+            api_key: Provider API key (Anthropic for "api", OpenAI for "openai").
             atlas_path: Path to atlas repo. Falls back to ATLAS_PATH env var,
                         then ~/RulesFoundation/atlas.
         """
@@ -205,25 +328,33 @@ class Orchestrator:
             backend = Backend(backend)
 
         self.backend = backend
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if self.backend == Backend.API:
+            self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        elif self.backend == Backend.OPENAI:
+            self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        else:
+            self.api_key = api_key
 
         if self.backend == Backend.API and not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY required for API backend")
+        if self.backend == Backend.OPENAI and not self.api_key:
+            raise ValueError("OPENAI_API_KEY required for OpenAI backend")
 
         if self.backend == Backend.CLI:
             self.model = model or DEFAULT_CLI_MODEL
+        elif self.backend == Backend.OPENAI:
+            self.model = model or DEFAULT_OPENAI_MODEL
         else:
             self.model = model or DEFAULT_MODEL
 
         self.encoding_db = EncodingDB(db_path) if db_path else None
 
-        # Resolve atlas path: explicit > env var > default
+        # Resolve atlas path: explicit > discovered checkout
         if atlas_path:
             self.atlas_path = Path(atlas_path)
-        elif os.environ.get("ATLAS_PATH"):
-            self.atlas_path = Path(os.environ["ATLAS_PATH"])
         else:
-            self.atlas_path = Path.home() / "RulesFoundation" / "atlas"
+            self.atlas_path = self._resolve_atlas_repo_path()
+        self.rac_repo_path = self._resolve_rac_repo_path()
 
         # Cache env without CLAUDECODE (prevents nested launch errors)
         # Preserve PYTHONPATH so subprocess can import atlas and other packages
@@ -237,6 +368,8 @@ class Orchestrator:
             else None
         )
         self._context_section = self._build_context_section()
+        self._logged_artifact_paths: dict[str, set[str]] = {}
+        self._current_citation: str | None = None
 
     async def encode(
         self,
@@ -288,6 +421,8 @@ class Orchestrator:
             autorac_version=__version__,
         )
 
+        self._current_citation = citation
+
         try:
             # Create DB session
             if self.encoding_db:
@@ -295,7 +430,9 @@ class Orchestrator:
                     model=self.model,
                     cwd=str(Path.cwd()),
                     session_id=run.session_id,
+                    autorac_version=run.autorac_version,
                 )
+            self._logged_artifact_paths[run.session_id] = set()
 
             # Pre-fetch statute text if not provided
             if not statute_text:
@@ -316,15 +453,19 @@ class Orchestrator:
             )
             run.agent_runs.append(analysis)
             self._log_agent_run(run.session_id, analysis)
+            self._log_analysis_provenance(run.session_id, citation, analysis.result or "")
 
             # Phase 2: Encoding
             if analysis.result:
                 encoding_runs = await self._run_encoding_parallel(
-                    citation, output_path, statute_text, analysis.result
+                    citation,
+                    output_path,
+                    statute_text,
+                    analysis.result,
+                    session_id=run.session_id,
                 )
                 for enc_run in encoding_runs:
                     run.agent_runs.append(enc_run)
-                    self._log_agent_run(run.session_id, enc_run)
 
                 if not encoding_runs:
                     # Fallback: single encoder
@@ -342,6 +483,25 @@ class Orchestrator:
                     )
                     run.agent_runs.append(encoding)
                     self._log_agent_run(run.session_id, encoding)
+                    fallback_file = self._resolve_aggregator_output_file(
+                        citation, output_path
+                    )
+                    self._materialize_agent_artifact(encoding, fallback_file)
+                    self._compile_existing_artifacts(
+                        run.session_id,
+                        output_path,
+                        Phase.ENCODING,
+                    )
+                    self._log_provenance_decision(
+                        run.session_id,
+                        "Falling back to single-agent encoding",
+                        [
+                            f"Citation: {citation}",
+                            "Analyzer did not yield structured subsection tasks.",
+                            f"Output path: {output_path}",
+                        ],
+                        Phase.ENCODING,
+                    )
             else:
                 encode_prompt = self._build_fallback_encode_prompt(
                     citation, output_path, statute_text
@@ -353,13 +513,40 @@ class Orchestrator:
                 )
                 run.agent_runs.append(encoding)
                 self._log_agent_run(run.session_id, encoding)
+                fallback_file = self._resolve_aggregator_output_file(
+                    citation, output_path
+                )
+                self._materialize_agent_artifact(encoding, fallback_file)
+                self._compile_existing_artifacts(
+                    run.session_id,
+                    output_path,
+                    Phase.ENCODING,
+                )
+                self._log_provenance_decision(
+                    run.session_id,
+                    "Encoding proceeded without analyzer output",
+                    [
+                        f"Citation: {citation}",
+                        "Analyzer returned no result text.",
+                        f"Output path: {output_path}",
+                    ],
+                    Phase.ENCODING,
+                )
 
             # Check created files
             if output_path.exists():
                 run.files_created = [str(f) for f in output_path.rglob("*.rac")]
+                self._log_artifact_provenance_records(
+                    run.session_id,
+                    [Path(f) for f in run.files_created],
+                    Phase.ENCODING,
+                    fallback_source_text=statute_text,
+                )
 
             # Phase 2.5: Resolve external dependencies (create stubs)
-            stubs = await self._resolve_external_dependencies(output_path)
+            stubs = await self._resolve_external_dependencies(
+                output_path, session_id=run.session_id
+            )
             if stubs:
                 run.stubs_created = [str(s) for s in stubs]
                 # Re-scan to include stubs in files_created
@@ -369,19 +556,31 @@ class Orchestrator:
                     stub_str = str(stub_path)
                     if stub_str not in run.files_created:
                         run.files_created.append(stub_str)
+                self._log_artifact_provenance_records(
+                    run.session_id,
+                    stubs,
+                    Phase.RESOLVE_EXTERNALS,
+                )
 
             # Phase 3: Oracle validation
-            oracle_context = await self._run_oracle_validation(output_path)
+            oracle_context = await self._run_oracle_validation(
+                output_path, session_id=run.session_id
+            )
             run.oracle_pe_match = oracle_context.get("pe_match")
             run.oracle_taxsim_match = oracle_context.get("taxsim_match")
             run.discrepancies = oracle_context.get("discrepancies", [])
 
             # Phase 4: LLM Review (parallel)
             oracle_summary = self._format_oracle_summary(oracle_context)
-            review_runs = await self._run_reviews_parallel(citation, oracle_summary)
+            review_runs = await self._run_reviews_parallel(
+                citation,
+                oracle_summary,
+                [Path(file_path) for file_path in run.files_created],
+            )
             for rev_run in review_runs:
                 run.agent_runs.append(rev_run)
                 self._log_agent_run(run.session_id, rev_run)
+                self._log_review_provenance(run.session_id, rev_run)
 
             # Phase 5: Report
             run.ended_at = datetime.utcnow()
@@ -396,6 +595,11 @@ class Orchestrator:
             if run.agent_runs:
                 run.agent_runs[-1].error = str(e)
             print(f"  ERROR: {e}", flush=True)
+        finally:
+            if self.encoding_db:
+                self.encoding_db.end_session(run.session_id)
+            self._logged_artifact_paths.pop(run.session_id, None)
+            self._current_citation = None
 
         return run
 
@@ -427,12 +631,26 @@ class Orchestrator:
         try:
             if self.backend == Backend.CLI:
                 result = await self._run_via_cli(full_prompt)
+            elif self.backend == Backend.OPENAI:
+                result = await self._run_via_openai_responses(
+                    full_prompt, system_prompt, prompt
+                )
             else:
                 result = await self._run_via_api(full_prompt, system_prompt, prompt)
 
             agent_run.result = result.get("text", "")
             agent_run.total_tokens = result.get("tokens")
             agent_run.total_cost = result.get("cost")
+            agent_run.provider_trace = result.get("trace")
+            if agent_run.result:
+                agent_run.messages.append(
+                    AgentMessage(
+                        role="assistant",
+                        content=agent_run.result,
+                        tokens=agent_run.total_tokens,
+                        summary=_summarize_agent_message(agent_run.result),
+                    )
+                )
 
         except Exception as e:
             agent_run.error = str(e)
@@ -451,6 +669,8 @@ class Orchestrator:
         cmd = [
             "claude",
             "--print",
+            "--output-format",
+            "json",
             "--model",
             self.model,
             "--mcp-config",
@@ -473,12 +693,50 @@ class Orchestrator:
                 ),
             )
             text = result.stdout + result.stderr
-            return {"text": text}
-        except subprocess.TimeoutExpired:
-            return {"text": "Timeout after 600s"}
-        except FileNotFoundError:
+            parsed = parse_claude_cli_json_output(text, self.model)
             return {
-                "text": "Claude CLI not found - install with: npm install -g @anthropic-ai/claude-code"
+                "text": parsed["text"] if parsed else text,
+                "tokens": parsed["tokens"] if parsed else None,
+                "cost": parsed["cost_usd"] if parsed else None,
+                "trace": (
+                    parsed["trace"]
+                    if parsed
+                    else {
+                        "provider": "anthropic",
+                        "backend": Backend.CLI.value,
+                        "model": self.model,
+                        "command": _build_cli_trace_command(self.model),
+                        "returncode": result.returncode,
+                        "raw_output": text,
+                    }
+                ),
+            }
+        except subprocess.TimeoutExpired:
+            timeout_text = "Timeout after 600s"
+            return {
+                "text": timeout_text,
+                "trace": {
+                    "provider": "anthropic",
+                    "backend": Backend.CLI.value,
+                    "model": self.model,
+                    "command": _build_cli_trace_command(self.model),
+                    "timeout_seconds": 600,
+                    "raw_output": timeout_text,
+                },
+            }
+        except FileNotFoundError:
+            not_found_text = (
+                "Claude CLI not found - install with: npm install -g @anthropic-ai/claude-code"
+            )
+            return {
+                "text": not_found_text,
+                "trace": {
+                    "provider": "anthropic",
+                    "backend": Backend.CLI.value,
+                    "model": self.model,
+                    "command": _build_cli_trace_command(self.model),
+                    "raw_output": not_found_text,
+                },
             }
 
     async def _run_via_api(
@@ -502,21 +760,143 @@ class Orchestrator:
             response = await client.messages.create(**kwargs)
 
             text = ""
+            response_blocks = []
             for block in response.content:
+                block_type = getattr(block, "type", block.__class__.__name__)
+                block_payload: dict[str, Any] = {"type": block_type}
+                for attr in ("id", "name", "text", "thinking", "signature"):
+                    value = getattr(block, attr, None)
+                    if value is not None:
+                        block_payload[attr] = value
+                block_input = getattr(block, "input", None)
+                if block_input is not None:
+                    block_payload["input"] = block_input
+                response_blocks.append(block_payload)
                 if hasattr(block, "text"):
                     text += block.text
 
             tokens = TokenUsage(
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
+                input_tokens=int(getattr(response.usage, "input_tokens", 0) or 0),
+                output_tokens=int(getattr(response.usage, "output_tokens", 0) or 0),
+                cache_read_tokens=int(
+                    getattr(response.usage, "cache_read_input_tokens", 0) or 0
+                ),
+                cache_creation_tokens=int(
+                    getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+                ),
             )
 
-            return {"text": text, "tokens": tokens}
+            return {
+                "text": text,
+                "tokens": tokens,
+                "cost": estimate_usage_cost_usd(self.model, tokens),
+                "trace": {
+                    "provider": "anthropic",
+                    "backend": Backend.API.value,
+                    "model": self.model,
+                    "system_prompt": system_prompt or None,
+                    "user_prompt": user_prompt,
+                    "response_blocks": response_blocks,
+                },
+            }
 
         except ImportError:
             raise ImportError("anthropic SDK not installed. Run: pip install anthropic")
 
-    async def _run_oracle_validation(self, output_path: Path) -> dict:
+    async def _run_via_openai_responses(
+        self, full_prompt: str, system_prompt: str, user_prompt: str
+    ) -> dict:
+        """Run via the OpenAI Responses API over HTTPS."""
+        import requests
+
+        body: dict[str, Any] = {
+            "model": self.model,
+            "input": user_prompt if system_prompt else full_prompt,
+            "max_output_tokens": 16384,
+            "reasoning": {
+                "effort": "low",
+                "summary": "auto",
+            },
+        }
+        if system_prompt:
+            body["instructions"] = system_prompt
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        def _post_response() -> requests.Response:
+            return requests.post(
+                "https://api.openai.com/v1/responses",
+                headers=headers,
+                json=body,
+                timeout=600,
+            )
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, _post_response)
+
+        request_id = response.headers.get("x-request-id")
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {
+                "error": {
+                    "message": response.text or f"HTTP {response.status_code}",
+                }
+            }
+
+        if response.status_code >= 400:
+            error = payload.get("error") or {}
+            message = error.get("message") or response.text or "OpenAI request failed"
+            return {
+                "text": message,
+                "trace": {
+                    "provider": "openai",
+                    "backend": Backend.OPENAI.value,
+                    "model": self.model,
+                    "request_id": request_id,
+                    "request_body": body,
+                    "json_result": payload,
+                    "status_code": response.status_code,
+                },
+            }
+
+        usage = payload.get("usage") or {}
+        input_details = usage.get("input_tokens_details") or {}
+        tokens = TokenUsage(
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            cache_read_tokens=int(input_details.get("cached_tokens", 0) or 0),
+        )
+        tokens.reasoning_output_tokens = int(
+            (
+                (usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0)
+                or 0
+            )
+        )
+
+        text = self._extract_openai_response_text(payload)
+
+        return {
+            "text": text,
+            "tokens": tokens,
+            "cost": estimate_usage_cost_usd(self.model, tokens),
+            "trace": {
+                "provider": "openai",
+                "backend": Backend.OPENAI.value,
+                "model": self.model,
+                "request_id": request_id,
+                "request_body": body,
+                "json_result": payload,
+                "status_code": response.status_code,
+            },
+        }
+
+    async def _run_oracle_validation(
+        self, output_path: Path, session_id: str | None = None
+    ) -> dict:
         """Run oracle validation using ValidatorPipeline."""
         print(
             f"\n[{datetime.utcnow().strftime('%H:%M:%S')}] ORACLE: ValidatorPipeline",
@@ -537,7 +917,7 @@ class Orchestrator:
                 rac_us_path=output_path.parent.parent
                 if "statute" in str(output_path)
                 else output_path,
-                rac_path=Path(__file__).parent.parent.parent.parent / "rac",
+                rac_path=self.rac_repo_path,
                 enable_oracles=True,
                 max_workers=2,
             )
@@ -548,21 +928,38 @@ class Orchestrator:
 
             for rac_file in rac_files:
                 print(f"  Validating: {rac_file.name}", flush=True)
+                file_issues: list[str] = []
+                pe_score = None
+                taxsim_score = None
                 try:
                     pe_result = pipeline._run_policyengine(rac_file)
                     if pe_result.score is not None:
                         pe_scores.append(pe_result.score)
+                        pe_score = pe_result.score
                         print(f"    PE: {pe_result.score:.1%}", flush=True)
                     all_issues.extend(pe_result.issues)
+                    file_issues.extend(pe_result.issues)
 
                     taxsim_result = pipeline._run_taxsim(rac_file)
                     if taxsim_result.score is not None:
                         taxsim_scores.append(taxsim_result.score)
+                        taxsim_score = taxsim_result.score
                         print(f"    TAXSIM: {taxsim_result.score:.1%}", flush=True)
                     all_issues.extend(taxsim_result.issues)
+                    file_issues.extend(taxsim_result.issues)
                 except Exception as e:
                     print(f"    Error: {e}", flush=True)
                     all_issues.append(str(e))
+                    file_issues.append(str(e))
+
+                if session_id:
+                    self._log_validation_provenance(
+                        session_id,
+                        rac_file,
+                        pe_score,
+                        taxsim_score,
+                        file_issues,
+                    )
 
             if pe_scores:
                 oracle_context["pe_match"] = sum(pe_scores) / len(pe_scores) * 100
@@ -622,23 +1019,51 @@ class Orchestrator:
             f"({untested}/{total} files had no tests) ({duration:.1f}s)",
             flush=True,
         )
+        if session_id:
+            self._log_session_event(
+                session_id=session_id,
+                event_type="provenance_validation",
+                content=(
+                    "Validation summary\n"
+                    f"PolicyEngine aggregate: {pe_str}\n"
+                    f"TAXSIM aggregate: {taxsim_str}\n"
+                    f"Files tested: {oracle_context.get('files_tested', 0)} / {total}\n"
+                    f"Discrepancies captured: {len(oracle_context.get('discrepancies', []))}"
+                ),
+                metadata={
+                    "phase": Phase.ORACLE.value,
+                    "aggregate": True,
+                    "oracle_context": oracle_context,
+                },
+            )
 
         return oracle_context
 
     async def _run_reviews_parallel(
-        self, citation: str, oracle_summary: str
+        self, citation: str, oracle_summary: str, rac_files: list[Path]
     ) -> List[AgentRun]:
         """Run all 4 reviewers in parallel."""
+        review_context = self._build_review_file_context(citation, rac_files)
         reviewers = [
-            ("rac_reviewer", get_rac_reviewer_prompt(citation, oracle_summary)),
-            ("formula_reviewer", get_formula_reviewer_prompt(citation, oracle_summary)),
+            (
+                "rac_reviewer",
+                get_rac_reviewer_prompt(citation, oracle_summary, review_context),
+            ),
+            (
+                "formula_reviewer",
+                get_formula_reviewer_prompt(citation, oracle_summary, review_context),
+            ),
             (
                 "parameter_reviewer",
-                get_parameter_reviewer_prompt(citation, oracle_summary),
+                get_parameter_reviewer_prompt(
+                    citation, oracle_summary, review_context
+                ),
             ),
             (
                 "integration_reviewer",
-                get_integration_reviewer_prompt(citation, oracle_summary),
+                get_integration_reviewer_prompt(
+                    citation, oracle_summary, review_context
+                ),
             ),
         ]
 
@@ -661,6 +1086,83 @@ class Orchestrator:
                 runs.append(r)
 
         return runs
+
+    def _build_review_file_context(
+        self, citation: str, rac_files: list[Path], statute_text: str | None = None
+    ) -> str:
+        """Inline the actual RAC artifacts for API reviewers."""
+        files = []
+        seen = set()
+        for rac_file in rac_files:
+            if not rac_file.exists() or rac_file.suffix != ".rac":
+                continue
+            path_key = str(rac_file.resolve())
+            if path_key in seen:
+                continue
+            seen.add(path_key)
+            files.append(rac_file)
+
+        if not files:
+            return ""
+
+        if statute_text is None:
+            statute_text = self._fetch_statute_text(citation)
+
+        parts = [
+            "## Files Under Review",
+            "Use the exact file contents below. Do not say the file path or file contents were missing.",
+        ]
+        if statute_text:
+            statute_preview = statute_text[:8000]
+            if len(statute_text) > 8000:
+                statute_preview += "\n... [truncated]"
+            parts.extend(
+                [
+                    "",
+                    "## Authoritative Statute Text",
+                    "```text",
+                    statute_preview,
+                    "```",
+                ]
+            )
+
+        for rac_file in sorted(files):
+            try:
+                content = rac_file.read_text()
+            except Exception:
+                continue
+            if len(content) > 12000:
+                content = content[:12000] + "\n... [truncated]"
+            parts.extend(
+                [
+                    "",
+                    f"## File: {self._artifact_relative_path(rac_file)}",
+                    f"Absolute path: {rac_file}",
+                    "```rac",
+                    content,
+                    "```",
+                ]
+            )
+            test_file = rac_file.with_suffix(".rac.test")
+            if test_file.exists():
+                try:
+                    test_content = test_file.read_text()
+                except Exception:
+                    test_content = None
+                if test_content is not None:
+                    if len(test_content) > 12000:
+                        test_content = test_content[:12000] + "\n... [truncated]"
+                    parts.extend(
+                        [
+                            "",
+                            f"## Companion Test File: {test_file.name}",
+                            "```yaml",
+                            test_content,
+                            "```",
+                        ]
+                    )
+
+        return "\n".join(parts)
 
     # ========================================================================
     # Analysis and encoding helpers
@@ -707,6 +1209,20 @@ List dependencies as subsection IDs that must be encoded first."""
         statute_text: str | None,
     ) -> str:
         """Build encoding prompt for single-agent fallback."""
+        target_file = self._resolve_aggregator_output_file(citation, output_path)
+        test_file = target_file.with_suffix(".rac.test")
+        output_instructions = (
+            "Write .rac files to the output path. Run `python -m rac.test_runner <file>` after each file."
+            if self.backend == Backend.CLI
+            else (
+                "Return EXACTLY two files with no markdown fences and no explanation:\n"
+                f"=== FILE: {target_file.name} ===\n"
+                "<raw .rac content>\n"
+                f"=== FILE: {test_file.name} ===\n"
+                "<raw .rac.test YAML>\n"
+                "The orchestrator will write both files."
+            )
+        )
         return f"""Encode {citation} into RAC format.
 
 Output path: {output_path}
@@ -721,8 +1237,9 @@ Output path: {output_path}
 5. **WRITE TESTS** - Write 3-5 test cases in a companion `.rac.test` file next to your `.rac` file. Tests should cover the main computation, edge cases (zero values, thresholds), and boundary conditions.
 6. **PARENT IMPORTS FROM CHILDREN** - Parent files MUST import from their children using `from ./{{child}}` — NEVER re-define parameters or formulas that exist in child files. Parents are aggregators/routers only.
 7. **INDEXED_BY FOR INFLATION** - For parameters subject to inflation/COLA adjustments (e.g., dollar thresholds in 26 USC 1(f)), include `indexed_by: <index_variable>` in the parameter definition.
+8. **CROSS-STATUTE DEFINITIONS MUST BE IMPORTED** - If the source text says a term is defined in another section, or relies on another section's definition/eligibility rule, import that upstream definition or predicate. Do NOT restate it locally or invent a leaf-local stand-in.
 
-Write .rac files to the output path. Run `autorac test` after each file.
+{output_instructions}
 {DSL_CHEATSHEET}
 {self._context_section}"""
 
@@ -814,6 +1331,7 @@ Write .rac files to the output path. Run `autorac test` after each file.
         output_path: Path,
         statute_text: str | None,
         analysis_result: str,
+        session_id: str | None = None,
         max_concurrent: int = 5,
     ) -> List[AgentRun]:
         """Encode subsections in parallel waves."""
@@ -832,24 +1350,127 @@ Write .rac files to the output path. Run `autorac test` after each file.
                 f"ENCODING WAVE {wave_idx}: {wave_ids}",
                 flush=True,
             )
+            wave_failures: list[str] = []
 
-            async def encode_one(task: SubsectionTask) -> AgentRun:
+            async def encode_one(task: SubsectionTask) -> tuple[SubsectionTask, AgentRun]:
                 async with semaphore:
                     prompt = self._build_subsection_prompt(
                         task, citation, output_path, statute_text
                     )
-                    return await self._run_agent("encoder", prompt, Phase.ENCODING)
+                    run = await self._run_agent("encoder", prompt, Phase.ENCODING)
+                    return task, run
 
-            results = await asyncio.gather(
-                *[encode_one(t) for t in wave],
-                return_exceptions=True,
-            )
+            pending = [asyncio.create_task(encode_one(task)) for task in wave]
+            for completed in asyncio.as_completed(pending):
+                try:
+                    task, run = await completed
+                except Exception as exc:
+                    print(f"  FAILED: {exc}", flush=True)
+                    wave_failures.append(str(exc))
+                    continue
 
-            for i, r in enumerate(results):
-                if isinstance(r, Exception):
-                    print(f"  FAILED ({wave[i].subsection_id}): {r}", flush=True)
-                else:
-                    all_runs.append(r)
+                all_runs.append(run)
+                if not session_id:
+                    continue
+
+                self._log_agent_run(session_id, run)
+                expected_file = self._resolve_task_output_file(
+                    output_path, task.file_name
+                )
+                self._materialize_agent_artifact(run, expected_file)
+                if not expected_file.exists():
+                    issue = (
+                        f"Expected output file missing after subsection "
+                        f"({task.subsection_id}): {expected_file}"
+                    )
+                    self._log_provenance_decision(
+                        session_id,
+                        "Encoder did not create the expected artifact",
+                        [issue],
+                        Phase.ENCODING,
+                        metadata={
+                            "subsection_id": task.subsection_id,
+                            "expected_file": str(expected_file),
+                        },
+                    )
+                    wave_failures.append(issue)
+                    continue
+
+                self._log_artifact_provenance_records(
+                    session_id,
+                    [expected_file],
+                    Phase.ENCODING,
+                    fallback_source_text=statute_text,
+                )
+                compile_result = self._run_compile_gate(expected_file)
+                self._log_compile_validation(
+                    session_id,
+                    expected_file,
+                    Phase.ENCODING,
+                    compile_result.passed,
+                    compile_result.issues,
+                    compile_result.raw_output,
+                )
+                repair_attempts = 0
+                while (
+                    not compile_result.passed
+                    and repair_attempts < MAX_COMPILE_REPAIR_ATTEMPTS
+                ):
+                    repair_attempts += 1
+                    self._log_provenance_decision(
+                        session_id,
+                        f"Compile repair attempt {repair_attempts} for subsection ({task.subsection_id})",
+                        compile_result.issues or [compile_result.error or "compile failed"],
+                        Phase.ENCODING,
+                        metadata={
+                            "subsection_id": task.subsection_id,
+                            "artifact_path": str(expected_file),
+                            "attempt": repair_attempts,
+                        },
+                    )
+                    repair_prompt = self._build_compile_fix_prompt(
+                        task=task,
+                        citation=citation,
+                        output_path=output_path,
+                        statute_text=statute_text,
+                        artifact_path=expected_file,
+                        compile_issues=compile_result.issues
+                        or [compile_result.error or "compile failed"],
+                    )
+                    repair_run = await self._run_agent(
+                        "encoder", repair_prompt, Phase.ENCODING
+                    )
+                    all_runs.append(repair_run)
+                    self._log_agent_run(session_id, repair_run)
+                    self._materialize_agent_artifact(repair_run, expected_file)
+                    self._log_artifact_provenance_records(
+                        session_id,
+                        [expected_file],
+                        Phase.ENCODING,
+                        fallback_source_text=statute_text,
+                    )
+                    compile_result = self._run_compile_gate(expected_file)
+                    self._log_compile_validation(
+                        session_id,
+                        expected_file,
+                        Phase.ENCODING,
+                        compile_result.passed,
+                        compile_result.issues,
+                        compile_result.raw_output,
+                    )
+                if not compile_result.passed:
+                    wave_failures.extend(
+                        f"{expected_file}: {issue}"
+                        for issue in (
+                            compile_result.issues
+                            or [compile_result.error or "compile failed"]
+                        )
+                    )
+
+            if wave_failures:
+                raise RuntimeError(
+                    "Wave compile gate failed:\n" + "\n".join(wave_failures[:10])
+                )
 
         # Final aggregation wave: produce root .rac file
         if len(tasks) > 1:
@@ -865,6 +1486,39 @@ Write .rac files to the output path. Run `autorac test` after each file.
                 "encoder", aggregator_prompt, Phase.ENCODING
             )
             all_runs.append(aggregator_run)
+            if session_id:
+                self._log_agent_run(session_id, aggregator_run)
+                aggregator_file = self._resolve_aggregator_output_file(
+                    citation, output_path
+                )
+                self._materialize_agent_artifact(aggregator_run, aggregator_file)
+                if not aggregator_file.exists():
+                    raise RuntimeError(
+                        f"Aggregator did not create expected file: {aggregator_file}"
+                    )
+                self._log_artifact_provenance_records(
+                    session_id,
+                    [aggregator_file],
+                    Phase.ENCODING,
+                    fallback_source_text=statute_text,
+                )
+                compile_result = self._run_compile_gate(aggregator_file)
+                self._log_compile_validation(
+                    session_id,
+                    aggregator_file,
+                    Phase.ENCODING,
+                    compile_result.passed,
+                    compile_result.issues,
+                    compile_result.raw_output,
+                )
+                if not compile_result.passed:
+                    raise RuntimeError(
+                        "Aggregator compile gate failed:\n"
+                        + "\n".join(
+                            compile_result.issues
+                            or [compile_result.error or "compile failed"]
+                        )
+                    )
 
         return all_runs
 
@@ -876,12 +1530,11 @@ Write .rac files to the output path. Run `autorac test` after each file.
         statute_text: str | None = None,
     ) -> str:
         """Build a focused encoding prompt for a single subsection."""
-        # Strip leading prefix from file_name if it duplicates output_path's tail.
-        # E.g. output_path=.../24/d and file_name=d/1.rac → file_name=1.rac
-        file_name = task.file_name
-        tail = output_path.name
-        if file_name.startswith(f"{tail}/"):
-            file_name = file_name[len(tail) + 1 :]
+        file_name = str(
+            self._resolve_task_output_file(output_path, task.file_name).relative_to(
+                output_path
+            )
+        )
 
         parts = [
             f"Encode {citation} subsection ({task.subsection_id}) - "
@@ -906,8 +1559,23 @@ Write .rac files to the output path. Run `autorac test` after each file.
             "7. **INDEXED_BY FOR INFLATION** - For parameters subject to "
             "inflation/COLA adjustments (e.g., dollar thresholds in 26 USC 1(f)), "
             "include `indexed_by: <index_variable>` in the parameter definition.",
+            "8. **CROSS-STATUTE DEFINITIONS MUST BE IMPORTED** - If the source "
+            "text says a term is defined in another section, or relies on another "
+            "section's definition/eligibility rule, import that upstream definition "
+            "or predicate. Do NOT restate it locally or invent a leaf-local stand-in.",
             "",
-            "Write the .rac file to the output path. Run `autorac test` after writing.",
+            (
+                "Write the .rac file to the output path. Run `python -m rac.test_runner <file>` after writing."
+                if self.backend == Backend.CLI
+                else (
+                    "Return EXACTLY two files with no markdown fences and no explanation:\n"
+                    f"=== FILE: {Path(file_name).name} ===\n"
+                    "<raw .rac content>\n"
+                    f"=== FILE: {Path(file_name).with_suffix('.rac.test').name} ===\n"
+                    "<raw .rac.test YAML>\n"
+                    "The orchestrator will write both files."
+                )
+            ),
         ]
 
         if task.dependencies:
@@ -919,9 +1587,9 @@ Write .rac files to the output path. Run `autorac test` after each file.
             )
 
         if statute_text:
-            subsection_text = self._extract_subsection_text(
-                statute_text, task.subsection_id
-            )
+            subsection_text = self._lookup_precise_subsection_text(
+                citation, task.subsection_id
+            ) or self._extract_subsection_text(statute_text, task.subsection_id)
             if subsection_text:
                 parts.append("")
                 parts.append(
@@ -938,6 +1606,132 @@ Write .rac files to the output path. Run `autorac test` after each file.
             parts.append(self._context_section)
 
         return "\n".join(parts)
+
+    def _citation_for_subsection(self, citation: str, subsection_id: str) -> str | None:
+        """Append subsection fragments to a USC citation."""
+        if "USC" not in citation.upper() or not subsection_id:
+            return None
+
+        try:
+            parts = parse_usc_citation(citation)
+        except ValueError:
+            return None
+
+        subsection_fragments = [
+            fragment.strip("()")
+            for fragment in subsection_id.strip("/").split("/")
+            if fragment.strip("()")
+        ]
+        if not subsection_fragments:
+            return citation
+
+        base_fragments = list(parts.fragments)
+        if base_fragments and subsection_fragments[: len(base_fragments)] == base_fragments:
+            all_fragments = subsection_fragments
+        else:
+            all_fragments = base_fragments + subsection_fragments
+
+        return (
+            f"{parts.title} USC {parts.section}"
+            + "".join(f"({fragment})" for fragment in all_fragments)
+        )
+
+    def _lookup_precise_subsection_text(
+        self, citation: str, subsection_id: str
+    ) -> str | None:
+        """Fetch exact subsection text from USC XML when available."""
+        subsection_citation = self._citation_for_subsection(citation, subsection_id)
+        if not subsection_citation:
+            return None
+
+        xml_root = self.atlas_path / "data" / "uscode"
+        if not xml_root.exists():
+            return None
+
+        try:
+            return find_citation_text(subsection_citation, xml_root)
+        except Exception:
+            return None
+
+    def _build_compile_fix_prompt(
+        self,
+        task: SubsectionTask,
+        citation: str,
+        output_path: Path,
+        statute_text: str | None,
+        artifact_path: Path,
+        compile_issues: list[str],
+    ) -> str:
+        """Build a targeted repair prompt for a compile-failing subsection."""
+        relative_file = artifact_path.relative_to(output_path)
+        test_path = artifact_path.with_suffix(".rac.test")
+        precise_text = self._lookup_precise_subsection_text(
+            citation, task.subsection_id
+        ) or (
+            self._extract_subsection_text(statute_text, task.subsection_id)
+            if statute_text
+            else None
+        )
+
+        if self.backend == Backend.CLI:
+            output_instructions = (
+                "Rewrite the files in place and run `autorac compile <file>` again "
+                "before returning."
+            )
+        else:
+            output_instructions = (
+                "Return EXACTLY two files with no markdown fences and no explanation:\n"
+                f"=== FILE: {relative_file.name} ===\n"
+                "<corrected .rac content>\n"
+                f"=== FILE: {test_path.name} ===\n"
+                "<corrected .rac.test YAML>\n"
+                "The orchestrator will write both files."
+            )
+
+        prompt_parts = [
+            f"Fix the compile failure for {citation} subsection ({task.subsection_id}).",
+            "",
+            f"Output: {artifact_path}",
+            f"Scope: ONLY this subsection. Keep the same files: {relative_file} and {test_path.name}",
+            "",
+            "## Compile Errors",
+            *[f"- {issue}" for issue in compile_issues],
+            "",
+            "## Repair Requirements",
+            "- Preserve the same legal scope and file names",
+            "- Keep only literals grounded in the source text",
+            "- Quote all `description:` and `label:` values",
+            "- Do NOT use list literals or `in` membership tests; compare enum values explicitly with `==` and `or`",
+            "- Do NOT emit Python-style branch-local assignment blocks inside conditionals",
+            output_instructions,
+        ]
+
+        if precise_text:
+            prompt_parts.extend(
+                [
+                    "",
+                    f"## Exact statute text for subsection ({task.subsection_id})",
+                    precise_text,
+                ]
+            )
+        elif statute_text:
+            prompt_parts.extend(["", "## Full statute text (excerpt)", statute_text[:5000]])
+
+        prompt_parts.extend(
+            [
+                "",
+                f"=== FILE: {relative_file.name} ===",
+                artifact_path.read_text() if artifact_path.exists() else "",
+                f"=== FILE: {test_path.name} ===",
+                test_path.read_text() if test_path.exists() else "",
+                "",
+                DSL_CHEATSHEET,
+            ]
+        )
+        if self._context_section:
+            prompt_parts.extend(["", self._context_section])
+
+        return "\n".join(prompt_parts)
 
     def _extract_subsection_text(
         self, statute_text: str, subsection_id: str
@@ -1033,6 +1827,19 @@ Write .rac files to the output path. Run `autorac test` after each file.
             "3. The root file defines the top-level variable(s) that combine subsection results",
             "4. Use the same entity/period/dtype patterns as the subsection files",
             "",
+            (
+                "Write the root `.rac` file to the output path."
+                if self.backend == Backend.CLI
+                else (
+                    "Return EXACTLY two files with no markdown fences and no explanation:\n"
+                    f"=== FILE: {root_file} ===\n"
+                    "<raw .rac content>\n"
+                    f"=== FILE: {Path(root_file).with_suffix('.rac.test').name} ===\n"
+                    "<raw .rac.test YAML>\n"
+                    "The orchestrator will write both files."
+                )
+            ),
+            "",
             DSL_CHEATSHEET,
         ]
 
@@ -1075,6 +1882,138 @@ Example queries:
 Existing .rac files: {rac_us_path}/
 Read any .rac file for reference on style and patterns."""
 
+    def _resolve_rac_repo_path(self) -> Path:
+        """Find the rac repo checkout used for compile/test validation."""
+        candidates = []
+        if os.environ.get("RAC_PATH"):
+            candidates.append(Path(os.environ["RAC_PATH"]))
+        candidates.extend(
+            [
+                Path(__file__).resolve().parents[4] / "rac",
+                Path.home() / "RulesFoundation" / "rac",
+            ]
+        )
+
+        for candidate in candidates:
+            if (candidate / "src" / "rac").exists():
+                return candidate
+
+        return candidates[0]
+
+    def _resolve_atlas_repo_path(self) -> Path:
+        """Find the atlas repo checkout used for statute lookup."""
+        candidates = []
+        if os.environ.get("ATLAS_PATH"):
+            candidates.append(Path(os.environ["ATLAS_PATH"]))
+        candidates.extend(
+            [
+                Path(__file__).resolve().parents[4] / "atlas",
+                Path.home() / "RulesFoundation" / "atlas",
+            ]
+        )
+
+        for candidate in candidates:
+            if (
+                (candidate / "src" / "atlas").exists()
+                or (candidate / "atlas").exists()
+                or (candidate / "atlas.db").exists()
+            ):
+                return candidate
+
+        return candidates[0]
+
+    def _resolve_task_output_file(self, output_path: Path, file_name: str) -> Path:
+        """Resolve a task's file name to the concrete output file path."""
+        normalized = file_name
+        tail = output_path.name
+        if normalized.startswith(f"{tail}/"):
+            normalized = normalized[len(tail) + 1 :]
+        return output_path / normalized
+
+    def _resolve_aggregator_output_file(self, citation: str, output_path: Path) -> Path:
+        """Resolve the root aggregator file path for a citation."""
+        citation_clean = (
+            citation.replace("USC", "").replace("usc", "").replace("\u00a7", "").strip()
+        )
+        parts_list = citation_clean.split()
+        section = parts_list[-1] if parts_list else "root"
+        section_clean = section.replace("(", "/").replace(")", "").rstrip("/")
+        root_name = (
+            section_clean.split("/")[-1] if "/" in section_clean else section_clean
+        )
+        return output_path / f"{root_name}.rac"
+
+    def _run_compile_gate(self, rac_file: Path):
+        """Run the engine compile check used to stop bad files from propagating."""
+        pipeline = ValidatorPipeline(
+            rac_us_path=rac_file.parent,
+            rac_path=self.rac_repo_path,
+            enable_oracles=False,
+            max_workers=1,
+        )
+        return pipeline._run_compile_check(rac_file)
+
+    def _log_compile_validation(
+        self,
+        session_id: str,
+        rac_file: Path,
+        phase: Phase,
+        passed: bool,
+        issues: list[str],
+        raw_output: str | None = None,
+    ) -> None:
+        """Persist compile-gate outcomes as provenance validation events."""
+        relative_path = self._artifact_relative_path(rac_file)
+        lines = [
+            f"Compile check for {relative_path}",
+            f"Passed: {passed}",
+        ]
+        if raw_output:
+            lines.append(raw_output)
+        if issues:
+            lines.append("Issues:")
+            lines.extend(f"- {issue}" for issue in issues[:10])
+
+        self._log_session_event(
+            session_id=session_id,
+            event_type="provenance_validation",
+            content="\n".join(lines),
+            metadata={
+                "phase": phase.value,
+                "validation_type": "compile",
+                "artifact_path": str(rac_file),
+                "relative_artifact_path": relative_path,
+                "passed": passed,
+                "issues": issues,
+            },
+        )
+
+    def _compile_existing_artifacts(
+        self,
+        session_id: str,
+        output_path: Path,
+        phase: Phase,
+    ) -> None:
+        """Compile-gate all RAC files currently present under an output path."""
+        failures = []
+        for rac_file in sorted(output_path.rglob("*.rac")):
+            result = self._run_compile_gate(rac_file)
+            self._log_compile_validation(
+                session_id,
+                rac_file,
+                phase,
+                result.passed,
+                result.issues,
+                result.raw_output,
+            )
+            if not result.passed:
+                failures.extend(
+                    f"{rac_file}: {issue}" for issue in (result.issues or [result.error or "compile failed"])
+                )
+
+        if failures:
+            raise RuntimeError("Compile gate failed:\n" + "\n".join(failures[:10]))
+
     # ========================================================================
     # External dependency resolution
     # ========================================================================
@@ -1115,6 +2054,15 @@ Read any .rac file for reference on style and patterns."""
             if current.name == "statute":
                 return current
             current = current.parent
+        parts = list(output_path.parts)
+        for idx in range(len(parts) - 1):
+            if re.fullmatch(r"\d+", parts[idx]) and re.fullmatch(
+                r"[0-9A-Za-z]+", parts[idx + 1]
+            ):
+                prefix = Path(parts[0])
+                for part in parts[1:idx]:
+                    prefix /= part
+                return prefix
         return Path.home() / "RulesFoundation" / "rac-us" / "statute"
 
     def _scan_unresolved_imports(
@@ -1190,7 +2138,9 @@ Read any .rac file for reference on style and patterns."""
         subsections = "".join(f"({p})" for p in parts[2:])
         return f"{title} USC {section}{subsections}"
 
-    async def _resolve_external_dependencies(self, output_path: Path) -> list[Path]:
+    async def _resolve_external_dependencies(
+        self, output_path: Path, session_id: str | None = None
+    ) -> list[Path]:
         """Scan encoded files for unresolved imports, create stubs for missing ones.
 
         For each unresolved import:
@@ -1203,6 +2153,20 @@ Read any .rac file for reference on style and patterns."""
         unresolved = self._scan_unresolved_imports(output_path)
         if not unresolved:
             return []
+
+        if session_id:
+            self._log_provenance_decision(
+                session_id,
+                "Resolving external dependencies",
+                [
+                    f"Unresolved imports: {len(unresolved)}",
+                    *[
+                        f"{import_path} -> {var_name}"
+                        for import_path, var_name, _ in unresolved[:10]
+                    ],
+                ],
+                Phase.RESOLVE_EXTERNALS,
+            )
 
         print(
             f"\n[{datetime.utcnow().strftime('%H:%M:%S')}] RESOLVE_EXTERNALS: "
@@ -1223,6 +2187,27 @@ Read any .rac file for reference on style and patterns."""
             import_path = vars_list[0][0]
             var_names = [v[1] for v in vars_list]
             citation = self._citation_from_path(import_path)
+
+            if expected_path.exists():
+                message = f"Skipping stub generation for existing file: {expected_path}"
+                print(f"  {message}", flush=True)
+                if session_id:
+                    self._log_provenance_decision(
+                        session_id,
+                        "Skipped external stub generation because target file already exists",
+                        [
+                            f"Citation: {citation}",
+                            f"Existing file: {expected_path}",
+                            f"Requested variables: {', '.join(var_names)}",
+                        ],
+                        Phase.RESOLVE_EXTERNALS,
+                        metadata={
+                            "citation": citation,
+                            "artifact_path": str(expected_path),
+                            "variable_names": var_names,
+                        },
+                    )
+                continue
 
             print(f"  Creating stub for {citation}: {', '.join(var_names)}", flush=True)
 
@@ -1248,6 +2233,13 @@ Read any .rac file for reference on style and patterns."""
                     expected_path.write_text(rac_content)
                     created.append(expected_path)
                     print(f"    Wrote: {expected_path}", flush=True)
+                    if session_id:
+                        self._log_artifact_provenance_records(
+                            session_id,
+                            [expected_path],
+                            Phase.RESOLVE_EXTERNALS,
+                            fallback_source_text=statute_text,
+                        )
                 else:
                     print(
                         "    Warning: could not extract .rac from response", flush=True
@@ -1309,12 +2301,112 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
 - Start with `# {citation}` header
 - Include the statute text in a triple-quoted docstring
 - Set `status:` to encoded, stub, or input
-- Define each variable with proper entity, period, dtype, label, description
+- Define each variable as a normal RAC block like `some_name:`
+- Use `entity: TaxUnit|Person|Household|Family`
+- Use `period: Year|Month|Day`
+- Use `dtype: Money|Boolean|Integer|Rate|String`
+- Quote all `label:` and `description:` strings
+- Use 4 spaces for fields under each definition
+- NEVER use a `variable:` keyword
+- NEVER write lowercase schema names like `tax_unit`, `taxable_year`, `boolean`
 - For computable variables, include temporal formula blocks
 - For input variables, include `default:` field
 - Follow RAC DSL conventions (expression-based formulas, no `return` keyword,
   only literals -1, 0, 1, 2, 3 allowed)
 """
+
+    def _extract_openai_response_text(self, payload: dict[str, Any]) -> str:
+        """Flatten a Responses API payload into plain assistant text."""
+        texts: list[str] = []
+
+        output_text = payload.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text.strip()
+
+        for item in payload.get("output", []) or []:
+            if not isinstance(item, dict):
+                continue
+
+            if item.get("type") == "message":
+                for content_item in item.get("content", []) or []:
+                    if not isinstance(content_item, dict):
+                        continue
+                    if content_item.get("type") in {"output_text", "text"}:
+                        text = content_item.get("text")
+                        if isinstance(text, str) and text.strip():
+                            texts.append(text.strip())
+                continue
+
+            if item.get("type") == "reasoning":
+                continue
+
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                texts.append(text.strip())
+
+        return "\n\n".join(texts).strip()
+
+    def _materialize_agent_artifact(
+        self,
+        agent_run: AgentRun,
+        expected_path: Path,
+    ) -> bool:
+        """Write extracted RAC content when a non-CLI backend returns raw file text."""
+        if not agent_run.result or agent_run.error:
+            return False
+
+        bundle = self._extract_generated_file_bundle(agent_run.result)
+        if bundle:
+            wrote_main = False
+            expected_test_path = expected_path.with_suffix(".rac.test")
+            for file_name, content in bundle.items():
+                candidate_name = Path(file_name).name
+                if candidate_name == expected_path.name:
+                    target_path = expected_path
+                elif candidate_name == expected_test_path.name:
+                    target_path = expected_test_path
+                else:
+                    continue
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_text(content)
+                if target_path == expected_path:
+                    wrote_main = True
+            if wrote_main or expected_path.exists():
+                return True
+
+        if expected_path.exists():
+            return True
+
+        rac_content = self._extract_rac_content(agent_run.result)
+        if not rac_content:
+            return False
+
+        expected_path.parent.mkdir(parents=True, exist_ok=True)
+        expected_path.write_text(rac_content)
+        return True
+
+    def _extract_generated_file_bundle(self, llm_response: str) -> dict[str, str]:
+        """Extract a small multi-file bundle emitted by API backends."""
+        if not llm_response or "=== FILE:" not in llm_response:
+            return {}
+
+        pattern = re.compile(
+            r"^=== FILE:\s*(?P<name>.+?)\s*===\s*$", re.MULTILINE
+        )
+        matches = list(pattern.finditer(llm_response))
+        if not matches:
+            return {}
+
+        files: dict[str, str] = {}
+        for index, match in enumerate(matches):
+            start = match.end()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(
+                llm_response
+            )
+            content = llm_response[start:end].strip()
+            if content:
+                files[match.group("name").strip()] = content + "\n"
+        return files
 
     def _extract_rac_content(self, llm_response: str) -> str | None:
         """Extract .rac file content from LLM response.
@@ -1340,6 +2432,8 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
         stripped = cleaned.strip()
         if stripped.startswith("#"):
             return stripped + "\n"
+        if stripped.startswith('"""') or stripped.startswith("'''"):
+            return stripped + "\n"
 
         # Look for the first line that starts with # (skip preamble)
         lines = stripped.split("\n")
@@ -1362,6 +2456,19 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
 
     def _fetch_statute_text(self, citation: str) -> str | None:
         """Fetch statute text from atlas or local USC XML."""
+        xml_root = self.atlas_path / "data" / "uscode"
+        if "USC" in citation.upper() and xml_root.exists():
+            try:
+                precise_text = find_citation_text(citation, xml_root)
+            except Exception:
+                precise_text = None
+            if precise_text:
+                print(
+                    f"  Statute text loaded from USC XML ({len(precise_text)} chars)",
+                    flush=True,
+                )
+                return precise_text
+
         # Try atlas first
         try:
             try:
@@ -1369,10 +2476,18 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
             except ImportError:
                 # Try adding atlas repo to path if installed locally
                 atlas_src = self.atlas_path
+                atlas_package_roots = []
+                if (atlas_src / "src" / "atlas").is_dir():
+                    atlas_package_roots.append(atlas_src / "src")
                 if (atlas_src / "atlas").is_dir():
+                    atlas_package_roots.append(atlas_src)
+                if atlas_package_roots:
                     import sys
 
-                    sys.path.insert(0, str(atlas_src))
+                    for package_root in atlas_package_roots:
+                        package_root_str = str(package_root)
+                        if package_root_str not in sys.path:
+                            sys.path.insert(0, package_root_str)
                     from atlas import Arch
                 else:
                     raise
@@ -1470,6 +2585,434 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
         return text if text else None
 
     # ========================================================================
+    # Provenance logging
+    # ========================================================================
+
+    def _log_session_event(
+        self,
+        session_id: str,
+        event_type: str,
+        content: str,
+        metadata: Optional[dict[str, Any]] = None,
+        tool_name: str | None = None,
+    ) -> None:
+        """Write a structured event when DB logging is enabled."""
+        if not self.encoding_db:
+            return
+
+        self.encoding_db.log_event(
+            session_id=session_id,
+            event_type=event_type,
+            tool_name=tool_name,
+            content=content,
+            metadata=metadata or {},
+        )
+
+    def _log_provenance_decision(
+        self,
+        session_id: str,
+        title: str,
+        details: list[str],
+        phase: Phase,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Log a provider-neutral reasoning/decision record."""
+        lines = [title, *[line for line in details if line]]
+        event_metadata = {"phase": phase.value}
+        if metadata:
+            event_metadata.update(metadata)
+        self._log_session_event(
+            session_id=session_id,
+            event_type="provenance_decision",
+            content="\n".join(lines),
+            metadata=event_metadata,
+        )
+
+    def _extract_json_object(self, text: str) -> dict[str, Any] | None:
+        """Extract the first flat JSON object from text responses."""
+        if not text:
+            return None
+
+        match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
+        if not match:
+            return None
+
+        try:
+            parsed = json.loads(match.group())
+        except json.JSONDecodeError:
+            return None
+
+        return parsed if isinstance(parsed, dict) else None
+
+    def _log_analysis_provenance(
+        self, session_id: str, citation: str, analysis_text: str
+    ) -> None:
+        """Log the analyzer's normalized subsection plan."""
+        tasks = self._parse_analyzer_output(analysis_text)
+        if not tasks:
+            self._log_provenance_decision(
+                session_id,
+                f"Analyzer returned no structured subsection plan for {citation}",
+                [
+                    "No machine-readable subsection tasks were parsed.",
+                    "Subsequent encoding may fall back to a single-file pass.",
+                ],
+                Phase.ANALYSIS,
+                metadata={"citation": citation, "task_count": 0},
+            )
+            return
+
+        waves = self._compute_waves(tasks)
+        lines = [
+            f"Encoding plan for {citation}",
+            f"Tasks: {len(tasks)}",
+            f"Waves: {len(waves)}",
+        ]
+        for wave_index, wave in enumerate(waves):
+            items = []
+            for task in wave:
+                deps = (
+                    f" depends on {', '.join(task.dependencies)}"
+                    if task.dependencies
+                    else ""
+                )
+                items.append(
+                    f"({task.subsection_id}) {task.title or 'Untitled'} -> {task.file_name}{deps}"
+                )
+            lines.append(f"Wave {wave_index}: " + "; ".join(items))
+
+        self._log_session_event(
+            session_id=session_id,
+            event_type="provenance_plan",
+            content="\n".join(lines),
+            metadata={
+                "citation": citation,
+                "phase": Phase.ANALYSIS.value,
+                "tasks": [
+                    {
+                        "subsection_id": task.subsection_id,
+                        "title": task.title,
+                        "file_name": task.file_name,
+                        "dependencies": task.dependencies,
+                        "wave": task.wave,
+                    }
+                    for task in tasks
+                ],
+            },
+        )
+
+    def _artifact_relative_path(self, rac_file: Path) -> str:
+        """Render a RAC path relative to the statute root when possible."""
+        rel_parts = self._citation_path_parts_from_rac_file(rac_file)
+        if rel_parts:
+            return "/".join(rel_parts)
+        try:
+            statute_root = self._find_statute_root(rac_file)
+            return str(rac_file.relative_to(statute_root))
+        except Exception:
+            return str(rac_file)
+
+    def _citation_path_parts_from_rac_file(self, rac_file: Path) -> list[str] | None:
+        """Extract title/section/subsection path parts from a RAC file path."""
+        parts = list(rac_file.parts)
+        if "statute" in parts:
+            statute_idx = parts.index("statute")
+            rel = parts[statute_idx + 1 :]
+            return rel if len(rel) >= 3 else None
+
+        for idx in range(len(parts) - 2):
+            title = parts[idx]
+            section = parts[idx + 1]
+            rel = parts[idx:]
+            if (
+                re.fullmatch(r"\d+", title)
+                and re.fullmatch(r"[0-9A-Za-z]+", section)
+                and len(rel) >= 3
+                and rel[-1].endswith(".rac")
+            ):
+                return rel
+
+        return None
+
+    def _citation_from_rac_file(self, rac_file: Path) -> str | None:
+        """Derive a legal citation from a RAC file path."""
+        rel = self._citation_path_parts_from_rac_file(rac_file)
+        if not rel or len(rel) < 3:
+            return None
+
+        title = rel[0]
+        section = rel[1]
+        subsection_parts = rel[2:-1]
+        stem = rac_file.stem
+        if stem != section and (not subsection_parts or stem != subsection_parts[-1]):
+            subsection_parts.append(stem)
+
+        suffix = "".join(f"({part})" for part in subsection_parts)
+        return f"{title} USC {section}{suffix}"
+
+    def _extract_defined_symbols(self, content: str) -> list[str]:
+        """Extract top-level RAC definition names."""
+        definitions = []
+        for line in content.splitlines():
+            match = re.match(r"^([A-Za-z_]\w*):\s*$", line)
+            if not match:
+                continue
+            name = match.group(1)
+            if name in PROVENANCE_VALUE_METADATA_KEYS:
+                continue
+            definitions.append(name)
+        return definitions
+
+    def _extract_import_refs(self, content: str) -> list[str]:
+        """Extract normalized import references from a RAC file."""
+        refs = []
+        for match in self._IMPORT_RE.finditer(content):
+            refs.append(f"{match.group(1)}#{match.group(2)}")
+        return refs
+
+    def _build_artifact_provenance_metadata(
+        self,
+        rac_file: Path,
+        phase: Phase,
+        fallback_source_text: str | None = None,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Collect deterministic artifact provenance from a RAC file."""
+        if not rac_file.exists():
+            return None
+
+        try:
+            content = rac_file.read_text()
+        except Exception:
+            return None
+
+        embedded_source_text = extract_embedded_source_text(content)
+        source_text = embedded_source_text or fallback_source_text or ""
+        source_numbers = extract_numbers_from_text(source_text) if source_text else set()
+        numeric_values = extract_grounding_values(content)
+        grounded = []
+        ungrounded = []
+        for line_number, raw_value, numeric_value in numeric_values:
+            payload = {
+                "line": line_number,
+                "raw": raw_value,
+                "value": numeric_value,
+            }
+            if numeric_value in source_numbers:
+                grounded.append(payload)
+            else:
+                ungrounded.append(payload)
+
+        imports = self._extract_import_refs(content)
+        definitions = self._extract_defined_symbols(content)
+        citation = self._citation_from_rac_file(rac_file)
+        relative_path = self._artifact_relative_path(rac_file)
+        status_match = re.search(r"^status:\s*(\w+)", content, re.MULTILINE)
+        status = status_match.group(1) if status_match else None
+
+        lines = [
+            f"Artifact provenance for {relative_path}",
+            f"Citation: {citation or 'unknown'}",
+            f"Phase: {phase.value}",
+            f"Status: {status or 'unknown'}",
+            f"Definitions: {', '.join(definitions) if definitions else 'none'}",
+            f"Imports: {', '.join(imports) if imports else 'none'}",
+            f"Grounded numeric literals: {len(grounded)}",
+            f"Ungrounded numeric literals: {len(ungrounded)}",
+        ]
+        if ungrounded:
+            lines.append(
+                "Ungrounded values: "
+                + ", ".join(
+                    f"{item['raw']} (line {item['line']})" for item in ungrounded[:10]
+                )
+            )
+        if embedded_source_text:
+            excerpt = embedded_source_text.strip().replace("\n", " ")
+            lines.append("Source excerpt: " + excerpt[:400] + ("..." if len(excerpt) > 400 else ""))
+
+        return (
+            "\n".join(lines),
+            {
+                "phase": phase.value,
+                "artifact_path": str(rac_file),
+                "relative_artifact_path": relative_path,
+                "citation": citation,
+                "status": status,
+                "definitions": definitions,
+                "imports": imports,
+                "grounded_values": grounded,
+                "ungrounded_values": ungrounded,
+                "embedded_source_text": embedded_source_text or None,
+            },
+        )
+
+    def _log_artifact_provenance_records(
+        self,
+        session_id: str,
+        rac_files: list[Path],
+        phase: Phase,
+        fallback_source_text: str | None = None,
+    ) -> None:
+        """Emit provenance records for any newly-created RAC artifacts."""
+        if not self.encoding_db:
+            return
+
+        seen = self._logged_artifact_paths.setdefault(session_id, set())
+        for rac_file in rac_files:
+            path_key = str(rac_file.resolve()) if rac_file.exists() else str(rac_file)
+            if path_key in seen:
+                continue
+
+            artifact = self._build_artifact_provenance_metadata(
+                rac_file,
+                phase,
+                fallback_source_text=fallback_source_text,
+            )
+            if not artifact:
+                continue
+
+            content, metadata = artifact
+            self._log_session_event(
+                session_id=session_id,
+                event_type="provenance_artifact",
+                content=content,
+                metadata=metadata,
+            )
+            seen.add(path_key)
+
+    def _log_validation_provenance(
+        self,
+        session_id: str,
+        rac_file: Path,
+        pe_score: float | None,
+        taxsim_score: float | None,
+        issues: list[str],
+    ) -> None:
+        """Log validation outcomes in a provider-neutral structure."""
+        relative_path = self._artifact_relative_path(rac_file)
+        lines = [
+            f"Validation results for {relative_path}",
+            f"PolicyEngine: {f'{pe_score:.1%}' if pe_score is not None else 'UNTESTED'}",
+            f"TAXSIM: {f'{taxsim_score:.1%}' if taxsim_score is not None else 'UNTESTED'}",
+        ]
+        if issues:
+            lines.append("Issues:")
+            lines.extend(f"- {issue}" for issue in issues[:10])
+        else:
+            lines.append("Issues: none")
+
+        self._log_session_event(
+            session_id=session_id,
+            event_type="provenance_validation",
+            content="\n".join(lines),
+            metadata={
+                "phase": Phase.ORACLE.value,
+                "artifact_path": str(rac_file),
+                "relative_artifact_path": relative_path,
+                "policyengine_score": pe_score,
+                "taxsim_score": taxsim_score,
+                "issues": issues,
+            },
+        )
+
+    def _format_sidecar_trace(self, agent_run: AgentRun) -> str | None:
+        """Render a provider-native trace sidecar for display and audit."""
+        if not agent_run.provider_trace:
+            return None
+
+        trace = agent_run.provider_trace
+        summary_lines = [
+            f"Provider sidecar trace for {agent_run.agent_type}",
+            f"Backend: {trace.get('backend', 'unknown')}",
+            f"Provider: {trace.get('provider', 'unknown')}",
+        ]
+        if trace.get("model"):
+            summary_lines.append(f"Model: {trace['model']}")
+
+        trace_json = json.dumps(trace, indent=2, sort_keys=True, default=str)
+        return "\n".join([*summary_lines, "", trace_json])
+
+    def _log_provider_reasoning(self, session_id: str, agent_run: AgentRun) -> None:
+        """Promote provider-exposed reasoning items into first-class provenance."""
+        trace = agent_run.provider_trace or {}
+        reasoning_entries = extract_reasoning_entries(trace)
+        if not reasoning_entries:
+            return
+
+        for index, entry in enumerate(reasoning_entries, start=1):
+            preview = entry.text.splitlines()[0].strip()
+            if len(preview) > 140:
+                preview = preview[:137] + "..."
+            self._log_session_event(
+                session_id=session_id,
+                event_type="provenance_reasoning",
+                content=entry.text,
+                metadata={
+                    "phase": agent_run.phase.value,
+                    "agent_type": agent_run.agent_type,
+                    "backend": trace.get("backend"),
+                    "provider": trace.get("provider"),
+                    "model": trace.get("model"),
+                    "source": entry.source,
+                    "item_id": entry.item_id,
+                    "item_type": entry.item_type,
+                    "index": index,
+                    "reasoning_count": len(reasoning_entries),
+                    "summary": preview,
+                },
+            )
+
+    def _log_sidecar_trace(self, session_id: str, agent_run: AgentRun) -> None:
+        """Store raw provider-native traces as optional sidecars."""
+        content = self._format_sidecar_trace(agent_run)
+        if not content:
+            return
+
+        trace = agent_run.provider_trace or {}
+        self._log_session_event(
+            session_id=session_id,
+            event_type="provenance_sidecar",
+            content=content,
+            metadata={
+                "phase": agent_run.phase.value,
+                "agent_type": agent_run.agent_type,
+                "backend": trace.get("backend"),
+                "provider": trace.get("provider"),
+                "model": trace.get("model"),
+                "summary": "Raw provider-native sidecar trace",
+            },
+        )
+
+    def _log_review_provenance(self, session_id: str, review_run: AgentRun) -> None:
+        """Log normalized review results from reviewer JSON output."""
+        parsed = self._extract_json_object(review_run.result or "")
+        if not parsed:
+            return
+
+        score = parsed.get("score")
+        passed = parsed.get("passed")
+        issues = parsed.get("issues") if isinstance(parsed.get("issues"), list) else []
+        lines = [
+            f"Review result for {review_run.agent_type}",
+            f"Passed: {passed}",
+            f"Score: {score}",
+            "Issues: " + (", ".join(str(issue) for issue in issues) if issues else "none"),
+        ]
+
+        self._log_session_event(
+            session_id=session_id,
+            event_type="provenance_review",
+            content="\n".join(lines),
+            metadata={
+                "phase": review_run.phase.value,
+                "agent_type": review_run.agent_type,
+                "score": score,
+                "passed": passed,
+                "issues": issues,
+            },
+        )
+
+    # ========================================================================
     # Logging and reporting
     # ========================================================================
 
@@ -1505,6 +3048,10 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
                 total.input_tokens += run.total_tokens.input_tokens
                 total.output_tokens += run.total_tokens.output_tokens
                 total.cache_read_tokens += run.total_tokens.cache_read_tokens
+                total.cache_creation_tokens += run.total_tokens.cache_creation_tokens
+                total.reasoning_output_tokens += (
+                    run.total_tokens.reasoning_output_tokens
+                )
         return total
 
     def _sum_cost(self, runs: List[AgentRun]) -> float:
@@ -1532,6 +3079,32 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
             },
         )
 
+        for msg in agent_run.messages:
+            self.encoding_db.log_event(
+                session_id=session_id,
+                event_type=f"agent_{msg.role}",
+                tool_name=msg.tool_name,
+                content=msg.content,
+                metadata={
+                    "agent_type": agent_run.agent_type,
+                    "phase": agent_run.phase.value,
+                    "summary": msg.summary,
+                    "tokens": {
+                        "input": msg.tokens.input_tokens if msg.tokens else 0,
+                        "output": msg.tokens.output_tokens if msg.tokens else 0,
+                        "cache_read": msg.tokens.cache_read_tokens if msg.tokens else 0,
+                        "cache_creation": (
+                            msg.tokens.cache_creation_tokens if msg.tokens else 0
+                        ),
+                        "reasoning_output": (
+                            msg.tokens.reasoning_output_tokens if msg.tokens else 0
+                        ),
+                    }
+                    if msg.tokens
+                    else None,
+                },
+            )
+
         phase_cost = (
             agent_run.total_cost
             if agent_run.total_cost is not None
@@ -1550,14 +3123,31 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
                 "agent_type": agent_run.agent_type,
                 "phase": agent_run.phase.value,
                 "error": agent_run.error,
+                "summary": (
+                    f"{agent_run.phase.value.upper()}: {len(agent_run.messages)} message(s)"
+                    + (f" - ${phase_cost:.2f}" if phase_cost > 0 else "")
+                ),
                 "total_tokens": {
                     "input": agent_run.total_tokens.input_tokens,
                     "output": agent_run.total_tokens.output_tokens,
+                    "cache_read": agent_run.total_tokens.cache_read_tokens,
+                    "cache_creation": agent_run.total_tokens.cache_creation_tokens,
+                    "reasoning_output": (
+                        agent_run.total_tokens.reasoning_output_tokens
+                    ),
                 }
                 if agent_run.total_tokens
                 else None,
                 "cost_usd": phase_cost,
             },
+        )
+
+        self._log_provider_reasoning(session_id, agent_run)
+        self._log_sidecar_trace(session_id, agent_run)
+        emit_agent_run(
+            citation=getattr(self, "_current_citation", None),
+            session_id=session_id,
+            agent_run=agent_run,
         )
 
     def _log_to_db(self, run: EncodingRun) -> None:
@@ -1571,6 +3161,7 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
                 input_tokens=run.total_tokens.input_tokens,
                 output_tokens=run.total_tokens.output_tokens,
                 cache_read_tokens=run.total_tokens.cache_read_tokens,
+                cache_creation_tokens=run.total_tokens.cache_creation_tokens,
             )
 
     def print_report(self, run: EncodingRun) -> str:

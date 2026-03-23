@@ -294,10 +294,13 @@ class SDKOrchestrator:
         try:
             # Create DB session FIRST so all agent data survives crashes
             if self.encoding_db:
+                from autorac import __version__
+
                 self.encoding_db.start_session(
                     model=self.model,
                     cwd=str(Path.cwd()),
                     session_id=run.session_id,
+                    autorac_version=__version__,
                 )
 
             # Pre-fetch statute text if not provided
@@ -1178,6 +1181,10 @@ Write .rac files to the output path. Run tests after each file."""
                 total.input_tokens += run.total_tokens.input_tokens
                 total.output_tokens += run.total_tokens.output_tokens
                 total.cache_read_tokens += run.total_tokens.cache_read_tokens
+                total.cache_creation_tokens += run.total_tokens.cache_creation_tokens
+                total.reasoning_output_tokens += (
+                    run.total_tokens.reasoning_output_tokens
+                )
         return total
 
     def _sum_cost(self, runs: List[AgentRun]) -> float:
@@ -1294,6 +1301,7 @@ Write .rac files to the output path. Run tests after each file."""
                 input_tokens=run.total_tokens.input_tokens,
                 output_tokens=run.total_tokens.output_tokens,
                 cache_read_tokens=run.total_tokens.cache_read_tokens,
+                cache_creation_tokens=run.total_tokens.cache_creation_tokens,
             )
 
     def print_report(self, run: OrchestratorRun) -> str:

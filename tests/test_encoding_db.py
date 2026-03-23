@@ -345,9 +345,12 @@ class TestSessionLogging:
 
     def test_start_session_generates_id(self, experiment_db):
         """Test that start_session generates a unique ID."""
-        session = experiment_db.start_session(model="test-model", cwd="/tmp")
+        session = experiment_db.start_session(
+            model="test-model", cwd="/tmp", autorac_version="0.2.1"
+        )
         assert session.id is not None
         assert len(session.id) == 8
+        assert session.autorac_version == "0.2.1"
 
     def test_start_session_with_custom_id(self, experiment_db):
         """Test that start_session accepts custom session_id."""
@@ -367,6 +370,7 @@ class TestSessionLogging:
         assert retrieved.id == "retrieve-test"
         assert retrieved.model == "opus-4.5"
         assert retrieved.cwd == "/workspace"
+        assert retrieved.autorac_version == ""
 
     def test_get_session_returns_none_for_unknown(self, experiment_db):
         """Test that get_session returns None for unknown ID."""

@@ -5,6 +5,7 @@
 from .backends import (
     AgentSDKBackend,
     ClaudeCodeBackend,
+    CodexCLIBackend,
     EncoderBackend,
     EncoderRequest,
     EncoderResponse,
@@ -33,6 +34,7 @@ from .metrics import (
     print_calibration_report,
     save_calibration_snapshot,
 )
+from .evals import EvalResult, EvalRunnerSpec, evaluate_artifact, parse_runner_spec, run_model_eval
 from .orchestrator import Orchestrator
 from .validator_pipeline import (
     PipelineResult,
@@ -64,10 +66,16 @@ __all__ = [
     # Encoder Backends
     "EncoderBackend",
     "ClaudeCodeBackend",
+    "CodexCLIBackend",
     "AgentSDKBackend",
     "EncoderRequest",
     "EncoderResponse",
     "PredictionScores",
+    "EvalRunnerSpec",
+    "EvalResult",
+    "parse_runner_spec",
+    "evaluate_artifact",
+    "run_model_eval",
     # Orchestrator
     "Orchestrator",
     # Calibration Metrics

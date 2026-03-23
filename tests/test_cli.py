@@ -8,7 +8,7 @@ All external dependencies are mocked.
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,6 +18,7 @@ from autorac.cli import (
     cmd_calibration,
     cmd_compile,
     cmd_coverage,
+    cmd_eval,
     cmd_encode,
     cmd_init,
     cmd_log,
@@ -122,6 +123,12 @@ class TestMain:
     def test_encode_command_dispatches(self):
         with patch("sys.argv", ["autorac", "encode", "26 USC 1"]):
             with patch("autorac.cli.cmd_encode") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
+    def test_eval_command_dispatches(self):
+        with patch("sys.argv", ["autorac", "eval", "26 USC 24(a)"]):
+            with patch("autorac.cli.cmd_eval") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
@@ -1357,11 +1364,7 @@ class TestCmdEncode:
         """Run cmd_encode with a mocked orchestrator, return (Orchestrator_cls, exit_code)."""
         mock_orchestrator = MagicMock()
         mock_orchestrator.print_report.return_value = "Report content"
-
-        async def mock_encode(**kwargs):
-            return mock_run
-
-        mock_orchestrator.encode = mock_encode
+        mock_orchestrator.encode = AsyncMock(return_value=mock_run)
 
         with patch(
             "autorac.harness.orchestrator.Orchestrator",
@@ -1387,6 +1390,17 @@ class TestCmdEncode:
         mock_cls, exit_code = self._run_encode(args, self._make_mock_run(success=True))
         assert exit_code == 0
 
+    def test_encode_leaf_citation_uses_parent_directory_output_path(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, citation="26 USC 24(a)")
+        mock_cls, exit_code = self._run_encode(args, self._make_mock_run(success=True))
+
+        assert exit_code == 0
+        mock_cls.return_value.encode.assert_awaited_once()
+        kwargs = mock_cls.return_value.encode.await_args.kwargs
+        assert kwargs["output_path"] == tmp_path / "statute" / "26" / "24"
+
     def test_encode_defaults_to_cli_backend(self, capsys, tmp_path):
         """No --backend flag defaults to CLI backend."""
         args = self._make_args(tmp_path, backend="cli")
@@ -1406,6 +1420,17 @@ class TestCmdEncode:
             model="test-model",
             db_path=tmp_path / "test.db",
             backend="api",
+            atlas_path=None,
+        )
+
+    def test_encode_openai_backend(self, capsys, tmp_path):
+        """--backend openai passes 'openai' to Orchestrator."""
+        args = self._make_args(tmp_path, backend="openai")
+        mock_cls, _ = self._run_encode(args, self._make_mock_run())
+        mock_cls.assert_called_once_with(
+            model="test-model",
+            db_path=tmp_path / "test.db",
+            backend="openai",
             atlas_path=None,
         )
 
@@ -1432,6 +1457,18 @@ class TestCmdEncode:
             with patch.dict("os.environ", env, clear=True):
                 with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
                     Orchestrator(backend="api")
+
+    def test_encode_openai_backend_no_key_errors(self, tmp_path):
+        """OpenAI backend without OPENAI_API_KEY raises clear error."""
+        from autorac.harness.orchestrator import Orchestrator
+
+        with patch.dict("os.environ", {}, clear=True):
+            import os
+
+            env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+            with patch.dict("os.environ", env, clear=True):
+                with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+                    Orchestrator(backend="openai")
 
     def test_encode_backend_shown_in_output(self, capsys, tmp_path):
         """Backend name is printed in the output."""
@@ -1541,7 +1578,7 @@ class TestSessionCommands:
     def test_sessions_list(self, capsys, tmp_path):
         db_path = tmp_path / "test.db"
         db = EncodingDB(db_path)
-        session = db.start_session(model="test-model")
+        session = db.start_session(model="test-model", autorac_version="0.2.1")
         db.end_session(session.id)
 
         args = MagicMock()
@@ -1550,6 +1587,7 @@ class TestSessionCommands:
         cmd_sessions(args)
         captured = capsys.readouterr()
         assert "ended" in captured.out
+        assert "0.2.1" in captured.out
 
     def test_sessions_empty(self, capsys, tmp_path):
         db_path = tmp_path / "test.db"
@@ -1611,6 +1649,7 @@ class TestSessionCommands:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["session"]["id"] == session.id
+        assert "autorac_version" in output["session"]
 
     def test_session_stats(self, capsys, tmp_path):
         db_path = tmp_path / "test.db"

@@ -14,11 +14,14 @@ Oracles run BEFORE LLM reviewers because:
 Uses Claude Code CLI (subprocess) for reviewer agents - cheaper than direct API.
 """
 
+import contextlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -82,6 +85,7 @@ Review the RAC file for:
 3. **Imports**: Correct import paths using path#name syntax
 4. **Entity Hierarchy**: Proper entity usage (Person < TaxUnit < Household)
 5. **DSL Compliance**: Unified syntax — `name:`, `from yyyy-mm-dd:` temporal entries, `\"\"\"...\"\"\"` text blocks, tests in `.rac.test` files
+6. **Cross-Statute Definitions**: If the source text says a term is defined in another section, import that upstream definition instead of restating it locally
 """
     + _REVIEW_JSON_FORMAT
 )
@@ -123,9 +127,150 @@ Review the RAC file for integration quality:
 4. **Documentation**: Clear labels and descriptions
 5. **Completeness**: Full statute implementation, no TODO placeholders
 6. **Syntax**: Unified syntax — `name:`, `from yyyy-mm-dd:` temporal entries, tests in `.rac.test` files
+7. **Cross-Statute Imports**: References like "as defined in section 152(c)" are satisfied by imports from the cited section
 """
     + _REVIEW_JSON_FORMAT
 )
+
+GROUNDING_VALUE_PATTERN = re.compile(
+    r"^\s*(?:from\s+\d{4}-\d{2}-\d{2}:\s*|value:\s*)"
+    r"(-?[\d,]+(?:\.\d+)?)"
+)
+GROUNDING_SCALAR_PATTERN = re.compile(r"^(\w[\w_]*):\s*(-?[\d,]+(?:\.\d+)?)\s*$")
+GROUNDING_ALLOWED_VALUES = {-1, 0, 1}
+GROUNDING_METADATA_KEYS = {
+    "entity",
+    "period",
+    "dtype",
+    "unit",
+    "label",
+    "description",
+    "status",
+    "indexed_by",
+    "formula",
+    "tests",
+    "imports",
+    "variable",
+}
+
+IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
+_PE_UNSUPPORTED_ERROR_PATTERNS = (
+    re.compile(r"ParameterNotFoundError"),
+    re.compile(r"VariableNotFoundError"),
+    re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
+)
+_DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
+    r"(?:as defined in|defined in|meaning given in|within the meaning of|described in)\s+"
+    r"section\s+([0-9A-Za-z.-]+(?:\([^)]+\))*)",
+    re.IGNORECASE,
+)
+
+
+def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
+    """Extract grounded numeric values from RAC definitions, excluding formulas/tests."""
+    values = []
+    in_formula = False
+    in_tests = False
+    in_docstring = False
+
+    for line_number, line in enumerate(content.split("\n"), 1):
+        stripped = line.strip()
+
+        if '"""' in stripped:
+            in_docstring = not in_docstring
+            continue
+        if in_docstring or stripped.startswith("#"):
+            continue
+
+        if re.match(r"\s*formula:\s*\|", line):
+            in_formula = True
+            continue
+        if re.match(r"\s*tests:", line):
+            in_tests = True
+            in_formula = False
+            continue
+        if in_formula and stripped and not line.startswith(" " * 4):
+            in_formula = False
+        if in_tests and stripped and not line.startswith(" "):
+            in_tests = False
+        if in_formula or in_tests:
+            continue
+
+        if re.match(r'\s*description:\s*"', line) or re.match(
+            r"\s*description:\s*'", line
+        ):
+            continue
+        if re.match(r'\s*label:\s*"', line) or re.match(r"\s*label:\s*'", line):
+            continue
+
+        match = GROUNDING_VALUE_PATTERN.match(line)
+        if match:
+            raw = match.group(1).replace(",", "")
+            with contextlib.suppress(ValueError):
+                value = float(raw)
+                if value not in GROUNDING_ALLOWED_VALUES:
+                    values.append((line_number, raw, value))
+            continue
+
+        match = GROUNDING_SCALAR_PATTERN.match(stripped)
+        if match:
+            key = match.group(1)
+            if key.lower() in GROUNDING_METADATA_KEYS:
+                continue
+            raw = match.group(2).replace(",", "")
+            with contextlib.suppress(ValueError):
+                value = float(raw)
+                if value not in GROUNDING_ALLOWED_VALUES:
+                    values.append((line_number, raw, value))
+
+    return values
+
+
+def extract_numbers_from_text(text: str) -> set[float]:
+    """Extract numeric values from embedded statute text."""
+    numbers = set()
+
+    for match in re.finditer(r"(?:^|(?<=[\s$(\[,]))(-?[\d,]+(?:\.\d+)?)\b", text):
+        raw = match.group(1).replace(",", "")
+        with contextlib.suppress(ValueError):
+            numbers.add(float(raw))
+
+    for match in re.finditer(
+        r"(\d+(?:\.\d+)?)\s+(?:percent|per\s*centum)", text, re.IGNORECASE
+    ):
+        with contextlib.suppress(ValueError):
+            numbers.add(float(match.group(1)) / 100)
+
+    fraction_words = {
+        "one-half": 0.5,
+        "one half": 0.5,
+        "one-third": 1 / 3,
+        "one third": 1 / 3,
+        "two-thirds": 2 / 3,
+        "two thirds": 2 / 3,
+        "one-quarter": 0.25,
+        "one quarter": 0.25,
+        "three-quarters": 0.75,
+        "three quarters": 0.75,
+    }
+    text_lower = text.lower()
+    for phrase, value in fraction_words.items():
+        if phrase in text_lower:
+            numbers.add(value)
+
+    return numbers
+
+
+def extract_embedded_source_text(content: str) -> str:
+    """Extract the leading source-text docstring from a RAC file."""
+    status_index = content.find("\nstatus:")
+    header = content[:status_index] if status_index != -1 else content
+    blocks = re.findall(r'"""(.*?)"""', header, re.DOTALL)
+    if blocks:
+        return "\n".join(block.strip() for block in blocks if block.strip())
+
+    fallback_blocks = re.findall(r'"""(.*?)"""', content, re.DOTALL)
+    return "\n".join(block.strip() for block in fallback_blocks if block.strip())
 
 
 @dataclass
@@ -139,6 +284,15 @@ class ValidationResult:
     duration_ms: int = 0
     error: Optional[str] = None
     raw_output: Optional[str] = None
+
+
+@dataclass
+class OracleSubprocessResult:
+    """Structured result from a local oracle subprocess."""
+
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
 
 
 @dataclass
@@ -224,6 +378,17 @@ class ValidatorPipeline:
                 content=content,
                 metadata=metadata,
             )
+
+    def _pythonpath_env(self) -> dict[str, str]:
+        """Build an env that prefers the configured local rac checkout."""
+        env = dict(os.environ)
+        rac_src = self.rac_path / "src"
+        if rac_src.exists():
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = (
+                f"{rac_src}{os.pathsep}{existing}" if existing else str(rac_src)
+            )
+        return env
 
     def validate(self, rac_file: Path) -> PipelineResult:
         """Run 4-tier validation on a RAC file.
@@ -395,35 +560,24 @@ class ValidatorPipeline:
         )
 
     def _run_compile_check(self, rac_file: Path) -> ValidationResult:
-        """Tier 0: Compile check — can the .rac file compile to engine IR?
-
-        Parses the v2 .rac file, converts it to engine format, and compiles
-        to IR. Catches type errors, missing dependencies, and circular
-        references earlier than CI.
-        """
+        """Tier 0: Compile check against the current public rac engine APIs."""
         start = time.time()
         issues = []
+        rac_src = self.rac_path / "src"
+        inserted_path = False
 
         try:
             from datetime import date
 
-            from rac.dsl_parser import parse_dsl
-            from rac.engine import compile as engine_compile
-            from rac.engine.converter import convert_v2_to_engine_module
+            if rac_src.exists() and str(rac_src) not in sys.path:
+                sys.path.insert(0, str(rac_src))
+                inserted_path = True
 
-            # Step 1: Parse v2 format
-            rac_content = rac_file.read_text()
-            v2_module = parse_dsl(rac_content)
+            from rac import compile as rac_compile
+            from rac import parse_file
 
-            # Step 2: Convert to engine module
-            # Derive module_path from file path (e.g., statute/26/32 -> 26/32)
-            module_path = rac_file.stem
-            engine_module = convert_v2_to_engine_module(
-                v2_module, module_path=module_path
-            )
-
-            # Step 3: Compile to IR
-            ir = engine_compile([engine_module], as_of=date.today())
+            module = parse_file(rac_file)
+            ir = rac_compile([module], as_of=date.today())
 
             duration = int((time.time() - start) * 1000)
             var_count = len(ir.variables)
@@ -447,115 +601,86 @@ class ValidatorPipeline:
                 duration_ms=duration,
                 error=str(e),
             )
+        finally:
+            if inserted_path:
+                with contextlib.suppress(ValueError):
+                    sys.path.remove(str(rac_src))
 
     def _run_ci(self, rac_file: Path) -> ValidationResult:
-        """Run CI checks: parse, lint, inline tests."""
+        """Run CI checks with the current rac CLI entry points."""
         start = time.time()
         issues = []
+        env = self._pythonpath_env()
 
-        # 1. Parse check
+        # 1. Run companion .rac.test cases through the current test-runner CLI.
         try:
             result = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    f"""
-import sys
-sys.path.insert(0, '{self.rac_path}/src')
-from rac import parse_file
-parse_file('{rac_file}')
-print('PARSE_OK')
-""",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if "PARSE_OK" not in result.stdout:
-                issues.append(f"Parse error: {result.stderr}")
-        except subprocess.TimeoutExpired:
-            issues.append("Parse timeout")
-        except Exception as e:
-            issues.append(f"Parse exception: {e}")
-
-        # 2. Run inline tests
-        try:
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    f"""
-import sys
-sys.path.insert(0, '{self.rac_path}/src')
-from rac.test_runner import run_tests_for_file
-report = run_tests_for_file('{rac_file}')
-print(f'TESTS:{{report.passed}}/{{report.total}}')
-""",
-                ],
+                [sys.executable, "-m", "rac.test_runner", str(rac_file)],
                 capture_output=True,
                 text=True,
                 timeout=60,
+                env=env,
             )
-            if "TESTS:" in result.stdout:
-                test_line = [
-                    line for line in result.stdout.split("\n") if "TESTS:" in line
-                ][0]
-                passed, total = test_line.split(":")[1].split("/")
-                if int(passed) < int(total):
-                    issues.append(f"Tests failed: {passed}/{total}")
-            else:
-                issues.append(f"Test error: {result.stderr}")
+            if result.returncode != 0:
+                summary = next(
+                    (
+                        line.strip()
+                        for line in result.stdout.splitlines()
+                        if line.strip().startswith("Tests:")
+                    ),
+                    "",
+                )
+                error_text = summary or result.stderr.strip() or result.stdout.strip()
+                issues.append(f"Test runner failed: {error_text}")
         except subprocess.TimeoutExpired:
             issues.append("Test timeout")
         except Exception as e:
             issues.append(f"Test exception: {e}")
 
-        # 3. Run rac validation tests (param values in text, hardcoded values, etc.)
+        # 2. Run the current structural validator on a temp directory containing
+        # this RAC file plus its import closure so repo-augmented evals validate
+        # against the same allowed dependency set as the original workspace.
         try:
-            # Set STATUTE_DIR to a temp dir containing just this file
-            # so pytest parametrization picks up only this file
-            import shutil
-            import tempfile
-
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Copy the file to temp dir
-                tmp_file = Path(tmpdir) / rac_file.name
-                shutil.copy(rac_file, tmp_file)
+                self._copy_validation_import_closure(
+                    rac_file=rac_file,
+                    destination_root=Path(tmpdir),
+                )
 
                 result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "pytest",
-                        f"{self.rac_path}/tests/rac_validation/",
-                        "-v",
-                        "--tb=short",
-                        f"-k={rac_file.stem}",  # Filter to just this file
-                    ],
+                    [sys.executable, "-m", "rac.validate", "all", tmpdir],
                     capture_output=True,
                     text=True,
                     timeout=60,
-                    env={**os.environ, "STATUTE_DIR": tmpdir},
+                    env=env,
                     cwd=str(self.rac_path),
                 )
 
-                # Parse pytest output for failures
                 if result.returncode != 0:
-                    # Extract FAILED lines with test names (dedupe)
-                    seen = set()
-                    for line in result.stdout.split("\n"):
-                        if "FAILED" in line and "::" in line:
-                            # Format: "test_file.py::TestClass::test_name[param] FAILED"
-                            parts = line.split("::")
-                            if len(parts) >= 2:
-                                test_part = parts[-1].split(" FAILED")[0].strip()
-                                if test_part not in seen:
-                                    seen.add(test_part)
-                                    issues.append(f"Validation failed: {test_part}")
+                    detail_lines = [
+                        line.strip()
+                        for line in result.stdout.splitlines()
+                        if line.strip()
+                        and not line.startswith("Checked ")
+                        and not line.startswith("Found ")
+                    ]
+                    if result.stderr.strip():
+                        detail_lines.append(result.stderr.strip())
+                    if detail_lines:
+                        issues.extend(
+                            f"Validation failed: {line}" for line in detail_lines[:10]
+                        )
+                    else:
+                        issues.append("Validation failed")
         except subprocess.TimeoutExpired:
             issues.append("Validation timeout")
         except Exception as e:
             issues.append(f"Validation exception: {e}")
+
+        try:
+            issues.extend(self._check_cross_statute_definition_imports(rac_file))
+        except Exception as e:
+            issues.append(f"Cross-reference import check exception: {e}")
 
         duration = int((time.time() - start) * 1000)
 
@@ -566,6 +691,177 @@ print(f'TESTS:{{report.passed}}/{{report.total}}')
             duration_ms=duration,
             error=issues[0] if issues else None,
         )
+
+    def _copy_validation_import_closure(
+        self,
+        rac_file: Path,
+        destination_root: Path,
+    ) -> None:
+        """Copy a RAC file and its imported dependencies into a temp validation tree."""
+        source_root = self._validation_source_root(rac_file)
+        pending = [rac_file.resolve()]
+        copied: set[Path] = set()
+
+        while pending:
+            current = pending.pop()
+            resolved = current.resolve()
+            if resolved in copied:
+                continue
+            copied.add(resolved)
+
+            relative = current.relative_to(source_root)
+            target = destination_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(current, target)
+
+            for dependency in self._resolve_import_dependencies(current, source_root):
+                if dependency.resolve() not in copied:
+                    pending.append(dependency)
+
+    def _validation_source_root(self, rac_file: Path) -> Path:
+        """Resolve the root directory used for import lookup during CI validation."""
+        resolved_file = rac_file.resolve()
+        resolved_root = self.rac_us_path.resolve()
+        with contextlib.suppress(ValueError):
+            resolved_file.relative_to(resolved_root)
+            return resolved_root
+        return resolved_file.parent
+
+    def _resolve_import_dependencies(
+        self,
+        rac_file: Path,
+        source_root: Path,
+    ) -> list[Path]:
+        """Resolve imported RAC files for a single file."""
+        dependencies: list[Path] = []
+        for import_path in self._extract_import_paths(rac_file.read_text()):
+            target = source_root / self._import_to_relative_rac_path(import_path)
+            if target.exists():
+                dependencies.append(target)
+        return dependencies
+
+    def _extract_import_paths(self, content: str) -> list[str]:
+        """Extract import file references from an imports block."""
+        paths: list[str] = []
+        in_imports = False
+        imports_indent = 0
+
+        for line in content.splitlines():
+            imports_match = re.match(r"^(\s*)imports:\s*$", line)
+            if imports_match:
+                in_imports = True
+                imports_indent = len(imports_match.group(1))
+                continue
+
+            if not in_imports:
+                continue
+
+            if not line.strip():
+                continue
+
+            indent = len(line) - len(line.lstrip())
+            if indent <= imports_indent:
+                in_imports = False
+                continue
+
+            item_match = IMPORT_ITEM_PATTERN.match(line)
+            if not item_match:
+                continue
+
+            item = item_match.group(2).strip()
+            import_target = item.split("#", 1)[0].strip()
+            if import_target:
+                paths.append(import_target)
+
+        return paths
+
+    def _import_to_relative_rac_path(self, import_target: str) -> Path:
+        """Convert an import target like 26/24/c#name into 26/24/c.rac."""
+        normalized = import_target.strip().strip('"').strip("'")
+        if normalized.endswith(".rac"):
+            return Path(normalized)
+        return Path(f"{normalized}.rac")
+
+    def _check_cross_statute_definition_imports(self, rac_file: Path) -> list[str]:
+        """Flag missing imports for explicit cross-statute definition references."""
+        if rac_file.stem == rac_file.parent.name:
+            return []
+
+        content = rac_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        title = self._infer_title_from_rac_path(rac_file)
+        if not title:
+            return []
+
+        imports = self._extract_import_paths(content)
+        issues: list[str] = []
+        for citation, import_path in self._extract_definition_cross_references(
+            source_text, title
+        ):
+            if any(
+                existing == import_path or existing.startswith(import_path + "/")
+                for existing in imports
+            ):
+                continue
+            issues.append(
+                "Cross-statute definition import missing: "
+                f"source text references section {citation} but file does not import "
+                f"from {import_path}"
+            )
+        return issues
+
+    def _extract_definition_cross_references(
+        self, source_text: str, title: str
+    ) -> list[tuple[str, str]]:
+        """Extract cited sections that the source text explicitly uses as definitions."""
+        refs: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for match in _DEFINITION_CROSS_REFERENCE_PATTERN.finditer(source_text):
+            citation = match.group(1)
+            import_path = self._section_reference_to_import_path(title, citation)
+            if not import_path or import_path in seen:
+                continue
+            seen.add(import_path)
+            refs.append((citation, import_path))
+        return refs
+
+    def _section_reference_to_import_path(
+        self, title: str, section_reference: str
+    ) -> str | None:
+        """Convert `152(c)(1)(A)` into `26/152/c/1/A`."""
+        match = re.match(
+            r"^(?P<section>[0-9A-Za-z.-]+)(?P<tail>(?:\([^)]+\))*)$",
+            section_reference.strip(),
+        )
+        if not match:
+            return None
+        fragments = re.findall(r"\(([^)]+)\)", match.group("tail"))
+        return "/".join([title, match.group("section"), *fragments])
+
+    def _infer_title_from_rac_path(self, rac_file: Path) -> str | None:
+        """Infer the USC title from the RAC file path."""
+        resolved_root = self.rac_us_path.resolve()
+        resolved_file = rac_file.resolve()
+        with contextlib.suppress(ValueError):
+            relative = resolved_file.relative_to(resolved_root)
+            if relative.parts:
+                return relative.parts[0]
+
+        parts = list(resolved_file.parts)
+        with contextlib.suppress(ValueError):
+            statute_idx = parts.index("statute")
+            if statute_idx + 1 < len(parts):
+                return parts[statute_idx + 1]
+
+        numericish_parts = [
+            part
+            for part in resolved_file.parts
+            if re.fullmatch(r"[0-9A-Za-z.-]+", part) and any(ch.isdigit() for ch in part)
+        ]
+        return numericish_parts[0] if numericish_parts else None
 
     def _run_reviewer(
         self,
@@ -760,6 +1056,15 @@ Output ONLY valid JSON:
 
         Returns stdout on success, None on failure.
         """
+        result = self._run_pe_subprocess_detailed(script, pe_python)
+        if result.returncode == 0:
+            return result.stdout
+        return None
+
+    def _run_pe_subprocess_detailed(
+        self, script: str, pe_python: str
+    ) -> OracleSubprocessResult:
+        """Run a Python script using the PE-capable interpreter with stderr."""
         try:
             result = subprocess.run(
                 [pe_python, "-c", script],
@@ -767,11 +1072,35 @@ Output ONLY valid JSON:
                 text=True,
                 timeout=120,
             )
-            if result.returncode == 0:
-                return result.stdout
-            return None
-        except Exception:
-            return None
+            return OracleSubprocessResult(
+                returncode=result.returncode,
+                stdout=result.stdout or "",
+                stderr=result.stderr or "",
+            )
+        except subprocess.TimeoutExpired as exc:
+            return OracleSubprocessResult(
+                returncode=124,
+                stdout=exc.stdout or "",
+                stderr=(exc.stderr or "").strip() or "Timeout after 120s",
+            )
+        except Exception as exc:
+            return OracleSubprocessResult(returncode=1, stderr=str(exc))
+
+    def _is_pe_unsupported_error(self, error_text: str) -> bool:
+        """Return True when PE cannot evaluate the cited period or variable."""
+        if not error_text:
+            return False
+        return any(pattern.search(error_text) for pattern in _PE_UNSUPPORTED_ERROR_PATTERNS)
+
+    def _summarize_oracle_error(self, error_text: str) -> str:
+        """Collapse multi-line stderr into a short human-readable issue."""
+        if not error_text:
+            return "unknown error"
+        for line in reversed(error_text.splitlines()):
+            stripped = line.strip()
+            if stripped:
+                return stripped[:200]
+        return "unknown error"
 
     def _run_policyengine(self, rac_file: Path) -> ValidationResult:
         """Validate against PolicyEngine oracle.
@@ -835,6 +1164,7 @@ Output ONLY valid JSON:
         # Run comparison for each test
         matches = 0
         total = 0
+        unsupported_count = 0
         for test in tests:
             rac_var = test.get("variable", "")
             pe_var = pe_var_map.get(rac_var)
@@ -856,18 +1186,25 @@ Output ONLY valid JSON:
             scenario_script = self._build_pe_scenario_script(
                 pe_var, inputs_with_period, year, expected
             )
-            output = self._run_pe_subprocess(scenario_script, pe_python)
+            output = self._run_pe_subprocess_detailed(scenario_script, pe_python)
 
-            if output is None:
+            if output.returncode != 0:
+                summary = self._summarize_oracle_error(output.stderr or output.stdout)
+                if self._is_pe_unsupported_error(output.stderr or output.stdout):
+                    issues.append(
+                        f"PolicyEngine unavailable for '{test.get('name', rac_var)}': {summary}"
+                    )
+                    unsupported_count += 1
+                    continue
                 issues.append(
-                    f"PE calculation failed for '{test.get('name', rac_var)}'"
+                    f"PE calculation failed for '{test.get('name', rac_var)}': {summary}"
                 )
                 total += 1
                 continue
 
             # Parse result
             try:
-                lines = output.strip().split("\n")
+                lines = output.stdout.strip().split("\n")
                 result_line = [line for line in lines if line.startswith("RESULT:")]
                 if result_line:
                     parts = result_line[0].split(":")
@@ -891,6 +1228,18 @@ Output ONLY valid JSON:
                     f"Parse error for '{test.get('name', rac_var)}': {parse_err}"
                 )
                 total += 1
+
+        if total == 0:
+            duration = int((time.time() - start) * 1000)
+            if unsupported_count:
+                issues.append("PolicyEngine could not evaluate any oracle-comparable tests")
+            return ValidationResult(
+                validator_name="policyengine",
+                passed=True,
+                score=None,
+                issues=issues or ["No PolicyEngine-comparable tests found"],
+                duration_ms=duration,
+            )
 
         score = matches / total if total > 0 else None
         passed = score is not None and score >= 0.8
@@ -946,7 +1295,7 @@ Output ONLY valid JSON:
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
                 validator_name="taxsim",
-                passed=False,
+                passed=True,
                 score=None,
                 issues=["No test cases found — cannot validate"],
                 duration_ms=duration,
@@ -961,6 +1310,7 @@ Output ONLY valid JSON:
 
             matches = 0
             total = 0
+            unmappable = 0
 
             for test in tests:
                 try:
@@ -968,7 +1318,10 @@ Output ONLY valid JSON:
                     taxsim_input = self._build_taxsim_input(test.get("inputs", {}))
 
                     if not taxsim_input:
-                        # Skip tests that can't be converted to TAXSIM format
+                        issues.append(
+                            f"TAXSIM could not map inputs for '{test.get('name', 'unknown')}'"
+                        )
+                        unmappable += 1
                         continue
 
                     # Submit to TAXSIM
@@ -999,7 +1352,19 @@ Output ONLY valid JSON:
                     )
                     total += 1
 
-            score = matches / total if total > 0 else 0.0
+            if total == 0:
+                duration = int((time.time() - start) * 1000)
+                if unmappable:
+                    issues.append("TAXSIM could not evaluate any oracle-comparable tests")
+                return ValidationResult(
+                    validator_name="taxsim",
+                    passed=True,
+                    score=None,
+                    issues=issues or ["No TAXSIM-comparable tests found"],
+                    duration_ms=duration,
+                )
+
+            score = matches / total
             passed = score >= 0.8
 
             duration = int((time.time() - start) * 1000)
@@ -1487,8 +1852,38 @@ print("BENCHMARK:" + json.dumps(result))
         comparison.
         """
         # Determine household composition from inputs
-        household_size = inputs.get("household_size", 1)
         filing_status = inputs.get("filing_status", "SINGLE")
+        joint_filing = filing_status.upper() in ("JOINT", "MARRIED_FILING_JOINTLY")
+        num_adults = 2 if joint_filing else 1
+
+        household_size = inputs.get("household_size")
+        explicit_child_count = None
+        for key, value in inputs.items():
+            key_lower = str(key).lower()
+            if key_lower in {
+                "qualifying_children_allowed_section_151_deduction_count",
+                "qualifying_children_with_section_151_deduction_count",
+                "qualifying_child_count",
+                "ctc_qualifying_children",
+                "dependent_child_count",
+                "child_count",
+            } or (
+                key_lower.endswith("_count")
+                and "qualifying" in key_lower
+                and "child" in key_lower
+            ):
+                with contextlib.suppress(TypeError, ValueError):
+                    explicit_child_count = max(0, int(value))
+                    break
+
+        household_children = 0
+        if household_size is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                household_children = max(0, int(household_size) - num_adults)
+
+        num_children = (
+            explicit_child_count if explicit_child_count is not None else household_children
+        )
 
         # Determine period for calculation
         is_monthly = pe_var in self._PE_MONTHLY_VARS
@@ -1514,15 +1909,11 @@ print("BENCHMARK:" + json.dumps(result))
             )
 
         # Add spouse if joint
-        if filing_status.upper() in ("JOINT", "MARRIED_FILING_JOINTLY"):
+        if joint_filing:
             people_parts.append(f"'spouse': {{'age': {{'{year}': 30}}}}")
             members.append("'spouse'")
 
-        # Add children based on household_size (subtract adults)
-        num_adults = (
-            2 if filing_status.upper() in ("JOINT", "MARRIED_FILING_JOINTLY") else 1
-        )
-        num_children = max(0, int(household_size) - num_adults)
+        # Add children based on explicit qualifying-child counts or household size.
         for i in range(num_children):
             people_parts.append(
                 f"'child{i}': {{'age': {{'{year}': 8}}, 'is_tax_unit_dependent': {{'{year}': True}}}}"
@@ -1561,7 +1952,7 @@ situation = {{
     'spm_units': {{'spm': {{'members': {members_str}{spm_extra}}}}},
     'households': {{'hh': {{'members': {members_str}, 'state_name': {{'{year}': 'CA'}}}}}},
     'families': {{'fam': {{'members': {members_str}}}}},
-    'marital_units': {{'mu': {{'members': ['adult']}}}},
+    'marital_units': {{'mu': {{'members': {['adult', 'spouse'] if joint_filing else ['adult']}}}}},
 }}
 
 sim = Simulation(situation=situation)

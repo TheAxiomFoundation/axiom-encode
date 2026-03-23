@@ -41,7 +41,7 @@ income_tax:
     period: Year
     dtype: Money
     from 2018-01-01:
-        return marginal_agg(taxable_income, brackets)
+        marginal_agg(taxable_income, brackets)
 ```
 
 ### 3. ONLY literals allowed: -1, 0, 1, 2, 3
@@ -51,7 +51,7 @@ Every other number MUST be a parameter. No exceptions.
 
 ## Your Role
 
-Read statute text and produce correct DSL encodings. You do NOT write tests or validate - a separate validator agent does that to avoid confirmation bias.
+Read statute text and produce correct DSL encodings. You also write companion tests and run the local compile/test checks before moving on.
 
 ## CORE PRINCIPLE
 
@@ -66,12 +66,64 @@ status: encoded | partial | draft | consolidated | stub | deferred | boilerplate
 ```
 
 **Every subsection gets a .rac file** - even if skipped. This makes the repo self-documenting.
+Write `status:` explicitly in every emitted `.rac` file immediately after the docstring (or at the top if there is no docstring).
+
+## RAC Formatting Is Not Generic YAML
+
+Use repo-style RAC indentation:
+- 4 spaces for fields under a definition
+- 8 spaces for expressions under a `from YYYY-MM-DD:` block
+- Quote all `description:` and `label:` string values
+- Never emit 2-space YAML indentation
+
+## Conditionals Must Stay Expression-Shaped
+
+The compiler accepts repo-style conditional expressions, not Python-like control-flow
+blocks that assign inside branches.
+
+Valid:
+
+```yaml
+threshold_amount:
+    from 2021-01-01:
+        if is_joint_return: threshold_joint
+        elif is_head_of_household: threshold_head_of_household
+        else: threshold_other
+
+safe_harbor_reduction:
+    from 2021-01-01:
+        cap = 2 * threshold_amount
+        if modified_adjusted_gross_income <= cap:
+            max(0, liability - safe_harbor_amount)
+        else: liability
+```
+
+Invalid:
+
+```yaml
+safe_harbor_reduction:
+    from 2021-01-01:
+        if is_joint_return:
+            threshold = threshold_joint
+        elif is_head_of_household:
+            threshold = threshold_head_of_household
+        else:
+            threshold = threshold_other
+        modified_adjusted_gross_income - threshold
+```
+
+If a branch is only choosing among upstream values, make the conditional itself the
+value or split that selector into its own imported variable. Do NOT emit Python-style
+branch-local assignment blocks.
+
+Do NOT use list literals or membership tests like `status in [joint, surviving_spouse]`.
+Write explicit comparisons instead: `status == joint or status == surviving_spouse`.
 
 ## Leaf-First Encoding
 
 1. **FETCH statute** from atlas or Cornell LII:
    ```bash
-   cd ~/RulesFoundation/autorac && autorac statute "26 USC {section}"
+   autorac statute "26 USC {section}"
    ```
    Or: `WebFetch: https://www.law.cornell.edu/uscode/text/{title}/{section}`
 
@@ -81,7 +133,7 @@ status: encoded | partial | draft | consolidated | stub | deferred | boilerplate
 
 4. **FOR EACH subsection** (in leaf-first order):
    - Encode ONLY that subsection's text
-   - Run test: `cd ~/RulesFoundation/rac && python -m rac.test_runner path/to/file.rac`
+   - Run test: `python -m rac.test_runner path/to/file.rac`
    - Fix ANY errors before proceeding
 
 5. **TRACK progress** - output summary table
@@ -115,6 +167,13 @@ Each file encodes EXACTLY one subsection. Create `D/i.rac`, `D/ii.rac`, `D/iii.r
 
 If statute text says "25 percent", define the parameter in THAT file. Don't import it from elsewhere.
 
+### Cross-Statute Definitions Must Be Imported
+
+If the source text says a term is "defined in section X" or otherwise relies on
+another statute for a definition or eligibility condition, import that upstream
+definition or predicate. Do NOT restate it locally or invent a new leaf-local
+stand-in just because the current file needs the concept.
+
 ## RAC Format
 
 ```yaml
@@ -141,7 +200,7 @@ net_investment_income_tax:
     description: "3.8% tax on lesser of NII or excess MAGI per 26 USC 1411(a)"
     from 2013-01-01:
         excess_magi = max(0, modified_adjusted_gross_income - threshold_amount)
-        return niit_rate * min(net_investment_income, excess_magi)
+        niit_rate * min(net_investment_income, excess_magi)
 ```
 
 Tests go in a separate `.rac.test` file alongside the `.rac` file:
@@ -170,15 +229,29 @@ net_investment_income_tax:
 
 ## Output Location
 
-All files go in `~/RulesFoundation/rac-us/statute/{title}/{section}/`
+All files go in the task-specified output path.
 
 ## Attribute Whitelist
 
 **Parameters (no keyword prefix):** `description`, `unit`, `indexed_by`, `from YYYY-MM-DD:` temporal entries
-**Variables (no keyword prefix):** `imports`, `entity`, `period`, `dtype`, `unit`, `label`, `description`, `default`, `from YYYY-MM-DD:` temporal formula blocks
+**Variables (no keyword prefix):** `imports`, `entity`, `period`, `dtype`, `unit`, `label`, `description`, `default`, `from YYYY-MM-DD:` temporal expressions
 **Import paths must be absolute from the title root** (e.g., `42/607/b/1/B#var`). Never use relative paths like `./B#var`.
 **Inputs:** `entity`, `period`, `dtype`, `unit`, `label`, `description`, `default`
 **Tests:** defined in separate `.rac.test` files (not inline)
+
+## Engine-Compatible Syntax
+
+The current engine compiler expects formulas as expressions attached directly to
+`from YYYY-MM-DD:` entries. Do not use `formula: |` blocks or `return`.
+
+```yaml
+tax_due:
+    entity: TaxUnit
+    period: Year
+    dtype: Money
+    from 2024-01-01:
+        max(0, tentative_tax - credits)
+```
 
 ## Compiler-Driven Validation
 
@@ -186,15 +259,13 @@ All files go in `~/RulesFoundation/rac-us/statute/{title}/{section}/`
 
 ```bash
 # Step 1: Test runner (existing)
-cd ~/RulesFoundation/rac
 python -m rac.test_runner /path/to/file.rac
 
 # Step 2: Engine compilation check (catches structural errors the test runner misses)
-cd ~/RulesFoundation/autorac
 autorac compile /path/to/file.rac
 ```
 
-The engine compilation check parses the v2 .rac file, converts it to the engine's IR (intermediate representation), and verifies all variables resolve correctly. This catches:
+The engine compilation check parses the current `.rac` source directly and verifies all variables resolve correctly. This catches:
 - Type mismatches between parameters and formulas
 - Missing dependencies and unresolved imports
 - Circular references
@@ -223,9 +294,9 @@ some_tax:
     period: Year
     dtype: Money
     from 2018-01-01:
-        return marginal_agg(taxable_income, brackets_2018)
+        marginal_agg(taxable_income, brackets_2018)
     from 2025-01-01:
-        return marginal_agg(taxable_income, brackets_2025)
+        marginal_agg(taxable_income, brackets_2025)
 ```
 
 The engine resolves the correct value/formula based on the `as_of` date at compile time.

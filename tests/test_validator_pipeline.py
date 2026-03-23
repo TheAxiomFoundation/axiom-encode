@@ -27,6 +27,7 @@ from autorac.harness.validator_pipeline import (
     _REVIEW_JSON_FORMAT,
     FORMULA_REVIEWER_PROMPT,
     INTEGRATION_REVIEWER_PROMPT,
+    OracleSubprocessResult,
     PARAMETER_REVIEWER_PROMPT,
     RAC_REVIEWER_PROMPT,
     run_claude_code,
@@ -149,6 +150,7 @@ class TestPromptConstants:
     def test_rac_reviewer_prompt(self):
         assert "structure" in RAC_REVIEWER_PROMPT.lower()
         assert "score" in RAC_REVIEWER_PROMPT
+        assert "defined in another section" in RAC_REVIEWER_PROMPT.lower()
 
     def test_formula_reviewer_prompt(self):
         assert "formula" in FORMULA_REVIEWER_PROMPT.lower()
@@ -158,6 +160,7 @@ class TestPromptConstants:
 
     def test_integration_reviewer_prompt(self):
         assert "integration" in INTEGRATION_REVIEWER_PROMPT.lower()
+        assert "as defined in section 152(c)" in INTEGRATION_REVIEWER_PROMPT
 
 
 # =========================================================================
@@ -352,11 +355,17 @@ class TestRunCI:
     def test_ci_all_pass(self, pipeline, temp_rac_file):
         """CI returns passed=True when all subprocesses succeed."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
-            # parse check, inline tests, validation tests
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
-                Mock(stdout="TESTS:5/5", stderr="", returncode=0),
-                Mock(stdout="all passed", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 5  Passed: 5  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.validator_name == "ci"
@@ -364,89 +373,116 @@ class TestRunCI:
             assert result.issues == []
 
     def test_ci_parse_fails(self, pipeline, temp_rac_file):
-        """CI reports parse error."""
+        """CI reports validation errors from rac.validate."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="", stderr="SyntaxError: bad", returncode=1),
-                Mock(stdout="TESTS:0/0", stderr="", returncode=0),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nFound 1 validation errors:\n\n  /tmp/test.rac:1: forbidden attribute 'badattr'\n",
+                    stderr="",
+                    returncode=1,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
-            assert any(
-                "parse" in issue.lower() or "Parse" in issue for issue in result.issues
-            )
+            assert any("Validation failed" in issue for issue in result.issues)
 
     def test_ci_tests_fail(self, pipeline, temp_rac_file):
         """CI reports test failures."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
-                Mock(stdout="TESTS:3/5", stderr="", returncode=0),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 5  Passed: 3  Failed: 2\n",
+                    stderr="",
+                    returncode=1,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
-            assert any("3/5" in issue for issue in result.issues)
+            assert any("Passed: 3  Failed: 2" in issue for issue in result.issues)
 
     def test_ci_test_error(self, pipeline, temp_rac_file):
-        """CI reports test error when no TESTS: line."""
+        """CI reports test-runner stderr when no summary is available."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
                 Mock(stdout="", stderr="import error", returncode=1),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
-            assert any("error" in issue.lower() for issue in result.issues)
+            assert any("import error" in issue for issue in result.issues)
 
     def test_ci_parse_timeout(self, pipeline, temp_rac_file):
-        """CI handles parse timeout."""
+        """CI handles test-runner timeout."""
         import subprocess as sp
 
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
                 sp.TimeoutExpired(cmd="python", timeout=30),
-                Mock(stdout="TESTS:1/1", stderr="", returncode=0),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
             assert any("timeout" in issue.lower() for issue in result.issues)
 
     def test_ci_parse_exception(self, pipeline, temp_rac_file):
-        """CI handles parse exception."""
+        """CI handles test-runner exceptions."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
                 RuntimeError("parse crash"),
-                Mock(stdout="TESTS:1/1", stderr="", returncode=0),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
             assert any("exception" in issue.lower() for issue in result.issues)
 
     def test_ci_test_timeout(self, pipeline, temp_rac_file):
-        """CI handles test timeout."""
+        """CI handles validation timeout."""
         import subprocess as sp
 
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
                 sp.TimeoutExpired(cmd="python", timeout=60),
-                Mock(stdout="", stderr="", returncode=0),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
 
     def test_ci_test_exception(self, pipeline, temp_rac_file):
-        """CI handles test exception."""
+        """CI handles validation exceptions."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
-                RuntimeError("test crash"),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                RuntimeError("validation crash"),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
@@ -457,8 +493,11 @@ class TestRunCI:
 
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
-                Mock(stdout="TESTS:1/1", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
                 sp.TimeoutExpired(cmd="pytest", timeout=60),
             ]
             result = pipeline._run_ci(temp_rac_file)
@@ -468,36 +507,201 @@ class TestRunCI:
         """CI handles validation exception."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
-                Mock(stdout="TESTS:1/1", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
                 RuntimeError("validation crash"),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
 
     def test_ci_validation_failures_extracted(self, pipeline, temp_rac_file):
-        """CI extracts FAILED lines from pytest output."""
+        """CI extracts validation details from rac.validate output."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
-                Mock(stdout="TESTS:1/1", stderr="", returncode=0),
                 Mock(
-                    stdout="test_file.py::TestClass::test_name[param] FAILED\ntest_file.py::TestOther::test_two FAILED",
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout=(
+                        "Checked 1 .rac files\n\nFound 2 validation errors:\n\n"
+                        "  /tmp/test.rac:12: hardcoded literal '2200' - use a parameter instead\n"
+                        "  /tmp/test.rac:18: broken import '26/24/a#ctc_allowance'\n"
+                    ),
                     stderr="",
                     returncode=1,
                 ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.passed is False
-            assert any("Validation failed" in issue for issue in result.issues)
+            assert any("hardcoded literal '2200'" in issue for issue in result.issues)
+
+    def test_ci_copies_import_closure_into_temp_validation_root(self, pipeline):
+        """CI copies imported dependencies into the temp tree before rac.validate."""
+        rac_root = pipeline.rac_us_path
+        target = rac_root / "26" / "24" / "a.rac"
+        dependency = rac_root / "26" / "24" / "c.rac"
+        nested_dependency = rac_root / "26" / "24" / "c" / "1.rac"
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        dependency.parent.mkdir(parents=True, exist_ok=True)
+        nested_dependency.parent.mkdir(parents=True, exist_ok=True)
+
+        target.write_text(
+            """
+allowance:
+    imports:
+        - 26/24/c#qualifying_child_count as imported_count
+    entity: TaxUnit
+    period: Year
+    dtype: Integer
+"""
+        )
+        dependency.write_text(
+            """
+qualifying_child_count:
+    imports:
+        - 26/24/c/1#is_child
+    entity: TaxUnit
+    period: Year
+    dtype: Integer
+"""
+        )
+        nested_dependency.write_text(
+            """
+is_child:
+    entity: Person
+    period: Year
+    dtype: Boolean
+"""
+        )
+
+        def run_side_effect(cmd, *args, **kwargs):
+            if "rac.test_runner" in cmd:
+                return Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                )
+            if "rac.validate" in cmd:
+                tmpdir = Path(cmd[-1])
+                assert (tmpdir / "26" / "24" / "a.rac").exists()
+                assert (tmpdir / "26" / "24" / "c.rac").exists()
+                assert (tmpdir / "26" / "24" / "c" / "1.rac").exists()
+                return Mock(
+                    stdout="Checked 3 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                )
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        with patch(
+            "autorac.harness.validator_pipeline.subprocess.run",
+            side_effect=run_side_effect,
+        ):
+            result = pipeline._run_ci(target)
+
+        assert result.passed is True
+
+    def test_ci_flags_missing_cross_statute_definition_import(self, pipeline):
+        """CI fails when a subsection cites an external definition without importing it."""
+        rac_file = pipeline.rac_us_path / "26" / "24" / "c.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+For purposes of this section, the term "qualifying child" means a qualifying child
+of the taxpayer as defined in section 152(c).
+"""
+
+status: encoded
+
+qualifying_child_count:
+    entity: TaxUnit
+    period: Year
+    dtype: Integer
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is False
+        assert any("152(c)" in issue and "26/152/c" in issue for issue in result.issues)
+
+    def test_ci_allows_cross_statute_definition_import_when_present(self, pipeline):
+        """CI passes when the cited definitional section is imported."""
+        rac_file = pipeline.rac_us_path / "26" / "24" / "c.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+For purposes of this section, the term "qualifying child" means a qualifying child
+of the taxpayer as defined in section 152(c).
+"""
+
+status: encoded
+
+qualifying_child_count:
+    imports:
+        - 26/152/c#qualifying_child
+    entity: TaxUnit
+    period: Year
+    dtype: Integer
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is True
+
+    def test_infer_title_from_rac_path_uses_title_not_section(self, pipeline):
+        rac_file = pipeline.rac_us_path / "26" / "21" / "b" / "1" / "A.rac"
+        assert pipeline._infer_title_from_rac_path(rac_file) == "26"
 
     def test_ci_duration(self, pipeline, temp_rac_file):
         """CI includes duration."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
-                Mock(stdout="PARSE_OK", stderr="", returncode=0),
-                Mock(stdout="TESTS:1/1", stderr="", returncode=0),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.duration_ms >= 0
@@ -507,8 +711,11 @@ class TestRunCI:
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [
                 Mock(stdout="", stderr="Parse error: bad", returncode=1),
-                Mock(stdout="TESTS:1/1", stderr="", returncode=0),
-                Mock(stdout="", stderr="", returncode=0),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
             ]
             result = pipeline._run_ci(temp_rac_file)
             assert result.error is not None
@@ -822,7 +1029,11 @@ eitc:
         )
         with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
             with patch.object(
-                pipeline, "_run_pe_subprocess", return_value="RESULT:1000.0\n"
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:1000.0\n"
+                ),
             ):
                 result = pipeline._run_policyengine(rac_file)
                 assert result.validator_name == "policyengine"
@@ -847,7 +1058,11 @@ eitc:
         )
         with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
             with patch.object(
-                pipeline, "_run_pe_subprocess", return_value="RESULT:500.0\n"
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:500.0\n"
+                ),
             ):
                 result = pipeline._run_policyengine(rac_file)
                 assert any("PE=" in issue for issue in result.issues)
@@ -871,9 +1086,50 @@ eitc:
 """
         )
         with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
-            with patch.object(pipeline, "_run_pe_subprocess", return_value=None):
+            with patch.object(
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=1, stderr="boom"
+                ),
+            ):
                 result = pipeline._run_policyengine(rac_file)
                 assert any("failed" in issue.lower() for issue in result.issues)
+
+    def test_pe_unsupported_period_is_untested(self, pipeline, temp_dirs):
+        """Unsupported PE periods should not be scored as mismatches."""
+        rac_us, _ = temp_dirs
+        rac_file = rac_us / "unsupported.rac"
+        rac_file.write_text(
+            """
+child_tax_credit:
+    entity: TaxUnit
+    period: Year
+    dtype: Money
+    tests:
+        - name: test1
+          period: 1999
+          expect: 1000
+"""
+        )
+        with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
+            with patch.object(
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=1,
+                    stderr=(
+                        "policyengine_core.errors.parameter_not_found_error."
+                        "ParameterNotFoundError: The parameter "
+                        "'gov.irs.credits.ctc[adult_ssn_requirement_applies]' "
+                        "was not found in the 1999-01-01 tax and benefit system"
+                    ),
+                ),
+            ):
+                result = pipeline._run_policyengine(rac_file)
+                assert result.passed is True
+                assert result.score is None
+                assert any("unavailable" in issue.lower() for issue in result.issues)
 
     def test_pe_no_result_line(self, pipeline, temp_dirs):
         """Test when PE output has no RESULT: line."""
@@ -896,8 +1152,10 @@ eitc:
         with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
             with patch.object(
                 pipeline,
-                "_run_pe_subprocess",
-                return_value="some output without RESULT",
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="some output without RESULT"
+                ),
             ):
                 result = pipeline._run_policyengine(rac_file)
                 assert any("No RESULT" in issue for issue in result.issues)
@@ -922,7 +1180,11 @@ eitc:
         )
         with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
             with patch.object(
-                pipeline, "_run_pe_subprocess", return_value="RESULT:not_a_number\n"
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:not_a_number\n"
+                ),
             ):
                 result = pipeline._run_policyengine(rac_file)
                 assert any("error" in issue.lower() for issue in result.issues)
@@ -986,7 +1248,7 @@ class TestRunTAXSIM:
         rac_file = rac_us / "no_tests.rac"
         rac_file.write_text("simple_var:\n  entity: Person\n  dtype: Money\n")
         result = pipeline._run_taxsim(rac_file)
-        assert result.passed is False
+        assert result.passed is True
         assert result.score is None
 
     def test_taxsim_with_wage_inputs(self, pipeline, temp_dirs):
@@ -1111,7 +1373,20 @@ class TestRunTAXSIM:
         """TAXSIM skips tests with unmappable inputs."""
         rac_us, _ = temp_dirs
         rac_file = rac_us / "unmappable.rac"
-        rac_file.write_text("dummy content")
+        rac_file.write_text(
+            """
+obscure_var:
+    entity: Person
+    period: Year
+    dtype: Money
+    tests:
+        - name: unmappable test
+          period: 2024
+          inputs:
+            obscure_variable: 100
+          expect: 50
+"""
+        )
 
         import requests as req_mod
 
@@ -1123,22 +1398,13 @@ class TestRunTAXSIM:
         mock_requests.post.return_value = mock_resp
 
         with (
-            patch.object(
-                pipeline,
-                "_extract_tests_from_rac",
-                return_value=[
-                    {
-                        "name": "unmappable test",
-                        "inputs": {"obscure_variable": 100},
-                        "expect": 50,
-                    }
-                ],
-            ),
             patch.dict("sys.modules", {"requests": mock_requests}),
         ):
             result = pipeline._run_taxsim(rac_file)
-            # _build_taxsim_input returns None for unmappable inputs, so total stays 0
             assert result.validator_name == "taxsim"
+            assert result.passed is True
+            assert result.score is None
+            assert any("could not map" in issue.lower() for issue in result.issues)
 
     def test_taxsim_general_exception(self, pipeline, temp_dirs):
         """TAXSIM handles general exception in outer try."""
@@ -1456,6 +1722,32 @@ class TestBuildPeScenarioScript:
         )
         assert "snap_net_income" in script
 
+    def test_explicit_child_count_without_household_size(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "ctc",
+            {
+                "qualifying_children_allowed_section_151_deduction_count": 2,
+                "period": "2024",
+            },
+            "2024",
+            2000,
+        )
+        assert "child0" in script
+        assert "child1" in script
+
+    def test_generated_qualifying_children_count_name(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "ctc",
+            {
+                "qualifying_children_with_section_151_deduction_count": 3,
+                "period": "2024",
+            },
+            "2024",
+            3000,
+        )
+        assert "child0" in script
+        assert "child2" in script
+
 
 # =========================================================================
 # validate() - full pipeline
@@ -1734,25 +2026,23 @@ class TestCompileCheckSuccess:
 
     def test_compile_check_success(self, pipeline, temp_dirs):
         """Test successful compilation."""
-        rac_us, _ = temp_dirs
+        rac_us, rac_dir = temp_dirs
         rac_file = rac_us / "test.rac"
         rac_file.write_text("test_var:\n  entity: Person\n  dtype: Money\n")
+        (rac_dir / "src").mkdir(parents=True)
 
         mock_ir = MagicMock()
         mock_ir.variables = {"test_var": MagicMock()}
 
-        mock_parse_dsl = MagicMock(return_value=MagicMock())
-        mock_convert = MagicMock(return_value=MagicMock())
+        mock_parse_file = MagicMock(return_value=MagicMock())
         mock_compile = MagicMock(return_value=mock_ir)
 
         with patch.dict(
             "sys.modules",
             {
-                "rac": MagicMock(),
-                "rac.dsl_parser": MagicMock(parse_dsl=mock_parse_dsl),
-                "rac.engine": MagicMock(compile=mock_compile),
-                "rac.engine.converter": MagicMock(
-                    convert_v2_to_engine_module=mock_convert
+                "rac": MagicMock(
+                    parse_file=mock_parse_file,
+                    compile=mock_compile,
                 ),
             },
         ):

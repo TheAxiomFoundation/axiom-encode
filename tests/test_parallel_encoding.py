@@ -651,19 +651,34 @@ class TestTokenCostEstimation:
         """Verify against known SDK-reported cost from 26 USC 32 encoding."""
         # From the EITC encoding run, first encoder:
         # SDK reported $0.7496 for 43,362 in + 4,628 out + 692,251 cache_read
-        # The "in" figure includes both input_tokens and cache_creation_tokens
-        # but we can at least verify the order of magnitude is right
+        # Input tokens include cached tokens, so cache reads should not be
+        # double-counted at the full input rate.
         usage = TokenUsage(
             input_tokens=43_362,
             output_tokens=4_628,
             cache_read_tokens=692_251,
         )
         estimated = usage.estimated_cost_usd
-        # Should be in the right ballpark (~$0.70-$1.00), not 3x off (~$2.30)
-        assert estimated < 1.5, (
-            f"Estimated ${estimated:.2f} is too high (was ~$2.30 with old rates)"
-        )
+        assert estimated < 0.5, f"Estimated ${estimated:.2f} still double-counts cache"
         assert estimated > 0.3, f"Estimated ${estimated:.2f} is too low"
+
+    def test_estimated_cost_does_not_double_count_cache_read_tokens(self):
+        usage = TokenUsage(
+            input_tokens=1_000_000,
+            output_tokens=0,
+            cache_read_tokens=1_000_000,
+        )
+
+        assert abs(usage.estimated_cost_usd - 0.50) < 0.01
+
+    def test_estimated_cost_does_not_double_count_cache_creation_tokens(self):
+        usage = TokenUsage(
+            input_tokens=1_000_000,
+            output_tokens=0,
+            cache_creation_tokens=1_000_000,
+        )
+
+        assert abs(usage.estimated_cost_usd - 6.25) < 0.01
 
     def test_orchestrator_prefers_sdk_cost(self, orchestrator):
         """OrchestratorRun total should prefer SDK-reported costs over estimation."""

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "autorac"
-version = "0.2.0"
+version = "0.2.1"
 description = "AI-assisted RAC encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -37,6 +37,11 @@ api = [
     "anthropic>=0.40.0",
     "claude-agent-sdk>=0.1.0",
 ]
+observability = [
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.28.0",
+]
 dev = [
     "pytest",
     "pytest-asyncio",
@@ -45,7 +50,7 @@ dev = [
     "towncrier",
 ]
 all = [
-    "autorac[api,dev]",
+    "autorac[api,dev,observability]",
 ]
 
 [project.scripts]

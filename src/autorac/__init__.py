@@ -1,9 +1,14 @@
 # AutoRAC - AI-assisted RAC encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
-from .constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL, REVIEWER_CLI_MODEL
+from .constants import (
+    DEFAULT_CLI_MODEL,
+    DEFAULT_MODEL,
+    DEFAULT_OPENAI_MODEL,
+    REVIEWER_CLI_MODEL,
+)
 from .harness import (
     ActualScores,
     AgentSDKBackend,
@@ -12,11 +17,14 @@ from .harness import (
     CalibrationMetrics,
     CalibrationSnapshot,
     ClaudeCodeBackend,
+    CodexCLIBackend,
     ComplexityFactors,
     # Encoder Backends
     EncoderBackend,
     EncoderRequest,
     EncoderResponse,
+    EvalResult,
+    EvalRunnerSpec,
     # Encoding DB
     EncodingDB,
     EncodingRun,
@@ -36,8 +44,11 @@ from .harness import (
     ValidatorPipeline,
     compute_calibration,
     create_run,
+    evaluate_artifact,
     get_calibration_trend,
+    parse_runner_spec,
     print_calibration_report,
+    run_model_eval,
     save_calibration_snapshot,
     validate_file,
 )
@@ -46,6 +57,7 @@ __all__ = [
     "__version__",
     "DEFAULT_MODEL",
     "DEFAULT_CLI_MODEL",
+    "DEFAULT_OPENAI_MODEL",
     "REVIEWER_CLI_MODEL",
     "EncodingDB",
     "ExperimentDB",  # backward compat
@@ -67,10 +79,16 @@ __all__ = [
     # Encoder Backends
     "EncoderBackend",
     "ClaudeCodeBackend",
+    "CodexCLIBackend",
     "AgentSDKBackend",
     "EncoderRequest",
     "EncoderResponse",
     "PredictionScores",
+    "EvalRunnerSpec",
+    "EvalResult",
+    "parse_runner_spec",
+    "evaluate_artifact",
+    "run_model_eval",
     # Orchestrator
     "Orchestrator",
     # Calibration Metrics

@@ -4,6 +4,7 @@ Tests the _scan_unresolved_imports, _citation_from_path,
 _extract_rac_content, and _resolve_external_dependencies methods.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -144,22 +145,30 @@ class TestExtractRacContent:
         result = orchestrator._extract_rac_content(response)
         assert "#26 USC 62" in result
 
+    def test_docstring_first_content_preserved(self, orchestrator):
+        response = (
+            '"""\n26 USC 24(a)\n"""\n\n'
+            "child_tax_credit_amount_per_qualifying_child:\n"
+            "    from 1998-01-01: 1000\n"
+        )
+        result = orchestrator._extract_rac_content(response)
+        assert result.startswith('"""')
+        assert "child_tax_credit_amount_per_qualifying_child:" in result
+
     def test_empty_response(self, orchestrator):
         assert orchestrator._extract_rac_content("") is None
         assert orchestrator._extract_rac_content("   \n  ") is None
 
 
 class TestResolveExternalDependencies:
-    @pytest.mark.asyncio
-    async def test_no_unresolved_returns_empty(self, orchestrator, dir_21):
+    def test_no_unresolved_returns_empty(self, orchestrator, dir_21):
         """When no unresolved imports, returns empty list."""
         (dir_21 / "a.rac").write_text("# no imports\nstatus: encoded\n")
 
-        result = await orchestrator._resolve_external_dependencies(dir_21)
+        result = asyncio.run(orchestrator._resolve_external_dependencies(dir_21))
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_creates_stub_for_unresolved(self, orchestrator, dir_21):
+    def test_creates_stub_for_unresolved(self, orchestrator, dir_21):
         """Creates stub file for unresolved import."""
         (dir_21 / "a.rac").write_text("x:\n    imports:\n        - 26/9999#some_var\n")
 
@@ -182,12 +191,33 @@ class TestResolveExternalDependencies:
                 orchestrator, "_fetch_statute_text", return_value="Some statute text"
             ),
         ):
-            result = await orchestrator._resolve_external_dependencies(dir_21)
+            result = asyncio.run(orchestrator._resolve_external_dependencies(dir_21))
 
         assert len(result) == 1
         assert result[0].exists()
         content = result[0].read_text()
         assert "some_var:" in content
+
+    def test_does_not_overwrite_existing_file_for_missing_variable(
+        self, orchestrator, dir_21
+    ):
+        """Resolver should not clobber an existing file just because a variable is missing."""
+        (dir_21 / "a.rac").write_text("x:\n    imports:\n        - 26/21/b#missing_var\n")
+        existing_target = dir_21 / "b.rac"
+        existing_target.write_text(
+            "# 26 USC 21(b)\nstatus: encoded\nexisting_var:\n    entity: TaxUnit\n"
+        )
+
+        with patch.object(
+            orchestrator,
+            "_run_agent",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            result = asyncio.run(orchestrator._resolve_external_dependencies(dir_21))
+
+        assert result == []
+        assert existing_target.read_text().startswith("# 26 USC 21(b)")
+        mock_run.assert_not_called()
 
 
 class TestPhaseEnum:

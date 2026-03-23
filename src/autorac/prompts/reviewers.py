@@ -45,6 +45,7 @@ statute/26/32/c/2/A.rac  =  26 USC 32(c)(2)(A)
 - [ ] Formula logic matches rule text exactly
 - [ ] No simplifications beyond what rule says
 - [ ] Cross-references resolved correctly
+- [ ] If the source text says a term is defined in another section, this file imports that upstream definition instead of restating it locally
 - [ ] Uses built-in functions (`marginal_agg()`) where appropriate
 
 ### Parameterization
@@ -161,6 +162,12 @@ You audit formulas in .rac files for correctness and statutory fidelity.
 - [ ] Maximum/minimum values handled
 - [ ] Boundary conditions at thresholds tested
 
+### Compiler-Compatible Shape
+- [ ] No Python-style branch-local assignment blocks inside `if`/`elif`/`else`
+- [ ] Conditionals return values directly in repo-supported RAC syntax
+- [ ] No list literals or `in` membership tests in formulas
+- [ ] `label:` and `description:` values are quoted strings
+
 ## Output Format
 
 ```markdown
@@ -273,6 +280,7 @@ You audit how .rac files connect together - imports, exports, and the dependency
 - [ ] Every `path#variable` import resolves to an existing definition
 - [ ] No circular dependencies
 - [ ] No missing files
+- [ ] Cross-statute definition references (e.g. "as defined in section 152(c)") are satisfied by imports from the cited section
 
 ### Parent-Child Integration
 - [ ] Parent files import from subdirectory files
@@ -319,7 +327,9 @@ You audit how .rac files connect together - imports, exports, and the dependency
 """
 
 
-def get_rac_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
+def get_rac_reviewer_prompt(
+    citation: str, oracle_context: str = "", review_context: str = ""
+) -> str:
     """Return the RAC reviewer prompt with citation and oracle context.
 
     Args:
@@ -332,6 +342,9 @@ def get_rac_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
     oracle_section = ""
     if oracle_context:
         oracle_section = f"\n## Oracle Context\n{oracle_context}\n"
+    review_section = ""
+    if review_context:
+        review_section = f"\n{review_context}\n"
 
     return f"""{RAC_REVIEWER_PROMPT}
 
@@ -341,11 +354,14 @@ def get_rac_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
 
 Review the encoding of {citation}.
 {oracle_section}
+{review_section}
 Investigate any oracle discrepancies and diagnose root causes.
 """
 
 
-def get_formula_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
+def get_formula_reviewer_prompt(
+    citation: str, oracle_context: str = "", review_context: str = ""
+) -> str:
     """Return the formula reviewer prompt with citation and oracle context.
 
     Args:
@@ -358,6 +374,9 @@ def get_formula_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
     oracle_section = ""
     if oracle_context:
         oracle_section = f"\n## Oracle Context\n{oracle_context}\n"
+    review_section = ""
+    if review_context:
+        review_section = f"\n{review_context}\n"
 
     return f"""{FORMULA_REVIEWER_PROMPT}
 
@@ -367,11 +386,14 @@ def get_formula_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
 
 Review {citation} formulas.
 {oracle_section}
+{review_section}
 If oracle validators show discrepancies, investigate WHY the encoding differs.
 """
 
 
-def get_parameter_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
+def get_parameter_reviewer_prompt(
+    citation: str, oracle_context: str = "", review_context: str = ""
+) -> str:
     """Return the parameter reviewer prompt with citation and oracle context.
 
     Args:
@@ -384,6 +406,9 @@ def get_parameter_reviewer_prompt(citation: str, oracle_context: str = "") -> st
     oracle_section = ""
     if oracle_context:
         oracle_section = f"\n## Oracle Context\n{oracle_context}\n"
+    review_section = ""
+    if review_context:
+        review_section = f"\n{review_context}\n"
 
     return f"""{PARAMETER_REVIEWER_PROMPT}
 
@@ -393,11 +418,14 @@ def get_parameter_reviewer_prompt(citation: str, oracle_context: str = "") -> st
 
 Review {citation} parameters.
 {oracle_section}
+{review_section}
 If oracle validators show discrepancies, investigate which parameters may be wrong.
 """
 
 
-def get_integration_reviewer_prompt(citation: str, oracle_context: str = "") -> str:
+def get_integration_reviewer_prompt(
+    citation: str, oracle_context: str = "", review_context: str = ""
+) -> str:
     """Return the integration reviewer prompt with citation and oracle context.
 
     Args:
@@ -410,6 +438,9 @@ def get_integration_reviewer_prompt(citation: str, oracle_context: str = "") -> 
     oracle_section = ""
     if oracle_context:
         oracle_section = f"\n## Oracle Context\n{oracle_context}\n"
+    review_section = ""
+    if review_context:
+        review_section = f"\n{review_context}\n"
 
     return f"""{INTEGRATION_REVIEWER_PROMPT}
 
@@ -419,5 +450,6 @@ def get_integration_reviewer_prompt(citation: str, oracle_context: str = "") -> 
 
 Review {citation} imports and integration.
 {oracle_section}
+{review_section}
 If oracle validators show discrepancies, check whether import/dependency issues are the cause.
 """

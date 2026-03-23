@@ -14,6 +14,7 @@ import pytest
 from autorac.harness.backends import (
     AgentSDKBackend,
     ClaudeCodeBackend,
+    CodexCLIBackend,
     EncoderBackend,
     EncoderRequest,
     EncoderResponse,
@@ -503,6 +504,62 @@ class TestAgentSDKPrediction:
         backend = AgentSDKBackend(api_key="test-key")
         scores = backend.predict("26 USC 1", "Statute text")
         assert scores.confidence == 0.5
+
+
+class TestCodexCLIBackend:
+    """Test the Codex CLI backend."""
+
+    def test_encode_calls_codex_exec(self):
+        backend = CodexCLIBackend(cwd=Path("/tmp/work"))
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(
+                stdout='{"type":"item.completed","item":{"type":"agent_message","text":"test:\\n  entity: TaxUnit"}}\n{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5,"cached_input_tokens":2}}',
+                stderr="",
+                returncode=0,
+            )
+
+            backend.encode(
+                EncoderRequest(
+                    citation="26 USC 1",
+                    statute_text="Test statute",
+                    output_path=Path("/tmp/output/test.rac"),
+                    model="gpt-5.4",
+                )
+            )
+
+            cmd = mock_run.call_args[0][0]
+            assert cmd[:3] == ["codex", "exec", "--json"]
+            assert "--model" in cmd
+            assert "gpt-5.4" in cmd
+
+    def test_encode_parses_jsonl_usage(self):
+        backend = CodexCLIBackend(cwd=Path("/tmp/work"))
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(
+                stdout='{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"reasoning_output_tokens":7}}}}\n{"type":"item.completed","item":{"type":"agent_message","text":"test:\\n  entity: TaxUnit"}}\n{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5,"cached_input_tokens":2}}',
+                stderr="",
+                returncode=0,
+            )
+
+            response = backend.encode(
+                EncoderRequest(
+                    citation="26 USC 1",
+                    statute_text="Test statute",
+                    output_path=Path("/tmp/output/test.rac"),
+                    model="gpt-5.4",
+                )
+            )
+
+            assert response.success
+            assert response.tokens is not None
+            assert response.tokens.input_tokens == 10
+            assert response.tokens.output_tokens == 5
+            assert response.tokens.cache_read_tokens == 2
+            assert response.tokens.reasoning_output_tokens == 7
+            assert response.trace is not None
+            assert response.trace["provider"] == "openai"
 
 
 class TestBackendCompatibility:
