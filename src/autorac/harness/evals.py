@@ -1,4 +1,4 @@
-"""Model comparison evals for statute encoding."""
+"""Model comparison evals for statute and source-slice encoding."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -185,6 +184,34 @@ def run_model_eval(
     return results
 
 
+def run_source_eval(
+    source_id: str,
+    source_text: str,
+    runner_specs: list[str],
+    output_root: Path,
+    rac_path: Path,
+    mode: EvalMode = "repo-augmented",
+    extra_context_paths: list[Path] | None = None,
+) -> list[EvalResult]:
+    """Run a deterministic comparison over one arbitrary source slice."""
+    results: list[EvalResult] = []
+
+    for runner in [parse_runner_spec(spec) for spec in runner_specs]:
+        results.append(
+            _run_single_source_eval(
+                source_id=source_id,
+                source_text=source_text,
+                runner=runner,
+                output_root=output_root,
+                rac_path=rac_path,
+                mode=mode,
+                extra_context_paths=extra_context_paths or [],
+            )
+        )
+
+    return results
+
+
 def select_context_files(
     citation: str | CitationParts,
     rac_us_root: Path,
@@ -257,13 +284,13 @@ def prepare_eval_workspace(
     rac_us_root = rac_path.parent / "rac-us" / "statute"
 
     if mode == "repo-augmented":
-        selected = select_context_files(citation, rac_us_root)
+        selected = _auto_select_context_files(citation, rac_us_root)
         for extra_path in extra_context_paths or []:
             path = Path(extra_path)
             if path.exists():
                 selected.append(path)
 
-        target_rel = citation_to_relative_rac_path(citation)
+        target_rel = _target_rel_for_eval_identifier(citation)
         expanded_context = _expand_context_files(selected, rac_us_root, target_rel)
 
         for source_path, kind in expanded_context:
@@ -306,6 +333,22 @@ def prepare_eval_workspace(
         manifest_file=manifest_file,
         context_files=context_files,
     )
+
+
+def _auto_select_context_files(citation: str, rac_us_root: Path) -> list[Path]:
+    """Best-effort auto-context selection for statute citations only."""
+    try:
+        return select_context_files(citation, rac_us_root)
+    except Exception:
+        return []
+
+
+def _target_rel_for_eval_identifier(citation: str) -> Path | None:
+    """Return the canonical RAC target path for USC citations when parseable."""
+    try:
+        return citation_to_relative_rac_path(citation)
+    except Exception:
+        return None
 
 
 def evaluate_artifact(
@@ -432,6 +475,88 @@ def _run_single_eval(
     return result
 
 
+def _run_single_source_eval(
+    source_id: str,
+    source_text: str,
+    runner: EvalRunnerSpec,
+    output_root: Path,
+    rac_path: Path,
+    mode: EvalMode,
+    extra_context_paths: list[Path],
+) -> EvalResult:
+    """Run one eval on an arbitrary source slice rather than a USC citation."""
+    workspace = prepare_eval_workspace(
+        citation=source_id,
+        runner=runner,
+        output_root=output_root,
+        source_text=source_text,
+        rac_path=rac_path,
+        mode=mode,
+        extra_context_paths=extra_context_paths,
+    )
+
+    prompt = _build_eval_prompt(source_id, mode, workspace, workspace.context_files)
+    response = _run_prompt_eval(runner, workspace, prompt)
+    rac_content = _extract_rac_content(response.text)
+
+    relative_output = _source_identifier_to_relative_rac_path(source_id)
+    output_file = Path(output_root) / runner.name / relative_output
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    if rac_content:
+        output_file.write_text(rac_content)
+        _hydrate_eval_root(output_file.parents[2], workspace)
+
+    trace_file = (
+        Path(output_root)
+        / "traces"
+        / runner.name
+        / f"{_slugify(source_id)}.json"
+    )
+    trace_file.parent.mkdir(parents=True, exist_ok=True)
+    trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
+
+    metrics = None
+    if output_file.exists():
+        metrics = evaluate_artifact(
+            rac_file=output_file,
+            rac_root=output_file.parents[2],
+            rac_path=rac_path,
+            source_text=source_text,
+        )
+
+    tokens = response.tokens
+    result = EvalResult(
+        citation=source_id,
+        runner=runner.name,
+        backend=runner.backend,
+        model=runner.model,
+        mode=mode,
+        output_file=str(output_file),
+        trace_file=str(trace_file),
+        context_manifest_file=str(workspace.manifest_file),
+        duration_ms=response.duration_ms,
+        success=bool(rac_content) and response.error is None,
+        error=response.error or (None if rac_content else "No RAC content returned"),
+        input_tokens=tokens.input_tokens if tokens else 0,
+        output_tokens=tokens.output_tokens if tokens else 0,
+        cache_read_tokens=tokens.cache_read_tokens if tokens else 0,
+        cache_creation_tokens=tokens.cache_creation_tokens if tokens else 0,
+        reasoning_output_tokens=tokens.reasoning_output_tokens if tokens else 0,
+        estimated_cost_usd=response.estimated_cost_usd,
+        actual_cost_usd=response.actual_cost_usd,
+        retrieved_files=[item.source_path for item in workspace.context_files],
+        unexpected_accesses=response.unexpected_accesses,
+        metrics=metrics,
+    )
+    emit_eval_result(result, response.trace)
+    return result
+
+
+def _source_identifier_to_relative_rac_path(source_id: str) -> Path:
+    """Map an arbitrary source identifier to a stable eval artifact path."""
+    return Path("source") / f"{_slugify(source_id)}.rac"
+
+
 def _build_eval_prompt(
     citation: str,
     mode: EvalMode,
@@ -470,7 +595,7 @@ Available precedent files:
     return f"""You are participating in an encoding eval for {citation}.
 
 Primary legal authority:
-- `./source.txt` contains the complete source text for this leaf citation.
+- `./source.txt` contains the complete source text for this target source slice.
 
 Context mode: `{mode}`
 {context_section}
@@ -506,7 +631,7 @@ def _collect_scaffold_dates(
 def _expand_context_files(
     selected_paths: list[Path],
     rac_us_root: Path,
-    target_rel: Path,
+    target_rel: Path | None,
 ) -> list[tuple[Path, str]]:
     """Expand selected precedent files with their transitive canonical imports."""
     expanded: list[tuple[Path, str]] = []
@@ -526,7 +651,7 @@ def _expand_context_files(
         resolved = source_path.resolve()
         if resolved in seen:
             continue
-        if _relative_to_root(source_path, rac_us_root) == target_rel:
+        if target_rel is not None and _relative_to_root(source_path, rac_us_root) == target_rel:
             continue
         seen.add(resolved)
         expanded.append((source_path, kind))

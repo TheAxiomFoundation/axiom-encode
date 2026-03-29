@@ -18,7 +18,6 @@ from autorac.cli import (
     cmd_calibration,
     cmd_compile,
     cmd_coverage,
-    cmd_eval,
     cmd_encode,
     cmd_init,
     cmd_log,
@@ -131,6 +130,16 @@ class TestMain:
             with patch("autorac.cli.cmd_eval") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
+
+    def test_eval_source_command_dispatches(self):
+        with tempfile.NamedTemporaryFile() as f:
+            with patch(
+                "sys.argv",
+                ["autorac", "eval-source", "CO TANF 3.606.1(F)", f.name],
+            ):
+                with patch("autorac.cli.cmd_eval_source") as mock_cmd:
+                    main()
+                    mock_cmd.assert_called_once()
 
     def test_compile_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".rac") as f:

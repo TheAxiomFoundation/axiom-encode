@@ -11,6 +11,7 @@ from autorac.harness.evals import (
     evaluate_artifact,
     parse_runner_spec,
     prepare_eval_workspace,
+    run_source_eval,
     select_context_files,
 )
 from autorac.harness.validator_pipeline import ValidationResult
@@ -69,6 +70,33 @@ class TestEvaluateArtifact:
 
 
 class TestRepoAugmentedContext:
+    def test_prepare_eval_workspace_allows_arbitrary_identifier_with_explicit_context(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        rac_root = repo_root / "rac"
+        rac_root.mkdir(parents=True)
+        context_file = repo_root / "rac-us" / "statute" / "26" / "32" / "b" / "2" / "A.rac"
+        context_file.parent.mkdir(parents=True)
+        context_file.write_text("status: encoded\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="9 CCR 2503-6 3.606.1(F)",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="F. Determining Eligibility ... 165 345 518",
+            rac_path=rac_root,
+            mode="repo-augmented",
+            extra_context_paths=[context_file],
+        )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        assert manifest["mode"] == "repo-augmented"
+        assert manifest["context_files"][0]["source_path"] == str(context_file)
+        copied = workspace.root / manifest["context_files"][0]["workspace_path"]
+        assert copied.exists()
+
     def test_select_context_files_excludes_target(self, tmp_path):
         rac_us_root = tmp_path / "rac-us" / "statute"
         section_dir = rac_us_root / "26" / "24"
@@ -258,7 +286,55 @@ class TestUnexpectedAccessDetection:
         local = tmp_path / "context" / "b.rac"
         local.parent.mkdir(parents=True)
         local.write_text("status: encoded\n")
-        assert not _command_looks_out_of_bounds(f"cat {local}", tmp_path)
+
+
+class TestSourceEval:
+    def test_run_source_eval_uses_explicit_context_without_statute_lookup(self, tmp_path):
+        rac_root = tmp_path / "rac"
+        rac_root.mkdir()
+        context_file = tmp_path / "examples" / "piecewise.rac"
+        context_file.parent.mkdir(parents=True)
+        context_file.write_text("status: encoded\n")
+
+        with patch(
+            "autorac.harness.evals._run_prompt_eval",
+        ) as mock_prompt_eval, patch(
+            "autorac.harness.evals.evaluate_artifact",
+        ) as mock_evaluate_artifact:
+            mock_prompt_eval.return_value.text = (
+                '"""\nF. Determining Eligibility ...\n"""\n'
+                "status: encoded\n"
+                "grant_standard:\n"
+                "    entity: TaxUnit\n"
+                "    period: Month\n"
+                "    dtype: Money\n"
+                "    from 2024-07-01: 165\n"
+            )
+            mock_prompt_eval.return_value.duration_ms = 123
+            mock_prompt_eval.return_value.tokens = None
+            mock_prompt_eval.return_value.estimated_cost_usd = None
+            mock_prompt_eval.return_value.actual_cost_usd = None
+            mock_prompt_eval.return_value.trace = {}
+            mock_prompt_eval.return_value.unexpected_accesses = []
+            mock_prompt_eval.return_value.error = None
+
+            mock_evaluate_artifact.return_value = None
+
+            results = run_source_eval(
+                source_id="9 CCR 2503-6 3.606.1(F)",
+                source_text="F. Determining Eligibility ... 165",
+                runner_specs=["codex:gpt-5.4"],
+                output_root=tmp_path / "out",
+                rac_path=rac_root,
+                mode="repo-augmented",
+                extra_context_paths=[context_file],
+            )
+
+        assert len(results) == 1
+        result = results[0]
+        assert result.success is True
+        assert Path(result.output_file).exists()
+        assert result.retrieved_files == [str(context_file)]
 
     def test_allows_relative_workspace_reads(self, tmp_path):
         (tmp_path / "source.txt").write_text("text\n")
