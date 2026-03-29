@@ -24,7 +24,7 @@ from .harness.encoding_db import (
     ReviewResult,
     ReviewResults,
 )
-from .harness.evals import run_model_eval, run_source_eval
+from .harness.evals import run_akn_section_eval, run_model_eval, run_source_eval
 from .harness.validator_pipeline import ValidatorPipeline
 from .statute import parse_usc_citation
 
@@ -316,6 +316,59 @@ def main():
         help="Emit machine-readable JSON summary",
     )
 
+    eval_akn_section_parser = subparsers.add_parser(
+        "eval-akn-section",
+        help="Compare model runners on one section extracted from Akoma Ntoso XML",
+    )
+    eval_akn_section_parser.add_argument(
+        "source_id",
+        help="Logical identifier for the source section",
+    )
+    eval_akn_section_parser.add_argument(
+        "akn_file",
+        type=Path,
+        help="Path to an Akoma Ntoso XML document",
+    )
+    eval_akn_section_parser.add_argument(
+        "section_eid",
+        help="eId of the AKN hcontainer section to extract",
+    )
+    eval_akn_section_parser.add_argument(
+        "--runner",
+        action="append",
+        default=[],
+        help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
+    )
+    eval_akn_section_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("/tmp/autorac-evals"),
+        help="Directory for eval artifacts and traces",
+    )
+    eval_akn_section_parser.add_argument(
+        "--rac-path",
+        type=Path,
+        default=None,
+        help="Path to rac repo (defaults to sibling repo checkout)",
+    )
+    eval_akn_section_parser.add_argument(
+        "--mode",
+        choices=["cold", "repo-augmented"],
+        default="repo-augmented",
+        help="Whether the eval gets only extracted section text or a logged bundle of explicit precedent files",
+    )
+    eval_akn_section_parser.add_argument(
+        "--allow-context",
+        action="append",
+        default=[],
+        help="Extra file path to copy into the repo-augmented eval workspace (repeatable)",
+    )
+    eval_akn_section_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON summary",
+    )
+
     # =========================================================================
     # Session logging commands (for hooks)
     # =========================================================================
@@ -422,6 +475,8 @@ def main():
         cmd_eval(args)
     elif args.command == "eval-source":
         cmd_eval_source(args)
+    elif args.command == "eval-akn-section":
+        cmd_eval_akn_section(args)
     elif args.command == "session-start":
         cmd_session_start(args)
     elif args.command == "session-end":
@@ -1627,6 +1682,73 @@ def cmd_eval_source(args):
     print(f"Output root: {args.output}")
     print(f"rac: {rac_path}")
     print(f"Source: {args.source_file}")
+    print(f"Mode: {args.mode}")
+    print()
+
+    for result in results:
+        print(f"{result.citation} [{result.runner}]")
+        print(
+            f"  success={result.success} duration_ms={result.duration_ms} cost_est=${result.estimated_cost_usd or 0:.4f}"
+        )
+        print(
+            f"  tokens in={result.input_tokens} out={result.output_tokens} cache_read={result.cache_read_tokens} reasoning_out={result.reasoning_output_tokens}"
+        )
+        print(f"  retrieved_files={len(result.retrieved_files)}")
+        if result.unexpected_accesses:
+            print(f"  unexpected_accesses={len(result.unexpected_accesses)}")
+        if result.metrics:
+            print(
+                f"  compile={'yes' if result.metrics.compile_pass else 'no'} ci={'yes' if result.metrics.ci_pass else 'no'}"
+            )
+            print(
+                f"  grounded={result.metrics.grounded_numeric_count} ungrounded={result.metrics.ungrounded_numeric_count} embedded_source={'yes' if result.metrics.embedded_source_present else 'no'}"
+            )
+            if result.metrics.ungrounded_numeric_count:
+                offenders = [
+                    item.raw
+                    for item in result.metrics.grounding
+                    if not item.grounded
+                ]
+                print(f"  ungrounded_values={', '.join(offenders[:10])}")
+        if result.error:
+            print(f"  error={result.error}")
+        print(f"  file={result.output_file}")
+        print(f"  trace={result.trace_file}")
+        print(f"  manifest={result.context_manifest_file}")
+        print()
+
+
+def cmd_eval_akn_section(args):
+    """Run deterministic model comparisons on one AKN section."""
+    runners = args.runner or ["claude:opus", "codex:gpt-5.4"]
+    rac_path = args.rac_path or _default_repo_checkout("rac")
+
+    if not rac_path.exists():
+        print(f"rac repo not found: {rac_path}")
+        sys.exit(1)
+    if not args.akn_file.exists():
+        print(f"AKN file not found: {args.akn_file}")
+        sys.exit(1)
+
+    results = run_akn_section_eval(
+        source_id=args.source_id,
+        akn_file=args.akn_file,
+        section_eid=args.section_eid,
+        runner_specs=runners,
+        output_root=args.output,
+        rac_path=rac_path,
+        mode=args.mode,
+        extra_context_paths=[Path(path) for path in args.allow_context],
+    )
+
+    if args.json:
+        print(json.dumps([result.to_dict() for result in results], indent=2))
+        return
+
+    print(f"Output root: {args.output}")
+    print(f"rac: {rac_path}")
+    print(f"AKN file: {args.akn_file}")
+    print(f"Section: {args.section_eid}")
     print(f"Mode: {args.mode}")
     print()
 

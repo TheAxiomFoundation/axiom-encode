@@ -9,8 +9,10 @@ from autorac.harness.evals import (
     _command_looks_out_of_bounds,
     _hydrate_eval_root,
     evaluate_artifact,
+    extract_akn_section_text,
     parse_runner_spec,
     prepare_eval_workspace,
+    run_akn_section_eval,
     run_source_eval,
     select_context_files,
 )
@@ -67,6 +69,85 @@ class TestEvaluateArtifact:
         assert metrics.grounded_numeric_count == 1
         assert metrics.ungrounded_numeric_count == 1
         assert [item.raw for item in metrics.grounding if not item.grounded] == ["2200"]
+
+
+class TestAknSectionEval:
+    def test_extract_akn_section_text_includes_heading_and_table_rows(self, tmp_path):
+        akn_file = tmp_path / "doc.xml"
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <doc>
+    <mainBody>
+      <hcontainer name="section" eId="sec_3_606_1">
+        <num>3.606.1</num>
+        <heading>Basic Cash Assistance</heading>
+        <content>
+          <p>A. Payment of Basic Cash Assistance Grants</p>
+          <table>
+            <tr><th>Children</th><th>Grant</th></tr>
+            <tr><td>0</td><td>165</td></tr>
+            <tr><td>1</td><td>345</td></tr>
+          </table>
+          <p>G. Pregnancy allowance text.</p>
+        </content>
+      </hcontainer>
+    </mainBody>
+  </doc>
+</akomaNtoso>
+            """.strip()
+        )
+
+        text = extract_akn_section_text(akn_file, "sec_3_606_1")
+
+        assert "3.606.1 Basic Cash Assistance" in text
+        assert "A. Payment of Basic Cash Assistance Grants" in text
+        assert "Structured table:" in text
+        assert "Children | Grant" in text
+        assert "0 | 165" in text
+        assert "G. Pregnancy allowance text." in text
+
+    def test_run_akn_section_eval_uses_extracted_section_text(self, tmp_path):
+        akn_file = tmp_path / "doc.xml"
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <doc>
+    <mainBody>
+      <hcontainer name="section" eId="sec_3_606_1">
+        <num>3.606.1</num>
+        <heading>Basic Cash Assistance</heading>
+        <content>
+          <p>A. Payment of Basic Cash Assistance Grants</p>
+        </content>
+      </hcontainer>
+    </mainBody>
+  </doc>
+</akomaNtoso>
+            """.strip()
+        )
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=["ok"],
+        ) as mock_run_source_eval:
+            results = run_akn_section_eval(
+                source_id="9 CCR 2503-6 3.606.1",
+                akn_file=akn_file,
+                section_eid="sec_3_606_1",
+                runner_specs=["codex:gpt-5.4"],
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                mode="cold",
+                extra_context_paths=[],
+            )
+
+        assert results == ["ok"]
+        mock_run_source_eval.assert_called_once()
+        assert (
+            mock_run_source_eval.call_args.kwargs["source_text"]
+            == "3.606.1 Basic Cash Assistance\n\nA. Payment of Basic Cash Assistance Grants"
+        )
 
 
 class TestRepoAugmentedContext:

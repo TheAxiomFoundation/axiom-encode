@@ -10,6 +10,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
+from xml.etree import ElementTree as ET
 
 from autorac.statute import (
     CitationParts,
@@ -30,6 +31,7 @@ from .validator_pipeline import (
 
 EvalMode = Literal["cold", "repo-augmented"]
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
+AKN_NS = {"akn": "http://docs.oasis-open.org/legaldocml/ns/akn/3.0"}
 
 
 @dataclass(frozen=True)
@@ -210,6 +212,82 @@ def run_source_eval(
         )
 
     return results
+
+
+def _collapse_whitespace(text: str) -> str:
+    """Normalize extracted XML text into one readable line."""
+    return " ".join(text.split())
+
+
+def _akn_child_text(parent: ET.Element, child_tag: str) -> str:
+    """Return normalized text from a direct child tag."""
+    child = parent.find(f"akn:{child_tag}", AKN_NS)
+    if child is None:
+        return ""
+    return _collapse_whitespace("".join(child.itertext()))
+
+
+def extract_akn_section_text(akn_file: Path, section_eid: str) -> str:
+    """Extract one Akoma Ntoso section as plain source text for evals."""
+    tree = ET.parse(akn_file)
+    root = tree.getroot()
+    section = root.find(f".//akn:hcontainer[@eId='{section_eid}']", AKN_NS)
+    if section is None:
+        raise ValueError(f"Section eId not found in {akn_file}: {section_eid}")
+
+    parts: list[str] = []
+    title = " ".join(
+        item for item in (_akn_child_text(section, "num"), _akn_child_text(section, "heading")) if item
+    ).strip()
+    if title:
+        parts.append(title)
+
+    content = section.find("akn:content", AKN_NS)
+    if content is None:
+        return "\n\n".join(parts).strip()
+
+    for child in list(content):
+        local_tag = child.tag.rsplit("}", 1)[-1]
+        if local_tag == "p":
+            paragraph = _collapse_whitespace("".join(child.itertext()))
+            if paragraph:
+                parts.append(paragraph)
+        elif local_tag == "table":
+            rows: list[str] = []
+            for row in child.findall("akn:tr", AKN_NS):
+                cells = [
+                    _collapse_whitespace("".join(cell.itertext()))
+                    for cell in list(row)
+                    if _collapse_whitespace("".join(cell.itertext()))
+                ]
+                if cells:
+                    rows.append(" | ".join(cells))
+            if rows:
+                parts.append("Structured table:\n" + "\n".join(rows))
+
+    return "\n\n".join(parts).strip()
+
+
+def run_akn_section_eval(
+    source_id: str,
+    akn_file: Path,
+    section_eid: str,
+    runner_specs: list[str],
+    output_root: Path,
+    rac_path: Path,
+    mode: EvalMode = "repo-augmented",
+    extra_context_paths: list[Path] | None = None,
+) -> list[EvalResult]:
+    """Run a deterministic comparison on one section extracted from AKN XML."""
+    return run_source_eval(
+        source_id=source_id,
+        source_text=extract_akn_section_text(akn_file, section_eid),
+        runner_specs=runner_specs,
+        output_root=output_root,
+        rac_path=rac_path,
+        mode=mode,
+        extra_context_paths=extra_context_paths,
+    )
 
 
 def select_context_files(

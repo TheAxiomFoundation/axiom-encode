@@ -141,6 +141,22 @@ class TestMain:
                     main()
                     mock_cmd.assert_called_once()
 
+    def test_eval_akn_section_command_dispatches(self):
+        with tempfile.NamedTemporaryFile(suffix=".xml") as f:
+            with patch(
+                "sys.argv",
+                [
+                    "autorac",
+                    "eval-akn-section",
+                    "CO TANF 3.606.1",
+                    f.name,
+                    "sec_3_606_1",
+                ],
+            ):
+                with patch("autorac.cli.cmd_eval_akn_section") as mock_cmd:
+                    main()
+                    mock_cmd.assert_called_once()
+
     def test_compile_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".rac") as f:
             with patch("sys.argv", ["autorac", "compile", f.name]):
