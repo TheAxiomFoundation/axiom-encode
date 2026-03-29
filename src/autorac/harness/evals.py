@@ -418,15 +418,20 @@ def _run_single_eval(
         extra_context_paths=extra_context_paths,
     )
 
-    prompt = _build_eval_prompt(citation, mode, workspace, workspace.context_files)
-    response = _run_prompt_eval(runner, workspace, prompt)
-    rac_content = _extract_rac_content(response.text)
-
     relative_output = citation_to_relative_rac_path(citation)
+    prompt = _build_eval_prompt(
+        citation,
+        mode,
+        workspace,
+        workspace.context_files,
+        target_file_name=relative_output.name,
+        include_tests=False,
+    )
+    response = _run_prompt_eval(runner, workspace, prompt)
     output_file = Path(output_root) / runner.name / relative_output
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    if rac_content:
-        output_file.write_text(rac_content)
+    wrote_artifact = _materialize_eval_artifact(response.text, output_file)
+    if wrote_artifact:
         _hydrate_eval_root(output_file.parents[2], workspace)
 
     trace_file = (
@@ -458,8 +463,8 @@ def _run_single_eval(
         trace_file=str(trace_file),
         context_manifest_file=str(workspace.manifest_file),
         duration_ms=response.duration_ms,
-        success=bool(rac_content) and response.error is None,
-        error=response.error or (None if rac_content else "No RAC content returned"),
+        success=wrote_artifact and response.error is None,
+        error=response.error or (None if wrote_artifact else "No RAC content returned"),
         input_tokens=tokens.input_tokens if tokens else 0,
         output_tokens=tokens.output_tokens if tokens else 0,
         cache_read_tokens=tokens.cache_read_tokens if tokens else 0,
@@ -495,15 +500,20 @@ def _run_single_source_eval(
         extra_context_paths=extra_context_paths,
     )
 
-    prompt = _build_eval_prompt(source_id, mode, workspace, workspace.context_files)
-    response = _run_prompt_eval(runner, workspace, prompt)
-    rac_content = _extract_rac_content(response.text)
-
     relative_output = _source_identifier_to_relative_rac_path(source_id)
+    prompt = _build_eval_prompt(
+        source_id,
+        mode,
+        workspace,
+        workspace.context_files,
+        target_file_name=relative_output.name,
+        include_tests=True,
+    )
+    response = _run_prompt_eval(runner, workspace, prompt)
     output_file = Path(output_root) / runner.name / relative_output
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    if rac_content:
-        output_file.write_text(rac_content)
+    wrote_artifact = _materialize_eval_artifact(response.text, output_file)
+    if wrote_artifact:
         _hydrate_eval_root(output_file.parents[2], workspace)
 
     trace_file = (
@@ -535,8 +545,8 @@ def _run_single_source_eval(
         trace_file=str(trace_file),
         context_manifest_file=str(workspace.manifest_file),
         duration_ms=response.duration_ms,
-        success=bool(rac_content) and response.error is None,
-        error=response.error or (None if rac_content else "No RAC content returned"),
+        success=wrote_artifact and response.error is None,
+        error=response.error or (None if wrote_artifact else "No RAC content returned"),
         input_tokens=tokens.input_tokens if tokens else 0,
         output_tokens=tokens.output_tokens if tokens else 0,
         cache_read_tokens=tokens.cache_read_tokens if tokens else 0,
@@ -562,6 +572,8 @@ def _build_eval_prompt(
     mode: EvalMode,
     workspace: EvalWorkspace,
     context_files: list[EvalContextFile],
+    target_file_name: str,
+    include_tests: bool = False,
 ) -> str:
     """Build a prompt-only eval request with explicit provenance rules."""
     context_section = ""
@@ -592,6 +604,22 @@ Available precedent files:
 {listed}
 """
 
+    file_output_rules = f"""
+- Return ONLY raw `.rac` file content for `{target_file_name}`.
+- Do not include markdown fences or explanation.
+"""
+    if include_tests:
+        test_file_name = Path(target_file_name).with_suffix(".rac.test").name
+        file_output_rules = f"""
+- Return exactly this two-file bundle and nothing else:
+=== FILE: {target_file_name} ===
+<raw .rac content>
+=== FILE: {test_file_name} ===
+<raw .rac.test YAML>
+- The `.rac.test` file must contain 3-5 cases covering a base case, a boundary case, and one alternate branch.
+- Do not include markdown fences or explanation.
+"""
+
     return f"""You are participating in an encoding eval for {citation}.
 
 Primary legal authority:
@@ -604,11 +632,9 @@ Rules:
 - Do not inspect or rely on any path outside this workspace.
 - Treat `./source.txt` as the only legal source.
 - Any numeric literal in your output must appear in `./source.txt`, unless it is -1, 0, 1, 2, or 3.
-- Return ONLY raw `.rac` file content for a single file.
-- Do not include markdown fences or explanation.
 - Include the source text in a triple-quoted docstring.
 - Use RAC DSL conventions.
-- Do not create tests.
+{file_output_rules}
 """
 
 
@@ -1003,6 +1029,58 @@ def _extract_rac_content(llm_response: str) -> str | None:
             return "\n".join(lines[i:]).strip() + "\n"
 
     return None
+
+
+def _extract_generated_file_bundle(llm_response: str) -> dict[str, str]:
+    """Extract a small multi-file bundle emitted by eval backends."""
+    if not llm_response or "=== FILE:" not in llm_response:
+        return {}
+
+    pattern = re.compile(r"^=== FILE:\s*(?P<name>.+?)\s*===\s*$", re.MULTILINE)
+    matches = list(pattern.finditer(llm_response))
+    if not matches:
+        return {}
+
+    files: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(
+            llm_response
+        )
+        content = llm_response[start:end].strip()
+        if content:
+            files[match.group("name").strip()] = content + "\n"
+    return files
+
+
+def _materialize_eval_artifact(llm_response: str, expected_path: Path) -> bool:
+    """Write an eval artifact and optional companion test file from model output."""
+    bundle = _extract_generated_file_bundle(llm_response)
+    if bundle:
+        wrote_main = False
+        expected_test_path = expected_path.with_suffix(".rac.test")
+        for file_name, content in bundle.items():
+            candidate_name = Path(file_name).name
+            if candidate_name == expected_path.name:
+                target_path = expected_path
+            elif candidate_name == expected_test_path.name:
+                target_path = expected_test_path
+            else:
+                continue
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(content)
+            if target_path == expected_path:
+                wrote_main = True
+        if wrote_main or expected_path.exists():
+            return True
+
+    rac_content = _extract_rac_content(llm_response)
+    if not rac_content:
+        return False
+
+    expected_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_path.write_text(rac_content)
+    return True
 
 
 def _slugify(value: str) -> str:

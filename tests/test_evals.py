@@ -302,6 +302,7 @@ class TestSourceEval:
             "autorac.harness.evals.evaluate_artifact",
         ) as mock_evaluate_artifact:
             mock_prompt_eval.return_value.text = (
+                "=== FILE: 9-CCR-2503-6-3.606.1-F.rac ===\n"
                 '"""\nF. Determining Eligibility ...\n"""\n'
                 "status: encoded\n"
                 "grant_standard:\n"
@@ -309,6 +310,12 @@ class TestSourceEval:
                 "    period: Month\n"
                 "    dtype: Money\n"
                 "    from 2024-07-01: 165\n"
+                "=== FILE: 9-CCR-2503-6-3.606.1-F.rac.test ===\n"
+                "grant_standard:\n"
+                '  - name: "base case"\n'
+                "    period: 2024-07\n"
+                "    inputs: {}\n"
+                "    expect: 165\n"
             )
             mock_prompt_eval.return_value.duration_ms = 123
             mock_prompt_eval.return_value.tokens = None
@@ -334,7 +341,12 @@ class TestSourceEval:
         result = results[0]
         assert result.success is True
         assert Path(result.output_file).exists()
+        assert Path(result.output_file).with_suffix(".rac.test").exists()
         assert result.retrieved_files == [str(context_file)]
+
+        prompt = mock_prompt_eval.call_args.args[2]
+        assert ".rac.test" in prompt
+        assert "=== FILE:" in prompt
 
     def test_allows_relative_workspace_reads(self, tmp_path):
         (tmp_path / "source.txt").write_text("text\n")

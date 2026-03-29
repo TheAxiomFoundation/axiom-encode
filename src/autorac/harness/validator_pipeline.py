@@ -137,7 +137,14 @@ GROUNDING_VALUE_PATTERN = re.compile(
     r"(-?[\d,]+(?:\.\d+)?)"
 )
 GROUNDING_SCALAR_PATTERN = re.compile(r"^(\w[\w_]*):\s*(-?[\d,]+(?:\.\d+)?)\s*$")
-GROUNDING_ALLOWED_VALUES = {-1, 0, 1}
+GROUNDING_ALLOWED_VALUES = {-1, 0, 1, 2, 3}
+GROUNDING_INLINE_TEMPORAL_PATTERN = re.compile(
+    r"^\s*from\s+\d{4}-\d{2}-\d{2}:\s*(.*?)\s*$"
+)
+GROUNDING_DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
+    r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
+)
 GROUNDING_METADATA_KEYS = {
     "entity",
     "period",
@@ -172,9 +179,11 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
     in_formula = False
     in_tests = False
     in_docstring = False
+    formula_indent = 0
 
     for line_number, line in enumerate(content.split("\n"), 1):
         stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
 
         if '"""' in stripped:
             in_docstring = not in_docstring
@@ -182,18 +191,24 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
         if in_docstring or stripped.startswith("#"):
             continue
 
+        if in_formula and stripped and indent <= formula_indent:
+            in_formula = False
+
         if re.match(r"\s*formula:\s*\|", line):
             in_formula = True
+            formula_indent = indent
             continue
         if re.match(r"\s*tests:", line):
             in_tests = True
             in_formula = False
             continue
-        if in_formula and stripped and not line.startswith(" " * 4):
-            in_formula = False
         if in_tests and stripped and not line.startswith(" "):
             in_tests = False
-        if in_formula or in_tests:
+        if in_tests:
+            continue
+
+        if in_formula:
+            values.extend(_extract_formula_grounding_values(line_number, line))
             continue
 
         if re.match(r'\s*description:\s*"', line) or re.match(
@@ -212,6 +227,16 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
                     values.append((line_number, raw, value))
             continue
 
+        inline_temporal_match = GROUNDING_INLINE_TEMPORAL_PATTERN.match(line)
+        if inline_temporal_match:
+            tail = inline_temporal_match.group(1).strip()
+            if tail:
+                values.extend(_extract_formula_grounding_values(line_number, tail))
+            else:
+                in_formula = True
+                formula_indent = indent
+            continue
+
         match = GROUNDING_SCALAR_PATTERN.match(stripped)
         if match:
             key = match.group(1)
@@ -223,6 +248,23 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
                 if value not in GROUNDING_ALLOWED_VALUES:
                     values.append((line_number, raw, value))
 
+    return values
+
+
+def _extract_formula_grounding_values(
+    line_number: int, formula_text: str
+) -> list[tuple[int, str, float]]:
+    """Extract numeric literals from a formula expression or formula line."""
+    cleaned = formula_text.split("#", 1)[0]
+    cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
+
+    values: list[tuple[int, str, float]] = []
+    for match in GROUNDING_FORMULA_NUMBER_PATTERN.finditer(cleaned):
+        raw = match.group(1).replace(",", "")
+        with contextlib.suppress(ValueError):
+            value = float(raw)
+            if value not in GROUNDING_ALLOWED_VALUES:
+                values.append((line_number, raw, value))
     return values
 
 

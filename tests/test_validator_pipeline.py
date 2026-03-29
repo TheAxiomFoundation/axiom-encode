@@ -27,9 +27,10 @@ from autorac.harness.validator_pipeline import (
     _REVIEW_JSON_FORMAT,
     FORMULA_REVIEWER_PROMPT,
     INTEGRATION_REVIEWER_PROMPT,
-    OracleSubprocessResult,
     PARAMETER_REVIEWER_PROMPT,
     RAC_REVIEWER_PROMPT,
+    OracleSubprocessResult,
+    extract_grounding_values,
     run_claude_code,
 )
 
@@ -118,6 +119,31 @@ class TestRunClaudeCode:
             output, code = run_claude_code("test")
             assert "not found" in output
             assert code == 1
+
+
+class TestExtractGroundingValues:
+    def test_includes_formula_literals_but_not_date_tokens(self):
+        content = '''
+"""
+Grant amount is 1000 with threshold 10 and increment 86.
+"""
+
+status: encoded
+
+grant_standard:
+    entity: TaxUnit
+    period: Year
+    dtype: Money
+    from 2024-07-01:
+        if child_count >= 10:
+            1000 + ((child_count - 10) * 86)
+        else:
+            2200
+'''
+
+        values = extract_grounding_values(content)
+
+        assert [item[1] for item in values] == ["10", "1000", "10", "86", "2200"]
 
     def test_handles_generic_exception(self):
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
