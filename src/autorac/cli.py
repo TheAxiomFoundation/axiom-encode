@@ -37,6 +37,44 @@ from .statute import parse_usc_citation
 DEFAULT_DB = Path.home() / "RulesFoundation" / "autorac" / "encodings.db"
 
 
+def _resolve_repo_checkout(name: str) -> Path:
+    """Resolve sibling foundation repos before falling back to legacy defaults."""
+    workspace_root = Path(__file__).resolve().parents[3]
+    candidates = [
+        workspace_root / name,
+        Path.home() / "TheAxiomFoundation" / name,
+        Path.home() / "RulesFoundation" / name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return candidates[-1]
+
+
+def _reviewer_score_map(scores) -> dict[str, float | None]:
+    """Normalize reviewer scores from either legacy flat attrs or ReviewResults.reviews."""
+    reviewer_names = [
+        "rac_reviewer",
+        "formula_reviewer",
+        "parameter_reviewer",
+        "integration_reviewer",
+    ]
+    values = {name: getattr(scores, name, None) for name in reviewer_names}
+
+    for review in getattr(scores, "reviews", []) or []:
+        name = getattr(review, "reviewer", "")
+        if name not in values:
+            continue
+        checked = getattr(review, "items_checked", 0) or 0
+        passed = getattr(review, "items_passed", 0) or 0
+        if checked > 0:
+            values[name] = round(passed / checked * 10, 1)
+        else:
+            values[name] = 10.0 if getattr(review, "passed", False) else 0.0
+
+    return values
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -580,8 +618,8 @@ def cmd_validate(args):
         rac_us = rac_us.parent
 
     if rac_us.name != "rac-us":
-        rac_us = Path.home() / "RulesFoundation" / "rac-us"
-        rac_path = Path.home() / "RulesFoundation" / "rac"
+        rac_us = _resolve_repo_checkout("rac-us")
+        rac_path = _resolve_repo_checkout("rac")
     else:
         rac_path = rac_us.parent / "rac"
 
@@ -594,8 +632,18 @@ def cmd_validate(args):
         enable_oracles=enable_oracles,
     )
 
-    result = pipeline.validate(rac_file)
+    result = pipeline.validate(rac_file, skip_reviewers=args.skip_reviewers)
     scores = result.to_actual_scores()
+    review_scores = (
+        {
+            "rac_reviewer": None,
+            "formula_reviewer": None,
+            "parameter_reviewer": None,
+            "integration_reviewer": None,
+        }
+        if args.skip_reviewers
+        else _reviewer_score_map(scores)
+    )
 
     errors = []
     for name, vr in result.results.items():
@@ -631,10 +679,10 @@ def cmd_validate(args):
             "file": str(rac_file),
             "ci_pass": result.ci_pass,
             "scores": {
-                "rac_reviewer": scores.rac_reviewer,
-                "formula_reviewer": scores.formula_reviewer,
-                "parameter_reviewer": scores.parameter_reviewer,
-                "integration_reviewer": scores.integration_reviewer,
+                "rac_reviewer": review_scores["rac_reviewer"],
+                "formula_reviewer": review_scores["formula_reviewer"],
+                "parameter_reviewer": review_scores["parameter_reviewer"],
+                "integration_reviewer": review_scores["integration_reviewer"],
             },
             "oracle_scores": {
                 "policyengine": scores.policyengine_match,
@@ -653,7 +701,11 @@ def cmd_validate(args):
         print(f"CI: {'✓' if result.ci_pass else '✗'}")
         if not args.skip_reviewers:
             print(
-                f"Scores: RAC {scores.rac_reviewer}/10 | Formula {scores.formula_reviewer}/10 | Param {scores.parameter_reviewer}/10 | Integration {scores.integration_reviewer}/10"
+                "Scores: "
+                f"RAC {review_scores['rac_reviewer']}/10 | "
+                f"Formula {review_scores['formula_reviewer']}/10 | "
+                f"Param {review_scores['parameter_reviewer']}/10 | "
+                f"Integration {review_scores['integration_reviewer']}/10"
             )
         if args.oracle:
             pe_score = scores.policyengine_match

@@ -403,6 +403,7 @@ class ValidatorPipeline:
         max_workers: int = 4,
         encoding_db: Optional[EncodingDB] = None,
         session_id: Optional[str] = None,
+        policyengine_country: str = "auto",
     ):
         self.rac_us_path = Path(rac_us_path)
         self.rac_path = Path(rac_path)
@@ -410,6 +411,7 @@ class ValidatorPipeline:
         self.max_workers = max_workers
         self.encoding_db = encoding_db
         self.session_id = session_id
+        self.policyengine_country = policyengine_country
 
     def _log_event(
         self, event_type: str, content: str = "", metadata: Optional[dict] = None
@@ -434,7 +436,7 @@ class ValidatorPipeline:
             )
         return env
 
-    def validate(self, rac_file: Path) -> PipelineResult:
+    def validate(self, rac_file: Path, skip_reviewers: bool = False) -> PipelineResult:
         """Run 4-tier validation on a RAC file.
 
         Tiers run in order:
@@ -542,56 +544,69 @@ class ValidatorPipeline:
             )
 
         # Tier 3: LLM reviewers (parallel, use oracle context)
-        self._log_event(
-            "validation_llm_start",
-            "Starting LLM reviewers with oracle context",
-            {
-                "oracle_context_summary": {
-                    k: v.get("score") for k, v in oracle_context.items()
+        if skip_reviewers:
+            self._log_event(
+                "validation_llm_skipped",
+                "Skipping LLM reviewers",
+                {
+                    "oracle_context_summary": {
+                        k: v.get("score") for k, v in oracle_context.items()
+                    },
                 },
-            },
-        )
-        llm_start = time.time()
-
-        llm_validators = {
-            "rac_reviewer": lambda: self._run_reviewer(
-                "rac-reviewer", rac_file, oracle_context
-            ),
-            "formula_reviewer": lambda: self._run_reviewer(
-                "Formula Reviewer", rac_file, oracle_context
-            ),
-            "parameter_reviewer": lambda: self._run_reviewer(
-                "Parameter Reviewer", rac_file, oracle_context
-            ),
-            "integration_reviewer": lambda: self._run_reviewer(
-                "Integration Reviewer", rac_file, oracle_context
-            ),
-        }
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(fn): name for name, fn in llm_validators.items()}
-
-            for future in as_completed(futures):
-                name = futures[future]
-                try:
-                    results[name] = future.result()
-                except Exception as e:
-                    results[name] = ValidationResult(
-                        validator_name=name,
-                        passed=False,
-                        error=str(e),
-                    )
-
-        self._log_event(
-            "validation_llm_end",
-            "LLM reviewers complete",
-            {
-                "scores": {
-                    k: results[k].score for k in llm_validators.keys() if k in results
+            )
+        else:
+            self._log_event(
+                "validation_llm_start",
+                "Starting LLM reviewers with oracle context",
+                {
+                    "oracle_context_summary": {
+                        k: v.get("score") for k, v in oracle_context.items()
+                    },
                 },
-                "duration_ms": int((time.time() - llm_start) * 1000),
-            },
-        )
+            )
+            llm_start = time.time()
+
+            llm_validators = {
+                "rac_reviewer": lambda: self._run_reviewer(
+                    "rac-reviewer", rac_file, oracle_context
+                ),
+                "formula_reviewer": lambda: self._run_reviewer(
+                    "Formula Reviewer", rac_file, oracle_context
+                ),
+                "parameter_reviewer": lambda: self._run_reviewer(
+                    "Parameter Reviewer", rac_file, oracle_context
+                ),
+                "integration_reviewer": lambda: self._run_reviewer(
+                    "Integration Reviewer", rac_file, oracle_context
+                ),
+            }
+
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {
+                    executor.submit(fn): name for name, fn in llm_validators.items()
+                }
+
+                for future in as_completed(futures):
+                    name = futures[future]
+                    try:
+                        results[name] = future.result()
+                    except Exception as e:
+                        results[name] = ValidationResult(
+                            validator_name=name,
+                            passed=False,
+                            error=str(e),
+                        )
+
+            self._log_event(
+                "validation_llm_end",
+                "LLM reviewers complete",
+                {
+                    "scores": {
+                        k: results[k].score for k in llm_validators.keys() if k in results
+                    },
+                    "duration_ms": int((time.time() - llm_start) * 1000),
+                },
+            )
 
         total_duration = int((time.time() - start) * 1000)
         all_passed = all(r.passed for r in results.values())
@@ -1017,19 +1032,35 @@ Output ONLY valid JSON:
                 error=str(e),
             )
 
-    def _find_pe_python(self) -> Optional[str]:
-        """Find a Python interpreter with policyengine-us installed.
+    def _detect_policyengine_country(self, rac_file: Path, rac_content: str) -> str:
+        """Infer which PolicyEngine country package to use."""
+        if self.policyengine_country in {"us", "uk"}:
+            return self.policyengine_country
+
+        haystack = f"{rac_file}\n{rac_content}".lower()
+        if "legislation.gov.uk" in haystack or re.search(
+            r"\b(?:ukpga|uksi|asp|ssi|wsi|nisi|anaw|asc)(?:/|-)", haystack
+        ):
+            return "uk"
+        return "us"
+
+    def _find_pe_python(self, country: str = "us") -> Optional[str]:
+        """Find a Python interpreter with the requested PolicyEngine package installed.
 
         Checks: 1) current interpreter, 2) known PE venv paths.
         Returns the path to a working Python, or None.
         """
+        module_name = f"policyengine_{country}"
+        package_name = f"policyengine-{country}"
+        repo_name = f"policyengine-{country}"
+
         # Try current interpreter first
         try:
             result = subprocess.run(
                 [
                     sys.executable,
                     "-c",
-                    "from policyengine_us import Simulation; print('ok')",
+                    f"from {module_name} import Simulation; print('ok')",
                 ],
                 capture_output=True,
                 text=True,
@@ -1042,16 +1073,16 @@ Output ONLY valid JSON:
 
         # Try known PE venv locations
         pe_venv_paths = [
-            Path.home() / "policyengine-us" / ".venv" / "bin" / "python",
+            Path.home() / repo_name / ".venv" / "bin" / "python",
             Path.home()
             / "RulesFoundation"
-            / "policyengine-us"
+            / repo_name
             / ".venv"
             / "bin"
             / "python",
             Path.home()
             / "PolicyEngine"
-            / "policyengine-us"
+            / repo_name
             / ".venv"
             / "bin"
             / "python",
@@ -1063,7 +1094,7 @@ Output ONLY valid JSON:
                         [
                             str(pe_python),
                             "-c",
-                            "from policyengine_us import Simulation; print('ok')",
+                            f"from {module_name} import Simulation; print('ok')",
                         ],
                         capture_output=True,
                         text=True,
@@ -1078,7 +1109,7 @@ Output ONLY valid JSON:
         try:
             print("  PolicyEngine not found, attempting install...")
             install_result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "policyengine-us"],
+                [sys.executable, "-m", "pip", "install", package_name],
                 capture_output=True,
                 text=True,
                 timeout=300,
@@ -1171,6 +1202,13 @@ Output ONLY valid JSON:
                 error=str(e),
             )
 
+        try:
+            rac_source_content = rac_file.read_text()
+        except Exception:
+            rac_source_content = ""
+
+        country = self._detect_policyengine_country(rac_file, rac_source_content)
+
         # Extract per-variable tests from RAC v2 format
         tests = self._extract_tests_from_rac_v2(rac_content)
 
@@ -1185,7 +1223,7 @@ Output ONLY valid JSON:
             )
 
         # Find a PE-capable Python interpreter
-        pe_python = self._find_pe_python()
+        pe_python = self._find_pe_python(country)
         if not pe_python:
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
@@ -1196,11 +1234,11 @@ Output ONLY valid JSON:
                     "No PolicyEngine-capable Python found (tried local, known venvs, auto-install)"
                 ],
                 duration_ms=duration,
-                error="policyengine-us not available",
+                error=f"policyengine-{country} not available",
             )
 
         # Map RAC variables to PE variables
-        pe_var_map = self._get_pe_variable_map()
+        pe_var_map = self._get_pe_variable_map(country)
 
         # Run comparison for each test
         matches = 0
@@ -1212,7 +1250,8 @@ Output ONLY valid JSON:
             expected = test.get("expect")
             inputs = test.get("inputs", {})
             period = test.get("period", "2024-01")
-            year = period.split("-")[0] if "-" in str(period) else str(period)
+            period_str = str(period)
+            year = period_str.split("-")[0] if "-" in period_str else period_str
 
             if expected is None:
                 continue
@@ -1222,10 +1261,23 @@ Output ONLY valid JSON:
                 total += 1
                 continue
 
+            mappable, reason = self._is_pe_test_mappable(country, rac_var, inputs)
+            if not mappable:
+                issues.append(
+                    f"PolicyEngine unavailable for '{test.get('name', rac_var)}': {reason}"
+                )
+                unsupported_count += 1
+                continue
+
             # Build and run PE scenario — include period in inputs for monthly detection
             inputs_with_period = {**inputs, "period": str(period)}
             scenario_script = self._build_pe_scenario_script(
-                pe_var, inputs_with_period, year, expected
+                pe_var,
+                inputs_with_period,
+                year,
+                expected,
+                country=country,
+                rac_var=rac_var,
             )
             output = self._run_pe_subprocess_detailed(scenario_script, pe_python)
 
@@ -1783,6 +1835,24 @@ print("BENCHMARK:" + json.dumps(result))
                             if isinstance(test_case, dict) and "expect" in test_case:
                                 test_case["variable"] = key
                                 tests.append(test_case)
+            elif isinstance(parsed, list):
+                for test_case in parsed:
+                    if not isinstance(test_case, dict):
+                        continue
+                    outputs = test_case.get("output")
+                    if not isinstance(outputs, dict):
+                        continue
+                    inputs = test_case.get("input", test_case.get("inputs", {}))
+                    for variable, expected in outputs.items():
+                        tests.append(
+                            {
+                                "variable": variable,
+                                "name": test_case.get("name"),
+                                "period": test_case.get("period"),
+                                "inputs": inputs or {},
+                                "expect": expected,
+                            }
+                        )
         except Exception:
             pass
 
@@ -1826,11 +1896,18 @@ print("BENCHMARK:" + json.dumps(result))
 
         return tests
 
-    def _get_pe_variable_map(self) -> dict[str, str]:
+    def _get_pe_variable_map(self, country: str = "us") -> dict[str, str]:
         """Map RAC variable names to PolicyEngine variable names.
 
         Returns dict of rac_var_name -> pe_var_name.
         """
+        if country == "uk":
+            return {
+                "child_benefit_enhanced_rate": "child_benefit_respective_amount",
+                "child_benefit_enhanced_rate_amount": "child_benefit_respective_amount",
+                "child_benefit_regulation_2_1_a_amount": "child_benefit_respective_amount",
+            }
+
         return {
             # EITC
             "eitc": "eitc",
@@ -1882,8 +1959,32 @@ print("BENCHMARK:" + json.dumps(result))
         "snap_min_allotment",
     }
 
+    def _is_pe_test_mappable(
+        self, country: str, rac_var: str, inputs: dict
+    ) -> tuple[bool, str | None]:
+        """Return whether the test case can be represented in PolicyEngine."""
+        if country == "uk" and rac_var in {
+            "child_benefit_enhanced_rate_amount",
+            "child_benefit_regulation_2_1_a_amount",
+            "child_benefit_enhanced_rate",
+        }:
+            for key, value in inputs.items():
+                key_lower = str(key).lower()
+                if "subject_to_paragraphs" in key_lower and value is False:
+                    return (
+                        False,
+                        "RAC test uses placeholder paragraph-exception conditions that PolicyEngine UK does not represent directly",
+                    )
+        return True, None
+
     def _build_pe_scenario_script(
-        self, pe_var: str, inputs: dict, year: str, expected: Any
+        self,
+        pe_var: str,
+        inputs: dict,
+        year: str,
+        expected: Any,
+        country: str = "us",
+        rac_var: str | None = None,
     ) -> str:
         """Build a Python script to run a PE scenario via subprocess.
 
@@ -1892,6 +1993,13 @@ print("BENCHMARK:" + json.dumps(result))
         intermediate variables to match RAC test inputs for apples-to-apples
         comparison.
         """
+        if country == "uk":
+            return self._build_pe_uk_scenario_script(pe_var, inputs, year, rac_var)
+
+        return self._build_pe_us_scenario_script(pe_var, inputs, year)
+
+    def _build_pe_us_scenario_script(self, pe_var: str, inputs: dict, year: str) -> str:
+        """Build a Python script to run a US PolicyEngine scenario."""
         # Determine household composition from inputs
         filing_status = inputs.get("filing_status", "SINGLE")
         joint_filing = filing_status.upper() in ("JOINT", "MARRIED_FILING_JOINTLY")
@@ -2002,6 +2110,68 @@ val = float(result[0]) if hasattr(result, '__len__') and len(result) > 0 else fl
 print(f'RESULT:{{val}}')
 """
         return script
+
+    def _build_pe_uk_scenario_script(
+        self, pe_var: str, inputs: dict, year: str, rac_var: str | None = None
+    ) -> str:
+        """Build a Python script to run a UK PolicyEngine scenario."""
+        period_value = str(inputs.get("period", f"{year}-04"))
+        month_period = period_value[:7] if len(period_value) >= 7 else f"{year}-04"
+
+        lowered = {str(key).lower(): value for key, value in inputs.items()}
+        only_person = any("only_person" in key and bool(value) for key, value in lowered.items())
+        elder_or_eldest = any(
+            ("elder_or_eldest" in key or "eldest_person" in key) and bool(value)
+            for key, value in lowered.items()
+        )
+
+        if only_person:
+            people = f"{{'target': {{'age': {{{year}: 10}}}}}}"
+            benunit_members = "['target']"
+            household_members = "['target']"
+            target_index = 0
+        elif elder_or_eldest:
+            people = f"""{{'target': {{'age': {{{year}: 12}}}}, 'younger': {{'age': {{{year}: 11}}}}}}"""
+            benunit_members = "['target', 'younger']"
+            household_members = "['target', 'younger']"
+            target_index = 0
+        else:
+            people = f"""{{'older': {{'age': {{{year}: 12}}}}, 'target': {{'age': {{{year}: 11}}}}}}"""
+            benunit_members = "['older', 'target']"
+            household_members = "['older', 'target']"
+            target_index = 1
+
+        if rac_var == "child_benefit_enhanced_rate":
+            return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {{'target': {{'age': {{{year}: 10}}}}}},
+    'benunits': {{'benunit': {{'members': ['target'], 'would_claim_child_benefit': {{{year}: True}}}}}},
+    'households': {{'household': {{'members': ['target']}}}},
+}}
+
+sim = Simulation(situation=situation)
+monthly = sim.calculate('{pe_var}', '{month_period}')
+val = float(monthly[0]) * 12 / 52
+print(f'RESULT:{{val}}')
+"""
+
+        return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {people},
+    'benunits': {{'benunit': {{'members': {benunit_members}, 'would_claim_child_benefit': {{{year}: True}}}}}},
+    'households': {{'household': {{'members': {household_members}}}}},
+}}
+
+sim = Simulation(situation=situation)
+monthly = sim.calculate('{pe_var}', '{month_period}')
+eldest = sim.calculate('is_eldest_child', '{month_period}')
+val = float(monthly[{target_index}]) * 12 / 52 if bool(eldest[{target_index}]) else 0.0
+print(f'RESULT:{{val}}')
+"""
 
 
 def validate_file(rac_file: str | Path) -> PipelineResult:

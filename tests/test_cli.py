@@ -449,6 +449,111 @@ class TestCmdValidate:
                 cmd_validate(args)
             assert exc_info.value.code == 0
 
+    def test_validate_json_output_with_reviewresults_object(self, capsys, tmp_path):
+        rac_file = tmp_path / "test.rac"
+        rac_file.write_text("# test")
+        args = MagicMock()
+        args.file = rac_file
+        args.json = True
+        args.skip_reviewers = False
+        args.oracle = "policyengine"
+        args.min_match = 0.95
+
+        mock_result = MagicMock()
+        mock_result.all_passed = True
+        mock_result.ci_pass = True
+        mock_result.results = {
+            "policyengine": MagicMock(score=1.0, error=None),
+        }
+        mock_result.to_actual_scores.return_value = ReviewResults(
+            reviews=[
+                ReviewResult(reviewer="rac_reviewer", passed=True, items_checked=1, items_passed=1),
+                ReviewResult(reviewer="formula_reviewer", passed=True, items_checked=2, items_passed=2),
+                ReviewResult(reviewer="parameter_reviewer", passed=False, items_checked=2, items_passed=1),
+                ReviewResult(reviewer="integration_reviewer", passed=True, items_checked=1, items_passed=1),
+            ],
+            policyengine_match=1.0,
+            taxsim_match=None,
+        )
+        mock_result.total_duration_ms = 100
+
+        with patch("autorac.cli.ValidatorPipeline") as mock_pipeline_cls:
+            mock_pipeline_cls.return_value.validate.return_value = mock_result
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_validate(args)
+            assert exc_info.value.code == 0
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["scores"]["rac_reviewer"] == 10.0
+        assert output["scores"]["parameter_reviewer"] == 5.0
+        assert output["oracle_scores"]["policyengine"] == 1.0
+
+    def test_validate_passes_skip_reviewers_to_pipeline(self, tmp_path):
+        rac_file = tmp_path / "test.rac"
+        rac_file.write_text("# test")
+        args = MagicMock()
+        args.file = rac_file
+        args.json = False
+        args.skip_reviewers = True
+        args.oracle = None
+        args.min_match = 0.95
+
+        mock_result = MagicMock()
+        mock_result.all_passed = True
+        mock_result.ci_pass = True
+        mock_result.results = {}
+        mock_result.to_actual_scores.return_value = MagicMock(
+            rac_reviewer=None,
+            formula_reviewer=None,
+            parameter_reviewer=None,
+            integration_reviewer=None,
+            policyengine_match=None,
+            taxsim_match=None,
+        )
+
+        with patch("autorac.cli.ValidatorPipeline") as mock_pipeline_cls:
+            mock_pipeline = mock_pipeline_cls.return_value
+            mock_pipeline.validate.return_value = mock_result
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_validate(args)
+            assert exc_info.value.code == 0
+            mock_pipeline.validate.assert_called_once_with(
+                rac_file.resolve(), skip_reviewers=True
+            )
+
+    def test_validate_json_output_uses_null_scores_when_reviewers_skipped(
+        self, capsys, tmp_path
+    ):
+        rac_file = tmp_path / "test.rac"
+        rac_file.write_text("# test")
+        args = MagicMock()
+        args.file = rac_file
+        args.json = True
+        args.skip_reviewers = True
+        args.oracle = "policyengine"
+        args.min_match = 0.95
+
+        mock_result = MagicMock()
+        mock_result.all_passed = True
+        mock_result.ci_pass = True
+        mock_result.results = {"policyengine": MagicMock(score=1.0, error=None)}
+        mock_result.to_actual_scores.return_value = ReviewResults(
+            reviews=[],
+            policyengine_match=1.0,
+            taxsim_match=None,
+        )
+        mock_result.total_duration_ms = 100
+
+        with patch("autorac.cli.ValidatorPipeline") as mock_pipeline_cls:
+            mock_pipeline_cls.return_value.validate.return_value = mock_result
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_validate(args)
+            assert exc_info.value.code == 0
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["scores"]["rac_reviewer"] is None
+        assert output["scores"]["parameter_reviewer"] is None
+
     def test_validate_rac_us_not_found_uses_defaults(self, capsys, tmp_path):
         """When rac_us can't be found by walking, use default paths."""
         rac_file = tmp_path / "test.rac"
@@ -1898,6 +2003,44 @@ class TestCmdValidateEdgeCases:
             # Verify rac_path was resolved via rac_us.parent / "rac"
             call_kwargs = mock_pipeline_cls.call_args[1]
             assert "rac-us" in str(call_kwargs["rac_us_path"])
+
+    def test_validate_fallback_prefers_workspace_repo_roots(self, tmp_path):
+        rac_file = tmp_path / "generated" / "test.rac"
+        rac_file.parent.mkdir(parents=True)
+        rac_file.write_text("# test")
+
+        args = MagicMock()
+        args.file = rac_file
+        args.json = False
+        args.skip_reviewers = True
+        args.oracle = None
+        args.min_match = 0.95
+
+        mock_result = MagicMock()
+        mock_result.all_passed = True
+        mock_result.ci_pass = True
+        mock_result.results = {}
+        mock_result.to_actual_scores.return_value = MagicMock(
+            rac_reviewer=None,
+            formula_reviewer=None,
+            parameter_reviewer=None,
+            integration_reviewer=None,
+            policyengine_match=None,
+            taxsim_match=None,
+        )
+
+        with patch("autorac.cli.ValidatorPipeline") as mock_pipeline_cls:
+            mock_pipeline = mock_pipeline_cls.return_value
+            mock_pipeline.validate.return_value = mock_result
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_validate(args)
+            assert exc_info.value.code == 0
+
+        call_kwargs = mock_pipeline_cls.call_args[1]
+        assert call_kwargs["rac_us_path"] == Path(
+            "/Users/maxghenis/TheAxiomFoundation/rac-us"
+        )
+        assert call_kwargs["rac_path"] == Path("/Users/maxghenis/TheAxiomFoundation/rac")
 
 
 class TestCmdCalibrationEdgeCases:

@@ -173,6 +173,32 @@ class TestExtractNumbersFromText:
         assert 5.0 in numbers
 
 
+class TestExtractTestsFromRacV2ListFormat:
+    def test_extracts_top_level_list_format(self, pipeline):
+        content = """
+- name: only_person_gets_enhanced_rate
+  period: 2025-04-07
+  input:
+    child_benefit_is_only_person: true
+  output:
+    child_benefit_enhanced_rate_amount: 26.05
+
+- name: neither_branch_applies
+  period: 2025-04-07
+  input:
+    child_benefit_is_only_person: false
+    child_benefit_is_elder_or_eldest_person: false
+  output:
+    child_benefit_enhanced_rate_amount: 0
+"""
+        tests = pipeline._extract_tests_from_rac_v2(content)
+
+        assert len(tests) == 2
+        assert tests[0]["variable"] == "child_benefit_enhanced_rate_amount"
+        assert tests[0]["expect"] == 26.05
+        assert tests[1]["expect"] == 0
+
+
 # =========================================================================
 # Prompt constants
 # =========================================================================
@@ -1308,6 +1334,57 @@ eitc:
             # No expected values, so score is None
             assert result.score is None
 
+    def test_pe_uk_uses_policyengine_uk_and_skips_unmappable_placeholder_case(
+        self, pipeline, temp_dirs
+    ):
+        rac_us, _ = temp_dirs
+        rac_file = rac_us / "uk_child_benefit.rac"
+        rac_file.write_text(
+            '''"""
+https://www.legislation.gov.uk/uksi/2006/965/regulation/2
+"""
+
+child_benefit_enhanced_rate_amount:
+    entity: Person
+    period: Week
+    dtype: Money
+'''
+        )
+        Path(str(rac_file) + ".test").write_text(
+            """
+- name: only person gets enhanced rate amount
+  period: 2025-04-07
+  input:
+    child_benefit_is_only_person: true
+    child_benefit_is_elder_or_eldest_person: false
+  output:
+    child_benefit_enhanced_rate_amount: 26.05
+
+- name: paragraphs can prevent rate
+  period: 2025-04-07
+  input:
+    child_benefit_is_only_person: true
+    child_benefit_subject_to_paragraphs_2_to_5_condition_satisfied: false
+  output:
+    child_benefit_enhanced_rate_amount: 0
+"""
+        )
+
+        with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
+            with patch.object(
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:26.05\n"
+                ),
+            ) as mock_run:
+                result = pipeline._run_policyengine(rac_file)
+
+        assert result.passed is True
+        assert result.score == 1.0
+        assert mock_run.call_count == 1
+        assert "from policyengine_uk import Simulation" in mock_run.call_args[0][0]
+
 
 # =========================================================================
 # _run_taxsim
@@ -1736,6 +1813,11 @@ class TestGetPeVariableMap:
         assert mapping["eitc"] == "eitc"
         assert "snap" in mapping
 
+    def test_uk_child_benefit_leaf_mapping(self, pipeline):
+        mapping = pipeline._get_pe_variable_map("uk")
+        assert mapping["child_benefit_enhanced_rate_amount"] == "child_benefit_respective_amount"
+        assert mapping["child_benefit_regulation_2_1_a_amount"] == "child_benefit_respective_amount"
+
     def test_pe_monthly_vars(self, pipeline):
         assert "snap" in pipeline._PE_MONTHLY_VARS
 
@@ -1823,7 +1905,73 @@ class TestBuildPeScenarioScript:
             3000,
         )
         assert "child0" in script
-        assert "child2" in script
+
+    def test_uk_child_benefit_leaf_script(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "child_benefit_respective_amount",
+            {
+                "child_benefit_is_only_person": True,
+                "period": "2025-04-07",
+            },
+            "2025",
+            26.05,
+            country="uk",
+            rac_var="child_benefit_enhanced_rate_amount",
+        )
+        assert "from policyengine_uk import Simulation" in script
+        assert "'benunits'" in script
+        assert "child_benefit_respective_amount" in script
+        assert "12 / 52" in script
+
+
+class TestDetectPolicyengineCountry:
+    def test_detects_uk_from_embedded_source(self, pipeline, temp_dirs):
+        rac_us, _ = temp_dirs
+        rac_file = rac_us / "uk_leaf.rac"
+        rac_file.write_text(
+            '''"""
+https://www.legislation.gov.uk/uksi/2006/965/regulation/2
+"""
+
+child_benefit_enhanced_rate_amount:
+    entity: Person
+    period: Week
+    dtype: Money
+'''
+        )
+        country = pipeline._detect_policyengine_country(rac_file, rac_file.read_text())
+        assert country == "uk"
+
+    def test_detects_us_by_default(self, pipeline, temp_dirs):
+        rac_us, _ = temp_dirs
+        rac_file = rac_us / "us_leaf.rac"
+        rac_file.write_text(
+            '''"""
+26 USC 24(a)
+"""
+
+ctc:
+    entity: TaxUnit
+    period: Year
+    dtype: Money
+'''
+        )
+        country = pipeline._detect_policyengine_country(rac_file, rac_file.read_text())
+        assert country == "us"
+
+    def test_detects_uk_from_temp_filename_prefix(self, pipeline, temp_dirs):
+        rac_us, _ = temp_dirs
+        rac_file = rac_us / "uksi-2006-965-regulation-2.rac"
+        rac_file.write_text(
+            """
+child_benefit_enhanced_rate_amount:
+    entity: Person
+    period: Week
+    dtype: Money
+"""
+        )
+        country = pipeline._detect_policyengine_country(rac_file, rac_file.read_text())
+        assert country == "uk"
 
 
 # =========================================================================
@@ -1872,6 +2020,24 @@ class TestValidate:
                 result = pipeline_no_oracles.validate(temp_rac_file)
                 assert "policyengine" not in result.results
                 assert "taxsim" not in result.results
+
+    def test_validate_skip_reviewers(self, pipeline_no_oracles, temp_rac_file):
+        """validate() skips LLM reviewers when requested."""
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_sub:
+            mock_sub.return_value = Mock(
+                stdout="PARSE_OK\nTESTS:1/1", stderr="", returncode=0
+            )
+            with patch.object(pipeline_no_oracles, "_run_reviewer") as mock_reviewer:
+                result = pipeline_no_oracles.validate(
+                    temp_rac_file, skip_reviewers=True
+                )
+                assert "compile" in result.results
+                assert "ci" in result.results
+                assert "rac_reviewer" not in result.results
+                assert "formula_reviewer" not in result.results
+                assert "parameter_reviewer" not in result.results
+                assert "integration_reviewer" not in result.results
+                mock_reviewer.assert_not_called()
 
     def test_validate_handles_ci_exception(self, pipeline_no_oracles, temp_rac_file):
         """validate() handles exceptions from CI validator."""
