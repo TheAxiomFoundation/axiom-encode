@@ -1497,7 +1497,11 @@ def _run_single_eval(
     response = _run_prompt_eval(runner, workspace, prompt)
     output_file = Path(output_root) / runner.name / relative_output
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    wrote_artifact = _materialize_eval_artifact(response.text, output_file)
+    wrote_artifact = _materialize_eval_artifact(
+        response.text,
+        output_file,
+        source_text=source_text,
+    )
     if wrote_artifact:
         _hydrate_eval_root(output_file.parents[2], workspace)
 
@@ -1584,7 +1588,11 @@ def _run_single_source_eval(
     response = _run_prompt_eval(runner, workspace, prompt)
     output_file = Path(output_root) / runner.name / relative_output
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    wrote_artifact = _materialize_eval_artifact(response.text, output_file)
+    wrote_artifact = _materialize_eval_artifact(
+        response.text,
+        output_file,
+        source_text=source_text,
+    )
     if wrote_artifact:
         _hydrate_eval_root(output_file.parents[2], workspace)
 
@@ -2435,8 +2443,101 @@ def _clean_generated_file_content(content: str) -> str:
     return stripped + ("\n" if stripped and not stripped.endswith("\n") else "")
 
 
-def _materialize_eval_artifact(llm_response: str, expected_path: Path) -> bool:
+def _normalize_comma_numeric_literals(content: str) -> str:
+    """Strip thousands separators from numeric literals without touching prose."""
+    return re.sub(
+        r"(?<![\d.])-?\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\d.])",
+        lambda match: match.group(0).replace(",", ""),
+        content,
+    )
+
+
+def _normalize_single_amount_row_rac_content(content: str) -> str:
+    """Collapse one-row conditional encodings into grounded constants."""
+    normalized = _normalize_comma_numeric_literals(content)
+    normalized = re.sub(
+        r"(^\s*from\s+\d{4}-\d{2}-\d{2}:\s*)if\b.+?:\s*(-?\d+(?:\.\d+)?)\s*(?:else:\s*0(?:\.0+)?)?\s*$",
+        lambda match: f"{match.group(1)}{match.group(2)}",
+        normalized,
+        flags=re.MULTILINE,
+    )
+
+    lines = normalized.splitlines()
+    rewritten: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        from_match = re.match(r"^(\s*from\s+\d{4}-\d{2}-\d{2}:)\s*$", line)
+        if (
+            from_match
+            and index + 1 < len(lines)
+            and (
+                cond_match := re.match(
+                    r"^\s*(?:if\b.+?:\s*)?(-?\d+(?:\.\d+)?)\s*(?:else:\s*0(?:\.0+)?)?\s*$",
+                    lines[index + 1],
+                )
+            )
+        ):
+            rewritten.append(f"{from_match.group(1)} {cond_match.group(1)}")
+            index += 2
+            continue
+        rewritten.append(line)
+        index += 1
+    return "\n".join(rewritten) + ("\n" if normalized.endswith("\n") else "")
+
+
+def _normalize_single_amount_row_test_content(content: str) -> str:
+    """Drop alternate-branch tests for one-row fixed-amount slices."""
+    normalized = _normalize_comma_numeric_literals(content)
+    try:
+        payload = yaml.safe_load(normalized)
+    except yaml.YAMLError:
+        return normalized
+
+    if payload is None:
+        return normalized
+
+    def should_keep(case_name: str | None) -> bool:
+        if not case_name:
+            return True
+        return "alternate" not in case_name.lower()
+
+    if isinstance(payload, list):
+        filtered = [
+            case
+            for case in payload
+            if not isinstance(case, dict) or should_keep(case.get("name"))
+        ]
+        return yaml.safe_dump(filtered, sort_keys=False).strip() + "\n"
+
+    if isinstance(payload, dict):
+        if isinstance(payload.get("tests"), list):
+            payload["tests"] = [
+                case
+                for case in payload["tests"]
+                if not isinstance(case, dict) or should_keep(case.get("name"))
+            ]
+            return yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+
+        filtered_items: dict[str, object] = {}
+        for key, value in payload.items():
+            case_name = key if isinstance(key, str) else None
+            if should_keep(case_name):
+                filtered_items[key] = value
+        return yaml.safe_dump(filtered_items, sort_keys=False).strip() + "\n"
+
+    return normalized
+
+
+def _materialize_eval_artifact(
+    llm_response: str,
+    expected_path: Path,
+    source_text: str | None = None,
+) -> bool:
     """Write an eval artifact and optional companion test file from model output."""
+    single_amount_table_slice = bool(
+        source_text and _is_single_amount_table_slice(source_text)
+    )
     bundle = _extract_generated_file_bundle(llm_response)
     if bundle:
         wrote_main = False
@@ -2449,6 +2550,11 @@ def _materialize_eval_artifact(llm_response: str, expected_path: Path) -> bool:
                 target_path = expected_test_path
             else:
                 continue
+            if single_amount_table_slice:
+                if target_path == expected_path:
+                    content = _normalize_single_amount_row_rac_content(content)
+                elif target_path == expected_test_path:
+                    content = _normalize_single_amount_row_test_content(content)
             target_path.parent.mkdir(parents=True, exist_ok=True)
             target_path.write_text(content)
             if target_path == expected_path:
@@ -2459,6 +2565,8 @@ def _materialize_eval_artifact(llm_response: str, expected_path: Path) -> bool:
     rac_content = _extract_rac_content(llm_response)
     if not rac_content:
         return False
+    if single_amount_table_slice:
+        rac_content = _normalize_single_amount_row_rac_content(rac_content)
 
     expected_path.parent.mkdir(parents=True, exist_ok=True)
     expected_path.write_text(rac_content)

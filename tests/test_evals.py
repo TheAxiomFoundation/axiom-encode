@@ -146,6 +146,116 @@ class TestGeneratedBundleCleaning:
             "    child_benefit_enhanced_rate: 26.05\n"
         )
 
+    def test_materialize_eval_artifact_normalizes_single_row_block_conditional_and_tests(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "source" / "uksi-2002-2005-schedule-2-second-adult-element.rac"
+        source_text = (
+            "Editorial note: current text valid from 2024-04-06.\n\n"
+            "Structured table:\n"
+            "Relevant element of working tax credit | Maximum annual rate\n"
+            "4. Second adult element | £2,500"
+        )
+        llm_response = (
+            "=== FILE: uksi-2002-2005-schedule-2-second-adult-element.rac ===\n"
+            "wtc_second_adult_element_eligible:\n"
+            "    entity: TaxUnit\n"
+            "    period: Year\n"
+            "    dtype: Boolean\n\n"
+            "wtc_second_adult_element_amount:\n"
+            "    entity: TaxUnit\n"
+            "    period: Year\n"
+            "    dtype: Money\n"
+            "    unit: GBP\n"
+            "    from 2024-04-06:\n"
+            "        if wtc_second_adult_element_eligible: 2,500 else: 0\n"
+            "=== FILE: uksi-2002-2005-schedule-2-second-adult-element.rac.test ===\n"
+            "base_case:\n"
+            "  period: 2024-04-06\n"
+            "  input:\n"
+            "    wtc_second_adult_element_eligible: true\n"
+            "  output:\n"
+            "    wtc_second_adult_element_amount: 2,500\n\n"
+            "alternate_branch:\n"
+            "  period: 2024-04-06\n"
+            "  input:\n"
+            "    wtc_second_adult_element_eligible: false\n"
+            "  output:\n"
+            "    wtc_second_adult_element_amount: 0\n"
+        )
+
+        wrote = _materialize_eval_artifact(
+            llm_response,
+            output_file,
+            source_text=source_text,
+        )
+
+        assert wrote is True
+        assert "2,500" not in output_file.read_text()
+        assert "if wtc_second_adult_element_eligible" not in output_file.read_text()
+        assert "from 2024-04-06: 2500" in output_file.read_text()
+        test_text = output_file.with_suffix(".rac.test").read_text()
+        assert "alternate_branch" not in test_text
+        assert "2500" in test_text
+
+    def test_materialize_eval_artifact_normalizes_single_row_inline_conditional_without_else(
+        self, tmp_path
+    ):
+        output_file = (
+            tmp_path / "source" / "uksi-2013-376-regulation-36-3-single-25-or-over.rac"
+        )
+        source_text = (
+            "Editorial note: current text valid from 2025-04-07.\n\n"
+            "Structured table:\n"
+            "Element | Amount for each assessment period\n"
+            "single claimant aged 25 or over | £400.14"
+        )
+        llm_response = (
+            "=== FILE: uksi-2013-376-regulation-36-3-single-25-or-over.rac ===\n"
+            "uc_claimant_is_single:\n"
+            "    entity: TaxUnit\n"
+            "    period: Month\n"
+            "    dtype: Boolean\n\n"
+            "uc_claimant_aged_25_or_over:\n"
+            "    entity: TaxUnit\n"
+            "    period: Month\n"
+            "    dtype: Boolean\n\n"
+            "uc_standard_allowance_single_claimant_aged_25_or_over:\n"
+            "    entity: TaxUnit\n"
+            "    period: Month\n"
+            "    dtype: Money\n"
+            "    unit: GBP\n"
+            "    from 2025-04-07: if uc_claimant_is_single and uc_claimant_aged_25_or_over: 400.14\n"
+            "=== FILE: uksi-2013-376-regulation-36-3-single-25-or-over.rac.test ===\n"
+            "- name: base_case\n"
+            "  period: 2025-04\n"
+            "  input:\n"
+            "    uc_claimant_is_single: true\n"
+            "    uc_claimant_aged_25_or_over: true\n"
+            "  output:\n"
+            "    uc_standard_allowance_single_claimant_aged_25_or_over: 400.14\n"
+            "- name: alternate_real_condition_single_status_varied\n"
+            "  period: 2025-04\n"
+            "  input:\n"
+            "    uc_claimant_is_single: false\n"
+            "    uc_claimant_aged_25_or_over: true\n"
+            "  output:\n"
+            "    uc_standard_allowance_single_claimant_aged_25_or_over: 400.14\n"
+        )
+
+        wrote = _materialize_eval_artifact(
+            llm_response,
+            output_file,
+            source_text=source_text,
+        )
+
+        assert wrote is True
+        rac_text = output_file.read_text()
+        assert "from 2025-04-07: 400.14" in rac_text
+        assert "if uc_claimant_is_single" not in rac_text
+        test_text = output_file.with_suffix(".rac.test").read_text()
+        assert "alternate_real_condition_single_status_varied" not in test_text
+
     def test_can_include_policyengine_metrics_for_uk_artifact(self, tmp_path):
         rac_file = tmp_path / "source" / "uksi-2006-965-regulation-2.rac"
         rac_file.parent.mkdir(parents=True)
