@@ -1880,6 +1880,8 @@ class TestGetPeVariableMap:
         assert mapping["child_benefit_reg2_1_a"] == "child_benefit_respective_amount"
         assert mapping["uk_child_benefit_other_child_weekly_rate"] == "child_benefit_respective_amount"
         assert mapping["child_benefit_reg2_1_b"] == "child_benefit_respective_amount"
+        assert mapping["standard_minimum_guarantee_couple_weekly_rate"] == "standard_minimum_guarantee"
+        assert mapping["standard_minimum_guarantee_single_weekly_rate"] == "standard_minimum_guarantee"
 
     def test_pe_monthly_vars(self, pipeline):
         assert "snap" in pipeline._PE_MONTHLY_VARS
@@ -2084,6 +2086,44 @@ class TestBuildPeScenarioScript:
         assert "else:" in script
         assert "val = float(monthly[target_index]) * 12 / 52" in script
 
+    def test_uk_pension_credit_couple_leaf_script_builds_couple_scenario(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "standard_minimum_guarantee",
+            {
+                "claimant_has_partner": True,
+                "period": "2025-03-31",
+            },
+            "2025",
+            338.61,
+            country="uk",
+            rac_var="standard_minimum_guarantee_couple_weekly_rate",
+        )
+        assert "from policyengine_uk import Simulation" in script
+        assert "'spouse'" in script
+        assert "standard_minimum_guarantee" in script
+        assert "weekly = float(annual[0]) / 52" in script
+        assert "if scenario_is_couple:" in script
+
+    def test_uk_pension_credit_single_leaf_script_zeros_couple_branch(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "standard_minimum_guarantee",
+            {
+                "claimant_has_partner": True,
+                "period": "2025-03-31",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="standard_minimum_guarantee_single_weekly_rate",
+        )
+        assert "scenario_is_couple = True" in script
+        assert "if scenario_is_couple:" in script
+        assert "val = 0.0" in script
+
 
 class TestIsPeTestMappable:
     def test_uk_child_benefit_paragraph_exception_true_is_unmappable(self, pipeline):
@@ -2170,6 +2210,22 @@ class TestResolvePeVariable:
         assert (
             pipeline._resolve_pe_variable("uk", "child_benefit_reg2_1_b")
             == "child_benefit_respective_amount"
+        )
+
+    def test_resolves_uk_pension_credit_standard_minimum_guarantee_couple(
+        self, pipeline
+    ):
+        assert (
+            pipeline._resolve_pe_variable("uk", "standard_minimum_guarantee_couple_weekly_rate")
+            == "standard_minimum_guarantee"
+        )
+
+    def test_resolves_uk_pension_credit_standard_minimum_guarantee_single(
+        self, pipeline
+    ):
+        assert (
+            pipeline._resolve_pe_variable("uk", "standard_minimum_guarantee_single_weekly_rate")
+            == "standard_minimum_guarantee"
         )
 
 

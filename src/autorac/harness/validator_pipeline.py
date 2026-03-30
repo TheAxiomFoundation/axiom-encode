@@ -1985,6 +1985,8 @@ print("BENCHMARK:" + json.dumps(result))
                 "child_benefit_other_child_weekly_rate": "child_benefit_respective_amount",
                 "child_benefit_regulation_2_1_b_amount": "child_benefit_respective_amount",
                 "child_benefit_reg2_1_b": "child_benefit_respective_amount",
+                "standard_minimum_guarantee_couple_weekly_rate": "standard_minimum_guarantee",
+                "standard_minimum_guarantee_single_weekly_rate": "standard_minimum_guarantee",
             }
 
         return {
@@ -2039,6 +2041,35 @@ print("BENCHMARK:" + json.dumps(result))
                 "child_benefit_regulation_2_1_b",
                 "child_benefit_reg2_1_b",
             )
+        )
+
+    @staticmethod
+    def _is_uk_pension_credit_standard_minimum_guarantee_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return "minimum_guarantee" in rac_var_lower and any(
+            marker in rac_var_lower
+            for marker in (
+                "standard_minimum_guarantee",
+                "pension_credit",
+                "partner",
+                "couple",
+                "single",
+            )
+        )
+
+    @staticmethod
+    def _is_uk_pension_credit_couple_rate_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return "no_partner" not in rac_var_lower and any(
+            marker in rac_var_lower for marker in ("couple", "has_partner", "partner")
+        )
+
+    @staticmethod
+    def _is_uk_pension_credit_single_rate_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return any(
+            marker in rac_var_lower
+            for marker in ("single", "no_partner", "without_partner")
         )
 
     # PE variables that are defined as monthly (not annual)
@@ -2105,6 +2136,10 @@ print("BENCHMARK:" + json.dumps(result))
         rac_var_lower = rac_var.lower()
         if country == "uk" and self._is_uk_child_benefit_rate_var(rac_var_lower):
             return "child_benefit_respective_amount"
+        if country == "uk" and self._is_uk_pension_credit_standard_minimum_guarantee_var(
+            rac_var_lower
+        ):
+            return "standard_minimum_guarantee"
 
         return None
 
@@ -2249,8 +2284,82 @@ print(f'RESULT:{{val}}')
         period_value = str(inputs.get("period", f"{year}-04"))
         month_period = period_value[:7] if len(period_value) >= 7 else f"{year}-04"
         rac_var_lower = (rac_var or "").lower()
-
         lowered = {str(key).lower(): value for key, value in inputs.items()}
+
+        if pe_var == "standard_minimum_guarantee" and self._is_uk_pension_credit_standard_minimum_guarantee_var(
+            rac_var_lower
+        ):
+            relation_type = next(
+                (
+                    str(value).lower()
+                    for key, value in lowered.items()
+                    if "relation_type" in key and value is not None
+                ),
+                None,
+            )
+            if relation_type is not None:
+                scenario_is_couple = "couple" in relation_type
+            elif any("no_partner" in key and bool(value) for key, value in lowered.items()):
+                scenario_is_couple = False
+            elif any(
+                (
+                    ("has_partner" in key and "no_partner" not in key)
+                    or "is_couple" in key
+                    or key.endswith("_couple")
+                )
+                and bool(value)
+                for key, value in lowered.items()
+            ):
+                scenario_is_couple = True
+            elif self._is_uk_pension_credit_couple_rate_var(rac_var_lower):
+                scenario_is_couple = True
+            else:
+                scenario_is_couple = False
+
+            people = f"{{'adult': {{'age': {{{year}: 70}}}}}}"
+            benunit_members = "['adult']"
+            household_members = "['adult']"
+            if scenario_is_couple:
+                people = (
+                    f"{{'adult': {{'age': {{{year}: 70}}}}, 'spouse': {{'age': {{{year}: 70}}}}}}"
+                )
+                benunit_members = "['adult', 'spouse']"
+                household_members = "['adult', 'spouse']"
+
+            if self._is_uk_pension_credit_couple_rate_var(rac_var_lower):
+                result_logic = """
+if scenario_is_couple:
+    val = weekly
+else:
+    val = 0.0
+"""
+            elif self._is_uk_pension_credit_single_rate_var(rac_var_lower):
+                result_logic = """
+if scenario_is_couple:
+    val = 0.0
+else:
+    val = weekly
+"""
+            else:
+                result_logic = "val = weekly"
+
+            return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {people},
+    'benunits': {{'benunit': {{'members': {benunit_members}}}}},
+    'households': {{'household': {{'members': {household_members}}}}},
+}}
+
+sim = Simulation(situation=situation)
+annual = sim.calculate('{pe_var}', int('{year}'))
+weekly = float(annual[0]) / 52
+scenario_is_couple = {scenario_is_couple}
+{result_logic.rstrip()}
+print(f'RESULT:{{val}}')
+"""
+
         only_person = any(
             "only_person" in key and bool(value) for key, value in lowered.items()
         )
