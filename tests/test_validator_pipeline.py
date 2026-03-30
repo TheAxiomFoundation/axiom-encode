@@ -1776,6 +1776,25 @@ tests:
             "child_benefit_other_case": True,
         }
 
+    def test_v2_unwraps_entity_value_wrappers(self, pipeline):
+        content = """
+tests:
+  - name: single_claimant_base
+    period: 2025-04-07
+    input:
+      has_partner:
+        entity: Family
+        value: false
+    output:
+      pension_credit_standard_minimum_guarantee_single:
+        entity: Family
+        value: 218.15
+"""
+        tests = pipeline._extract_tests_from_rac_v2(content)
+        assert len(tests) == 1
+        assert tests[0]["inputs"] == {"has_partner": False}
+        assert tests[0]["expect"] == 218.15
+
 
 # =========================================================================
 # _build_pe_situation
@@ -2197,6 +2216,24 @@ class TestBuildPeScenarioScript:
         assert "if scenario_is_couple:" in script
         assert "val = 0.0" in script
 
+    def test_uk_pension_credit_explicit_false_partner_input_beats_var_name(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "standard_minimum_guarantee",
+            {
+                "guarantee_credit_claimant_has_partner": False,
+                "period": "2025-03-31",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="guarantee_credit_standard_minimum_guarantee_default_partner_rate",
+        )
+        assert "scenario_is_couple = False" in script
+        assert "if scenario_is_couple:" in script
+        assert "val = 0.0" in script
+
 
 class TestIsPeTestMappable:
     def test_uk_child_benefit_paragraph_exception_true_is_unmappable(self, pipeline):
@@ -2250,6 +2287,26 @@ class TestIsPeTestMappable:
 
         assert mappable is False
         assert "helper boolean" in reason.lower()
+
+    def test_uk_pension_credit_helper_boolean_is_unmappable(self, pipeline):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "uk",
+            "guarantee_credit_standard_minimum_guarantee_default_partner_rate_applies",
+            {},
+        )
+
+        assert mappable is False
+        assert "helper boolean" in reason.lower()
+
+    def test_uk_pension_credit_exception_branch_is_unmappable(self, pipeline):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "uk",
+            "guarantee_credit_standard_minimum_guarantee_default_partner_rate",
+            {"guarantee_credit_standard_minimum_guarantee_exception_applies": True},
+        )
+
+        assert mappable is False
+        assert "does not represent directly" in reason
 
 
 class TestResolvePeVariable:

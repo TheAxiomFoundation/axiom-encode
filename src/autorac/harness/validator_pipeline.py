@@ -1785,6 +1785,13 @@ print("BENCHMARK:" + json.dumps(result))
 
         def normalize_test_value(value: Any) -> Any:
             if isinstance(value, dict):
+                lowered_keys = {str(key).lower() for key in value.keys()}
+                if "value" in lowered_keys and lowered_keys.issubset(
+                    {"entity", "value"}
+                ):
+                    for key, inner in value.items():
+                        if str(key).lower() == "value":
+                            return normalize_test_value(inner)
                 normalized = {
                     key: normalize_test_value(inner) for key, inner in value.items()
                 }
@@ -2069,8 +2076,14 @@ print("BENCHMARK:" + json.dumps(result))
     @staticmethod
     def _is_uk_pension_credit_couple_rate_var(rac_var: str) -> bool:
         rac_var_lower = rac_var.lower()
+        if any(
+            marker in rac_var_lower
+            for marker in ("claimant_has_partner", "exception_applies", "_applies")
+        ):
+            return False
         return "no_partner" not in rac_var_lower and any(
-            marker in rac_var_lower for marker in ("couple", "has_partner", "partner")
+            marker in rac_var_lower
+            for marker in ("couple", "partner_rate", "with_partner", "partner")
         )
 
     @staticmethod
@@ -2134,6 +2147,25 @@ print("BENCHMARK:" + json.dumps(result))
                 False,
                 "RAC helper boolean does not have a direct PolicyEngine UK analogue",
             )
+        if country == "uk" and self._is_uk_pension_credit_standard_minimum_guarantee_var(
+            rac_var_lower
+        ):
+            if (
+                rac_var_lower.endswith("_applies")
+                or "claimant_has_partner" in rac_var_lower
+                or "exception_applies" in rac_var_lower
+            ):
+                return (
+                    False,
+                    "RAC helper boolean does not have a direct PolicyEngine UK analogue",
+                )
+            for key, value in inputs.items():
+                key_lower = str(key).lower()
+                if "exception_applies" in key_lower and bool(value):
+                    return (
+                        False,
+                        "RAC test uses downstream regulation exceptions that PolicyEngine UK does not represent directly",
+                    )
         return True, None
 
     def _resolve_pe_variable(self, country: str, rac_var: str) -> str | None:
@@ -2298,6 +2330,18 @@ print(f'RESULT:{{val}}')
         if pe_var == "standard_minimum_guarantee" and self._is_uk_pension_credit_standard_minimum_guarantee_var(
             rac_var_lower
         ):
+            explicit_has_partner = next(
+                (
+                    bool(value)
+                    for key, value in lowered.items()
+                    if (
+                        ("has_partner" in str(key).lower())
+                        and "no_partner" not in str(key).lower()
+                        and value is not None
+                    )
+                ),
+                None,
+            )
             relation_type = next(
                 (
                     str(value).lower()
@@ -2306,7 +2350,9 @@ print(f'RESULT:{{val}}')
                 ),
                 None,
             )
-            if relation_type is not None:
+            if explicit_has_partner is not None:
+                scenario_is_couple = explicit_has_partner
+            elif relation_type is not None:
                 scenario_is_couple = "couple" in relation_type
             elif any("no_partner" in key and bool(value) for key, value in lowered.items()):
                 scenario_is_couple = False
