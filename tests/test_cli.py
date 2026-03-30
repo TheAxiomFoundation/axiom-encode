@@ -157,6 +157,19 @@ class TestMain:
                     main()
                     mock_cmd.assert_called_once()
 
+    def test_eval_uk_legislation_section_command_dispatches(self):
+        with patch(
+            "sys.argv",
+            [
+                "autorac",
+                "eval-uk-legislation-section",
+                "https://www.legislation.gov.uk/ukpga/2010/1/section/1",
+            ],
+        ):
+            with patch("autorac.cli.cmd_eval_uk_legislation_section") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
     def test_compile_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".rac") as f:
             with patch("sys.argv", ["autorac", "compile", f.name]):

@@ -10,7 +10,10 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
+
+import requests
 
 from autorac.statute import (
     CitationParts,
@@ -32,6 +35,42 @@ from .validator_pipeline import (
 EvalMode = Literal["cold", "repo-augmented"]
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 AKN_NS = {"akn": "http://docs.oasis-open.org/legaldocml/ns/akn/3.0"}
+AKN_CONTAINER_TAGS = {
+    "hcontainer",
+    "section",
+    "subsection",
+    "level",
+    "article",
+    "paragraph",
+    "subparagraph",
+    "point",
+    "subpoint",
+    "part",
+    "chapter",
+}
+SUPPORTED_EVAL_ENTITIES = (
+    "Person",
+    "TaxUnit",
+    "Household",
+    "Family",
+    "TanfUnit",
+    "SnapUnit",
+    "SPMUnit",
+    "Corporation",
+    "Business",
+    "Asset",
+)
+SUPPORTED_EVAL_PERIODS = ("Year", "Month", "Week", "Day")
+SUPPORTED_EVAL_DTYPES = (
+    "Money",
+    "Rate",
+    "Boolean",
+    "Integer",
+    "Count",
+    "String",
+    "Decimal",
+    "Float",
+)
 
 
 @dataclass(frozen=True)
@@ -133,6 +172,16 @@ class EvalResult:
         return data
 
 
+@dataclass(frozen=True)
+class FetchedLegislationGovUkDocument:
+    """Official legislation.gov.uk sources fetched for one content URL."""
+
+    source_id: str
+    content_url: str
+    akn_file: Path
+    clml_file: Path
+
+
 def parse_runner_spec(spec: str) -> EvalRunnerSpec:
     """Parse `[name=]backend:model` into a structured runner spec."""
     alias = ""
@@ -227,11 +276,169 @@ def _akn_child_text(parent: ET.Element, child_tag: str) -> str:
     return _collapse_whitespace("".join(child.itertext()))
 
 
+def _akn_local_tag(element: ET.Element) -> str:
+    return element.tag.rsplit("}", 1)[-1]
+
+
+def _is_akn_container(element: ET.Element) -> bool:
+    return _akn_local_tag(element) in AKN_CONTAINER_TAGS
+
+
 def _find_akn_section(root: ET.Element, section_eid: str) -> ET.Element:
-    section = root.find(f".//akn:hcontainer[@eId='{section_eid}']", AKN_NS)
-    if section is None:
-        raise ValueError(f"Section eId not found: {section_eid}")
-    return section
+    for element in root.iter():
+        if element.get("eId") == section_eid and _is_akn_container(element):
+            return element
+    raise ValueError(f"Section eId not found: {section_eid}")
+
+
+def _direct_akn_child_sections(section: ET.Element) -> list[ET.Element]:
+    return [child for child in list(section) if _is_akn_container(child)]
+
+
+def _find_primary_akn_section_eid(akn_file: Path) -> str:
+    """Pick the sole top-level AKN content node from a document-level source."""
+    tree = ET.parse(akn_file)
+    root = tree.getroot()
+
+    for body_tag in ("mainBody", "body"):
+        body = root.find(f".//akn:{body_tag}", AKN_NS)
+        if body is None:
+            continue
+        children = _direct_akn_child_sections(body)
+        if len(children) == 1:
+            section_eid = children[0].get("eId")
+            if not section_eid:
+                raise ValueError("Primary AKN section is missing an eId")
+            return section_eid
+        if len(children) > 1:
+            labels = ", ".join(child.get("eId", "<unknown>") for child in children[:8])
+            raise ValueError(
+                "AKN document has multiple top-level sections. "
+                f"Pass --section-eid explicitly. Candidates: {labels}"
+            )
+
+    raise ValueError("Could not identify a primary AKN section in the document")
+
+
+def _normalize_legislation_gov_uk_source_ref(source_ref: str) -> tuple[str, str]:
+    """Normalize a legislation.gov.uk URL or path to a canonical content URL."""
+    raw = source_ref.strip()
+    if not raw:
+        raise ValueError("Empty legislation.gov.uk source reference")
+
+    if "://" not in raw:
+        raw = f"https://www.legislation.gov.uk/{raw.lstrip('/')}"
+
+    parsed = urlparse(raw)
+    if parsed.netloc not in {"www.legislation.gov.uk", "legislation.gov.uk"}:
+        raise ValueError(
+            f"Unsupported source host '{parsed.netloc}'. Expected legislation.gov.uk"
+        )
+
+    path = parsed.path.rstrip("/")
+    for suffix in (
+        "/data.akn",
+        "/data.xml",
+        "/data.html",
+        "/data.htm",
+        "/data.xht",
+        "/data.pdf",
+    ):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+            break
+
+    if not path or path == "/":
+        raise ValueError(f"Invalid legislation.gov.uk source reference: {source_ref}")
+
+    source_id = path.lstrip("/")
+    return source_id, f"https://www.legislation.gov.uk/{source_id}"
+
+
+def _fetch_legislation_gov_uk_document(
+    source_ref: str,
+    output_root: Path,
+) -> FetchedLegislationGovUkDocument:
+    """Fetch official AKN and CLML files from legislation.gov.uk."""
+    source_id, content_url = _normalize_legislation_gov_uk_source_ref(source_ref)
+    source_dir = Path(output_root) / "_legislation_gov_uk" / _slugify(source_id)
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    akn_response = requests.get(f"{content_url}/data.akn", timeout=30)
+    akn_response.raise_for_status()
+    clml_response = requests.get(f"{content_url}/data.xml", timeout=30)
+    clml_response.raise_for_status()
+
+    akn_file = source_dir / "source.akn"
+    clml_file = source_dir / "source.xml"
+    akn_file.write_text(akn_response.text)
+    clml_file.write_text(clml_response.text)
+
+    return FetchedLegislationGovUkDocument(
+        source_id=source_id,
+        content_url=content_url,
+        akn_file=akn_file,
+        clml_file=clml_file,
+    )
+
+
+def _akn_title(element: ET.Element) -> str:
+    return " ".join(
+        item for item in (_akn_child_text(element, "num"), _akn_child_text(element, "heading")) if item
+    ).strip()
+
+
+def _akn_ancestor_titles(root: ET.Element, section: ET.Element) -> list[str]:
+    parent_by_child = {child: parent for parent in root.iter() for child in list(parent)}
+    titles: list[str] = []
+    current = parent_by_child.get(section)
+    while current is not None:
+        if _is_akn_container(current):
+            title = _akn_title(current)
+            if title:
+                titles.append(title)
+        current = parent_by_child.get(current)
+    titles.reverse()
+    return titles
+
+
+def _append_akn_content_block_text(parent: ET.Element, parts: list[str]) -> None:
+    for child in list(parent):
+        local_tag = _akn_local_tag(child)
+        if local_tag == "p":
+            paragraph = _collapse_whitespace("".join(child.itertext()))
+            if paragraph:
+                parts.append(paragraph)
+        elif local_tag == "table":
+            rows: list[str] = []
+            for row in child.findall("akn:tr", AKN_NS):
+                cells = [
+                    _collapse_whitespace("".join(cell.itertext()))
+                    for cell in list(row)
+                    if _collapse_whitespace("".join(cell.itertext()))
+                ]
+                if cells:
+                    rows.append(" | ".join(cells))
+            if rows:
+                parts.append("Structured table:\n" + "\n".join(rows))
+
+
+def _akn_ancestor_intro_text(root: ET.Element, section: ET.Element) -> list[str]:
+    parent_by_child = {child: parent for parent in root.iter() for child in list(parent)}
+    intros: list[str] = []
+    current = parent_by_child.get(section)
+    lineage: list[ET.Element] = []
+    while current is not None:
+        if _is_akn_container(current):
+            lineage.append(current)
+        current = parent_by_child.get(current)
+    lineage.reverse()
+    for ancestor in lineage:
+        for tag in ("intro", "wrapUp"):
+            node = ancestor.find(f"akn:{tag}", AKN_NS)
+            if node is not None:
+                _append_akn_content_block_text(node, intros)
+    return intros
 
 
 def _resolve_akn_section_eid(
@@ -243,7 +450,7 @@ def _resolve_akn_section_eid(
     tree = ET.parse(akn_file)
     root = tree.getroot()
     section = _find_akn_section(root, section_eid)
-    child_sections = section.findall("akn:hcontainer", AKN_NS)
+    child_sections = _direct_akn_child_sections(section)
     if allow_parent or not child_sections:
         return section_eid
 
@@ -271,10 +478,9 @@ def extract_akn_section_text(akn_file: Path, section_eid: str) -> str:
     root = tree.getroot()
     section = _find_akn_section(root, section_eid)
 
-    parts: list[str] = []
-    title = " ".join(
-        item for item in (_akn_child_text(section, "num"), _akn_child_text(section, "heading")) if item
-    ).strip()
+    parts: list[str] = [title for title in _akn_ancestor_titles(root, section) if title]
+    parts.extend(_akn_ancestor_intro_text(root, section))
+    title = _akn_title(section)
     if title:
         parts.append(title)
 
@@ -285,28 +491,10 @@ def extract_akn_section_text(akn_file: Path, section_eid: str) -> str:
         if remark_text:
             parts.append(remark_text)
 
-    content = section.find("akn:content", AKN_NS)
-    if content is None:
-        return "\n\n".join(parts).strip()
-
-    for child in list(content):
-        local_tag = child.tag.rsplit("}", 1)[-1]
-        if local_tag == "p":
-            paragraph = _collapse_whitespace("".join(child.itertext()))
-            if paragraph:
-                parts.append(paragraph)
-        elif local_tag == "table":
-            rows: list[str] = []
-            for row in child.findall("akn:tr", AKN_NS):
-                cells = [
-                    _collapse_whitespace("".join(cell.itertext()))
-                    for cell in list(row)
-                    if _collapse_whitespace("".join(cell.itertext()))
-                ]
-                if cells:
-                    rows.append(" | ".join(cells))
-            if rows:
-                parts.append("Structured table:\n" + "\n".join(rows))
+    for tag in ("intro", "content", "wrapUp"):
+        node = section.find(f"akn:{tag}", AKN_NS)
+        if node is not None:
+            _append_akn_content_block_text(node, parts)
 
     return "\n\n".join(parts).strip()
 
@@ -336,6 +524,32 @@ def run_akn_section_eval(
         rac_path=rac_path,
         mode=mode,
         extra_context_paths=extra_context_paths,
+    )
+
+
+def run_legislation_gov_uk_section_eval(
+    source_ref: str,
+    runner_specs: list[str],
+    output_root: Path,
+    rac_path: Path,
+    mode: EvalMode = "repo-augmented",
+    extra_context_paths: list[Path] | None = None,
+    section_eid: str | None = None,
+    allow_parent: bool = False,
+) -> list[EvalResult]:
+    """Fetch official UK legislation XML and run an AKN section eval."""
+    fetched = _fetch_legislation_gov_uk_document(source_ref, output_root)
+    target_section_eid = section_eid or _find_primary_akn_section_eid(fetched.akn_file)
+    return run_akn_section_eval(
+        source_id=fetched.source_id,
+        akn_file=fetched.akn_file,
+        section_eid=target_section_eid,
+        runner_specs=runner_specs,
+        output_root=output_root,
+        rac_path=rac_path,
+        mode=mode,
+        extra_context_paths=extra_context_paths,
+        allow_parent=allow_parent,
     )
 
 
@@ -747,6 +961,21 @@ Available precedent files:
 - Do not include markdown fences or explanation.
 """
 
+    schema_rules = f"""
+- Do not invent new entities, periods, or dtypes.
+- Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
+- Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
+- Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
+- If the source cannot be represented faithfully with the supported schema, prefer a compileable fallback with `status: entity_not_supported` or `status: deferred` instead of inventing a new ontology.
+"""
+
+    uk_guidance = ""
+    if re.match(r"^(?:ukpga|uksi|asp|ssi|wsi|nisi|anaw|asc)/", citation):
+        uk_guidance = """
+- For UK legislation, do not invent custom provision-level entities like `Provision`, `Section`, or `Regulation`, and do not invent periods like `Instant`.
+- Prefer `Family` for claimant-level family benefits, `Person` for individual tax allowances or eligibility, and `TaxUnit` for joint tax rules.
+"""
+
     return f"""You are participating in an encoding eval for {citation}.
 
 Primary legal authority:
@@ -762,6 +991,7 @@ Rules:
 - Include the source text in a triple-quoted docstring.
 - Use RAC DSL conventions.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
+{schema_rules}{uk_guidance}
 - Prefer standard RAC blocks shaped like:
   example_name:
       entity: TaxUnit

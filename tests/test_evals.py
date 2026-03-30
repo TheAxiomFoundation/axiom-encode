@@ -7,12 +7,15 @@ from unittest.mock import patch
 from autorac.harness.evals import (
     _build_eval_prompt,
     _command_looks_out_of_bounds,
+    _fetch_legislation_gov_uk_document,
     _hydrate_eval_root,
+    _normalize_legislation_gov_uk_source_ref,
     _resolve_akn_section_eid,
     evaluate_artifact,
     extract_akn_section_text,
     parse_runner_spec,
     prepare_eval_workspace,
+    run_legislation_gov_uk_section_eval,
     run_akn_section_eval,
     run_source_eval,
     select_context_files,
@@ -73,6 +76,72 @@ class TestEvaluateArtifact:
 
 
 class TestAknSectionEval:
+    def test_extract_akn_section_text_supports_standard_akn_subsection_tags(self, tmp_path):
+        akn_file = tmp_path / "doc.xml"
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <act>
+    <body>
+      <section eId="section-1">
+        <num>1</num>
+        <heading>Example section</heading>
+        <subsection eId="section-1-1">
+          <num>(1)</num>
+          <content>
+            <p>Example subsection text.</p>
+          </content>
+        </subsection>
+      </section>
+    </body>
+  </act>
+</akomaNtoso>
+            """.strip()
+        )
+
+        text = extract_akn_section_text(akn_file, "section-1-1")
+
+        assert "1 Example section" in text
+        assert "(1)" in text
+        assert "Example subsection text." in text
+
+    def test_extract_akn_section_text_includes_parent_intro_for_leaf_levels(self, tmp_path):
+        akn_file = tmp_path / "doc.xml"
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <act>
+    <body>
+      <section eId="section-1">
+        <num>1</num>
+        <heading>Example section</heading>
+        <subsection eId="section-1-1">
+          <num>(1)</num>
+          <intro>
+            <p>Lead-in text for child levels.</p>
+          </intro>
+          <level eId="section-1-1-a">
+            <num>(a)</num>
+            <content>
+              <p>Leaf paragraph text.</p>
+            </content>
+          </level>
+        </subsection>
+      </section>
+    </body>
+  </act>
+</akomaNtoso>
+            """.strip()
+        )
+
+        text = extract_akn_section_text(akn_file, "section-1-1-a")
+
+        assert "1 Example section" in text
+        assert "(1)" in text
+        assert "Lead-in text for child levels." in text
+        assert "(a)" in text
+        assert "Leaf paragraph text." in text
+
     def test_extract_akn_section_text_includes_heading_and_table_rows(self, tmp_path):
         akn_file = tmp_path / "doc.xml"
         akn_file.write_text(
@@ -254,6 +323,127 @@ class TestAknSectionEval:
             == "sec_3_606_1"
         )
 
+    def test_resolve_akn_section_eid_rejects_standard_akn_parent_sections(self, tmp_path):
+        akn_file = tmp_path / "doc.xml"
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <act>
+    <body>
+      <section eId="section-1">
+        <num>1</num>
+        <heading>Example section</heading>
+        <subsection eId="section-1-1">
+          <num>(1)</num>
+          <content><p>Example subsection text.</p></content>
+        </subsection>
+      </section>
+    </body>
+  </act>
+</akomaNtoso>
+            """.strip()
+        )
+
+        try:
+            _resolve_akn_section_eid(akn_file, "section-1")
+        except ValueError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("Expected parent-section guardrail to raise")
+
+        assert "Choose an atomic child section instead" in message
+        assert "section-1-1" in message
+
+
+class TestUkLegislationFetch:
+    def test_normalize_legislation_gov_uk_source_ref_strips_data_extension(self):
+        source_id, content_url = _normalize_legislation_gov_uk_source_ref(
+            "https://www.legislation.gov.uk/ukpga/2010/1/section/1/data.akn"
+        )
+
+        assert source_id == "ukpga/2010/1/section/1"
+        assert content_url == "https://www.legislation.gov.uk/ukpga/2010/1/section/1"
+
+    def test_fetch_legislation_gov_uk_document_writes_akn_and_clml(self, tmp_path):
+        class FakeResponse:
+            def __init__(self, text: str):
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+        with patch(
+            "requests.get",
+            side_effect=[
+                FakeResponse("<akomaNtoso/>"),
+                FakeResponse("<Legislation/>"),
+            ],
+        ) as mock_get:
+            fetched = _fetch_legislation_gov_uk_document(
+                "https://www.legislation.gov.uk/ukpga/2010/1/section/1",
+                tmp_path,
+            )
+
+        assert fetched.source_id == "ukpga/2010/1/section/1"
+        assert fetched.akn_file.read_text() == "<akomaNtoso/>"
+        assert fetched.clml_file.read_text() == "<Legislation/>"
+        assert mock_get.call_args_list[0].args[0].endswith("/data.akn")
+        assert mock_get.call_args_list[1].args[0].endswith("/data.xml")
+
+    def test_run_legislation_gov_uk_section_eval_uses_primary_akn_node_when_unspecified(
+        self, tmp_path
+    ):
+        fetched_dir = tmp_path / "fetched"
+        fetched_dir.mkdir()
+        akn_file = fetched_dir / "source.akn"
+        clml_file = fetched_dir / "source.xml"
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <act>
+    <body>
+      <section eId="section-1">
+        <num>1</num>
+        <heading>Example section</heading>
+        <subsection eId="section-1-1">
+          <num>(1)</num>
+          <content><p>Example subsection text.</p></content>
+        </subsection>
+      </section>
+    </body>
+  </act>
+</akomaNtoso>
+            """.strip()
+        )
+        clml_file.write_text("<Legislation/>")
+
+        with patch(
+            "autorac.harness.evals._fetch_legislation_gov_uk_document"
+        ) as mock_fetch, patch(
+            "autorac.harness.evals.run_akn_section_eval",
+            return_value=["ok"],
+        ) as mock_run:
+            mock_fetch.return_value.source_id = "ukpga/2010/1/section/1"
+            mock_fetch.return_value.content_url = (
+                "https://www.legislation.gov.uk/ukpga/2010/1/section/1"
+            )
+            mock_fetch.return_value.akn_file = akn_file
+            mock_fetch.return_value.clml_file = clml_file
+
+            results = run_legislation_gov_uk_section_eval(
+                source_ref="https://www.legislation.gov.uk/ukpga/2010/1/section/1",
+                runner_specs=["codex:gpt-5.4"],
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                mode="cold",
+                extra_context_paths=[],
+            )
+
+        assert results == ["ok"]
+        mock_run.assert_called_once()
+        assert mock_run.call_args.kwargs["section_eid"] == "section-1"
+        assert mock_run.call_args.kwargs["source_id"] == "ukpga/2010/1/section/1"
+
 
 class TestEvalPrompt:
     def test_build_eval_prompt_includes_rac_syntax_guardrails(self, tmp_path):
@@ -280,6 +470,58 @@ class TestEvalPrompt:
         assert "entity:" in prompt
         assert "period:" in prompt
         assert "dtype:" in prompt
+
+    def test_build_eval_prompt_includes_supported_schema_enums(self, tmp_path):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2006/965/regulation/2",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="2. Rate of child benefit ... 25.60 ... 16.95",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2006/965/regulation/2",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2006-965-regulation-2.rac",
+            include_tests=True,
+        )
+
+        assert "Do not invent new entities, periods, or dtypes." in prompt
+        assert "Allowed `entity:` values are `Person`, `TaxUnit`, `Household`, `Family`" in prompt
+        assert "Allowed `period:` values are `Year`, `Month`, `Week`, `Day`." in prompt
+        assert (
+            "Allowed `dtype:` values are `Money`, `Rate`, `Boolean`, `Integer`, "
+            "`Count`, `String`, `Decimal`, `Float`, or `Enum[Name]`."
+        ) in prompt
+
+    def test_build_eval_prompt_includes_unsupported_entity_fallback(self, tmp_path):
+        workspace = prepare_eval_workspace(
+            citation="ukpga/2010/1/section/1",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="(a) cease to be in force",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "ukpga/2010/1/section/1",
+            "cold",
+            workspace,
+            [],
+            target_file_name="ukpga-2010-1-section-1.rac",
+            include_tests=True,
+        )
+
+        assert "If the source cannot be represented faithfully with the supported schema" in prompt
+        assert "`status: entity_not_supported`" in prompt
+        assert "`status: deferred`" in prompt
 
 
 class TestRepoAugmentedContext:
