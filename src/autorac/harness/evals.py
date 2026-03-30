@@ -1032,6 +1032,9 @@ Available precedent files:
 === FILE: {test_file_name} ===
 <raw .rac.test YAML>
 - The `.rac.test` file must contain 3-5 cases covering a base case, a boundary case, and one alternate branch.
+- The alternate branch must vary a real legal condition from the source text, not just reuse the same branch on another date.
+- Test inputs must contain factual predicates or quantities, not the output variable being asserted.
+- The `.rac.test` file must contain YAML only, with no trailing notes or prose.
 - Do not include markdown fences or explanation.
 """
 
@@ -1047,7 +1050,11 @@ Available precedent files:
     if re.match(r"^(?:ukpga|uksi|asp|ssi|wsi|nisi|anaw|asc)/", citation):
         uk_guidance = """
 - For UK legislation, do not invent custom provision-level entities like `Provision`, `Section`, or `Regulation`, and do not invent periods like `Instant`.
-- Prefer `Family` for claimant-level family benefits, `Person` for individual tax allowances or eligibility, and `TaxUnit` for joint tax rules.
+- Prefer `Person` when the source states an amount or condition "in respect of" a child, qualifying young person, or other individual.
+- Use `Family` only when the encoded quantity is explicitly aggregate at claimant or benefit-unit level.
+- For UK rate leaves with one grounded monetary amount, encode the directly payable person-level or unit-level amount described by the text; do not collapse it into an unconditional family-level constant.
+- In `.rac.test`, choose periods on or after the explicit effective date in `./source.txt`.
+- Do not add speculative future-period tests that would rely on uprating, later amendments, or rates not stated in `./source.txt`.
 """
 
     return f"""You are participating in an encoding eval for {citation}.
@@ -1493,8 +1500,21 @@ def _extract_generated_file_bundle(llm_response: str) -> dict[str, str]:
         )
         content = llm_response[start:end].strip()
         if content:
-            files[match.group("name").strip()] = content + "\n"
+            files[match.group("name").strip()] = _clean_generated_file_content(content)
     return files
+
+
+def _clean_generated_file_content(content: str) -> str:
+    """Strip common wrapper noise from bundled file content."""
+    stripped = content.strip()
+    fenced = re.match(
+        r"^```[a-zA-Z0-9_-]*\s*\n(.*?)\n```(?:\s|$)",
+        stripped,
+        re.DOTALL,
+    )
+    if fenced:
+        stripped = fenced.group(1).strip()
+    return stripped + ("\n" if stripped and not stripped.endswith("\n") else "")
 
 
 def _materialize_eval_artifact(llm_response: str, expected_path: Path) -> bool:

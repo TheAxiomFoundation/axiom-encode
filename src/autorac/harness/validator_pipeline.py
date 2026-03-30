@@ -1979,6 +1979,7 @@ print("BENCHMARK:" + json.dumps(result))
                 "child_benefit_enhanced_rate": "child_benefit_respective_amount",
                 "child_benefit_enhanced_rate_amount": "child_benefit_respective_amount",
                 "child_benefit_regulation_2_1_a_amount": "child_benefit_respective_amount",
+                "child_benefit_reg2_1_a": "child_benefit_respective_amount",
             }
 
         return {
@@ -2077,6 +2078,7 @@ print("BENCHMARK:" + json.dumps(result))
         if country == "uk" and (
             "child_benefit_enhanced_rate" in rac_var_lower
             or "child_benefit_regulation_2_1_a" in rac_var_lower
+            or "child_benefit_reg2_1_a" in rac_var_lower
         ):
             return "child_benefit_respective_amount"
 
@@ -2232,6 +2234,7 @@ print(f'RESULT:{{val}}')
                 "elder_or_eldest" in key
                 or "eldest_person" in key
                 or "eldest_child" in key
+                or "only_or_eldest" in key
             )
             and bool(value)
             for key, value in lowered.items()

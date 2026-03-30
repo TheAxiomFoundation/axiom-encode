@@ -6,9 +6,11 @@ from unittest.mock import patch
 
 from autorac.harness.evals import (
     _build_eval_prompt,
+    _clean_generated_file_content,
     _command_looks_out_of_bounds,
     _fetch_legislation_gov_uk_document,
     _hydrate_eval_root,
+    _materialize_eval_artifact,
     _normalize_legislation_gov_uk_source_ref,
     _resolve_akn_section_eid,
     evaluate_artifact,
@@ -73,6 +75,60 @@ class TestEvaluateArtifact:
         assert metrics.grounded_numeric_count == 1
         assert metrics.ungrounded_numeric_count == 1
         assert [item.raw for item in metrics.grounding if not item.grounded] == ["2200"]
+
+
+class TestGeneratedBundleCleaning:
+    def test_clean_generated_file_content_strips_fence_and_trailing_prose(self):
+        content = (
+            "```yaml\n"
+            "- name: base\n"
+            "  output:\n"
+            "    child_benefit_enhanced_rate: 26.05\n"
+            "```\n\n"
+            "The encoding captures the enhanced rate."
+        )
+
+        cleaned = _clean_generated_file_content(content)
+
+        assert cleaned == (
+            "- name: base\n"
+            "  output:\n"
+            "    child_benefit_enhanced_rate: 26.05\n"
+        )
+
+    def test_materialize_eval_artifact_cleans_bundled_fences(self, tmp_path):
+        output_file = tmp_path / "source" / "uksi-2006-965-regulation-2.rac"
+        llm_response = (
+            "=== FILE: uksi-2006-965-regulation-2.rac ===\n"
+            "```\n"
+            "child_benefit_enhanced_rate:\n"
+            "    entity: Person\n"
+            "    period: Week\n"
+            "    dtype: Money\n"
+            "```\n"
+            "=== FILE: uksi-2006-965-regulation-2.rac.test ===\n"
+            "```yaml\n"
+            "- name: base\n"
+            "  output:\n"
+            "    child_benefit_enhanced_rate: 26.05\n"
+            "```\n\n"
+            "Trailing prose.\n"
+        )
+
+        wrote = _materialize_eval_artifact(llm_response, output_file)
+
+        assert wrote is True
+        assert output_file.read_text() == (
+            "child_benefit_enhanced_rate:\n"
+            "    entity: Person\n"
+            "    period: Week\n"
+            "    dtype: Money\n"
+        )
+        assert output_file.with_suffix(".rac.test").read_text() == (
+            "- name: base\n"
+            "  output:\n"
+            "    child_benefit_enhanced_rate: 26.05\n"
+        )
 
     def test_can_include_policyengine_metrics_for_uk_artifact(self, tmp_path):
         rac_file = tmp_path / "source" / "uksi-2006-965-regulation-2.rac"
@@ -649,6 +705,62 @@ class TestEvalPrompt:
 
         assert "`if condition: value else: other_value`" in prompt
         assert "Do not use YAML-style `if:` / `then:` / `else:` blocks." in prompt
+
+    def test_build_eval_prompt_for_uk_leaf_prefers_person_over_family_constant(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2006/965/regulation/2",
+            runner=parse_runner_spec("claude:opus"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Editorial note: current text valid from 2025-04-07.\n\n"
+                "The weekly rate of child benefit payable in respect of a child "
+                "or qualifying young person shall be 26.05."
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2006/965/regulation/2",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2006-965-regulation-2.rac",
+            include_tests=True,
+        )
+
+        assert 'Prefer `Person` when the source states an amount or condition "in respect of"' in prompt
+        assert "do not collapse it into an unconditional family-level constant" in prompt
+
+    def test_build_eval_prompt_for_uk_leaf_forbids_speculative_future_period_tests(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2006/965/regulation/2",
+            runner=parse_runner_spec("claude:opus"),
+            output_root=tmp_path / "out",
+            source_text="Editorial note: current text valid from 2025-04-07.\n26.05",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2006/965/regulation/2",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2006-965-regulation-2.rac",
+            include_tests=True,
+        )
+
+        assert "The `.rac.test` file must contain YAML only" in prompt
+        assert "Do not add speculative future-period tests" in prompt
+        assert "must vary a real legal condition" in prompt
+        assert "must contain factual predicates or quantities, not the output variable" in prompt
 
 
 class TestRepoAugmentedContext:

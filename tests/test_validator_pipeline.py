@@ -1876,6 +1876,7 @@ class TestGetPeVariableMap:
         mapping = pipeline._get_pe_variable_map("uk")
         assert mapping["child_benefit_enhanced_rate_amount"] == "child_benefit_respective_amount"
         assert mapping["child_benefit_regulation_2_1_a_amount"] == "child_benefit_respective_amount"
+        assert mapping["child_benefit_reg2_1_a"] == "child_benefit_respective_amount"
 
     def test_pe_monthly_vars(self, pipeline):
         assert "snap" in pipeline._PE_MONTHLY_VARS
@@ -2016,6 +2017,21 @@ class TestBuildPeScenarioScript:
         assert "'target', 'younger'" in script
         assert "monthly[0]" in script
 
+    def test_uk_child_benefit_leaf_script_supports_only_or_eldest_name(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "child_benefit_respective_amount",
+            {
+                "is_only_or_eldest_child_for_child_benefit": True,
+                "period": "2025-04-07",
+            },
+            "2025",
+            26.05,
+            country="uk",
+            rac_var="child_benefit_reg2_1_a",
+        )
+        assert "'target', 'younger'" in script
+        assert "monthly[0]" in script
+
 
 class TestIsPeTestMappable:
     def test_uk_child_benefit_paragraph_exception_true_is_unmappable(self, pipeline):
@@ -2077,6 +2093,12 @@ class TestResolvePeVariable:
             pipeline._resolve_pe_variable(
                 "uk", "child_benefit_enhanced_rate_paragraph_1_a"
             )
+            == "child_benefit_respective_amount"
+        )
+
+    def test_resolves_uk_child_benefit_reg2_alias(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "child_benefit_reg2_1_a")
             == "child_benefit_respective_amount"
         )
 
