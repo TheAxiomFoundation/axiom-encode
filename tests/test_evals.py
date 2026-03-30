@@ -1170,6 +1170,34 @@ cases:
 
         assert manifest.cases[0].table_row_query == "single claimant aged under 25"
 
+    def test_load_eval_suite_manifest_supports_policyengine_rac_var_hint(
+        self, tmp_path
+    ):
+        manifest_file = tmp_path / "uk-expanded.yaml"
+        manifest_file.write_text(
+            """
+name: UK expanded
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: uc-standard-allowance-single-young
+    source_id: uc-std-allowance-single
+    source_file: ./source.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_single_claimant_aged_under_25
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative row text")
+
+        manifest = load_eval_suite_manifest(manifest_file)
+
+        assert (
+            manifest.cases[0].policyengine_rac_var_hint
+            == "uc_standard_allowance_single_claimant_aged_under_25"
+        )
+
     def test_run_eval_suite_dispatches_to_matching_case_runner(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
@@ -1243,6 +1271,46 @@ cases:
 
         assert results == [uk_result]
         assert mock_uk.call_args.kwargs["table_row_query"] == "single claimant aged under 25"
+
+    def test_run_eval_suite_passes_policyengine_rac_var_hint_to_source_runner(
+        self, tmp_path
+    ):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: UK source suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: uc-standard-allowance-single-young
+    source_id: uc-std-allowance-single
+    source_file: ./source.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_single_claimant_aged_under_25
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative row text")
+        manifest = load_eval_suite_manifest(manifest_file)
+        source_result = _fake_eval_result("openai-gpt-5.4", "uc-std-allowance-single")
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=[source_result],
+        ) as mock_source:
+            results = run_eval_suite(
+                manifest=manifest,
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert results == [source_result]
+        assert (
+            mock_source.call_args.kwargs["policyengine_rac_var_hint"]
+            == "uc_standard_allowance_single_claimant_aged_under_25"
+        )
 
     def test_run_eval_suite_records_case_failure_and_continues(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
@@ -1670,6 +1738,78 @@ class TestSourceEval:
         assert (
             mock_evaluate_artifact.call_args.kwargs["policyengine_country"] == "uk"
         )
+
+    def test_run_source_eval_passes_policyengine_rac_var_hint_to_evaluate_artifact(
+        self, tmp_path
+    ):
+        rac_root = tmp_path / "rac"
+        rac_root.mkdir()
+
+        with patch(
+            "autorac.harness.evals._run_prompt_eval",
+        ) as mock_prompt_eval, patch(
+            "autorac.harness.evals.evaluate_artifact",
+        ) as mock_evaluate_artifact:
+            mock_prompt_eval.return_value.text = (
+                "=== FILE: uksi-2013-376-regulation-36-3-single-under-25.rac ===\n"
+                '"""\n317.82\n"""\n'
+                "status: encoded\n"
+                "=== FILE: uksi-2013-376-regulation-36-3-single-under-25.rac.test ===\n"
+                "- name: base\n"
+                "  input: {}\n"
+                "  output:\n"
+                "    source_row_amount: 317.82\n"
+            )
+            mock_prompt_eval.return_value.duration_ms = 123
+            mock_prompt_eval.return_value.tokens = None
+            mock_prompt_eval.return_value.estimated_cost_usd = None
+            mock_prompt_eval.return_value.actual_cost_usd = None
+            mock_prompt_eval.return_value.trace = {}
+            mock_prompt_eval.return_value.unexpected_accesses = []
+            mock_prompt_eval.return_value.error = None
+            mock_evaluate_artifact.return_value = None
+
+            run_source_eval(
+                source_id="uksi/2013/376/regulation/36/3",
+                source_text="317.82",
+                runner_specs=["openai:gpt-5.4"],
+                output_root=tmp_path / "out",
+                rac_path=rac_root,
+                mode="cold",
+                oracle="policyengine",
+                policyengine_country="uk",
+                policyengine_rac_var_hint="uc_standard_allowance_single_claimant_aged_under_25",
+            )
+
+        assert (
+            mock_evaluate_artifact.call_args.kwargs["policyengine_rac_var_hint"]
+            == "uc_standard_allowance_single_claimant_aged_under_25"
+        )
+
+    def test_build_eval_prompt_includes_policyengine_rac_var_hint(self, tmp_path):
+        runner = parse_runner_spec("openai:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="uksi/2013/376/regulation/36/3",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="317.82",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2013/376/regulation/36/3",
+            "cold",
+            workspace,
+            [],
+            target_file_name="example.rac",
+            include_tests=True,
+            runner_backend="openai",
+            policyengine_rac_var_hint="uc_standard_allowance_single_claimant_aged_under_25",
+        )
+
+        assert "uc_standard_allowance_single_claimant_aged_under_25" in prompt
 
     def test_allows_relative_workspace_reads(self, tmp_path):
         (tmp_path / "source.txt").write_text("text\n")

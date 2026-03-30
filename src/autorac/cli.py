@@ -362,6 +362,11 @@ def main():
         action="store_true",
         help="Emit machine-readable JSON summary",
     )
+    eval_source_parser.add_argument(
+        "--policyengine-rac-var-hint",
+        default=None,
+        help="Canonical RAC variable name to use as the PolicyEngine oracle target for this source slice",
+    )
 
     eval_akn_section_parser = subparsers.add_parser(
         "eval-akn-section",
@@ -425,6 +430,11 @@ def main():
         action="store_true",
         help="Emit machine-readable JSON summary",
     )
+    eval_akn_section_parser.add_argument(
+        "--policyengine-rac-var-hint",
+        default=None,
+        help="Canonical RAC variable name to use as the PolicyEngine oracle target for this section",
+    )
 
     eval_uk_legislation_parser = subparsers.add_parser(
         "eval-uk-legislation-section",
@@ -483,6 +493,11 @@ def main():
         "--json",
         action="store_true",
         help="Emit machine-readable JSON summary",
+    )
+    eval_uk_legislation_parser.add_argument(
+        "--policyengine-rac-var-hint",
+        default=None,
+        help="Canonical RAC variable name to use as the PolicyEngine oracle target for this section",
     )
 
     eval_suite_parser = subparsers.add_parser(
@@ -1859,6 +1874,7 @@ def cmd_eval_source(args):
         rac_path=rac_path,
         mode=args.mode,
         extra_context_paths=[Path(path) for path in args.allow_context],
+        policyengine_rac_var_hint=args.policyengine_rac_var_hint,
     )
 
     if args.json:
@@ -1868,6 +1884,8 @@ def cmd_eval_source(args):
     print(f"Output root: {args.output}")
     print(f"rac: {rac_path}")
     print(f"Source: {args.source_file}")
+    if args.policyengine_rac_var_hint:
+        print(f"PolicyEngine RAC var hint: {args.policyengine_rac_var_hint}")
     print(f"Mode: {args.mode}")
     print()
 
@@ -1914,6 +1932,7 @@ def cmd_eval_akn_section(args):
         extra_context_paths=[Path(path) for path in args.allow_context],
         allow_parent=args.allow_parent,
         table_row_query=args.table_row_query,
+        policyengine_rac_var_hint=args.policyengine_rac_var_hint,
     )
 
     if args.json:
@@ -1926,6 +1945,8 @@ def cmd_eval_akn_section(args):
     print(f"Section: {args.section_eid}")
     if args.table_row_query:
         print(f"Table row query: {args.table_row_query}")
+    if args.policyengine_rac_var_hint:
+        print(f"PolicyEngine RAC var hint: {args.policyengine_rac_var_hint}")
     print(f"Mode: {args.mode}")
     print()
 
@@ -1968,6 +1989,7 @@ def cmd_eval_uk_legislation_section(args):
         extra_context_paths=[Path(path) for path in args.allow_context],
         allow_parent=args.allow_parent,
         table_row_query=args.table_row_query,
+        policyengine_rac_var_hint=args.policyengine_rac_var_hint,
     )
 
     if args.json:
@@ -1981,6 +2003,8 @@ def cmd_eval_uk_legislation_section(args):
         print(f"Section: {args.section_eid}")
     if args.table_row_query:
         print(f"Table row query: {args.table_row_query}")
+    if args.policyengine_rac_var_hint:
+        print(f"PolicyEngine RAC var hint: {args.policyengine_rac_var_hint}")
     print(f"Mode: {args.mode}")
     print()
 

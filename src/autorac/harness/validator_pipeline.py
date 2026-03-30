@@ -419,6 +419,7 @@ class ValidatorPipeline:
         encoding_db: Optional[EncodingDB] = None,
         session_id: Optional[str] = None,
         policyengine_country: str = "auto",
+        policyengine_rac_var_hint: str | None = None,
     ):
         self.rac_us_path = Path(rac_us_path)
         self.rac_path = Path(rac_path)
@@ -427,6 +428,7 @@ class ValidatorPipeline:
         self.encoding_db = encoding_db
         self.session_id = session_id
         self.policyengine_country = policyengine_country
+        self.policyengine_rac_var_hint = policyengine_rac_var_hint
 
     def _log_event(
         self, event_type: str, content: str = "", metadata: Optional[dict] = None
@@ -1334,8 +1336,9 @@ Output ONLY valid JSON:
         total = 0
         unsupported_count = 0
         for test in tests:
-            rac_var = test.get("variable", "")
-            pe_var = self._resolve_pe_variable(country, rac_var)
+            test_rac_var = test.get("variable", "")
+            oracle_rac_var = self.policyengine_rac_var_hint or test_rac_var
+            pe_var = self._resolve_pe_variable(country, oracle_rac_var)
             expected = test.get("expect")
             inputs = test.get("inputs", {})
             period = test.get("period", "2024-01")
@@ -1346,17 +1349,24 @@ Output ONLY valid JSON:
                 continue
 
             mappable, reason = self._is_pe_test_mappable(
-                country, rac_var, inputs, expected
+                country, oracle_rac_var, inputs, expected
             )
             if not mappable:
                 issues.append(
-                    f"PolicyEngine unavailable for '{test.get('name', rac_var)}': {reason}"
+                    f"PolicyEngine unavailable for '{test.get('name', test_rac_var)}': {reason}"
                 )
                 unsupported_count += 1
                 continue
 
             if not pe_var:
-                issues.append(f"No PE mapping for RAC variable '{rac_var}'")
+                if self.policyengine_rac_var_hint:
+                    issues.append(
+                        "No PE mapping for RAC variable "
+                        f"'{test_rac_var}' with oracle hint "
+                        f"'{self.policyengine_rac_var_hint}'"
+                    )
+                else:
+                    issues.append(f"No PE mapping for RAC variable '{test_rac_var}'")
                 total += 1
                 continue
 
@@ -1368,7 +1378,7 @@ Output ONLY valid JSON:
                 year,
                 expected,
                 country=country,
-                rac_var=rac_var,
+                rac_var=oracle_rac_var,
             )
             output = self._run_pe_subprocess_detailed(scenario_script, pe_python)
 
@@ -1376,12 +1386,12 @@ Output ONLY valid JSON:
                 summary = self._summarize_oracle_error(output.stderr or output.stdout)
                 if self._is_pe_unsupported_error(output.stderr or output.stdout):
                     issues.append(
-                        f"PolicyEngine unavailable for '{test.get('name', rac_var)}': {summary}"
+                        f"PolicyEngine unavailable for '{test.get('name', test_rac_var)}': {summary}"
                     )
                     unsupported_count += 1
                     continue
                 issues.append(
-                    f"PE calculation failed for '{test.get('name', rac_var)}': {summary}"
+                    f"PE calculation failed for '{test.get('name', test_rac_var)}': {summary}"
                 )
                 total += 1
                 continue
@@ -1399,17 +1409,17 @@ Output ONLY valid JSON:
                         matches += 1
                     else:
                         issues.append(
-                            f"'{test.get('name', rac_var)}': PE={pe_value:.2f}, RAC expects={expected_float:.2f}"
+                            f"'{test.get('name', test_rac_var)}': PE={pe_value:.2f}, RAC expects={expected_float:.2f}"
                         )
                     total += 1
                 else:
                     issues.append(
-                        f"No RESULT in PE output for '{test.get('name', rac_var)}'"
+                        f"No RESULT in PE output for '{test.get('name', test_rac_var)}'"
                     )
                     total += 1
             except Exception as parse_err:
                 issues.append(
-                    f"Parse error for '{test.get('name', rac_var)}': {parse_err}"
+                    f"Parse error for '{test.get('name', test_rac_var)}': {parse_err}"
                 )
                 total += 1
 
@@ -2137,12 +2147,17 @@ print("BENCHMARK:" + json.dumps(result))
                 "benefit_cap_single_claimant_greater_london_annual_limit": "benefit_cap",
                 "benefit_cap_family_outside_london_annual_limit": "benefit_cap",
                 "uc_standard_allowance_single_claimant_aged_under_25": "uc_standard_allowance",
+                "uc_standard_allowance_single_claimant_aged_25_or_over": "uc_standard_allowance",
+                "uc_standard_allowance_joint_claimants_both_aged_under_25": "uc_standard_allowance",
+                "uc_standard_allowance_joint_claimants_one_or_both_aged_25_or_over": "uc_standard_allowance",
                 "uc_carer_element_amount": "uc_carer_element",
                 "uc_child_element_first_child_higher_amount": "uc_individual_child_element",
+                "uc_child_element_second_and_subsequent_child_amount": "uc_individual_child_element",
                 "uc_lcwra_element_amount": "uc_LCWRA_element",
                 "wtc_basic_element_amount": "WTC_basic_element",
                 "wtc_lone_parent_element_amount": "WTC_lone_parent_element",
                 "wtc_couple_element_amount": "WTC_couple_element",
+                "wtc_second_adult_element_amount": "WTC_couple_element",
             }
 
         return {

@@ -189,6 +189,23 @@ class TestMain:
                 main()
                 mock_cmd.assert_called_once()
 
+    def test_eval_source_accepts_policyengine_rac_var_hint(self):
+        with tempfile.NamedTemporaryFile() as f:
+            with patch(
+                "sys.argv",
+                [
+                    "autorac",
+                    "eval-source",
+                    "UC row",
+                    f.name,
+                    "--policyengine-rac-var-hint",
+                    "uc_standard_allowance_single_claimant_aged_under_25",
+                ],
+            ):
+                with patch("autorac.cli.cmd_eval_source") as mock_cmd:
+                    main()
+                    mock_cmd.assert_called_once()
+
     def test_eval_suite_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
             with patch("sys.argv", ["autorac", "eval-suite", f.name]):

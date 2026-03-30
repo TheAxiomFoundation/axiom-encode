@@ -1426,6 +1426,55 @@ obscure_var:
             result = pipeline._run_policyengine(rac_file)
             assert any("No PE mapping" in issue for issue in result.issues)
 
+    def test_pe_uk_uses_policyengine_rac_var_hint_for_unmapped_source_slice(
+        self, temp_dirs
+    ):
+        rac_us, rac_dir = temp_dirs
+        pipeline = ValidatorPipeline(
+            rac_us_path=rac_us,
+            rac_path=rac_dir,
+            enable_oracles=True,
+            policyengine_country="uk",
+            policyengine_rac_var_hint="uc_standard_allowance_single_claimant_aged_under_25",
+        )
+        rac_file = rac_us / "uk_source_slice.rac"
+        rac_file.write_text(
+            '''"""
+317.82
+"""
+
+status: encoded
+
+source_row_amount:
+    entity: Person
+    period: Month
+    dtype: Money
+'''
+        )
+        Path(str(rac_file) + ".test").write_text(
+            """
+- name: base case
+  period: 2025-04
+  input: {}
+  output:
+    source_row_amount: 317.82
+"""
+        )
+
+        with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
+            with patch.object(
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:317.82\n"
+                ),
+            ) as mock_run:
+                result = pipeline._run_policyengine(rac_file)
+
+        assert result.passed is True
+        assert result.score == 1.0
+        assert "uc_standard_allowance" in mock_run.call_args[0][0]
+
     def test_pe_no_expected(self, pipeline, temp_dirs):
         """Tests without expected values are skipped."""
         rac_us, _ = temp_dirs

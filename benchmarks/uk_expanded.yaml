@@ -72,6 +72,7 @@ cases:
     source_file: ./sources/uk/uc_standard_allowance_single_under_25_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_single_claimant_aged_under_25
 
   - kind: source
     name: uc-standard-allowance-single-25-or-over
@@ -79,6 +80,7 @@ cases:
     source_file: ./sources/uk/uc_standard_allowance_single_25_or_over_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_single_claimant_aged_25_or_over
 
   - kind: source
     name: uc-standard-allowance-joint-under-25
@@ -86,6 +88,7 @@ cases:
     source_file: ./sources/uk/uc_standard_allowance_joint_under_25_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_joint_claimants_both_aged_under_25
 
   - kind: source
     name: uc-standard-allowance-joint-25-or-over
@@ -93,6 +96,7 @@ cases:
     source_file: ./sources/uk/uc_standard_allowance_joint_25_or_over_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_joint_claimants_one_or_both_aged_25_or_over
 
   - kind: source
     name: uc-carer-element
@@ -100,6 +104,7 @@ cases:
     source_file: ./sources/uk/uc_carer_element_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_carer_element_amount
 
   - kind: source
     name: uc-lcwra-element
@@ -107,6 +112,7 @@ cases:
     source_file: ./sources/uk/uc_lcwra_element_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_lcwra_element_amount
 
   - kind: source
     name: uc-child-element-first-child
@@ -114,6 +120,7 @@ cases:
     source_file: ./sources/uk/uc_child_element_first_child_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_child_element_first_child_higher_amount
 
   - kind: source
     name: uc-child-element-subsequent-child
@@ -121,6 +128,7 @@ cases:
     source_file: ./sources/uk/uc_child_element_subsequent_child_2025.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: uc_child_element_second_and_subsequent_child_amount
 
   - kind: source
     name: wtc-basic-element
@@ -128,6 +136,7 @@ cases:
     source_file: ./sources/uk/wtc_basic_element_2024.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: wtc_basic_element_amount
 
   - kind: source
     name: wtc-second-adult-element
@@ -135,6 +144,7 @@ cases:
     source_file: ./sources/uk/wtc_second_adult_element_2024.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: wtc_second_adult_element_amount
 
   - kind: source
     name: wtc-lone-parent-element
@@ -142,3 +152,4 @@ cases:
     source_file: ./sources/uk/wtc_lone_parent_element_2024.txt
     oracle: policyengine
     policyengine_country: uk
+    policyengine_rac_var_hint: wtc_lone_parent_element_amount

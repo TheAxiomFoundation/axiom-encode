@@ -211,6 +211,7 @@ class EvalSuiteCase:
     akn_file: Path | None = None
     section_eid: str | None = None
     table_row_query: str | None = None
+    policyengine_rac_var_hint: str | None = None
     source_ref: str | None = None
     oracle: EvalOracleMode = "none"
     policyengine_country: str = "auto"
@@ -330,6 +331,7 @@ def run_source_eval(
     extra_context_paths: list[Path] | None = None,
     oracle: EvalOracleMode = "none",
     policyengine_country: str = "auto",
+    policyengine_rac_var_hint: str | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one arbitrary source slice."""
     results: list[EvalResult] = []
@@ -346,6 +348,7 @@ def run_source_eval(
                 extra_context_paths=extra_context_paths or [],
                 oracle=oracle,
                 policyengine_country=policyengine_country,
+                policyengine_rac_var_hint=policyengine_rac_var_hint,
             )
         )
 
@@ -730,6 +733,7 @@ def run_akn_section_eval(
     table_row_query: str | None = None,
     oracle: EvalOracleMode = "none",
     policyengine_country: str = "auto",
+    policyengine_rac_var_hint: str | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison on one section extracted from AKN XML."""
     resolved_section_eid = _resolve_akn_section_eid(
@@ -751,6 +755,7 @@ def run_akn_section_eval(
         extra_context_paths=extra_context_paths,
         oracle=oracle,
         policyengine_country=policyengine_country,
+        policyengine_rac_var_hint=policyengine_rac_var_hint,
     )
 
 
@@ -764,6 +769,7 @@ def run_legislation_gov_uk_section_eval(
     section_eid: str | None = None,
     allow_parent: bool = False,
     table_row_query: str | None = None,
+    policyengine_rac_var_hint: str | None = None,
 ) -> list[EvalResult]:
     """Fetch official UK legislation XML and run an AKN section eval."""
     fetched = _fetch_legislation_gov_uk_document(source_ref, output_root)
@@ -781,6 +787,7 @@ def run_legislation_gov_uk_section_eval(
         table_row_query=table_row_query,
         oracle="policyengine",
         policyengine_country="uk",
+        policyengine_rac_var_hint=policyengine_rac_var_hint,
     )
 
 
@@ -868,6 +875,11 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
                 if item.get("table_row_query") is not None
                 else None
             ),
+            policyengine_rac_var_hint=(
+                str(item.get("policyengine_rac_var_hint")).strip()
+                if item.get("policyengine_rac_var_hint") is not None
+                else None
+            ),
             source_ref=item.get("source_ref"),
             oracle=str(item.get("oracle", "none")),
             policyengine_country=str(item.get("policyengine_country", "auto")),
@@ -927,6 +939,7 @@ def run_eval_suite(
                     extra_context_paths=extra_context,
                     oracle=case.oracle,
                     policyengine_country=case.policyengine_country,
+                    policyengine_rac_var_hint=case.policyengine_rac_var_hint,
                 )
             elif case.kind == "akn_section":
                 case_results = run_akn_section_eval(
@@ -942,6 +955,7 @@ def run_eval_suite(
                     table_row_query=case.table_row_query,
                     oracle=case.oracle,
                     policyengine_country=case.policyengine_country,
+                    policyengine_rac_var_hint=case.policyengine_rac_var_hint,
                 )
             else:
                 case_results = run_legislation_gov_uk_section_eval(
@@ -954,6 +968,7 @@ def run_eval_suite(
                     extra_context_paths=extra_context,
                     allow_parent=case.allow_parent,
                     table_row_query=case.table_row_query,
+                    policyengine_rac_var_hint=case.policyengine_rac_var_hint,
                 )
         except Exception as exc:
             case_results = _suite_case_failure_results(case, parsed_runners, exc)
@@ -1356,6 +1371,7 @@ def evaluate_artifact(
     source_text: str,
     oracle: EvalOracleMode = "none",
     policyengine_country: str = "auto",
+    policyengine_rac_var_hint: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RAC file with deterministic checks plus optional oracles."""
     pipeline = ValidatorPipeline(
@@ -1363,6 +1379,7 @@ def evaluate_artifact(
         rac_path=rac_path,
         enable_oracles=oracle != "none",
         policyengine_country=policyengine_country,
+        policyengine_rac_var_hint=policyengine_rac_var_hint,
     )
     compile_result = pipeline._run_compile_check(rac_file)
     ci_result = pipeline._run_ci(rac_file)
@@ -1527,6 +1544,7 @@ def _run_single_source_eval(
     extra_context_paths: list[Path],
     oracle: EvalOracleMode,
     policyengine_country: str,
+    policyengine_rac_var_hint: str | None,
 ) -> EvalResult:
     """Run one eval on an arbitrary source slice rather than a USC citation."""
     workspace = prepare_eval_workspace(
@@ -1548,6 +1566,7 @@ def _run_single_source_eval(
         target_file_name=relative_output.name,
         include_tests=True,
         runner_backend=runner.backend,
+        policyengine_rac_var_hint=policyengine_rac_var_hint,
     )
     response = _run_prompt_eval(runner, workspace, prompt)
     output_file = Path(output_root) / runner.name / relative_output
@@ -1574,6 +1593,7 @@ def _run_single_source_eval(
             source_text=source_text,
             oracle=oracle,
             policyengine_country=policyengine_country,
+            policyengine_rac_var_hint=policyengine_rac_var_hint,
         )
 
     tokens = response.tokens
@@ -1617,6 +1637,7 @@ def _build_eval_prompt(
     target_file_name: str,
     include_tests: bool = False,
     runner_backend: str = "codex",
+    policyengine_rac_var_hint: str | None = None,
 ) -> str:
     """Build a prompt-only eval request with explicit provenance rules."""
     source_text = workspace.source_file.read_text().strip()
@@ -1725,6 +1746,11 @@ Available precedent files:
 - For a one-row fixed-amount slice, do not invent a fresh `*_applies` helper or unrelated eligibility booleans unless the source text itself states them.
 - For a one-row fixed-amount slice, do not invent alternate zero-amount tests; prefer a base case and an effective-date boundary using the same grounded amount.
 """
+    target_hint_guidance = ""
+    if policyengine_rac_var_hint:
+        target_hint_guidance = f"""
+- Prefer `{policyengine_rac_var_hint}` as the principal output variable name for this encoding unless the source text clearly requires a materially different concept.
+"""
 
     return f"""You are participating in an encoding eval for {citation}.
 
@@ -1745,7 +1771,7 @@ Rules:
 - If that cited upstream file is absent from this workspace, still emit the unresolved import path; the external-stub workflow is expected to fill it in later.
 - If the source text only implies a shared concept, import an existing canonical concept only when one is actually present in the workspace; otherwise keep the helper local to this leaf.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
-{schema_rules}{uk_guidance}{single_amount_row_guidance}
+{schema_rules}{uk_guidance}{single_amount_row_guidance}{target_hint_guidance}
 - Prefer standard RAC blocks shaped like:
   example_name:
       entity: TaxUnit
