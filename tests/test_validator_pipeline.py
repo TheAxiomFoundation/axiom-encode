@@ -1888,6 +1888,26 @@ eligible_case:
         }
         assert tests[0]["expect"] == 22020
 
+    def test_v2_flattens_singleton_entity_lists(self, pipeline):
+        content = """
+- name: singleton_entity_list_case
+  period: 2025-04-07
+  input:
+    child_benefit_rate_b_any_other_case_applies:
+      - entity: Person
+        value: true
+  output:
+    child_benefit_weekly_rate_b_any_other_case:
+      - entity: Person
+        value: 17.25
+"""
+        tests = pipeline._extract_tests_from_rac_v2(content)
+        assert len(tests) == 1
+        assert tests[0]["inputs"] == {
+            "child_benefit_rate_b_any_other_case_applies": True
+        }
+        assert tests[0]["expect"] == 17.25
+
 
 # =========================================================================
 # _build_pe_situation
@@ -2584,6 +2604,25 @@ class TestBuildPeScenarioScript:
         assert "'child'" in script
         assert "is_single = True" in script
 
+    def test_uk_benefit_cap_80a_2_b_ii_not_single_claimant_zeros_branch(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "benefit_cap",
+            {
+                "is_single_claimant": False,
+                "resident_in_greater_london": True,
+                "responsible_for_child_or_qualifying_young_person": True,
+                "period": "2025",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="benefit_cap_relevant_amount_80A_2_b_ii",
+        )
+        assert "is_single = False" in script
+        assert "if is_single and in_london and has_child:" in script
+
     def test_uk_benefit_cap_80a_2_d_script_supports_household_inputs(
         self, pipeline
     ):
@@ -2950,12 +2989,24 @@ class TestResolvePeVariable:
             == "standard_minimum_guarantee"
         )
 
+    def test_resolves_uk_pension_credit_short_suffix_a_alias(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "guarantee_credit_standard_minimum_a")
+            == "standard_minimum_guarantee"
+        )
+
     def test_resolves_uk_pension_credit_suffix_b_alias(self, pipeline):
         assert (
             pipeline._resolve_pe_variable(
                 "uk", "guarantee_credit_standard_minimum_guarantee_b"
             )
             == "standard_minimum_guarantee"
+        )
+
+    def test_resolves_uk_scottish_child_payment_value(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "scottish_child_payment_value")
+            == "scottish_child_payment"
         )
 
     def test_resolves_uk_scottish_child_payment_weekly_rate(self, pipeline):

@@ -1894,7 +1894,12 @@ print("BENCHMARK:" + json.dumps(result))
                         return only_value
                 return normalized
             if isinstance(value, list):
-                return [normalize_test_value(item) for item in value]
+                normalized_items = [normalize_test_value(item) for item in value]
+                if len(normalized_items) == 1 and not isinstance(
+                    normalized_items[0], (dict, list)
+                ):
+                    return normalized_items[0]
+                return normalized_items
             return value
 
         def unwrap_entity_wrapper(value: Any) -> Any:
@@ -2202,11 +2207,20 @@ print("BENCHMARK:" + json.dumps(result))
                 "partner",
                 "couple",
                 "single",
+                "guarantee_credit_standard_minimum_a",
+                "guarantee_credit_standard_minimum_b",
             )
         ):
             return True
         return "guarantee_credit" in rac_var_lower and any(
-            marker in rac_var_lower for marker in ("6_1_a", "6_1_b", "regulation_6_1")
+            marker in rac_var_lower
+            for marker in (
+                "6_1_a",
+                "6_1_b",
+                "regulation_6_1",
+                "standard_minimum_a",
+                "standard_minimum_b",
+            )
         )
 
     @staticmethod
@@ -2228,6 +2242,7 @@ print("BENCHMARK:" + json.dumps(result))
                 "regulation_6_1_a",
                 "minimum_guarantee_a",
                 "guarantee_credit_standard_minimum_guarantee_a",
+                "guarantee_credit_standard_minimum_a",
             )
         )
 
@@ -2244,6 +2259,7 @@ print("BENCHMARK:" + json.dumps(result))
                 "regulation_6_1_b",
                 "minimum_guarantee_b",
                 "guarantee_credit_standard_minimum_guarantee_b",
+                "guarantee_credit_standard_minimum_b",
             )
         )
 
@@ -2261,7 +2277,14 @@ print("BENCHMARK:" + json.dumps(result))
             return False
         return any(
             marker in rac_var_lower
-            for marker in ("amount", "rate", "weekly", "regulation_20_1", "reg20_1")
+            for marker in (
+                "amount",
+                "rate",
+                "weekly",
+                "value",
+                "regulation_20_1",
+                "reg20_1",
+            )
         )
 
     @staticmethod
@@ -2724,10 +2747,18 @@ print(f'RESULT:{{val}}')
             branch_category = None
             if "80a_2_a" in rac_var_lower:
                 branch_category = ("single", "london", "no_child")
+            elif "80a_2_b_ii" in rac_var_lower:
+                branch_category = ("single", "london", "child")
+            elif "80a_2_b_i" in rac_var_lower:
+                branch_category = ("joint", "london", "any")
             elif "80a_2_b" in rac_var_lower:
                 branch_category = ("other", "london", "mixed")
             elif "80a_2_c" in rac_var_lower:
                 branch_category = ("single", "outside_london", "no_child")
+            elif "80a_2_d_ii" in rac_var_lower:
+                branch_category = ("single", "outside_london", "child")
+            elif "80a_2_d_i" in rac_var_lower:
+                branch_category = ("joint", "outside_london", "any")
             elif "80a_2_d" in rac_var_lower:
                 branch_category = ("other", "outside_london", "mixed")
 
@@ -2965,7 +2996,15 @@ print(f'RESULT:{{val}}')
             region_value = "LONDON" if in_london else "NORTH_EAST"
             people = "{" + ", ".join(people_parts) + "}"
             members_str = "[" + ", ".join(f"'{member}'" for member in members) + "]"
-            if leaf_is_single and leaf_in_london and not leaf_has_child:
+            if branch_category == ("joint", "london", "any"):
+                match_condition = "if not is_single and in_london:"
+            elif branch_category == ("single", "london", "child"):
+                match_condition = "if is_single and in_london and has_child:"
+            elif branch_category == ("joint", "outside_london", "any"):
+                match_condition = "if not is_single and not in_london:"
+            elif branch_category == ("single", "outside_london", "child"):
+                match_condition = "if is_single and not in_london and has_child:"
+            elif leaf_is_single and leaf_in_london and not leaf_has_child:
                 match_condition = "if is_single and in_london and not has_child:"
             elif leaf_is_single and not leaf_in_london and not leaf_has_child:
                 match_condition = "if is_single and not in_london and not has_child:"
