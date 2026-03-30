@@ -5,6 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from autorac.harness.evals import (
+    EvalArtifactMetrics,
+    EvalReadinessGates,
+    EvalResult,
+    GroundingMetric,
     _build_eval_prompt,
     _clean_generated_file_content,
     _command_looks_out_of_bounds,
@@ -15,12 +19,15 @@ from autorac.harness.evals import (
     _resolve_akn_section_eid,
     evaluate_artifact,
     extract_akn_section_text,
+    load_eval_suite_manifest,
     parse_runner_spec,
     prepare_eval_workspace,
     run_akn_section_eval,
+    run_eval_suite,
     run_legislation_gov_uk_section_eval,
     run_source_eval,
     select_context_files,
+    summarize_readiness,
 )
 from autorac.harness.validator_pipeline import ValidationResult
 
@@ -37,6 +44,12 @@ class TestParseRunnerSpec:
         assert runner.name == "claude-opus"
         assert runner.backend == "claude"
         assert runner.model == "opus"
+
+    def test_parses_openai_runner(self):
+        runner = parse_runner_spec("openai:gpt-5.4")
+        assert runner.name == "openai-gpt-5.4"
+        assert runner.backend == "openai"
+        assert runner.model == "gpt-5.4"
 
 
 class TestEvaluateArtifact:
@@ -788,6 +801,184 @@ class TestEvalPrompt:
         assert "otherwise keep the helper local to this leaf" in prompt
 
 
+class TestEvalSuiteManifest:
+    def test_load_eval_suite_manifest_supports_uk_legislation_cases(self, tmp_path):
+        manifest_file = tmp_path / "uk-readiness.yaml"
+        manifest_file.write_text(
+            """
+name: UK readiness
+runners:
+  - codex:gpt-5.4
+mode: cold
+gates:
+  min_cases: 20
+  min_compile_pass_rate: 0.9
+cases:
+  - kind: uk_legislation
+    name: child-benefit-enhanced
+    source_ref: /uksi/2006/965/regulation/2/2025-04-07
+    section_eid: regulation-2-1-a
+            """.strip()
+        )
+
+        manifest = load_eval_suite_manifest(manifest_file)
+
+        assert manifest.name == "UK readiness"
+        assert manifest.runners == ["codex:gpt-5.4"]
+        assert manifest.mode == "cold"
+        assert manifest.gates.min_cases == 20
+        assert manifest.gates.min_compile_pass_rate == 0.9
+        assert len(manifest.cases) == 1
+        assert manifest.cases[0].kind == "uk_legislation"
+        assert manifest.cases[0].name == "child-benefit-enhanced"
+        assert manifest.cases[0].source_ref == "/uksi/2006/965/regulation/2/2025-04-07"
+        assert manifest.cases[0].section_eid == "regulation-2-1-a"
+
+    def test_run_eval_suite_dispatches_to_matching_case_runner(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Mixed suite
+runners:
+  - codex:gpt-5.4
+cases:
+  - kind: uk_legislation
+    name: child-benefit-enhanced
+    source_ref: /uksi/2006/965/regulation/2
+    section_eid: regulation-2-1-a
+  - kind: source
+    name: tanf-slice
+    source_id: co-tanf-f
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+
+        uk_result = _fake_eval_result("codex-gpt-5.4", "child-benefit-enhanced")
+        source_result = _fake_eval_result("codex-gpt-5.4", "co-tanf-f")
+
+        with patch(
+            "autorac.harness.evals.run_legislation_gov_uk_section_eval",
+            return_value=[uk_result],
+        ) as mock_uk, patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=[source_result],
+        ) as mock_source:
+            results = run_eval_suite(
+                manifest=manifest,
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert results == [uk_result, source_result]
+        mock_uk.assert_called_once()
+        mock_source.assert_called_once()
+
+    def test_run_eval_suite_records_case_failure_and_continues(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Mixed suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: uk_legislation
+    name: child-benefit-enhanced
+    source_ref: /uksi/2006/965/regulation/2
+    section_eid: regulation-2-1-a
+  - kind: source
+    name: tanf-slice
+    source_id: co-tanf-f
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+
+        source_result = _fake_eval_result("openai-gpt-5.4", "co-tanf-f")
+
+        with patch(
+            "autorac.harness.evals.run_legislation_gov_uk_section_eval",
+            side_effect=RuntimeError("502 Server Error"),
+        ), patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=[source_result],
+        ):
+            results = run_eval_suite(
+                manifest=manifest,
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert len(results) == 2
+        failed = results[0]
+        assert failed.runner == "openai-gpt-5.4"
+        assert failed.success is False
+        assert failed.error == "502 Server Error"
+        assert failed.metrics is None
+        assert results[1] == source_result
+
+
+class TestReadinessSummary:
+    def test_summarize_readiness_applies_suite_gates(self):
+        gates = EvalReadinessGates(
+            min_cases=3,
+            min_success_rate=1.0,
+            min_compile_pass_rate=1.0,
+            min_ci_pass_rate=1.0,
+            min_zero_ungrounded_rate=1.0,
+            min_policyengine_pass_rate=0.8,
+            max_mean_estimated_cost_usd=0.5,
+        )
+        results = [
+            _fake_eval_result(
+                "codex-gpt-5.4",
+                "case-a",
+                compile_pass=True,
+                ci_pass=True,
+                policyengine_pass=True,
+                policyengine_score=1.0,
+                estimated_cost_usd=0.20,
+            ),
+            _fake_eval_result(
+                "codex-gpt-5.4",
+                "case-b",
+                compile_pass=True,
+                ci_pass=True,
+                policyengine_pass=False,
+                policyengine_score=0.5,
+                estimated_cost_usd=0.40,
+            ),
+            _fake_eval_result(
+                "codex-gpt-5.4",
+                "case-c",
+                compile_pass=True,
+                ci_pass=True,
+                policyengine_pass=None,
+                policyengine_score=None,
+                estimated_cost_usd=0.30,
+            ),
+        ]
+
+        summary = summarize_readiness(results, gates)
+
+        assert summary.total_cases == 3
+        assert summary.compile_pass_rate == 1.0
+        assert summary.ci_pass_rate == 1.0
+        assert summary.zero_ungrounded_rate == 1.0
+        assert summary.policyengine_case_count == 2
+        assert summary.policyengine_pass_rate == 0.5
+        assert summary.mean_estimated_cost_usd == 0.3
+        assert summary.ready is False
+        gate_results = {gate.name: gate for gate in summary.gate_results}
+        assert gate_results["min_cases"].passed is True
+        assert gate_results["min_policyengine_pass_rate"].passed is False
+        assert gate_results["max_mean_estimated_cost_usd"].passed is True
+
+
 class TestRepoAugmentedContext:
     def test_prepare_eval_workspace_allows_arbitrary_identifier_with_explicit_context(
         self, tmp_path
@@ -1116,3 +1307,61 @@ class TestSourceEval:
         (tmp_path / "source.txt").write_text("text\n")
         command = "bash -lc 'cat ./source.txt && sed -n \"1,40p\" context/26/24/b.rac'"
         assert not _command_looks_out_of_bounds(command, tmp_path)
+
+
+def _fake_eval_result(
+    runner: str,
+    citation: str,
+    *,
+    compile_pass: bool = True,
+    ci_pass: bool = True,
+    policyengine_pass: bool | None = None,
+    policyengine_score: float | None = None,
+    estimated_cost_usd: float | None = 0.25,
+    ungrounded_numeric_count: int = 0,
+) -> EvalResult:
+    return EvalResult(
+        citation=citation,
+        runner=runner,
+        backend="codex",
+        model="gpt-5.4",
+        mode="cold",
+        output_file=f"/tmp/{citation}.rac",
+        trace_file=f"/tmp/{citation}.json",
+        context_manifest_file=f"/tmp/{citation}.manifest.json",
+        duration_ms=1000,
+        success=True,
+        error=None,
+        input_tokens=100,
+        output_tokens=50,
+        cache_read_tokens=0,
+        cache_creation_tokens=0,
+        reasoning_output_tokens=0,
+        estimated_cost_usd=estimated_cost_usd,
+        actual_cost_usd=None,
+        retrieved_files=[],
+        unexpected_accesses=[],
+        metrics=EvalArtifactMetrics(
+            compile_pass=compile_pass,
+            compile_issues=[],
+            ci_pass=ci_pass,
+            ci_issues=[],
+            embedded_source_present=True,
+            grounded_numeric_count=1 if ungrounded_numeric_count == 0 else 0,
+            ungrounded_numeric_count=ungrounded_numeric_count,
+            grounding=[
+                GroundingMetric(
+                    line=1,
+                    raw="26.05",
+                    value=26.05,
+                    grounded=ungrounded_numeric_count == 0,
+                )
+            ],
+            policyengine_pass=policyengine_pass,
+            policyengine_score=policyengine_score,
+            policyengine_issues=[],
+            taxsim_pass=None,
+            taxsim_score=None,
+            taxsim_issues=[],
+        ),
+    )

@@ -8,6 +8,7 @@ All external dependencies are mocked.
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,6 +20,7 @@ from autorac.cli import (
     cmd_compile,
     cmd_coverage,
     cmd_encode,
+    cmd_eval_suite,
     cmd_init,
     cmd_log,
     cmd_log_event,
@@ -170,6 +172,13 @@ class TestMain:
                 main()
                 mock_cmd.assert_called_once()
 
+    def test_eval_suite_command_dispatches(self):
+        with tempfile.NamedTemporaryFile(suffix=".yaml") as f:
+            with patch("sys.argv", ["autorac", "eval-suite", f.name]):
+                with patch("autorac.cli.cmd_eval_suite") as mock_cmd:
+                    main()
+                    mock_cmd.assert_called_once()
+
     def test_compile_command_dispatches(self):
         with tempfile.NamedTemporaryFile(suffix=".rac") as f:
             with patch("sys.argv", ["autorac", "compile", f.name]):
@@ -234,6 +243,63 @@ class TestMain:
             with patch("autorac.cli.cmd_transcript_stats") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
+
+
+class TestCmdEvalSuite:
+    def test_exits_nonzero_when_runner_is_not_ready(self, tmp_path, capsys):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text("name: readiness\ncases:\n  - kind: source\n    source_id: x\n    source_file: ./source.txt\n")
+        (tmp_path / "source.txt").write_text("authoritative text")
+        args = SimpleNamespace(
+            manifest=manifest_file,
+            runner=None,
+            output=tmp_path / "out",
+            atlas_path=tmp_path / "atlas",
+            rac_path=tmp_path / "rac",
+            json=False,
+        )
+        args.rac_path.mkdir()
+
+        fake_result = MagicMock()
+        fake_result.runner = "codex-gpt-5.4"
+        fake_result.success = True
+        fake_result.error = None
+        fake_result.metrics = MagicMock(
+            compile_pass=True,
+            ci_pass=True,
+            ungrounded_numeric_count=0,
+        )
+
+        fake_summary = MagicMock(
+            ready=False,
+            total_cases=1,
+            success_rate=1.0,
+            compile_pass_rate=1.0,
+            ci_pass_rate=1.0,
+            zero_ungrounded_rate=1.0,
+            policyengine_case_count=0,
+            mean_estimated_cost_usd=0.25,
+            gate_results=[],
+        )
+
+        with patch("autorac.cli.load_eval_suite_manifest") as mock_load, patch(
+            "autorac.cli.run_eval_suite", return_value=[fake_result]
+        ) as mock_run, patch(
+            "autorac.cli.summarize_readiness", return_value=fake_summary
+        ):
+            mock_load.return_value.name = "Readiness"
+            mock_load.return_value.path = manifest_file
+            mock_load.return_value.runners = ["codex:gpt-5.4"]
+            mock_load.return_value.cases = [MagicMock(kind="source")]
+            mock_load.return_value.gates = MagicMock()
+
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_eval_suite(args)
+
+        assert exc_info.value.code == 1
+        assert mock_run.called
+        captured = capsys.readouterr()
+        assert "NOT READY" in captured.out
 
     def test_sync_sdk_sessions_dispatches(self):
         with patch("sys.argv", ["autorac", "sync-sdk-sessions"]):

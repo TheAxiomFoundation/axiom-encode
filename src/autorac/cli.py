@@ -14,6 +14,7 @@ Self-contained -- no external plugin dependencies.
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from .harness.encoding_db import (
@@ -25,10 +26,13 @@ from .harness.encoding_db import (
     ReviewResults,
 )
 from .harness.evals import (
+    load_eval_suite_manifest,
     run_akn_section_eval,
+    run_eval_suite,
     run_legislation_gov_uk_section_eval,
     run_model_eval,
     run_source_eval,
+    summarize_readiness,
 )
 from .harness.validator_pipeline import ValidatorPipeline
 from .statute import parse_usc_citation
@@ -471,6 +475,45 @@ def main():
         help="Emit machine-readable JSON summary",
     )
 
+    eval_suite_parser = subparsers.add_parser(
+        "eval-suite",
+        help="Run a manifest-driven benchmark suite and evaluate readiness gates",
+    )
+    eval_suite_parser.add_argument(
+        "manifest",
+        type=Path,
+        help="Path to a YAML manifest describing the benchmark suite",
+    )
+    eval_suite_parser.add_argument(
+        "--runner",
+        action="append",
+        default=[],
+        help="Override manifest runners with [name=]backend:model (repeatable)",
+    )
+    eval_suite_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("/tmp/autorac-suite-evals"),
+        help="Directory for suite artifacts and traces",
+    )
+    eval_suite_parser.add_argument(
+        "--atlas-path",
+        type=Path,
+        default=None,
+        help="Path to atlas repo (needed for citation cases; defaults to sibling repo checkout)",
+    )
+    eval_suite_parser.add_argument(
+        "--rac-path",
+        type=Path,
+        default=None,
+        help="Path to rac repo (defaults to sibling repo checkout)",
+    )
+    eval_suite_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON summary",
+    )
+
     # =========================================================================
     # Session logging commands (for hooks)
     # =========================================================================
@@ -581,6 +624,8 @@ def main():
         cmd_eval_akn_section(args)
     elif args.command == "eval-uk-legislation-section":
         cmd_eval_uk_legislation_section(args)
+    elif args.command == "eval-suite":
+        cmd_eval_suite(args)
     elif args.command == "session-start":
         cmd_session_start(args)
     elif args.command == "session-end":
@@ -1941,6 +1986,122 @@ def cmd_eval_uk_legislation_section(args):
         print(f"  trace={result.trace_file}")
         print(f"  manifest={result.context_manifest_file}")
         print()
+
+
+def _format_gate_result(gate) -> str:
+    """Format one readiness gate for human-readable output."""
+    relation = ">=" if gate.comparator == "min" else "<="
+    actual = "n/a" if gate.actual is None else f"{gate.actual}"
+    return (
+        f"  [{'PASS' if gate.passed else 'FAIL'}] {gate.name}: "
+        f"{actual} {relation} {gate.threshold}"
+    )
+
+
+def cmd_eval_suite(args):
+    """Run a manifest-driven benchmark suite and evaluate readiness gates."""
+    manifest = load_eval_suite_manifest(args.manifest)
+    rac_path = args.rac_path or _default_repo_checkout("rac")
+    atlas_path = args.atlas_path or _default_repo_checkout("atlas")
+
+    if not rac_path.exists():
+        print(f"rac repo not found: {rac_path}")
+        sys.exit(1)
+
+    has_citation_case = any(case.kind == "citation" for case in manifest.cases)
+    if has_citation_case and not atlas_path.exists():
+        print(f"Atlas repo not found: {atlas_path}")
+        sys.exit(1)
+
+    results = run_eval_suite(
+        manifest=manifest,
+        output_root=args.output,
+        rac_path=rac_path,
+        atlas_path=atlas_path if has_citation_case else None,
+        runner_specs=args.runner or None,
+    )
+
+    grouped: dict[str, list] = {}
+    for result in results:
+        grouped.setdefault(result.runner, []).append(result)
+
+    readiness = {
+        runner: summarize_readiness(runner_results, manifest.gates)
+        for runner, runner_results in grouped.items()
+    }
+    all_ready = all(summary.ready for summary in readiness.values())
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "manifest": {
+                        "name": manifest.name,
+                        "path": str(manifest.path),
+                        "runners": manifest.runners,
+                    },
+                    "results": [result.to_dict() for result in results],
+                    "readiness": {
+                        runner: asdict(summary)
+                        for runner, summary in readiness.items()
+                    },
+                    "all_ready": all_ready,
+                },
+                indent=2,
+            )
+        )
+        sys.exit(0 if all_ready else 1)
+
+    print(f"Manifest: {manifest.path}")
+    print(f"Suite: {manifest.name}")
+    print(f"Output root: {args.output}")
+    print(f"rac: {rac_path}")
+    if has_citation_case:
+        print(f"Atlas: {atlas_path}")
+    print()
+
+    for runner, summary in readiness.items():
+        print(f"{runner}: {'READY' if summary.ready else 'NOT READY'}")
+        print(
+            f"  cases={summary.total_cases} success={summary.success_rate:.1%} "
+            f"compile={summary.compile_pass_rate:.1%} ci={summary.ci_pass_rate:.1%} "
+            f"zero_ungrounded={summary.zero_ungrounded_rate:.1%}"
+        )
+        if summary.policyengine_case_count:
+            print(
+                f"  policyengine_cases={summary.policyengine_case_count} "
+                f"pass_rate={(summary.policyengine_pass_rate or 0):.1%} "
+                f"mean_score={(summary.mean_policyengine_score or 0):.1%}"
+            )
+        if summary.mean_estimated_cost_usd is not None:
+            print(f"  mean_estimated_cost=${summary.mean_estimated_cost_usd:.4f}")
+        for gate in summary.gate_results:
+            print(_format_gate_result(gate))
+
+        notable_failures = [
+            result
+            for result in grouped[runner]
+            if (
+                not result.success
+                or result.error
+                or result.metrics is None
+                or not result.metrics.compile_pass
+                or not result.metrics.ci_pass
+                or result.metrics.ungrounded_numeric_count > 0
+            )
+        ]
+        if notable_failures:
+            print("  notable_failures:")
+            for result in notable_failures[:5]:
+                print(
+                    f"    - {result.citation}: success={result.success} "
+                    f"compile={getattr(result.metrics, 'compile_pass', None)} "
+                    f"ci={getattr(result.metrics, 'ci_pass', None)} "
+                    f"ungrounded={getattr(result.metrics, 'ungrounded_numeric_count', None)}"
+                )
+        print()
+
+    sys.exit(0 if all_ready else 1)
 
 
 # =========================================================================

@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from statistics import mean
 from typing import Literal
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
 import requests
+import yaml
 
 from autorac.statute import (
     CitationParts,
@@ -181,6 +184,79 @@ class EvalResult:
 
 
 @dataclass(frozen=True)
+class EvalReadinessGates:
+    """Thresholds that determine whether a benchmark suite is bulk-ready."""
+
+    min_cases: int = 1
+    min_success_rate: float | None = None
+    min_compile_pass_rate: float | None = None
+    min_ci_pass_rate: float | None = None
+    min_zero_ungrounded_rate: float | None = None
+    min_policyengine_pass_rate: float | None = None
+    max_mean_estimated_cost_usd: float | None = None
+
+
+@dataclass
+class EvalSuiteCase:
+    """One manifest entry in an eval suite."""
+
+    kind: Literal["citation", "source", "akn_section", "uk_legislation"]
+    name: str
+    mode: EvalMode
+    allow_context: list[Path] = field(default_factory=list)
+    allow_parent: bool = False
+    citation: str | None = None
+    source_id: str | None = None
+    source_file: Path | None = None
+    akn_file: Path | None = None
+    section_eid: str | None = None
+    source_ref: str | None = None
+    oracle: EvalOracleMode = "none"
+    policyengine_country: str = "auto"
+
+
+@dataclass
+class EvalSuiteManifest:
+    """Manifest describing a benchmark suite and its readiness gates."""
+
+    name: str
+    path: Path
+    runners: list[str]
+    mode: EvalMode
+    allow_context: list[Path]
+    gates: EvalReadinessGates
+    cases: list[EvalSuiteCase]
+
+
+@dataclass(frozen=True)
+class EvalReadinessGateResult:
+    """Outcome of one readiness threshold."""
+
+    name: str
+    comparator: Literal["min", "max"]
+    threshold: float | int
+    actual: float | int | None
+    passed: bool
+
+
+@dataclass
+class EvalReadinessSummary:
+    """Aggregated readiness summary for one runner across a suite."""
+
+    total_cases: int
+    success_rate: float
+    compile_pass_rate: float
+    ci_pass_rate: float
+    zero_ungrounded_rate: float
+    policyengine_case_count: int
+    policyengine_pass_rate: float | None
+    mean_policyengine_score: float | None
+    mean_estimated_cost_usd: float | None
+    gate_results: list[EvalReadinessGateResult]
+    ready: bool
+
+
+@dataclass(frozen=True)
 class FetchedLegislationGovUkDocument:
     """Official legislation.gov.uk sources fetched for one content URL."""
 
@@ -207,7 +283,7 @@ def parse_runner_spec(spec: str) -> EvalRunnerSpec:
     model = model.strip()
     name = alias.strip() or re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{backend}-{model}")
 
-    if backend not in {"claude", "codex"}:
+    if backend not in {"claude", "codex", "openai"}:
         raise ValueError(f"Unsupported backend '{backend}' in runner spec '{spec}'")
 
     return EvalRunnerSpec(name=name, backend=backend, model=model)
@@ -582,6 +658,425 @@ def run_legislation_gov_uk_section_eval(
         allow_parent=allow_parent,
         oracle="policyengine",
         policyengine_country="uk",
+    )
+
+
+def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
+    """Load a manifest describing a benchmark suite and readiness gates."""
+    raw = yaml.safe_load(Path(path).read_text()) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"Eval suite manifest must be a mapping: {path}")
+
+    base_dir = Path(path).resolve().parent
+    default_mode = _coerce_eval_mode(raw.get("mode", "repo-augmented"))
+    default_context = [
+        _resolve_manifest_path(base_dir, entry)
+        for entry in raw.get("allow_context", []) or []
+    ]
+    runners = [str(item) for item in (raw.get("runners") or ["codex:gpt-5.4"])]
+
+    gates_raw = raw.get("gates") or {}
+    gates = EvalReadinessGates(
+        min_cases=int(gates_raw.get("min_cases", 1)),
+        min_success_rate=_optional_float(gates_raw.get("min_success_rate")),
+        min_compile_pass_rate=_optional_float(
+            gates_raw.get("min_compile_pass_rate")
+        ),
+        min_ci_pass_rate=_optional_float(gates_raw.get("min_ci_pass_rate")),
+        min_zero_ungrounded_rate=_optional_float(
+            gates_raw.get("min_zero_ungrounded_rate")
+        ),
+        min_policyengine_pass_rate=_optional_float(
+            gates_raw.get("min_policyengine_pass_rate")
+        ),
+        max_mean_estimated_cost_usd=_optional_float(
+            gates_raw.get("max_mean_estimated_cost_usd")
+        ),
+    )
+
+    cases_raw = raw.get("cases") or []
+    if not isinstance(cases_raw, list) or not cases_raw:
+        raise ValueError(f"Eval suite manifest has no cases: {path}")
+
+    cases: list[EvalSuiteCase] = []
+    for index, item in enumerate(cases_raw, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"Eval suite case #{index} must be a mapping")
+        kind = str(item.get("kind", "")).strip()
+        if kind not in {"citation", "source", "akn_section", "uk_legislation"}:
+            raise ValueError(f"Unsupported eval suite case kind '{kind}'")
+
+        case_mode = _coerce_eval_mode(item.get("mode", default_mode))
+        name = (
+            str(item.get("name", "")).strip()
+            or str(
+                item.get("citation")
+                or item.get("source_id")
+                or item.get("source_ref")
+                or item.get("section_eid")
+                or f"case-{index}"
+            )
+        )
+
+        case = EvalSuiteCase(
+            kind=kind,
+            name=name,
+            mode=case_mode,
+            allow_context=[
+                _resolve_manifest_path(base_dir, entry)
+                for entry in item.get("allow_context", []) or []
+            ],
+            allow_parent=bool(item.get("allow_parent", False)),
+            citation=item.get("citation"),
+            source_id=item.get("source_id"),
+            source_file=(
+                _resolve_manifest_path(base_dir, item["source_file"])
+                if item.get("source_file")
+                else None
+            ),
+            akn_file=(
+                _resolve_manifest_path(base_dir, item["akn_file"])
+                if item.get("akn_file")
+                else None
+            ),
+            section_eid=item.get("section_eid"),
+            source_ref=item.get("source_ref"),
+            oracle=str(item.get("oracle", "none")),
+            policyengine_country=str(item.get("policyengine_country", "auto")),
+        )
+        _validate_eval_suite_case(case, index)
+        cases.append(case)
+
+    return EvalSuiteManifest(
+        name=str(raw.get("name") or Path(path).stem),
+        path=Path(path).resolve(),
+        runners=runners,
+        mode=default_mode,
+        allow_context=default_context,
+        gates=gates,
+        cases=cases,
+    )
+
+
+def run_eval_suite(
+    manifest: EvalSuiteManifest,
+    output_root: Path,
+    rac_path: Path,
+    atlas_path: Path | None = None,
+    runner_specs: list[str] | None = None,
+) -> list[EvalResult]:
+    """Run every case in a benchmark suite manifest."""
+    resolved_runners = runner_specs or manifest.runners
+    parsed_runners = [parse_runner_spec(spec) for spec in resolved_runners]
+    results: list[EvalResult] = []
+
+    for index, case in enumerate(manifest.cases, start=1):
+        case_output_root = Path(output_root) / f"{index:02d}-{_slugify(case.name)}"
+        extra_context = [*manifest.allow_context, *case.allow_context]
+        try:
+            if case.kind == "citation":
+                if atlas_path is None:
+                    raise ValueError(
+                        "atlas_path is required for citation eval suite cases"
+                    )
+                case_results = run_model_eval(
+                    citations=[case.citation or ""],
+                    runner_specs=resolved_runners,
+                    output_root=case_output_root,
+                    rac_path=rac_path,
+                    atlas_path=atlas_path,
+                    mode=case.mode,
+                    extra_context_paths=extra_context,
+                )
+            elif case.kind == "source":
+                case_results = run_source_eval(
+                    source_id=case.source_id or case.name,
+                    source_text=(case.source_file or Path()).read_text(),
+                    runner_specs=resolved_runners,
+                    output_root=case_output_root,
+                    rac_path=rac_path,
+                    mode=case.mode,
+                    extra_context_paths=extra_context,
+                    oracle=case.oracle,
+                    policyengine_country=case.policyengine_country,
+                )
+            elif case.kind == "akn_section":
+                case_results = run_akn_section_eval(
+                    source_id=case.source_id or case.name,
+                    akn_file=case.akn_file or Path(),
+                    section_eid=case.section_eid or "",
+                    runner_specs=resolved_runners,
+                    output_root=case_output_root,
+                    rac_path=rac_path,
+                    mode=case.mode,
+                    extra_context_paths=extra_context,
+                    allow_parent=case.allow_parent,
+                    oracle=case.oracle,
+                    policyengine_country=case.policyengine_country,
+                )
+            else:
+                case_results = run_legislation_gov_uk_section_eval(
+                    source_ref=case.source_ref or "",
+                    section_eid=case.section_eid,
+                    runner_specs=resolved_runners,
+                    output_root=case_output_root,
+                    rac_path=rac_path,
+                    mode=case.mode,
+                    extra_context_paths=extra_context,
+                    allow_parent=case.allow_parent,
+                )
+        except Exception as exc:
+            case_results = _suite_case_failure_results(case, parsed_runners, exc)
+
+        for result in case_results:
+            if case.name and case.name != result.citation:
+                result.citation = f"{case.name} ({result.citation})"
+        results.extend(case_results)
+
+    return results
+
+
+def _suite_case_failure_results(
+    case: EvalSuiteCase,
+    runners: list[EvalRunnerSpec],
+    exc: Exception,
+) -> list[EvalResult]:
+    """Convert an exception into explicit failed results for each runner."""
+    return [
+        EvalResult(
+            citation=case.name,
+            runner=runner.name,
+            backend=runner.backend,
+            model=runner.model,
+            mode=case.mode,
+            output_file="",
+            trace_file="",
+            context_manifest_file="",
+            duration_ms=0,
+            success=False,
+            error=str(exc),
+            input_tokens=0,
+            output_tokens=0,
+            cache_read_tokens=0,
+            cache_creation_tokens=0,
+            reasoning_output_tokens=0,
+            estimated_cost_usd=None,
+            actual_cost_usd=None,
+            retrieved_files=[],
+            unexpected_accesses=[],
+            metrics=None,
+        )
+        for runner in runners
+    ]
+
+
+def summarize_readiness(
+    results: list[EvalResult],
+    gates: EvalReadinessGates,
+) -> EvalReadinessSummary:
+    """Summarize suite readiness for one runner."""
+    total_cases = len(results)
+    success_rate = _fraction(sum(1 for result in results if result.success), total_cases)
+    compile_pass_rate = _fraction(
+        sum(
+            1
+            for result in results
+            if result.metrics is not None and result.metrics.compile_pass
+        ),
+        total_cases,
+    )
+    ci_pass_rate = _fraction(
+        sum(
+            1
+            for result in results
+            if result.metrics is not None and result.metrics.ci_pass
+        ),
+        total_cases,
+    )
+    zero_ungrounded_rate = _fraction(
+        sum(
+            1
+            for result in results
+            if result.metrics is not None and result.metrics.ungrounded_numeric_count == 0
+        ),
+        total_cases,
+    )
+
+    policyengine_results = [
+        result
+        for result in results
+        if result.metrics is not None and result.metrics.policyengine_score is not None
+    ]
+    policyengine_case_count = len(policyengine_results)
+    policyengine_pass_rate = (
+        _fraction(
+            sum(
+                1
+                for result in policyengine_results
+                if result.metrics is not None and result.metrics.policyengine_pass
+            ),
+            policyengine_case_count,
+        )
+        if policyengine_case_count
+        else None
+    )
+    mean_policyengine_score = (
+        round(
+            mean(
+                result.metrics.policyengine_score
+                for result in policyengine_results
+                if result.metrics is not None
+                and result.metrics.policyengine_score is not None
+            ),
+            6,
+        )
+        if policyengine_case_count
+        else None
+    )
+
+    costs = [
+        result.estimated_cost_usd
+        for result in results
+        if result.estimated_cost_usd is not None
+    ]
+    mean_estimated_cost_usd = round(mean(costs), 6) if costs else None
+
+    gate_results: list[EvalReadinessGateResult] = [
+        _min_gate("min_cases", total_cases, gates.min_cases),
+    ]
+    if gates.min_success_rate is not None:
+        gate_results.append(
+            _min_gate("min_success_rate", success_rate, gates.min_success_rate)
+        )
+    if gates.min_compile_pass_rate is not None:
+        gate_results.append(
+            _min_gate(
+                "min_compile_pass_rate",
+                compile_pass_rate,
+                gates.min_compile_pass_rate,
+            )
+        )
+    if gates.min_ci_pass_rate is not None:
+        gate_results.append(
+            _min_gate("min_ci_pass_rate", ci_pass_rate, gates.min_ci_pass_rate)
+        )
+    if gates.min_zero_ungrounded_rate is not None:
+        gate_results.append(
+            _min_gate(
+                "min_zero_ungrounded_rate",
+                zero_ungrounded_rate,
+                gates.min_zero_ungrounded_rate,
+            )
+        )
+    if gates.min_policyengine_pass_rate is not None:
+        gate_results.append(
+            _min_gate(
+                "min_policyengine_pass_rate",
+                policyengine_pass_rate,
+                gates.min_policyengine_pass_rate,
+            )
+        )
+    if gates.max_mean_estimated_cost_usd is not None:
+        gate_results.append(
+            _max_gate(
+                "max_mean_estimated_cost_usd",
+                mean_estimated_cost_usd,
+                gates.max_mean_estimated_cost_usd,
+            )
+        )
+
+    return EvalReadinessSummary(
+        total_cases=total_cases,
+        success_rate=success_rate,
+        compile_pass_rate=compile_pass_rate,
+        ci_pass_rate=ci_pass_rate,
+        zero_ungrounded_rate=zero_ungrounded_rate,
+        policyengine_case_count=policyengine_case_count,
+        policyengine_pass_rate=policyengine_pass_rate,
+        mean_policyengine_score=mean_policyengine_score,
+        mean_estimated_cost_usd=mean_estimated_cost_usd,
+        gate_results=gate_results,
+        ready=all(result.passed for result in gate_results),
+    )
+
+
+def _coerce_eval_mode(value: str) -> EvalMode:
+    """Validate a manifest eval mode."""
+    normalized = str(value).strip()
+    if normalized not in {"cold", "repo-augmented"}:
+        raise ValueError(f"Unsupported eval mode '{value}'")
+    return normalized  # type: ignore[return-value]
+
+
+def _optional_float(value: object) -> float | None:
+    """Convert optional numeric manifest values to float."""
+    if value is None:
+        return None
+    return float(value)
+
+
+def _resolve_manifest_path(base_dir: Path, value: object) -> Path:
+    """Resolve a manifest path entry relative to the manifest file."""
+    path = Path(str(value))
+    if not path.is_absolute():
+        path = (base_dir / path).resolve()
+    return path
+
+
+def _validate_eval_suite_case(case: EvalSuiteCase, index: int) -> None:
+    """Validate one suite case after parsing."""
+    if case.kind == "citation" and not case.citation:
+        raise ValueError(f"Eval suite case #{index} is missing 'citation'")
+    if case.kind == "source":
+        if not case.source_id:
+            raise ValueError(f"Eval suite case #{index} is missing 'source_id'")
+        if case.source_file is None:
+            raise ValueError(f"Eval suite case #{index} is missing 'source_file'")
+    if case.kind == "akn_section":
+        if not case.source_id:
+            raise ValueError(f"Eval suite case #{index} is missing 'source_id'")
+        if case.akn_file is None:
+            raise ValueError(f"Eval suite case #{index} is missing 'akn_file'")
+        if not case.section_eid:
+            raise ValueError(f"Eval suite case #{index} is missing 'section_eid'")
+    if case.kind == "uk_legislation" and not case.source_ref:
+        raise ValueError(f"Eval suite case #{index} is missing 'source_ref'")
+
+
+def _fraction(numerator: int, denominator: int) -> float:
+    """Return a rounded fraction or 0 when the denominator is empty."""
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, 6)
+
+
+def _min_gate(
+    name: str,
+    actual: float | int | None,
+    threshold: float | int,
+) -> EvalReadinessGateResult:
+    """Evaluate a lower-bound readiness gate."""
+    return EvalReadinessGateResult(
+        name=name,
+        comparator="min",
+        threshold=threshold,
+        actual=actual,
+        passed=actual is not None and actual >= threshold,
+    )
+
+
+def _max_gate(
+    name: str,
+    actual: float | int | None,
+    threshold: float | int,
+) -> EvalReadinessGateResult:
+    """Evaluate an upper-bound readiness gate."""
+    return EvalReadinessGateResult(
+        name=name,
+        comparator="max",
+        threshold=threshold,
+        actual=actual,
+        passed=actual is not None and actual <= threshold,
     )
 
 
@@ -1244,6 +1739,8 @@ def _run_prompt_eval(
         return _run_claude_prompt_eval(runner, workspace, prompt)
     if runner.backend == "codex":
         return _run_codex_prompt_eval(runner, workspace, prompt)
+    if runner.backend == "openai":
+        return _run_openai_prompt_eval(runner, workspace, prompt)
     raise ValueError(f"Unsupported backend: {runner.backend}")
 
 
@@ -1430,6 +1927,125 @@ def _run_codex_prompt_eval(
         },
         unexpected_accesses=unexpected_accesses,
         error=error,
+    )
+
+
+def _extract_openai_response_text(payload: dict) -> str:
+    """Flatten a Responses API payload into assistant text."""
+    output_text = payload.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    texts: list[str] = []
+    for item in payload.get("output", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "reasoning":
+            continue
+        if item.get("type") == "message":
+            for content_item in item.get("content", []) or []:
+                if not isinstance(content_item, dict):
+                    continue
+                if content_item.get("type") in {"output_text", "text"}:
+                    text = content_item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        texts.append(text.strip())
+            continue
+        text = item.get("text")
+        if isinstance(text, str) and text.strip():
+            texts.append(text.strip())
+
+    return "\n\n".join(texts).strip()
+
+
+def _run_openai_prompt_eval(
+    runner: EvalRunnerSpec,
+    workspace: EvalWorkspace,
+    prompt: str,
+) -> EvalPromptResponse:
+    """Run prompt-only eval via the OpenAI Responses API."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return EvalPromptResponse(
+            text="",
+            duration_ms=0,
+            trace={
+                "provider": "openai",
+                "backend": "responses",
+                "model": runner.model,
+            },
+            error="OPENAI_API_KEY is not set",
+        )
+
+    body = {
+        "model": runner.model,
+        "input": prompt,
+        "max_output_tokens": 16384,
+        "reasoning": {
+            "effort": "low",
+            "summary": "auto",
+        },
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    start = time.time()
+    response = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers=headers,
+        json=body,
+        timeout=600,
+    )
+    duration_ms = int((time.time() - start) * 1000)
+
+    request_id = response.headers.get("x-request-id")
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {
+            "error": {
+                "message": response.text or f"HTTP {response.status_code}",
+            }
+        }
+
+    trace = {
+        "provider": "openai",
+        "backend": "responses",
+        "model": runner.model,
+        "request_id": request_id,
+        "request_body": body,
+        "json_result": payload,
+        "status_code": response.status_code,
+    }
+
+    if response.status_code >= 400:
+        error = payload.get("error") or {}
+        return EvalPromptResponse(
+            text="",
+            duration_ms=duration_ms,
+            trace=trace,
+            error=error.get("message") or response.text or "OpenAI eval failed",
+        )
+
+    usage = payload.get("usage") or {}
+    input_details = usage.get("input_tokens_details") or {}
+    tokens = TokenUsage(
+        input_tokens=int(usage.get("input_tokens", 0) or 0),
+        output_tokens=int(usage.get("output_tokens", 0) or 0),
+        cache_read_tokens=int(input_details.get("cached_tokens", 0) or 0),
+    )
+    tokens.reasoning_output_tokens = int(
+        ((usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0)
+    )
+
+    return EvalPromptResponse(
+        text=_extract_openai_response_text(payload),
+        duration_ms=duration_ms,
+        tokens=tokens,
+        estimated_cost_usd=estimate_usage_cost_usd(runner.model, tokens),
+        trace=trace,
     )
 
 

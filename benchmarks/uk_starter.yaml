@@ -1,0 +1,57 @@
+name: UK starter benchmark
+runners:
+  - openai:gpt-5.4
+mode: cold
+gates:
+  min_cases: 9
+  min_success_rate: 0.9
+  min_compile_pass_rate: 0.9
+  min_ci_pass_rate: 0.9
+  min_zero_ungrounded_rate: 1.0
+  min_policyengine_pass_rate: 0.8
+  max_mean_estimated_cost_usd: 0.5
+cases:
+  - kind: uk_legislation
+    name: child-benefit-enhanced-rate
+    source_ref: /uksi/2006/965/regulation/2/2025-04-07
+    section_eid: regulation-2-1-a
+
+  - kind: uk_legislation
+    name: child-benefit-other-rate
+    source_ref: /uksi/2006/965/regulation/2/2025-04-07
+    section_eid: regulation-2-1-b
+
+  - kind: uk_legislation
+    name: pension-credit-couple-rate
+    source_ref: /uksi/2002/1792/regulation/6/2025-03-31
+    section_eid: regulation-6-1-a
+
+  - kind: uk_legislation
+    name: pension-credit-single-rate
+    source_ref: /uksi/2002/1792/regulation/6/2025-03-31
+    section_eid: regulation-6-1-b
+
+  - kind: uk_legislation
+    name: scottish-child-payment-rate
+    source_ref: /ssi/2020/351/regulation/20/2025-04-01
+    section_eid: regulation-20-1
+
+  - kind: uk_legislation
+    name: benefit-cap-single-london
+    source_ref: /uksi/2013/376/regulation/80A/2025-04-01
+    section_eid: regulation-80A-2-a
+
+  - kind: uk_legislation
+    name: benefit-cap-single-outside-london
+    source_ref: /uksi/2013/376/regulation/80A/2025-04-01
+    section_eid: regulation-80A-2-b
+
+  - kind: uk_legislation
+    name: benefit-cap-family-london
+    source_ref: /uksi/2013/376/regulation/80A/2025-04-01
+    section_eid: regulation-80A-2-c
+
+  - kind: uk_legislation
+    name: benefit-cap-family-outside-london
+    source_ref: /uksi/2013/376/regulation/80A/2025-04-01
+    section_eid: regulation-80A-2-d
