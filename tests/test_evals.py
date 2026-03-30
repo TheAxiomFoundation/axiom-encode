@@ -635,6 +635,44 @@ class TestUkLegislationFetch:
         assert fetched.clml_file.read_text() == "<cached-clml/>"
         mock_get.assert_not_called()
 
+    def test_fetch_legislation_gov_uk_document_uses_shared_fetch_cache_root(
+        self, tmp_path
+    ):
+        class FakeResponse:
+            def __init__(self, text: str):
+                self.text = text
+                self.status_code = 200
+
+            def raise_for_status(self):
+                return None
+
+        shared_cache_root = tmp_path / "suite-cache"
+        first_output = tmp_path / "case-a"
+        second_output = tmp_path / "case-b"
+
+        with patch(
+            "requests.get",
+            side_effect=[
+                FakeResponse("<akomaNtoso/>"),
+                FakeResponse("<Legislation/>"),
+            ],
+        ) as mock_get:
+            first = _fetch_legislation_gov_uk_document(
+                "https://www.legislation.gov.uk/ukpga/2010/1/section/1",
+                first_output,
+                fetch_cache_root=shared_cache_root,
+            )
+            second = _fetch_legislation_gov_uk_document(
+                "https://www.legislation.gov.uk/ukpga/2010/1/section/1",
+                second_output,
+                fetch_cache_root=shared_cache_root,
+            )
+
+        assert first.akn_file == second.akn_file
+        assert first.clml_file == second.clml_file
+        assert str(first.akn_file).startswith(str(shared_cache_root))
+        assert mock_get.call_count == 2
+
     def test_fetch_legislation_gov_uk_document_retries_transient_http_errors(
         self, tmp_path
     ):
@@ -685,6 +723,9 @@ class TestUkLegislationFetch:
                 requests.exceptions.ReadTimeout("timed out"),
                 requests.exceptions.ReadTimeout("timed out"),
                 requests.exceptions.ReadTimeout("timed out"),
+                requests.exceptions.ReadTimeout("timed out"),
+                requests.exceptions.ReadTimeout("timed out"),
+                requests.exceptions.ReadTimeout("timed out"),
             ],
         ) as mock_get, patch("time.sleep"):
             fetched = _fetch_legislation_gov_uk_document(
@@ -694,7 +735,7 @@ class TestUkLegislationFetch:
 
         assert fetched.akn_file.read_text() == "<akomaNtoso/>"
         assert "unavailable" in fetched.clml_file.read_text().lower()
-        assert mock_get.call_count == 4
+        assert mock_get.call_count == 7
 
     def test_run_legislation_gov_uk_section_eval_uses_primary_akn_node_when_unspecified(
         self, tmp_path
@@ -1271,6 +1312,39 @@ cases:
 
         assert results == [uk_result]
         assert mock_uk.call_args.kwargs["table_row_query"] == "single claimant aged under 25"
+
+    def test_run_eval_suite_passes_shared_fetch_cache_root_to_uk_runner(
+        self, tmp_path
+    ):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: UK row suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: uk_legislation
+    name: child-benefit-enhanced
+    source_ref: /uksi/2006/965/regulation/2/2025-04-07
+    section_eid: regulation-2-1-a
+            """.strip()
+        )
+        manifest = load_eval_suite_manifest(manifest_file)
+        uk_result = _fake_eval_result("openai-gpt-5.4", "child-benefit-enhanced")
+        output_root = tmp_path / "out"
+
+        with patch(
+            "autorac.harness.evals.run_legislation_gov_uk_section_eval",
+            return_value=[uk_result],
+        ) as mock_uk:
+            run_eval_suite(
+                manifest=manifest,
+                output_root=output_root,
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert mock_uk.call_args.kwargs["fetch_cache_root"] == output_root
 
     def test_run_eval_suite_passes_policyengine_rac_var_hint_to_source_runner(
         self, tmp_path

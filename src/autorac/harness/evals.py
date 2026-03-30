@@ -450,10 +450,17 @@ def _normalize_legislation_gov_uk_source_ref(source_ref: str) -> tuple[str, str]
 def _fetch_legislation_gov_uk_document(
     source_ref: str,
     output_root: Path,
+    *,
+    fetch_cache_root: Path | None = None,
 ) -> FetchedLegislationGovUkDocument:
     """Fetch official AKN and CLML files from legislation.gov.uk."""
     source_id, content_url = _normalize_legislation_gov_uk_source_ref(source_ref)
-    source_dir = Path(output_root) / "_legislation_gov_uk" / _slugify(source_id)
+    source_base_dir = (
+        Path(fetch_cache_root) / "_legislation_gov_uk_cache"
+        if fetch_cache_root is not None and Path(fetch_cache_root).resolve() != Path(output_root).resolve()
+        else Path(output_root) / "_legislation_gov_uk"
+    )
+    source_dir = source_base_dir / _slugify(source_id)
     source_dir.mkdir(parents=True, exist_ok=True)
 
     akn_file = source_dir / "source.akn"
@@ -488,7 +495,7 @@ def _fetch_legislation_gov_uk_document(
 def _fetch_legislation_gov_uk_text(
     url: str,
     *,
-    attempts: int = 3,
+    attempts: int = 6,
     timeout: int = 30,
 ) -> str:
     """Fetch one legislation.gov.uk payload with retry for transient failures."""
@@ -505,7 +512,7 @@ def _fetch_legislation_gov_uk_text(
             retriable = status_code in {429, 500, 502, 503, 504} or status_code is None
             if attempt >= attempts or not retriable:
                 raise
-            time.sleep(0.5 * attempt)
+            time.sleep(min(2 ** (attempt - 1), 10))
 
     if last_error is not None:
         raise last_error
@@ -770,9 +777,14 @@ def run_legislation_gov_uk_section_eval(
     allow_parent: bool = False,
     table_row_query: str | None = None,
     policyengine_rac_var_hint: str | None = None,
+    fetch_cache_root: Path | None = None,
 ) -> list[EvalResult]:
     """Fetch official UK legislation XML and run an AKN section eval."""
-    fetched = _fetch_legislation_gov_uk_document(source_ref, output_root)
+    fetched = _fetch_legislation_gov_uk_document(
+        source_ref,
+        output_root,
+        fetch_cache_root=fetch_cache_root,
+    )
     target_section_eid = section_eid or _find_primary_akn_section_eid(fetched.akn_file)
     return run_akn_section_eval(
         source_id=fetched.source_id,
@@ -969,6 +981,7 @@ def run_eval_suite(
                     allow_parent=case.allow_parent,
                     table_row_query=case.table_row_query,
                     policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                    fetch_cache_root=Path(output_root),
                 )
         except Exception as exc:
             case_results = _suite_case_failure_results(case, parsed_runners, exc)
@@ -2292,7 +2305,7 @@ def _run_openai_prompt_eval(
 def _post_openai_eval_request(
     headers: dict[str, str],
     body: dict[str, object],
-    attempts: int = 3,
+    attempts: int = 6,
 ) -> requests.Response:
     """POST a Responses API eval request with transient retry handling."""
     last_response: requests.Response | None = None
@@ -2309,13 +2322,13 @@ def _post_openai_eval_request(
             last_error = exc
             if attempt == attempts:
                 raise
-            time.sleep(0.5 * attempt)
+            time.sleep(min(2 ** (attempt - 1), 10))
             continue
 
         last_response = response
         if response.status_code not in {429, 500, 502, 503, 504} or attempt == attempts:
             return response
-        time.sleep(0.5 * attempt)
+        time.sleep(min(2 ** (attempt - 1), 10))
 
     if last_response is not None:
         return last_response
