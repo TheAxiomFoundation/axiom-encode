@@ -2308,6 +2308,25 @@ class TestBuildPeScenarioScript:
             in script
         )
 
+    def test_uk_child_benefit_weekly_rate_b_uses_other_child_branch(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "child_benefit_respective_amount",
+            {
+                "is_child": True,
+                "period": "2025-04-07",
+            },
+            "2025",
+            17.25,
+            country="uk",
+            rac_var="child_benefit_weekly_rate_b",
+        )
+        assert (
+            "if bool(eldest[target_index]):\n    val = 0.0\nelse:\n    val = float(monthly[target_index]) * 12 / 52"
+            in script
+        )
+
     def test_uk_child_benefit_not_child_or_qyp_false_uses_adult_target(
         self, pipeline
     ):
@@ -2321,6 +2340,24 @@ class TestBuildPeScenarioScript:
             0,
             country="uk",
             rac_var="child_benefit_weekly_rate_other_case",
+        )
+        assert "'age': {2025: 20}" in script
+        assert "target_index = 0" in script
+
+    def test_uk_child_benefit_explicit_false_child_and_qyp_use_adult_target(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "child_benefit_respective_amount",
+            {
+                "is_child": False,
+                "is_qualifying_young_person": False,
+                "period": "2025-04-07",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="child_benefit_weekly_rate_b",
         )
         assert "'age': {2025: 20}" in script
         assert "target_index = 0" in script
@@ -2398,6 +2435,42 @@ class TestBuildPeScenarioScript:
         assert "scenario_is_couple = True" in script
         assert "if scenario_is_couple:" in script
         assert "val = weekly" in script
+
+    def test_uk_pension_credit_suffix_a_alias_builds_couple_branch(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "standard_minimum_guarantee",
+            {
+                "claimant_has_partner": False,
+                "period": "2025-03-31",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="guarantee_credit_standard_minimum_guarantee_a",
+        )
+        assert "scenario_is_couple = False" in script
+        assert "if scenario_is_couple:" in script
+        assert "val = 0.0" in script
+
+    def test_uk_pension_credit_suffix_b_alias_builds_single_branch(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "standard_minimum_guarantee",
+            {
+                "claimant_has_partner": True,
+                "period": "2025-03-31",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="guarantee_credit_standard_minimum_guarantee_b",
+        )
+        assert "scenario_is_couple = True" in script
+        assert "if scenario_is_couple:" in script
+        assert "val = 0.0" in script
 
     def test_uk_scottish_child_payment_leaf_script_builds_scotland_uc_scenario(
         self, pipeline
@@ -2654,6 +2727,24 @@ class TestBuildPeScenarioScript:
         assert "has_child = False" in script
         assert "if is_single and in_london and not has_child:" in script
 
+    def test_uk_benefit_cap_residency_keys_do_not_imply_joint_claimants(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "benefit_cap",
+            {
+                "joint_claimants": False,
+                "either_joint_claimant_resident_in_greater_london": True,
+                "period": "2025",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="applicable_annual_limit_80A_2_b_i",
+        )
+        assert "'spouse'" not in script
+        assert "is_single = True" in script
+
 
 class TestIsPeTestMappable:
     def test_uk_child_benefit_paragraph_exception_true_is_unmappable(self, pipeline):
@@ -2760,6 +2851,17 @@ class TestIsPeTestMappable:
         assert mappable is False
         assert "helper boolean" in reason.lower()
 
+    def test_uk_multi_entity_expected_output_is_unmappable(self, pipeline):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "uk",
+            "scottish_child_payment_weekly_value",
+            {"person_is_child": {"child": True, "adult": False}},
+            {"child": 27.15, "adult": 0},
+        )
+
+        assert mappable is False
+        assert "multi-entity outputs" in reason.lower()
+
 
 class TestResolvePeVariable:
     def test_resolves_uk_child_benefit_enhanced_rate_family_by_substring(self, pipeline):
@@ -2812,6 +2914,12 @@ class TestResolvePeVariable:
             == "child_benefit_respective_amount"
         )
 
+    def test_resolves_uk_child_benefit_weekly_rate_b(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "child_benefit_weekly_rate_b")
+            == "child_benefit_respective_amount"
+        )
+
     def test_resolves_uk_pension_credit_standard_minimum_guarantee_couple(
         self, pipeline
     ):
@@ -2831,6 +2939,22 @@ class TestResolvePeVariable:
     def test_resolves_uk_pension_credit_regulation_6_1_a_alias(self, pipeline):
         assert (
             pipeline._resolve_pe_variable("uk", "amount_of_the_guarantee_credit_6_1_a")
+            == "standard_minimum_guarantee"
+        )
+
+    def test_resolves_uk_pension_credit_suffix_a_alias(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable(
+                "uk", "guarantee_credit_standard_minimum_guarantee_a"
+            )
+            == "standard_minimum_guarantee"
+        )
+
+    def test_resolves_uk_pension_credit_suffix_b_alias(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable(
+                "uk", "guarantee_credit_standard_minimum_guarantee_b"
+            )
             == "standard_minimum_guarantee"
         )
 
@@ -2860,6 +2984,22 @@ class TestResolvePeVariable:
     def test_resolves_uk_benefit_cap_relevant_amount_80a_2_d(self, pipeline):
         assert (
             pipeline._resolve_pe_variable("uk", "benefit_cap_relevant_amount_80a_2_d")
+            == "benefit_cap"
+        )
+
+    def test_resolves_uk_benefit_cap_applicable_annual_limit_without_prefix(
+        self, pipeline
+    ):
+        assert (
+            pipeline._resolve_pe_variable("uk", "applicable_annual_limit_80A_2_b_i")
+            == "benefit_cap"
+        )
+
+    def test_resolves_uk_benefit_cap_relevant_amount_without_prefix(
+        self, pipeline
+    ):
+        assert (
+            pipeline._resolve_pe_variable("uk", "relevant_amount_80A_2_b_ii")
             == "benefit_cap"
         )
 

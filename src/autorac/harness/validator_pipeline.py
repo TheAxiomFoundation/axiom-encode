@@ -1345,7 +1345,9 @@ Output ONLY valid JSON:
             if expected is None:
                 continue
 
-            mappable, reason = self._is_pe_test_mappable(country, rac_var, inputs)
+            mappable, reason = self._is_pe_test_mappable(
+                country, rac_var, inputs, expected
+            )
             if not mappable:
                 issues.append(
                     f"PolicyEngine unavailable for '{test.get('name', rac_var)}': {reason}"
@@ -2185,6 +2187,7 @@ print("BENCHMARK:" + json.dumps(result))
                 "other_case",
                 "regulation_2_1_b",
                 "reg2_1_b",
+                "child_benefit_weekly_rate_b",
             )
         )
 
@@ -2223,6 +2226,8 @@ print("BENCHMARK:" + json.dumps(result))
                 "partner",
                 "6_1_a",
                 "regulation_6_1_a",
+                "minimum_guarantee_a",
+                "guarantee_credit_standard_minimum_guarantee_a",
             )
         )
 
@@ -2237,6 +2242,8 @@ print("BENCHMARK:" + json.dumps(result))
                 "without_partner",
                 "6_1_b",
                 "regulation_6_1_b",
+                "minimum_guarantee_b",
+                "guarantee_credit_standard_minimum_guarantee_b",
             )
         )
 
@@ -2260,7 +2267,13 @@ print("BENCHMARK:" + json.dumps(result))
     @staticmethod
     def _is_uk_benefit_cap_amount_var(rac_var: str) -> bool:
         rac_var_lower = rac_var.lower()
-        if "benefit_cap" not in rac_var_lower:
+        if "benefit_cap" not in rac_var_lower and not (
+            "80a_2_" in rac_var_lower
+            and any(
+                marker in rac_var_lower
+                for marker in ("annual_limit", "relevant_amount", "_amount")
+            )
+        ):
             return False
         if rac_var_lower == "benefit_cap":
             return True
@@ -2310,10 +2323,15 @@ print("BENCHMARK:" + json.dumps(result))
     }
 
     def _is_pe_test_mappable(
-        self, country: str, rac_var: str, inputs: dict
+        self, country: str, rac_var: str, inputs: dict, expected: Any = None
     ) -> tuple[bool, str | None]:
         """Return whether the test case can be represented in PolicyEngine."""
         rac_var_lower = rac_var.lower()
+        if country == "uk" and isinstance(expected, dict):
+            return (
+                False,
+                "RAC test expects multi-entity outputs that the current PolicyEngine UK harness cannot compare directly",
+            )
         if country == "uk" and self._is_uk_child_benefit_rate_var(rac_var_lower):
             for key, value in inputs.items():
                 key_lower = str(key).lower()
@@ -2845,8 +2863,9 @@ print(f'RESULT:{{val}}')
             is_single = leaf_is_single
             if any(
                 (
-                    "joint_claimants" in str(key).lower()
-                    or "joint_claimant" in str(key).lower()
+                    str(key).lower() in {"joint_claimant", "joint_claimants"}
+                    or str(key).lower().endswith("_joint_claimant")
+                    or str(key).lower().endswith("_joint_claimants")
                     or "couple" in str(key).lower()
                 )
                 and value is not None
@@ -2856,8 +2875,9 @@ print(f'RESULT:{{val}}')
                     bool(value)
                     for key, value in lowered.items()
                     if (
-                        "joint_claimants" in str(key).lower()
-                        or "joint_claimant" in str(key).lower()
+                        str(key).lower() in {"joint_claimant", "joint_claimants"}
+                        or str(key).lower().endswith("_joint_claimant")
+                        or str(key).lower().endswith("_joint_claimants")
                         or "couple" in str(key).lower()
                     )
                     and value is not None
@@ -3027,6 +3047,24 @@ print(f'RESULT:{{val}}')
             ),
             True,
         )
+        explicit_is_child = next(
+            (
+                bool(value)
+                for key, value in lowered.items()
+                if str(key).lower() == "is_child" and value is not None
+            ),
+            None,
+        )
+        explicit_is_qyp = next(
+            (
+                bool(value)
+                for key, value in lowered.items()
+                if str(key).lower() == "is_qualifying_young_person" and value is not None
+            ),
+            None,
+        )
+        if explicit_is_child is not None or explicit_is_qyp is not None:
+            child_or_qyp = bool(explicit_is_child) or bool(explicit_is_qyp)
         age_order = next(
             (
                 int(value)
