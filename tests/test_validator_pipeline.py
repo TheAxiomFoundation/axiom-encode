@@ -1878,6 +1878,8 @@ class TestGetPeVariableMap:
         assert mapping["child_benefit_enhanced_weekly_rate"] == "child_benefit_respective_amount"
         assert mapping["child_benefit_regulation_2_1_a_amount"] == "child_benefit_respective_amount"
         assert mapping["child_benefit_reg2_1_a"] == "child_benefit_respective_amount"
+        assert mapping["uk_child_benefit_other_child_weekly_rate"] == "child_benefit_respective_amount"
+        assert mapping["child_benefit_reg2_1_b"] == "child_benefit_respective_amount"
 
     def test_pe_monthly_vars(self, pipeline):
         assert "snap" in pipeline._PE_MONTHLY_VARS
@@ -2000,7 +2002,7 @@ class TestBuildPeScenarioScript:
             rac_var="child_benefit_enhanced_rate",
         )
         assert "'older'" in script
-        assert "monthly[1]" in script
+        assert "target_index = 1" in script
         assert "would_claim_child_benefit': {2025: True}" in script
 
     def test_uk_child_benefit_leaf_script_supports_eldest_child_name(self, pipeline):
@@ -2016,7 +2018,7 @@ class TestBuildPeScenarioScript:
             rac_var="child_benefit_enhanced_rate",
         )
         assert "'target', 'younger'" in script
-        assert "monthly[0]" in script
+        assert "target_index = 0" in script
 
     def test_uk_child_benefit_leaf_script_supports_only_or_eldest_name(self, pipeline):
         script = pipeline._build_pe_scenario_script(
@@ -2031,7 +2033,7 @@ class TestBuildPeScenarioScript:
             rac_var="child_benefit_reg2_1_a",
         )
         assert "'target', 'younger'" in script
-        assert "monthly[0]" in script
+        assert "target_index = 0" in script
 
     def test_uk_child_benefit_leaf_script_supports_eldest_or_only_name(self, pipeline):
         script = pipeline._build_pe_scenario_script(
@@ -2046,7 +2048,41 @@ class TestBuildPeScenarioScript:
             rac_var="child_benefit_enhanced_weekly_rate",
         )
         assert "'target', 'younger'" in script
-        assert "monthly[0]" in script
+        assert "target_index = 0" in script
+
+    def test_uk_child_benefit_other_child_leaf_script_zeros_eldest_branch(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "child_benefit_respective_amount",
+            {
+                "uk_child_benefit_is_eldest_child": True,
+                "period": "2025-04-07",
+            },
+            "2025",
+            0,
+            country="uk",
+            rac_var="uk_child_benefit_other_child_weekly_rate",
+        )
+        assert "if bool(eldest[target_index]):" in script
+        assert "val = 0.0" in script
+
+    def test_uk_child_benefit_other_child_leaf_script_returns_non_eldest_amount(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "child_benefit_respective_amount",
+            {
+                "uk_child_benefit_is_eldest_child": False,
+                "period": "2025-04-07",
+            },
+            "2025",
+            17.25,
+            country="uk",
+            rac_var="child_benefit_reg2_1_b",
+        )
+        assert "else:" in script
+        assert "val = float(monthly[target_index]) * 12 / 52" in script
 
 
 class TestIsPeTestMappable:
@@ -2121,6 +2157,18 @@ class TestResolvePeVariable:
     def test_resolves_uk_child_benefit_enhanced_weekly_rate(self, pipeline):
         assert (
             pipeline._resolve_pe_variable("uk", "child_benefit_enhanced_weekly_rate")
+            == "child_benefit_respective_amount"
+        )
+
+    def test_resolves_uk_child_benefit_other_child_weekly_rate(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "uk_child_benefit_other_child_weekly_rate")
+            == "child_benefit_respective_amount"
+        )
+
+    def test_resolves_uk_child_benefit_reg2_1_b_alias(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "child_benefit_reg2_1_b")
             == "child_benefit_respective_amount"
         )
 

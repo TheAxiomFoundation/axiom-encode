@@ -1981,6 +1981,10 @@ print("BENCHMARK:" + json.dumps(result))
                 "child_benefit_enhanced_weekly_rate": "child_benefit_respective_amount",
                 "child_benefit_regulation_2_1_a_amount": "child_benefit_respective_amount",
                 "child_benefit_reg2_1_a": "child_benefit_respective_amount",
+                "uk_child_benefit_other_child_weekly_rate": "child_benefit_respective_amount",
+                "child_benefit_other_child_weekly_rate": "child_benefit_respective_amount",
+                "child_benefit_regulation_2_1_b_amount": "child_benefit_respective_amount",
+                "child_benefit_reg2_1_b": "child_benefit_respective_amount",
             }
 
         return {
@@ -2008,6 +2012,34 @@ print("BENCHMARK:" + json.dumps(result))
             "minimum_allotment": "snap_min_allotment",
             "snap_net_income_calculation": "snap_net_income",
         }
+
+    @staticmethod
+    def _is_uk_child_benefit_rate_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return any(
+            marker in rac_var_lower
+            for marker in (
+                "child_benefit_enhanced_rate",
+                "child_benefit_enhanced_weekly_rate",
+                "child_benefit_regulation_2_1_a",
+                "child_benefit_reg2_1_a",
+                "child_benefit_other_child",
+                "child_benefit_regulation_2_1_b",
+                "child_benefit_reg2_1_b",
+            )
+        )
+
+    @staticmethod
+    def _is_uk_child_benefit_other_child_rate_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return any(
+            marker in rac_var_lower
+            for marker in (
+                "child_benefit_other_child",
+                "child_benefit_regulation_2_1_b",
+                "child_benefit_reg2_1_b",
+            )
+        )
 
     # PE variables that are defined as monthly (not annual)
     _PE_MONTHLY_VARS = {
@@ -2039,10 +2071,7 @@ print("BENCHMARK:" + json.dumps(result))
     ) -> tuple[bool, str | None]:
         """Return whether the test case can be represented in PolicyEngine."""
         rac_var_lower = rac_var.lower()
-        if country == "uk" and (
-            "child_benefit_enhanced_rate" in rac_var_lower
-            or "child_benefit_regulation_2_1_a" in rac_var_lower
-        ):
+        if country == "uk" and self._is_uk_child_benefit_rate_var(rac_var_lower):
             for key, value in inputs.items():
                 key_lower = str(key).lower()
                 if (
@@ -2058,11 +2087,9 @@ print("BENCHMARK:" + json.dumps(result))
                         False,
                         "RAC test encodes take-up/payability conditions that PolicyEngine UK's statutory rate variable does not represent directly",
                     )
-        if (
-            country == "uk"
-            and "child_benefit_enhanced_rate" in rac_var_lower
-            and rac_var_lower.endswith("_applies")
-        ):
+        if country == "uk" and self._is_uk_child_benefit_rate_var(
+            rac_var_lower
+        ) and rac_var_lower.endswith("_applies"):
             return (
                 False,
                 "RAC helper boolean does not have a direct PolicyEngine UK analogue",
@@ -2076,12 +2103,7 @@ print("BENCHMARK:" + json.dumps(result))
             return pe_var
 
         rac_var_lower = rac_var.lower()
-        if country == "uk" and (
-            "child_benefit_enhanced_rate" in rac_var_lower
-            or "child_benefit_enhanced_weekly_rate" in rac_var_lower
-            or "child_benefit_regulation_2_1_a" in rac_var_lower
-            or "child_benefit_reg2_1_a" in rac_var_lower
-        ):
+        if country == "uk" and self._is_uk_child_benefit_rate_var(rac_var_lower):
             return "child_benefit_respective_amount"
 
         return None
@@ -2226,6 +2248,7 @@ print(f'RESULT:{{val}}')
         """Build a Python script to run a UK PolicyEngine scenario."""
         period_value = str(inputs.get("period", f"{year}-04"))
         month_period = period_value[:7] if len(period_value) >= 7 else f"{year}-04"
+        rac_var_lower = (rac_var or "").lower()
 
         lowered = {str(key).lower(): value for key, value in inputs.items()}
         only_person = any(
@@ -2286,6 +2309,22 @@ print(f'RESULT:{{val}}')
             household_members = "['older', 'target']"
             target_index = 1
 
+        value_expr = "float(monthly[target_index]) * 12 / 52"
+        if self._is_uk_child_benefit_other_child_rate_var(rac_var_lower):
+            result_logic = f"""
+if bool(eldest[target_index]):
+    val = 0.0
+else:
+    val = {value_expr}
+"""
+        else:
+            result_logic = f"""
+if bool(eldest[target_index]):
+    val = {value_expr}
+else:
+    val = 0.0
+"""
+
         return f"""
 from policyengine_uk import Simulation
 
@@ -2298,7 +2337,8 @@ situation = {{
 sim = Simulation(situation=situation)
 monthly = sim.calculate('{pe_var}', '{month_period}')
 eldest = sim.calculate('is_eldest_child', '{month_period}')
-val = float(monthly[{target_index}]) * 12 / 52 if bool(eldest[{target_index}]) else 0.0
+target_index = {target_index}
+{result_logic.rstrip()}
 print(f'RESULT:{{val}}')
 """
 
