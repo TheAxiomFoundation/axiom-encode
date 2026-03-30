@@ -1,7 +1,7 @@
 # AutoRAC - AI-assisted RAC encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
-__version__ = "0.2.36"
+__version__ = "0.2.37"
 
 from .constants import (
     DEFAULT_CLI_MODEL,

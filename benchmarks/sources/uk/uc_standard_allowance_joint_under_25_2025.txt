@@ -8,8 +8,6 @@ Editorial note: current text valid from 2025-04-07.
 
 (3)
 
-In the case of an award where the claimant is a member of a couple, but claims as a single person, the amounts are those shown in the table for a single claimant.
-
 Structured table:
 Element | Amount for each assessment period
 joint claimants both aged under 25 | £497.55

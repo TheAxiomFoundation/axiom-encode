@@ -596,6 +596,8 @@ def _append_akn_content_block_text(
     for child in list(parent):
         local_tag = _akn_local_tag(child)
         if local_tag == "p":
+            if table_row_query:
+                continue
             paragraph = _collapse_whitespace("".join(child.itertext()))
             if paragraph:
                 parts.append(paragraph)
@@ -1617,15 +1619,17 @@ def _build_eval_prompt(
     runner_backend: str = "codex",
 ) -> str:
     """Build a prompt-only eval request with explicit provenance rules."""
+    source_text = workspace.source_file.read_text().strip()
+    single_amount_table_slice = _is_single_amount_table_slice(source_text)
+
     inline_source_section = ""
     if runner_backend == "openai":
-        inline_source = workspace.source_file.read_text().strip()
         inline_source_section = f"""
 You do not have filesystem tool access in this eval. The exact contents of `./source.txt`
 are copied inline below and must be treated as the contents of that file.
 
 === BEGIN SOURCE.TXT ===
-{inline_source}
+{source_text}
 === END SOURCE.TXT ===
 """
 
@@ -1713,6 +1717,14 @@ Available precedent files:
 - In `.rac.test`, choose periods on or after the explicit effective date in `./source.txt`.
 - Do not add speculative future-period tests that would rely on uprating, later amendments, or rates not stated in `./source.txt`.
 """
+    single_amount_row_guidance = ""
+    if single_amount_table_slice:
+        single_amount_row_guidance = """
+- `./source.txt` is already a single table row or atomic branch with one grounded amount. Encode that branch-specific amount directly.
+- Use a descriptive legal variable name, not a path- or source-id-derived placeholder like `uksi_2013_...`.
+- For a one-row fixed-amount slice, do not invent a fresh `*_applies` helper or unrelated eligibility booleans unless the source text itself states them.
+- For a one-row fixed-amount slice, do not invent alternate zero-amount tests; prefer a base case and an effective-date boundary using the same grounded amount.
+"""
 
     return f"""You are participating in an encoding eval for {citation}.
 
@@ -1733,7 +1745,7 @@ Rules:
 - If that cited upstream file is absent from this workspace, still emit the unresolved import path; the external-stub workflow is expected to fill it in later.
 - If the source text only implies a shared concept, import an existing canonical concept only when one is actually present in the workspace; otherwise keep the helper local to this leaf.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
-{schema_rules}{uk_guidance}
+{schema_rules}{uk_guidance}{single_amount_row_guidance}
 - Prefer standard RAC blocks shaped like:
   example_name:
       entity: TaxUnit
@@ -1748,6 +1760,17 @@ Rules:
 - Do not use YAML-style `if:` / `then:` / `else:` blocks.
 {file_output_rules}
 """
+
+
+def _is_single_amount_table_slice(source_text: str) -> bool:
+    """Return True when source text is a single amount-bearing table row slice."""
+    marker = "Structured table:"
+    if marker not in source_text:
+        return False
+    table_section = source_text.split(marker, 1)[1]
+    lines = [line.strip() for line in table_section.splitlines() if line.strip()]
+    amount_rows = [line for line in lines if "|" in line and re.search(r"\d", line)]
+    return len(amount_rows) == 1
 
 
 def _format_inline_context_snippets(

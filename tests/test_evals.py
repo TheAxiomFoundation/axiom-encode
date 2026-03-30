@@ -332,6 +332,7 @@ class TestAknSectionEval:
         assert "Standard allowance" in text
         assert "single claimant aged under 25 | £316.98" in text
         assert "single claimant aged 25 or over" not in text
+        assert "the amounts are those shown in the table for a single claimant" not in text
 
     def test_extract_akn_section_text_matches_table_row_query_despite_inline_spacing_edits(
         self, tmp_path
@@ -989,6 +990,39 @@ class TestEvalPrompt:
         assert "`child_benefit_is_only_person`" in prompt
         assert "`claimant_has_partner`" in prompt
         assert "`is_joint_claimant`" in prompt
+
+    def test_build_eval_prompt_for_single_row_fixed_amount_discourages_placeholder_names_and_applies_helpers(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2013/376/regulation/36",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Editorial note: current text valid from 2025-04-07.\n\n"
+                "Structured table:\n"
+                "Element | Amount for each assessment period\n"
+                "single claimant aged under 25 | £316.98"
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2013/376/regulation/36",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2013-376-regulation-36.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Use a descriptive legal variable name" in prompt
+        assert "not a path- or source-id-derived placeholder" in prompt
+        assert "do not invent a fresh `*_applies` helper" in prompt
+        assert "do not invent alternate zero-amount tests" in prompt
 
     def test_build_eval_prompt_includes_import_vs_local_helper_protocol(
         self, tmp_path
