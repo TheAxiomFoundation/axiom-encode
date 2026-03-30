@@ -441,6 +441,17 @@ def _akn_ancestor_intro_text(root: ET.Element, section: ET.Element) -> list[str]
     return intros
 
 
+def _akn_expression_valid_from(root: ET.Element) -> str:
+    """Return the AKN expression-level valid-from date when present."""
+    date_node = root.find(
+        ".//akn:FRBRExpression/akn:FRBRdate[@name='validFrom']",
+        AKN_NS,
+    )
+    if date_node is None:
+        return ""
+    return (date_node.get("date") or "").strip()
+
+
 def _resolve_akn_section_eid(
     akn_file: Path,
     section_eid: str,
@@ -479,6 +490,9 @@ def extract_akn_section_text(akn_file: Path, section_eid: str) -> str:
     section = _find_akn_section(root, section_eid)
 
     parts: list[str] = [title for title in _akn_ancestor_titles(root, section) if title]
+    valid_from = _akn_expression_valid_from(root)
+    if valid_from:
+        parts.append(f"Editorial note: current text valid from {valid_from}.")
     parts.extend(_akn_ancestor_intro_text(root, section))
     title = _akn_title(section)
     if title:

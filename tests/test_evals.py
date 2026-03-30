@@ -204,6 +204,38 @@ class TestAknSectionEval:
         assert "Effective date: 2024-07-01" in text
         assert "Grant table text." in text
 
+    def test_extract_akn_section_text_includes_expression_valid_from_date(self, tmp_path):
+        akn_file = tmp_path / "doc.xml"
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <act>
+    <meta>
+      <identification source="#">
+        <FRBRExpression>
+          <FRBRdate date="2025-04-07" name="validFrom"/>
+        </FRBRExpression>
+      </identification>
+    </meta>
+    <body>
+      <section eId="section-1">
+        <num>1</num>
+        <heading>Example</heading>
+        <content>
+          <p>Current amount is 26.05.</p>
+        </content>
+      </section>
+    </body>
+  </act>
+</akomaNtoso>
+            """.strip()
+        )
+
+        text = extract_akn_section_text(akn_file, "section-1")
+
+        assert "Editorial note: current text valid from 2025-04-07." in text
+        assert "Current amount is 26.05." in text
+
     def test_run_akn_section_eval_uses_extracted_section_text(self, tmp_path):
         akn_file = tmp_path / "doc.xml"
         akn_file.write_text(
