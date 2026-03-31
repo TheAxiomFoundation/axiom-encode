@@ -3,7 +3,7 @@ runners:
   - openai:gpt-5.4
 mode: cold
 gates:
-  min_cases: 29
+  min_cases: 32
   min_success_rate: 0.9
   min_compile_pass_rate: 0.9
   min_ci_pass_rate: 0.9
@@ -172,6 +172,30 @@ cases:
     oracle: policyengine
     policyengine_country: uk
     policyengine_rac_var_hint: uc_work_allowance_without_housing_amount
+
+  - kind: source
+    name: uc-childcare-cap-one-child
+    source_id: uksi-2013-376-regulation-36-3-childcare-one-child
+    source_file: ./sources/uk/uc_childcare_cap_one_child_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_maximum_childcare_element_one_child_amount
+
+  - kind: source
+    name: uc-childcare-cap-two-or-more-children
+    source_id: uksi-2013-376-regulation-36-3-childcare-two-or-more-children
+    source_file: ./sources/uk/uc_childcare_cap_two_or_more_children_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_maximum_childcare_element_two_or_more_children_amount
+
+  - kind: source
+    name: uc-housing-non-dep-deduction-amount
+    source_id: uksi-2013-376-schedule-4-housing-non-dep-deduction
+    source_file: ./sources/uk/uc_housing_non_dep_deduction_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_individual_non_dep_deduction_amount
 
   - kind: source
     name: wtc-basic-element

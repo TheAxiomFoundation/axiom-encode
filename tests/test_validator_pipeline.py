@@ -3337,6 +3337,20 @@ class TestResolvePeVariable:
             == "uc_work_allowance"
         )
 
+    def test_resolves_uk_uc_childcare_cap_one_child_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable(
+                "uk", "uc_maximum_childcare_element_one_child_amount"
+            )
+            == "uc_maximum_childcare_element_amount"
+        )
+
+    def test_resolves_uk_uc_non_dep_deduction_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "uc_individual_non_dep_deduction_amount")
+            == "uc_individual_non_dep_deduction"
+        )
+
     def test_resolves_uk_wtc_basic_element_amount(self, pipeline):
         assert (
             pipeline._resolve_pe_variable("uk", "wtc_basic_element_amount")
@@ -3514,6 +3528,53 @@ class TestBuildPeUkAdditionalScenarios:
 
         assert "sim.calculate('uc_work_allowance', int('2025'))" in script
         assert "'uc_housing_costs_element': {'2025': 0}" in script
+        assert "val = float(annual[0]) / 12" in script
+
+    def test_uk_uc_childcare_cap_script_builds_one_child_case(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "uc_maximum_childcare_element_amount",
+            {"period": "2025-04-01"},
+            "2025",
+            1031.88,
+            country="uk",
+            rac_var="uc_maximum_childcare_element_one_child_amount",
+        )
+
+        assert "sim.calculate('uc_maximum_childcare_element_amount', int('2025'))" in script
+        assert "'uc_childcare_element_eligible_children': {'2025': 1}" in script
+        assert "val = float(annual[0]) / 12" in script
+
+    def test_uk_uc_childcare_cap_script_builds_two_or_more_children_case(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "uc_maximum_childcare_element_amount",
+            {"period": "2025-04-01"},
+            "2025",
+            1768.94,
+            country="uk",
+            rac_var="uc_maximum_childcare_element_two_or_more_children_amount",
+        )
+
+        assert "sim.calculate('uc_maximum_childcare_element_amount', int('2025'))" in script
+        assert "'uc_childcare_element_eligible_children': {'2025': 2}" in script
+        assert "val = float(annual[0]) / 12" in script
+
+    def test_uk_uc_non_dep_deduction_script_builds_liable_adult_case(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "uc_individual_non_dep_deduction",
+            {"period": "2025-04-01"},
+            "2025",
+            93.02,
+            country="uk",
+            rac_var="uc_individual_non_dep_deduction_amount",
+        )
+
+        assert "sim.calculate('uc_individual_non_dep_deduction', int('2025'))" in script
+        assert "'uc_non_dep_deduction_exempt': {'2025': False}" in script
+        assert "'age': {'2025': 30}" in script
         assert "val = float(annual[0]) / 12" in script
 
     def test_uk_wtc_worker_element_script_builds_30_hour_case(self, pipeline):

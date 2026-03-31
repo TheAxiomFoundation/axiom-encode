@@ -2202,6 +2202,9 @@ print("BENCHMARK:" + json.dumps(result))
                 "uc_lcwra_element_amount": "uc_LCWRA_element",
                 "uc_work_allowance_with_housing_amount": "uc_work_allowance",
                 "uc_work_allowance_without_housing_amount": "uc_work_allowance",
+                "uc_maximum_childcare_element_one_child_amount": "uc_maximum_childcare_element_amount",
+                "uc_maximum_childcare_element_two_or_more_children_amount": "uc_maximum_childcare_element_amount",
+                "uc_individual_non_dep_deduction_amount": "uc_individual_non_dep_deduction",
                 "wtc_basic_element_amount": "WTC_basic_element",
                 "wtc_lone_parent_element_amount": "WTC_lone_parent_element",
                 "wtc_couple_element_amount": "WTC_couple_element",
@@ -2469,6 +2472,33 @@ print("BENCHMARK:" + json.dumps(result))
         )
 
     @staticmethod
+    def _is_uk_uc_maximum_childcare_element_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return any(
+            marker in rac_var_lower
+            for marker in (
+                "uc_maximum_childcare_element",
+                "uc_childcare_cap",
+                "universal_credit_childcare_cap",
+            )
+        ) and not rac_var_lower.endswith("_applies")
+
+    @staticmethod
+    def _is_uk_uc_non_dep_deduction_amount_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return any(
+            marker in rac_var_lower
+            for marker in (
+                "uc_individual_non_dep_deduction",
+                "uc_housing_non_dep_deduction",
+                "universal_credit_non_dep_deduction",
+            )
+        ) and not any(
+            marker in rac_var_lower
+            for marker in ("_eligible", "_exempt", "_applies", "non_dep_deductions")
+        )
+
+    @staticmethod
     def _is_uk_wtc_basic_element_var(rac_var: str) -> bool:
         rac_var_lower = rac_var.lower()
         return "wtc_basic" in rac_var_lower or "working_tax_credit_basic_element" in rac_var_lower
@@ -2530,6 +2560,8 @@ print("BENCHMARK:" + json.dumps(result))
                 ValidatorPipeline._is_uk_uc_disabled_child_element_var,
                 ValidatorPipeline._is_uk_uc_severely_disabled_child_element_var,
                 ValidatorPipeline._is_uk_uc_work_allowance_var,
+                ValidatorPipeline._is_uk_uc_maximum_childcare_element_var,
+                ValidatorPipeline._is_uk_uc_non_dep_deduction_amount_var,
                 ValidatorPipeline._is_uk_wtc_basic_element_var,
                 ValidatorPipeline._is_uk_wtc_lone_parent_element_var,
                 ValidatorPipeline._is_uk_wtc_couple_element_var,
@@ -2727,6 +2759,14 @@ print("BENCHMARK:" + json.dumps(result))
             return "uc_individual_severely_disabled_child_element"
         if country == "uk" and self._is_uk_uc_work_allowance_var(rac_var_lower):
             return "uc_work_allowance"
+        if country == "uk" and self._is_uk_uc_maximum_childcare_element_var(
+            rac_var_lower
+        ):
+            return "uc_maximum_childcare_element_amount"
+        if country == "uk" and self._is_uk_uc_non_dep_deduction_amount_var(
+            rac_var_lower
+        ):
+            return "uc_individual_non_dep_deduction"
         if country == "uk" and self._is_uk_wtc_basic_element_var(rac_var_lower):
             return "WTC_basic_element"
         if country == "uk" and self._is_uk_wtc_lone_parent_element_var(rac_var_lower):
@@ -3118,6 +3158,79 @@ situation = {{
 
 sim = Simulation(situation=situation)
 annual = sim.calculate('uc_work_allowance', int('{year}'))
+val = float(annual[0]) / 12
+print(f'RESULT:{{val}}')
+"""
+
+        if pe_var == "uc_maximum_childcare_element_amount" and self._is_uk_uc_maximum_childcare_element_var(
+            rac_var_lower
+        ):
+            explicit_children = next(
+                (
+                    int(value)
+                    for key, value in lowered.items()
+                    if (
+                        "eligible_children" in str(key).lower()
+                        or "childcare_children" in str(key).lower()
+                    )
+                    and value is not None
+                ),
+                None,
+            )
+            if explicit_children is not None:
+                eligible_children = explicit_children
+            elif "two_or_more" in rac_var_lower or "two_or_more_children" in rac_var_lower:
+                eligible_children = 2
+            else:
+                eligible_children = 1
+
+            return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {{'parent': {{'age': {{{year_key}: 30}}}}}},
+    'benunits': {{'benunit': {{'members': ['parent'], 'uc_childcare_element_eligible_children': {{{year_key}: {eligible_children}}}}}}},
+    'households': {{'household': {{'members': ['parent']}}}},
+}}
+
+sim = Simulation(situation=situation)
+annual = sim.calculate('uc_maximum_childcare_element_amount', int('{year}'))
+val = float(annual[0]) / 12
+print(f'RESULT:{{val}}')
+"""
+
+        if pe_var == "uc_individual_non_dep_deduction" and self._is_uk_uc_non_dep_deduction_amount_var(
+            rac_var_lower
+        ):
+            explicit_exempt = next(
+                (
+                    bool(value)
+                    for key, value in lowered.items()
+                    if "non_dep_deduction_exempt" in str(key).lower()
+                    and value is not None
+                ),
+                False,
+            )
+            explicit_age = next(
+                (
+                    int(value)
+                    for key, value in lowered.items()
+                    if str(key).lower().endswith("age") and value is not None
+                ),
+                30,
+            )
+
+            return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {{'person': {{'age': {{{year_key}: {explicit_age}}}, 'uc_non_dep_deduction_exempt': {{{year_key}: {explicit_exempt}}}}}}},
+    'benunits': {{'benunit': {{'members': ['person'], 'benunit_rent': {{{year_key}: 0}}}}}},
+    'households': {{'household': {{'members': ['person']}}}},
+}}
+
+sim = Simulation(situation=situation)
+annual = sim.calculate('uc_individual_non_dep_deduction', int('{year}'))
 val = float(annual[0]) / 12
 print(f'RESULT:{{val}}')
 """
