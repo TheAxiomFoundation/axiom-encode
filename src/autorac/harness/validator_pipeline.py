@@ -109,10 +109,11 @@ PARAMETER_REVIEWER_PROMPT = (
 
 Review the RAC file for policy value usage:
 1. **No Magic Numbers**: Only -1, 0, 1, 2, 3 allowed as literals. All other values must be defined as named entries.
-2. **Sourcing**: Policy values should reference authoritative sources
-3. **Time-Varying Values**: Rate thresholds and amounts should use `from yyyy-mm-dd:` temporal entries
-4. **Reference Format**: Correct reference syntax (unified `name:` format, no `parameter` keyword)
-5. **Default Values**: Appropriate defaults for optional inputs
+2. **No Embedded Scalars**: Legal scalar amounts, thresholds, and limits should be declared as named variables, not embedded inside formulas or conditional branches.
+3. **Sourcing**: Policy values should reference authoritative sources
+4. **Time-Varying Values**: Rate thresholds and amounts should use `from yyyy-mm-dd:` temporal entries
+5. **Reference Format**: Correct reference syntax (unified `name:` format, no `parameter` keyword)
+6. **Default Values**: Appropriate defaults for optional inputs
 """
     + _REVIEW_JSON_FORMAT
 )
@@ -161,6 +162,14 @@ GROUNDING_METADATA_KEYS = {
 }
 
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
+_EMBEDDED_SCALAR_BLOCK_HEADER = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*$")
+_EMBEDDED_SCALAR_TEMPORAL_LINE = re.compile(
+    r"^(\s*)from\s+\d{4}-\d{2}-\d{2}:\s*(.*?)\s*$"
+)
+_EMBEDDED_SCALAR_FORMULA_HEADER = re.compile(r"^(\s*)formula:\s*\|\s*$")
+_EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
+_EMBEDDED_SCALAR_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+_EMBEDDED_SCALAR_ALLOWED_VALUES = {"-1", "0", "1", "2", "3"}
 _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"ParameterNotFoundError"),
     re.compile(r"VariableNotFoundError"),
@@ -758,6 +767,9 @@ class ValidatorPipeline:
         except Exception as e:
             issues.append(f"Cross-reference import check exception: {e}")
 
+        with contextlib.suppress(Exception):
+            issues.extend(self._check_embedded_scalar_literals(rac_file))
+
         advisories: list[str] = []
         with contextlib.suppress(Exception):
             advisories = self._build_import_advisories(rac_file)
@@ -906,6 +918,105 @@ class ValidatorPipeline:
                 f"from {import_path}"
             )
         return issues
+
+    def _check_embedded_scalar_literals(self, rac_file: Path) -> list[str]:
+        """Flag substantive scalar literals embedded inside formulas."""
+        issues: list[str] = []
+        for line_number, name, literal, expression in self._collect_embedded_scalar_literals(
+            rac_file.read_text()
+        ):
+            issues.append(
+                "Embedded scalar literal: "
+                f"{name} line {line_number} embeds {literal} in `{expression}`; "
+                "extract the scalar to its own named variable"
+            )
+        return issues
+
+    def _collect_embedded_scalar_literals(
+        self,
+        content: str,
+    ) -> list[tuple[int, str, str, str]]:
+        """Return embedded substantive scalar literals found in RAC expressions."""
+        issues: list[tuple[int, str, str, str]] = []
+        current_name: str | None = None
+        temporal_block = False
+        temporal_indent = 0
+        formula_block = False
+        formula_indent = 0
+
+        for line_number, line in enumerate(content.splitlines(), 1):
+            stripped = line.strip()
+            indent = len(line) - len(line.lstrip())
+
+            header_match = _EMBEDDED_SCALAR_BLOCK_HEADER.match(line)
+            if header_match and indent == 0:
+                current_name = header_match.group(1)
+
+            if temporal_block and stripped and indent <= temporal_indent:
+                temporal_block = False
+            if formula_block and stripped and indent <= formula_indent:
+                formula_block = False
+
+            temporal_match = _EMBEDDED_SCALAR_TEMPORAL_LINE.match(line)
+            if temporal_match:
+                temporal_indent = len(temporal_match.group(1))
+                tail = temporal_match.group(2).strip()
+                if tail:
+                    if not self._is_direct_scalar_expression(tail):
+                        issues.extend(
+                            (
+                                line_number,
+                                current_name or "<unknown>",
+                                literal,
+                                tail,
+                            )
+                            for literal in self._extract_embedded_scalar_literals(tail)
+                        )
+                    temporal_block = False
+                else:
+                    temporal_block = True
+                continue
+
+            formula_match = _EMBEDDED_SCALAR_FORMULA_HEADER.match(line)
+            if formula_match:
+                formula_block = True
+                formula_indent = len(formula_match.group(1))
+                continue
+
+            if (temporal_block or formula_block) and stripped and not self._is_direct_scalar_expression(
+                stripped
+            ):
+                issues.extend(
+                    (
+                        line_number,
+                        current_name or "<unknown>",
+                        literal,
+                        stripped,
+                    )
+                    for literal in self._extract_embedded_scalar_literals(stripped)
+                )
+
+        return issues
+
+    def _is_direct_scalar_expression(self, expression: str) -> bool:
+        normalized = expression.replace(",", "")
+        return bool(_EMBEDDED_SCALAR_DIRECT_VALUE.fullmatch(normalized))
+
+    def _extract_embedded_scalar_literals(self, expression: str) -> list[str]:
+        literals: list[str] = []
+        for match in _EMBEDDED_SCALAR_NUMBER.finditer(expression):
+            start, end = match.span()
+            prev = expression[start - 1] if start > 0 else ""
+            nxt = expression[end] if end < len(expression) else ""
+            if (prev.isalnum() or prev in {"_", ".", "/"}) or (
+                nxt.isalnum() or nxt in {"_", ".", "/"}
+            ):
+                continue
+            literal = match.group(0)
+            if literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
+                continue
+            literals.append(literal)
+        return sorted(set(literals))
 
     def _build_import_advisories(self, rac_file: Path) -> list[str]:
         """Return non-blocking advice about likely shared concepts."""

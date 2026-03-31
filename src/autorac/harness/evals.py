@@ -1819,6 +1819,7 @@ Rules:
 - Do not inspect or rely on any path outside this workspace.
 - Treat `./source.txt` as the only legal source.
 - Any numeric literal in your output must appear in `./source.txt`, unless it is -1, 0, 1, 2, or 3.
+- If a legal scalar amount, threshold, cap, or limit appears in a formula or conditional branch, first declare it as its own named variable and then reference that variable from the formula.
 - Include the source text in a triple-quoted docstring.
 - Use RAC DSL conventions.
 - If `./source.txt` explicitly cites another section or source for a definition, emit the upstream import instead of restating the concept locally.

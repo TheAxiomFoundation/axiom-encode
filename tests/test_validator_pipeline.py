@@ -815,6 +815,96 @@ qualifying_child_count:
 
         assert result.passed is True
 
+    def test_ci_flags_embedded_scalar_literals_in_formulas(self, pipeline):
+        """CI fails when a file embeds substantive scalars inside formulas."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+Embedded scalar example.
+"""
+
+status: encoded
+
+example_amount:
+    entity: Family
+    period: Year
+    dtype: Money
+    unit: GBP
+    from 2025-03-21:
+        if claimant_has_partner: 22020 else: 0
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is False
+        assert any(
+            "Embedded scalar literal" in issue and "22020" in issue
+            for issue in result.issues
+        )
+
+    def test_ci_allows_named_scalars_referenced_from_formulas(self, pipeline):
+        """CI passes when formulas reference named scalar variables instead of literals."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+Named scalar example.
+"""
+
+status: encoded
+
+example_statutory_amount:
+    entity: Family
+    period: Year
+    dtype: Money
+    unit: GBP
+    from 2025-03-21:
+        22020
+
+example_amount:
+    entity: Family
+    period: Year
+    dtype: Money
+    unit: GBP
+    from 2025-03-21:
+        if claimant_has_partner: example_statutory_amount else: 0
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is True
+
     def test_ci_adds_non_blocking_shared_concept_advisory(self, pipeline):
         """CI emits advisory text when a nearby file already defines the same symbol."""
         sibling = pipeline.rac_us_path / "26" / "24" / "b.rac"
