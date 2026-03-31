@@ -1917,6 +1917,109 @@ cases:
         assert failed.metrics is None
         assert results[1] == source_result
 
+    def test_run_eval_suite_retries_transient_exception(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Retry suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: tanf-slice
+    source_id: co-tanf-f
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+        source_result = _fake_eval_result("openai-gpt-5.4", "co-tanf-f")
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            side_effect=[RuntimeError("stream disconnected"), [source_result]],
+        ) as mock_source:
+            results = run_eval_suite(
+                manifest=manifest,
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert results == [source_result]
+        assert mock_source.call_count == 2
+
+    def test_run_eval_suite_retries_error_results(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Retry suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: tanf-slice
+    source_id: co-tanf-f
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+        failed = _fake_eval_result("openai-gpt-5.4", "co-tanf-f")
+        failed.success = False
+        failed.error = "Reconnecting..."
+        source_result = _fake_eval_result("openai-gpt-5.4", "co-tanf-f")
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            side_effect=[[failed], [source_result]],
+        ) as mock_source:
+            results = run_eval_suite(
+                manifest=manifest,
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert results == [source_result]
+        assert mock_source.call_count == 2
+
+    def test_run_eval_suite_does_not_retry_compile_failures(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Retry suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: tanf-slice
+    source_id: co-tanf-f
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+        failed = _fake_eval_result(
+            "openai-gpt-5.4",
+            "co-tanf-f",
+            compile_pass=False,
+        )
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=[failed],
+        ) as mock_source:
+            results = run_eval_suite(
+                manifest=manifest,
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert results == [failed]
+        assert mock_source.call_count == 1
+
 
 class TestReadinessSummary:
     def test_summarize_readiness_applies_suite_gates(self):

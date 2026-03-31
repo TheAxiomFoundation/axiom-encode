@@ -918,6 +918,7 @@ def run_eval_suite(
     rac_path: Path,
     atlas_path: Path | None = None,
     runner_specs: list[str] | None = None,
+    suite_retry_attempts: int = 2,
 ) -> list[EvalResult]:
     """Run every case in a benchmark suite manifest."""
     resolved_runners = runner_specs or manifest.runners
@@ -927,66 +928,74 @@ def run_eval_suite(
     for index, case in enumerate(manifest.cases, start=1):
         case_output_root = Path(output_root) / f"{index:02d}-{_slugify(case.name)}"
         extra_context = [*manifest.allow_context, *case.allow_context]
-        try:
-            if case.kind == "citation":
-                if atlas_path is None:
-                    raise ValueError(
-                        "atlas_path is required for citation eval suite cases"
+        attempts = max(suite_retry_attempts, 0) + 1
+        for attempt_index in range(attempts):
+            try:
+                if case.kind == "citation":
+                    if atlas_path is None:
+                        raise ValueError(
+                            "atlas_path is required for citation eval suite cases"
+                        )
+                    case_results = run_model_eval(
+                        citations=[case.citation or ""],
+                        runner_specs=resolved_runners,
+                        output_root=case_output_root,
+                        rac_path=rac_path,
+                        atlas_path=atlas_path,
+                        mode=case.mode,
+                        extra_context_paths=extra_context,
                     )
-                case_results = run_model_eval(
-                    citations=[case.citation or ""],
-                    runner_specs=resolved_runners,
-                    output_root=case_output_root,
-                    rac_path=rac_path,
-                    atlas_path=atlas_path,
-                    mode=case.mode,
-                    extra_context_paths=extra_context,
-                )
-            elif case.kind == "source":
-                case_results = run_source_eval(
-                    source_id=case.source_id or case.name,
-                    source_text=(case.source_file or Path()).read_text(),
-                    runner_specs=resolved_runners,
-                    output_root=case_output_root,
-                    rac_path=rac_path,
-                    mode=case.mode,
-                    extra_context_paths=extra_context,
-                    oracle=case.oracle,
-                    policyengine_country=case.policyengine_country,
-                    policyengine_rac_var_hint=case.policyengine_rac_var_hint,
-                )
-            elif case.kind == "akn_section":
-                case_results = run_akn_section_eval(
-                    source_id=case.source_id or case.name,
-                    akn_file=case.akn_file or Path(),
-                    section_eid=case.section_eid or "",
-                    runner_specs=resolved_runners,
-                    output_root=case_output_root,
-                    rac_path=rac_path,
-                    mode=case.mode,
-                    extra_context_paths=extra_context,
-                    allow_parent=case.allow_parent,
-                    table_row_query=case.table_row_query,
-                    oracle=case.oracle,
-                    policyengine_country=case.policyengine_country,
-                    policyengine_rac_var_hint=case.policyengine_rac_var_hint,
-                )
-            else:
-                case_results = run_legislation_gov_uk_section_eval(
-                    source_ref=case.source_ref or "",
-                    section_eid=case.section_eid,
-                    runner_specs=resolved_runners,
-                    output_root=case_output_root,
-                    rac_path=rac_path,
-                    mode=case.mode,
-                    extra_context_paths=extra_context,
-                    allow_parent=case.allow_parent,
-                    table_row_query=case.table_row_query,
-                    policyengine_rac_var_hint=case.policyengine_rac_var_hint,
-                    fetch_cache_root=Path(output_root),
-                )
-        except Exception as exc:
-            case_results = _suite_case_failure_results(case, parsed_runners, exc)
+                elif case.kind == "source":
+                    case_results = run_source_eval(
+                        source_id=case.source_id or case.name,
+                        source_text=(case.source_file or Path()).read_text(),
+                        runner_specs=resolved_runners,
+                        output_root=case_output_root,
+                        rac_path=rac_path,
+                        mode=case.mode,
+                        extra_context_paths=extra_context,
+                        oracle=case.oracle,
+                        policyengine_country=case.policyengine_country,
+                        policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                    )
+                elif case.kind == "akn_section":
+                    case_results = run_akn_section_eval(
+                        source_id=case.source_id or case.name,
+                        akn_file=case.akn_file or Path(),
+                        section_eid=case.section_eid or "",
+                        runner_specs=resolved_runners,
+                        output_root=case_output_root,
+                        rac_path=rac_path,
+                        mode=case.mode,
+                        extra_context_paths=extra_context,
+                        allow_parent=case.allow_parent,
+                        table_row_query=case.table_row_query,
+                        oracle=case.oracle,
+                        policyengine_country=case.policyengine_country,
+                        policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                    )
+                else:
+                    case_results = run_legislation_gov_uk_section_eval(
+                        source_ref=case.source_ref or "",
+                        section_eid=case.section_eid,
+                        runner_specs=resolved_runners,
+                        output_root=case_output_root,
+                        rac_path=rac_path,
+                        mode=case.mode,
+                        extra_context_paths=extra_context,
+                        allow_parent=case.allow_parent,
+                        table_row_query=case.table_row_query,
+                        policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                        fetch_cache_root=Path(output_root),
+                    )
+            except Exception as exc:
+                case_results = _suite_case_failure_results(case, parsed_runners, exc)
+
+            if (
+                attempt_index >= attempts - 1
+                or not _suite_case_results_should_retry(case_results)
+            ):
+                break
 
         for result in case_results:
             if case.name and case.name != result.citation:
@@ -1028,6 +1037,11 @@ def _suite_case_failure_results(
         )
         for runner in runners
     ]
+
+
+def _suite_case_results_should_retry(case_results: list[EvalResult]) -> bool:
+    """Return True when a suite case likely failed for a transient reason."""
+    return any(result.error is not None or result.metrics is None for result in case_results)
 
 
 def summarize_readiness(
