@@ -1,0 +1,37 @@
+name: UK pension credit wave 8
+runners:
+  - codex:gpt-5.4
+mode: cold
+gates:
+  min_cases: 5
+  min_success_rate: 0.9
+  min_compile_pass_rate: 0.9
+  min_ci_pass_rate: 0.9
+  min_zero_ungrounded_rate: 1.0
+  max_mean_estimated_cost_usd: 0.5
+cases:
+  - name: pension-credit-special-employment-disregard
+    kind: source
+    source_id: uksi-2002-1792-schedule-VI-paragraph-2
+    source_file: benchmarks/sources/uk/pc_special_employment_disregard_2025.txt
+    oracle: none
+  - name: pension-credit-special-employment-top-up-single
+    kind: source
+    source_id: uksi-2002-1792-schedule-VI-paragraph-2A
+    source_file: benchmarks/sources/uk/pc_special_employment_top_up_single_2025.txt
+    oracle: none
+  - name: pension-credit-special-employment-top-up-couple
+    kind: source
+    source_id: uksi-2002-1792-schedule-VI-paragraph-2B
+    source_file: benchmarks/sources/uk/pc_special_employment_top_up_couple_2025.txt
+    oracle: none
+  - name: pension-credit-carer-earnings-disregard
+    kind: source
+    source_id: uksi-2002-1792-schedule-VI-paragraph-3
+    source_file: benchmarks/sources/uk/pc_carer_earnings_disregard_2025.txt
+    oracle: none
+  - name: pension-credit-couple-shared-maximum-disregard
+    kind: source
+    source_id: uksi-2002-1792-schedule-VI-paragraph-4A-2
+    source_file: benchmarks/sources/uk/pc_couple_shared_maximum_disregard_2025.txt
+    oracle: none
