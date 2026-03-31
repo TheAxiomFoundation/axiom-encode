@@ -1331,6 +1331,33 @@ class TestEvalPrompt:
         assert "still emit the unresolved import path" in prompt
         assert "otherwise keep the helper local to this leaf" in prompt
 
+    def test_build_eval_prompt_discourages_fabricated_same_instrument_imports(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/6/5/a",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="(a) except where paragraph (b) applies, £81.50 per week if paragraph 1(1)(a), (b) or (c) of Part I of Schedule I is satisfied.",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/6/5/a",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-6-5-a.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "do not fabricate sibling-file imports" in prompt
+        assert "do not guess" in prompt
+        assert "instead of inventing `import` statements or `imports:` blocks" in prompt
+
     def test_build_eval_prompt_for_openai_inlines_source_text(self, tmp_path):
         workspace = prepare_eval_workspace(
             citation="uksi/2006/965/regulation/2",

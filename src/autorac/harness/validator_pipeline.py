@@ -2185,6 +2185,12 @@ print("BENCHMARK:" + json.dumps(result))
                 "child_benefit_reg2_1_b": "child_benefit_respective_amount",
                 "standard_minimum_guarantee_couple_weekly_rate": "standard_minimum_guarantee",
                 "standard_minimum_guarantee_single_weekly_rate": "standard_minimum_guarantee",
+                "pc_severe_disability_addition_one_eligible_adult_weekly_rate": "severe_disability_minimum_guarantee_addition",
+                "pc_severe_disability_addition_two_eligible_adults_weekly_rate": "severe_disability_minimum_guarantee_addition",
+                "pc_carer_addition_weekly_rate": "carer_minimum_guarantee_addition",
+                "pc_child_addition_weekly_rate": "child_minimum_guarantee_addition",
+                "pc_disabled_child_addition_weekly_rate": "child_minimum_guarantee_addition",
+                "pc_severely_disabled_child_addition_weekly_rate": "child_minimum_guarantee_addition",
                 "scottish_child_payment_weekly_rate": "scottish_child_payment",
                 "scottish_child_payment_weekly_amount": "scottish_child_payment",
                 "scottish_child_payment_regulation_20_1_amount": "scottish_child_payment",
@@ -2343,6 +2349,45 @@ print("BENCHMARK:" + json.dumps(result))
                 "guarantee_credit_standard_minimum_guarantee_b",
                 "guarantee_credit_standard_minimum_b",
             )
+        )
+
+    @staticmethod
+    def _is_uk_pc_severe_disability_addition_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return "pc_severe_disability_addition" in rac_var_lower and not rac_var_lower.endswith(
+            "_applies"
+        )
+
+    @staticmethod
+    def _is_uk_pc_carer_addition_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return "pc_carer_addition" in rac_var_lower and not rac_var_lower.endswith(
+            "_applies"
+        )
+
+    @staticmethod
+    def _is_uk_pc_child_addition_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return (
+            "pc_child_addition" in rac_var_lower
+            and "disabled" not in rac_var_lower
+            and not rac_var_lower.endswith("_applies")
+        )
+
+    @staticmethod
+    def _is_uk_pc_disabled_child_addition_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return (
+            "pc_disabled_child_addition" in rac_var_lower
+            and "severe" not in rac_var_lower
+            and not rac_var_lower.endswith("_applies")
+        )
+
+    @staticmethod
+    def _is_uk_pc_severely_disabled_child_addition_var(rac_var: str) -> bool:
+        rac_var_lower = rac_var.lower()
+        return "pc_severely_disabled_child_addition" in rac_var_lower and not rac_var_lower.endswith(
+            "_applies"
         )
 
     @staticmethod
@@ -2743,6 +2788,18 @@ print("BENCHMARK:" + json.dumps(result))
             rac_var_lower
         ):
             return "standard_minimum_guarantee"
+        if country == "uk" and self._is_uk_pc_severe_disability_addition_var(
+            rac_var_lower
+        ):
+            return "severe_disability_minimum_guarantee_addition"
+        if country == "uk" and self._is_uk_pc_carer_addition_var(rac_var_lower):
+            return "carer_minimum_guarantee_addition"
+        if country == "uk" and (
+            self._is_uk_pc_child_addition_var(rac_var_lower)
+            or self._is_uk_pc_disabled_child_addition_var(rac_var_lower)
+            or self._is_uk_pc_severely_disabled_child_addition_var(rac_var_lower)
+        ):
+            return "child_minimum_guarantee_addition"
         if country == "uk" and self._is_uk_uc_standard_allowance_var(rac_var_lower):
             return "uc_standard_allowance"
         if country == "uk" and self._is_uk_uc_carer_element_var(rac_var_lower):
@@ -3383,6 +3440,215 @@ annual = sim.calculate('{pe_var}', int('{year}'))
 weekly = float(annual[0]) / 52
 scenario_is_couple = {scenario_is_couple}
 {result_logic.rstrip()}
+print(f'RESULT:{{val}}')
+"""
+
+        if pe_var == "severe_disability_minimum_guarantee_addition" and self._is_uk_pc_severe_disability_addition_var(
+            rac_var_lower
+        ):
+            explicit_eligible_adults = next(
+                (
+                    int(value)
+                    for key, value in lowered.items()
+                    if "eligible_adult" in str(key).lower() and value is not None
+                ),
+                None,
+            )
+            ineligible = any(
+                (
+                    any(
+                        marker in str(key).lower()
+                        for marker in (
+                            "severe_disability",
+                            "paragraph_1",
+                            "schedule_i",
+                            "additional_amount",
+                            "qualifies",
+                            "eligible",
+                            "applies",
+                        )
+                    )
+                    and value is not None
+                    and not bool(value)
+                )
+                for key, value in lowered.items()
+            ) or any(
+                "carer" in str(key).lower()
+                and "no_carer" not in str(key).lower()
+                and value is not None
+                and bool(value)
+                for key, value in lowered.items()
+            )
+            if explicit_eligible_adults is not None:
+                eligible_adults = explicit_eligible_adults
+            elif ineligible:
+                eligible_adults = 0
+            elif "two_eligible_adults" in rac_var_lower or "double" in rac_var_lower:
+                eligible_adults = 2
+            else:
+                eligible_adults = 1
+
+            if eligible_adults >= 2:
+                people = (
+                    f"{{'adult': {{'age': {{{year_key}: 70}}, 'attendance_allowance': {{{year_key}: 1}}}}, "
+                    f"'spouse': {{'age': {{{year_key}: 70}}, 'attendance_allowance': {{{year_key}: 1}}}}}}"
+                )
+                members = "['adult', 'spouse']"
+            elif eligible_adults == 1:
+                people = (
+                    f"{{'adult': {{'age': {{{year_key}: 70}}, 'attendance_allowance': {{{year_key}: 1}}}}}}"
+                )
+                members = "['adult']"
+            else:
+                people = f"{{'adult': {{'age': {{{year_key}: 70}}}}}}"
+                members = "['adult']"
+
+            return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {people},
+    'benunits': {{'benunit': {{'members': {members}}}}},
+    'households': {{'household': {{'members': {members}}}}},
+}}
+
+sim = Simulation(situation=situation)
+annual = sim.calculate('severe_disability_minimum_guarantee_addition', int('{year}'))
+val = float(annual[0]) / 52
+print(f'RESULT:{{val}}')
+"""
+
+        if pe_var == "carer_minimum_guarantee_addition" and self._is_uk_pc_carer_addition_var(
+            rac_var_lower
+        ):
+            explicit_eligible_carers = next(
+                (
+                    int(value)
+                    for key, value in lowered.items()
+                    if "eligible_carer" in str(key).lower() and value is not None
+                ),
+                None,
+            )
+            if explicit_eligible_carers is not None:
+                eligible_carers = explicit_eligible_carers
+            elif any(
+                (
+                    any(
+                        marker in str(key).lower()
+                        for marker in ("carer", "paragraph_4", "schedule_i", "applies")
+                    )
+                    and value is not None
+                    and not bool(value)
+                )
+                for key, value in lowered.items()
+            ):
+                eligible_carers = 0
+            else:
+                eligible_carers = 1
+
+            if eligible_carers >= 2:
+                people = (
+                    f"{{'adult': {{'age': {{{year_key}: 70}}, 'carers_allowance': {{{year_key}: 1}}}}, "
+                    f"'spouse': {{'age': {{{year_key}: 70}}, 'carers_allowance': {{{year_key}: 1}}}}}}"
+                )
+                members = "['adult', 'spouse']"
+            elif eligible_carers == 1:
+                people = (
+                    f"{{'adult': {{'age': {{{year_key}: 70}}, 'carers_allowance': {{{year_key}: 1}}}}}}"
+                )
+                members = "['adult']"
+            else:
+                people = f"{{'adult': {{'age': {{{year_key}: 70}}}}}}"
+                members = "['adult']"
+
+            return f"""
+from policyengine_uk import Simulation
+
+situation = {{
+    'people': {people},
+    'benunits': {{'benunit': {{'members': {members}}}}},
+    'households': {{'household': {{'members': {members}}}}},
+}}
+
+sim = Simulation(situation=situation)
+annual = sim.calculate('carer_minimum_guarantee_addition', int('{year}'))
+val = float(annual[0]) / 52
+print(f'RESULT:{{val}}')
+"""
+
+        if pe_var == "child_minimum_guarantee_addition" and (
+            self._is_uk_pc_child_addition_var(rac_var_lower)
+            or self._is_uk_pc_disabled_child_addition_var(rac_var_lower)
+            or self._is_uk_pc_severely_disabled_child_addition_var(rac_var_lower)
+        ):
+            has_child = not any(
+                (
+                    any(
+                        marker in str(key).lower()
+                        for marker in (
+                            "child_addition_applies",
+                            "disabled_child_addition_applies",
+                            "severely_disabled_child_addition_applies",
+                            "qualifying_young_person",
+                            "is_child",
+                            "has_child",
+                        )
+                    )
+                    and value is not None
+                    and not bool(value)
+                )
+                for key, value in lowered.items()
+            )
+            target_mode = "base"
+            if self._is_uk_pc_severely_disabled_child_addition_var(rac_var_lower):
+                target_mode = "severe"
+            elif self._is_uk_pc_disabled_child_addition_var(rac_var_lower):
+                target_mode = "disabled"
+
+            if has_child:
+                base_people = (
+                    f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}}}}}"
+                )
+                if target_mode == "disabled":
+                    target_people = (
+                        f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}, 'dla': {{{year_key}: 1}}}}}}"
+                    )
+                elif target_mode == "severe":
+                    target_people = (
+                        f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}, 'dla': {{{year_key}: 1}}, 'receives_highest_dla_sc': {{{year_key}: True}}}}}}"
+                    )
+                else:
+                    target_people = base_people
+                members = "['adult', 'child']"
+            else:
+                base_people = f"{{'adult': {{'age': {{{year_key}: 70}}}}}}"
+                target_people = base_people
+                members = "['adult']"
+
+            if target_mode == "base":
+                result_logic = "val = float(target_annual[0]) / 52"
+            else:
+                result_logic = "val = (float(target_annual[0]) - float(base_annual[0])) / 52"
+
+            return f"""
+from policyengine_uk import Simulation
+
+base_situation = {{
+    'people': {base_people},
+    'benunits': {{'benunit': {{'members': {members}}}}},
+    'households': {{'household': {{'members': {members}}}}},
+}}
+target_situation = {{
+    'people': {target_people},
+    'benunits': {{'benunit': {{'members': {members}}}}},
+    'households': {{'household': {{'members': {members}}}}},
+}}
+
+base_sim = Simulation(situation=base_situation)
+target_sim = Simulation(situation=target_situation)
+base_annual = base_sim.calculate('child_minimum_guarantee_addition', int('{year}'))
+target_annual = target_sim.calculate('child_minimum_guarantee_addition', int('{year}'))
+{result_logic}
 print(f'RESULT:{{val}}')
 """
 

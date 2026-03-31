@@ -1807,6 +1807,8 @@ Rules:
 - If `./source.txt` explicitly cites another section or source for a definition, emit the upstream import instead of restating the concept locally.
 - If that cited upstream file is absent from this workspace, still emit the unresolved import path; the external-stub workflow is expected to fill it in later.
 - If the source text only implies a shared concept, import an existing canonical concept only when one is actually present in the workspace; otherwise keep the helper local to this leaf.
+- For isolated amount/rate leaves that cite same-instrument conditions or exceptions, do not fabricate sibling-file imports just because the text mentions another paragraph or schedule test. Model those cited conditions as local booleans or fact-shaped inputs unless the exact canonical import file is already present in this workspace.
+- If you do not know the exact RAC import syntax from copied workspace files, do not guess. Keep cited same-instrument conditions local instead of inventing `import` statements or `imports:` blocks.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 {schema_rules}{uk_guidance}{single_amount_row_guidance}{target_hint_guidance}
 - Prefer standard RAC blocks shaped like:

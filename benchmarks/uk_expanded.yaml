@@ -3,7 +3,7 @@ runners:
   - openai:gpt-5.4
 mode: cold
 gates:
-  min_cases: 32
+  min_cases: 38
   min_success_rate: 0.9
   min_compile_pass_rate: 0.9
   min_ci_pass_rate: 0.9
@@ -34,6 +34,49 @@ cases:
     source_ref: /uksi/2002/1792/regulation/6/2025-03-31
     section_eid: regulation-6-1-b
     policyengine_rac_var_hint: standard_minimum_guarantee_single_weekly_rate
+
+  - kind: source
+    name: pension-credit-severe-disability-addition-one-eligible-adult
+    source_id: uksi-2002-1792-regulation-6-5-a
+    source_file: ./sources/uk/pc_severe_disability_addition_one_eligible_adult_2025.txt
+    oracle: none
+    policyengine_rac_var_hint: pc_severe_disability_addition_one_eligible_adult_weekly_rate
+
+  - kind: source
+    name: pension-credit-severe-disability-addition-two-eligible-adults
+    source_id: uksi-2002-1792-regulation-6-5-b
+    source_file: ./sources/uk/pc_severe_disability_addition_two_eligible_adults_2025.txt
+    oracle: none
+    policyengine_rac_var_hint: pc_severe_disability_addition_two_eligible_adults_weekly_rate
+
+  - kind: source
+    name: pension-credit-carer-addition
+    source_id: uksi-2002-1792-regulation-6-8
+    source_file: ./sources/uk/pc_carer_addition_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: pc_carer_addition_weekly_rate
+
+  - kind: source
+    name: pension-credit-child-addition
+    source_id: uksi-2002-1792-schedule-iia-paragraph-9-1-a
+    source_file: ./sources/uk/pc_child_addition_2025.txt
+    oracle: none
+    policyengine_rac_var_hint: pc_child_addition_weekly_rate
+
+  - kind: source
+    name: pension-credit-disabled-child-addition
+    source_id: uksi-2002-1792-schedule-iia-paragraph-9-1-b-i
+    source_file: ./sources/uk/pc_disabled_child_addition_2025.txt
+    oracle: none
+    policyengine_rac_var_hint: pc_disabled_child_addition_weekly_rate
+
+  - kind: source
+    name: pension-credit-severely-disabled-child-addition
+    source_id: uksi-2002-1792-schedule-iia-paragraph-9-1-b-ii
+    source_file: ./sources/uk/pc_severely_disabled_child_addition_2025.txt
+    oracle: none
+    policyengine_rac_var_hint: pc_severely_disabled_child_addition_weekly_rate
 
   - kind: uk_legislation
     name: scottish-child-payment-rate

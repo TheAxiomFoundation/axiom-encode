@@ -3236,6 +3236,48 @@ class TestResolvePeVariable:
             == "standard_minimum_guarantee"
         )
 
+    def test_resolves_uk_pc_severe_disability_single_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable(
+                "uk", "pc_severe_disability_addition_one_eligible_adult_weekly_rate"
+            )
+            == "severe_disability_minimum_guarantee_addition"
+        )
+
+    def test_resolves_uk_pc_severe_disability_double_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable(
+                "uk", "pc_severe_disability_addition_two_eligible_adults_weekly_rate"
+            )
+            == "severe_disability_minimum_guarantee_addition"
+        )
+
+    def test_resolves_uk_pc_carer_addition_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "pc_carer_addition_weekly_rate")
+            == "carer_minimum_guarantee_addition"
+        )
+
+    def test_resolves_uk_pc_child_addition_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "pc_child_addition_weekly_rate")
+            == "child_minimum_guarantee_addition"
+        )
+
+    def test_resolves_uk_pc_disabled_child_addition_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable("uk", "pc_disabled_child_addition_weekly_rate")
+            == "child_minimum_guarantee_addition"
+        )
+
+    def test_resolves_uk_pc_severely_disabled_child_addition_amount(self, pipeline):
+        assert (
+            pipeline._resolve_pe_variable(
+                "uk", "pc_severely_disabled_child_addition_weekly_rate"
+            )
+            == "child_minimum_guarantee_addition"
+        )
+
     def test_resolves_uk_scottish_child_payment_value(self, pipeline):
         assert (
             pipeline._resolve_pe_variable("uk", "scottish_child_payment_value")
@@ -3464,6 +3506,96 @@ class TestBuildPeUkAdditionalScenarios:
         assert "'working_tax_credit_reported': {'2025': 1}" in script
         assert "'weekly_hours': {'2025': 16}" in script
         assert "'child': {'age': {'2025': 10}}" in script
+
+    def test_uk_pc_severe_disability_single_script_builds_one_eligible_adult_case(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "severe_disability_minimum_guarantee_addition",
+            {"period": "2025-03-31"},
+            "2025",
+            81.50,
+            country="uk",
+            rac_var="pc_severe_disability_addition_one_eligible_adult_weekly_rate",
+        )
+
+        assert "sim.calculate('severe_disability_minimum_guarantee_addition', int('2025'))" in script
+        assert "'attendance_allowance': {'2025': 1}" in script
+        assert "'members': ['adult']" in script
+        assert "val = float(annual[0]) / 52" in script
+
+    def test_uk_pc_severe_disability_double_script_builds_two_adult_case(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "severe_disability_minimum_guarantee_addition",
+            {"period": "2025-03-31"},
+            "2025",
+            163.00,
+            country="uk",
+            rac_var="pc_severe_disability_addition_two_eligible_adults_weekly_rate",
+        )
+
+        assert "sim.calculate('severe_disability_minimum_guarantee_addition', int('2025'))" in script
+        assert "'spouse': {'age': {'2025': 70}, 'attendance_allowance': {'2025': 1}}" in script
+        assert "'members': ['adult', 'spouse']" in script
+
+    def test_uk_pc_carer_addition_script_builds_carer_case(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "carer_minimum_guarantee_addition",
+            {"period": "2025-03-31"},
+            "2025",
+            45.60,
+            country="uk",
+            rac_var="pc_carer_addition_weekly_rate",
+        )
+
+        assert "sim.calculate('carer_minimum_guarantee_addition', int('2025'))" in script
+        assert "'carers_allowance': {'2025': 1}" in script
+        assert "val = float(annual[0]) / 52" in script
+
+    def test_uk_pc_child_addition_script_builds_base_child_case(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "child_minimum_guarantee_addition",
+            {"period": "2025-03-31"},
+            "2025",
+            66.29,
+            country="uk",
+            rac_var="pc_child_addition_weekly_rate",
+        )
+
+        assert "target_sim.calculate('child_minimum_guarantee_addition', int('2025'))" in script
+        assert "'child': {'age': {'2025': 10}}" in script
+        assert "val = float(target_annual[0]) / 52" in script
+
+    def test_uk_pc_disabled_child_addition_script_subtracts_base_case(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "child_minimum_guarantee_addition",
+            {"period": "2025-03-31"},
+            "2025",
+            35.93,
+            country="uk",
+            rac_var="pc_disabled_child_addition_weekly_rate",
+        )
+
+        assert "'dla': {'2025': 1}" in script
+        assert "base_annual = base_sim.calculate('child_minimum_guarantee_addition', int('2025'))" in script
+        assert "val = (float(target_annual[0]) - float(base_annual[0])) / 52" in script
+
+    def test_uk_pc_severely_disabled_child_addition_script_subtracts_base_case(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "child_minimum_guarantee_addition",
+            {"period": "2025-03-31"},
+            "2025",
+            112.21,
+            country="uk",
+            rac_var="pc_severely_disabled_child_addition_weekly_rate",
+        )
+
+        assert "'receives_highest_dla_sc': {'2025': True}" in script
+        assert "val = (float(target_annual[0]) - float(base_annual[0])) / 52" in script
 
     def test_uk_uc_disabled_child_element_script_builds_disabled_child_case(
         self, pipeline
