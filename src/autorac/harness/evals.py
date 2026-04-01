@@ -1959,6 +1959,7 @@ Rules:
 - If `./source.txt` says someone is "aged 18 or over", "under 25", or gives another numeric eligibility threshold, model that threshold as a named scalar variable rather than only burying the number inside a helper name.
 - Do not create scalar variables for citation numbers that only appear inside section, paragraph, regulation, schedule, or similar legal cross-references.
 - Do not invent `dtype: String` variables just to restate the effective date or to hold quoted date text from `./source.txt`.
+- Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables; keep date references semantic inside boolean/fact-shaped helpers instead.
 - Include the source text in a triple-quoted docstring.
 - Use RAC DSL conventions.
 - If `./source.txt` explicitly cites another section or source for a definition, emit the upstream import instead of restating the concept locally.

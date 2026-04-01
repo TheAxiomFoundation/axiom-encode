@@ -1016,6 +1016,91 @@ effective_date_label:
         assert result.passed is True
         assert not any("Embedded scalar literal" in issue for issue in result.issues)
 
+    def test_ci_rejects_decomposed_date_scalars(self, pipeline):
+        """CI should fail when calendar dates are split into numeric day/year scalars."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+Applies before 6th April 2016.
+"""
+
+status: encoded
+
+award_effective_before_day_threshold:
+    entity: Person
+    period: Day
+    dtype: Integer
+    from 2025-03-21:
+        6
+
+award_effective_before_year_threshold:
+    entity: Person
+    period: Day
+    dtype: Integer
+    from 2025-03-21:
+        2016
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is False
+        assert any("Decomposed date scalar" in issue for issue in result.issues)
+
+    def test_ci_allows_numeric_age_threshold_scalars(self, pipeline):
+        """CI should allow substantive age thresholds represented as named scalars."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+Applies to a person aged 18 or over.
+"""
+
+status: encoded
+
+minimum_age_threshold_years:
+    entity: Person
+    period: Day
+    dtype: Integer
+    from 2025-03-21:
+        18
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is True
+        assert not any("Decomposed date scalar" in issue for issue in result.issues)
+
     def test_ci_adds_non_blocking_shared_concept_advisory(self, pipeline):
         """CI emits advisory text when a nearby file already defines the same symbol."""
         sibling = pipeline.rac_us_path / "26" / "24" / "b.rac"

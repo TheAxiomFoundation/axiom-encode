@@ -200,6 +200,10 @@ _SOURCE_REFERENCE_PATTERNS = (
     re.compile(r"\b(?:Act|Order|Regulations?)\s+\d{4}\b"),
 )
 _DIRECT_SCALAR_VALUE_PATTERN = re.compile(r"-?[\d,]+(?:\.\d+)?")
+_MONTH_NAME_PATTERN = re.compile(
+    r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -929,6 +933,8 @@ class ValidatorPipeline:
 
         with contextlib.suppress(Exception):
             issues.extend(self._check_embedded_scalar_literals(rac_file))
+        with contextlib.suppress(Exception):
+            issues.extend(self._check_decomposed_date_scalars(rac_file))
 
         advisories: list[str] = []
         with contextlib.suppress(Exception):
@@ -1090,6 +1096,44 @@ class ValidatorPipeline:
                 f"{name} line {line_number} embeds {literal} in `{expression}`; "
                 "extract the scalar to its own named variable"
             )
+        return issues
+
+    def _check_decomposed_date_scalars(self, rac_file: Path) -> list[str]:
+        """Flag numeric year/month/day scalars derived from non-substantive date references."""
+        content = rac_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+        if not (
+            GROUNDING_DATE_PATTERN.search(source_text)
+            or _MONTH_NAME_PATTERN.search(source_text)
+        ):
+            return []
+
+        issues: list[str] = []
+        for occurrence in extract_named_scalar_occurrences(content):
+            tokens = set(occurrence.name.lower().split("_"))
+            if "year" in tokens and occurrence.value.is_integer() and 1900 <= occurrence.value <= 2100:
+                issues.append(
+                    "Decomposed date scalar: "
+                    f"{occurrence.name} line {occurrence.line} encodes calendar year "
+                    f"{int(occurrence.value)} as a numeric scalar; keep legal date references "
+                    "semantic instead of splitting them into year/month/day variables"
+                )
+            elif "month" in tokens and occurrence.value.is_integer() and 1 <= occurrence.value <= 12:
+                issues.append(
+                    "Decomposed date scalar: "
+                    f"{occurrence.name} line {occurrence.line} encodes calendar month "
+                    f"{int(occurrence.value)} as a numeric scalar; keep legal date references "
+                    "semantic instead of splitting them into year/month/day variables"
+                )
+            elif "day" in tokens and occurrence.value.is_integer() and 1 <= occurrence.value <= 31:
+                issues.append(
+                    "Decomposed date scalar: "
+                    f"{occurrence.name} line {occurrence.line} encodes calendar day "
+                    f"{int(occurrence.value)} as a numeric scalar; keep legal date references "
+                    "semantic instead of splitting them into year/month/day variables"
+                )
         return issues
 
     def _collect_embedded_scalar_literals(
