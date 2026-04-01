@@ -180,6 +180,14 @@ class TestExtractNumbersFromText:
         assert 0.6 in numbers
         assert 0.4 in numbers
 
+    def test_extracts_percent_symbol_as_decimal_rate(self):
+        numbers = extract_numbers_from_text(
+            "The taper is 55% and the childcare reimbursement rate is 85%."
+        )
+
+        assert 0.55 in numbers
+        assert 0.85 in numbers
+
 
 class TestExtractTestsFromRacV2ListFormat:
     def test_extracts_top_level_list_format(self, pipeline):

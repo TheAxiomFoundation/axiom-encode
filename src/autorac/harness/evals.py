@@ -1517,6 +1517,7 @@ def _run_single_eval(
         response.text,
         output_file,
         source_text=source_text,
+        workspace_root=workspace.root,
     )
     if wrote_artifact:
         _hydrate_eval_root(output_file.parents[2], workspace)
@@ -1608,6 +1609,7 @@ def _run_single_source_eval(
         response.text,
         output_file,
         source_text=source_text,
+        workspace_root=workspace.root,
     )
     if wrote_artifact:
         _hydrate_eval_root(output_file.parents[2], workspace)
@@ -1843,6 +1845,10 @@ Rules:
 - Do not use Python inline ternaries like `x if cond else y`; use RAC conditional expressions instead.
 - Do not use YAML-style `if:` / `then:` / `else:` blocks.
 {file_output_rules}
+- Do not respond with summaries like `Both files written`, `Done`, or bullet recaps in place of the requested files.
+- For bundled file output, the `.rac` body must begin with RAC content, not prose.
+- Do not use inline assignment syntax like `:=` inside `from` blocks or formulas.
+- If a helper value is needed, declare it as its own top-level RAC variable block instead of assigning it inline.
 """
 
 
@@ -2756,15 +2762,28 @@ def _materialize_eval_artifact(
     llm_response: str,
     expected_path: Path,
     source_text: str | None = None,
+    workspace_root: Path | None = None,
 ) -> bool:
     """Write an eval artifact and optional companion test file from model output."""
     single_amount_table_slice = bool(
         source_text and _is_single_amount_table_slice(source_text)
     )
+    expected_test_path = expected_path.with_suffix(".rac.test")
+
+    if workspace_root is not None:
+        wrote_from_workspace = _materialize_workspace_artifacts(
+            expected_path=expected_path,
+            expected_test_path=expected_test_path,
+            workspace_root=workspace_root,
+            single_amount_table_slice=single_amount_table_slice,
+            source_text=source_text,
+        )
+        if wrote_from_workspace:
+            return True
+
     bundle = _extract_generated_file_bundle(llm_response)
     if bundle:
         wrote_main = False
-        expected_test_path = expected_path.with_suffix(".rac.test")
         for file_name, content in bundle.items():
             candidate_name = Path(file_name).name
             if candidate_name == expected_path.name:
@@ -2803,6 +2822,43 @@ def _materialize_eval_artifact(
 
     expected_path.parent.mkdir(parents=True, exist_ok=True)
     expected_path.write_text(rac_content)
+    return True
+
+
+def _materialize_workspace_artifacts(
+    expected_path: Path,
+    expected_test_path: Path,
+    workspace_root: Path,
+    single_amount_table_slice: bool,
+    source_text: str | None,
+) -> bool:
+    """Salvage eval artifacts that a model wrote directly into the workspace."""
+    workspace_main = workspace_root / expected_path.name
+    workspace_test = workspace_root / expected_test_path.name
+    if not workspace_main.exists():
+        return False
+
+    main_content = workspace_main.read_text()
+    if single_amount_table_slice:
+        main_content = _normalize_single_amount_row_rac_content(main_content)
+    else:
+        main_content = _normalize_rac_code_numeric_literals(main_content)
+
+    expected_path.parent.mkdir(parents=True, exist_ok=True)
+    expected_path.write_text(main_content)
+
+    if workspace_test.exists():
+        test_content = workspace_test.read_text()
+        if single_amount_table_slice:
+            test_content = _normalize_single_amount_row_test_content(
+                test_content,
+                rac_content=main_content,
+                source_text=source_text,
+            )
+        else:
+            test_content = _normalize_comma_numeric_literals(test_content)
+        expected_test_path.write_text(test_content)
+
     return True
 
 

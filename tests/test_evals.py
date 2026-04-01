@@ -356,6 +356,83 @@ class TestGeneratedBundleCleaning:
             "    child_benefit_enhanced_rate: 26.05\n"
         )
 
+    def test_materialize_eval_artifact_salvages_workspace_files_when_response_is_summary(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "source" / "uksi-2002-1792-2025-03-31.rac"
+        workspace_root = tmp_path / "workspace"
+        workspace_root.mkdir(parents=True)
+        (workspace_root / output_file.name).write_text(
+            "pc_housing_non_dependant_deduction_other_weekly_amount:\n"
+            "    entity: Person\n"
+            "    period: Week\n"
+            "    dtype: Money\n"
+            "    unit: GBP\n"
+            "    from 2025-03-21:\n"
+            "        19.30\n"
+        )
+        (workspace_root / output_file.with_suffix(".rac.test").name).write_text(
+            "- name: base_case\n"
+            "  period: 2025-04-01\n"
+            "  input: {}\n"
+            "  output:\n"
+            "    pc_housing_non_dependant_deduction_other_weekly_amount: 19.30\n"
+        )
+
+        wrote = _materialize_eval_artifact(
+            "Both files written.",
+            output_file,
+            source_text="£19.30",
+            workspace_root=workspace_root,
+        )
+
+        assert wrote is True
+        assert output_file.read_text().startswith(
+            "pc_housing_non_dependant_deduction_other_weekly_amount:\n"
+        )
+        assert output_file.with_suffix(".rac.test").exists()
+
+    def test_materialize_eval_artifact_prefers_workspace_files_over_prose_bundle(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "source" / "uksi-2013-376-2025-04-07.rac"
+        workspace_root = tmp_path / "workspace"
+        workspace_root.mkdir(parents=True)
+        (workspace_root / output_file.name).write_text(
+            '"""\nCapital limit.\n"""\n\n'
+            "uc_capital_limit_single_claimant_amount:\n"
+            "    entity: Person\n"
+            "    period: Year\n"
+            "    dtype: Money\n"
+            "    unit: GBP\n"
+            "    from 2025-04-07:\n"
+            "        16000\n"
+        )
+        (workspace_root / output_file.with_suffix(".rac.test").name).write_text(
+            "- name: base_case\n"
+            "  period: 2025\n"
+            "  input: {}\n"
+            "  output:\n"
+            "    uc_capital_limit_single_claimant_amount: 16000\n"
+        )
+        llm_response = (
+            "=== FILE: uksi-2013-376-2025-04-07.rac ===\n"
+            "Encodes regulation 18(1)(a) of UKSI 2013/376.\n\n"
+            "=== FILE: uksi-2013-376-2025-04-07.rac.test ===\n"
+            "Single base case confirming the amount is 16000.\n"
+        )
+
+        wrote = _materialize_eval_artifact(
+            llm_response,
+            output_file,
+            source_text="£16,000",
+            workspace_root=workspace_root,
+        )
+
+        assert wrote is True
+        assert output_file.read_text().startswith('"""')
+        assert "Encodes regulation" not in output_file.read_text()
+
     def test_materialize_eval_artifact_normalizes_single_row_block_conditional_and_tests(
         self, tmp_path
     ):
@@ -1368,6 +1445,8 @@ class TestEvalPrompt:
         )
 
         assert "For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals." in prompt
+        assert "Do not respond with summaries like `Both files written`" in prompt
+        assert "Do not use inline assignment syntax like `:=` inside `from` blocks" in prompt
 
     def test_build_eval_prompt_for_uk_leaf_prefers_person_over_family_constant(
         self, tmp_path

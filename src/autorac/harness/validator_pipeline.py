@@ -309,6 +309,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
         with contextlib.suppress(ValueError):
             numbers.add(float(match.group(1)) / 100)
 
+    for match in re.finditer(r"(\d+(?:\.\d+)?)\s*%", text):
+        with contextlib.suppress(ValueError):
+            numbers.add(float(match.group(1)) / 100)
+
     fraction_words = {
         "one-half": 0.5,
         "one half": 0.5,
