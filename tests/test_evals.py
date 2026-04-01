@@ -1469,6 +1469,7 @@ class TestEvalPrompt:
 
         assert "`if condition: value else: other_value`" in prompt
         assert "Do not use YAML-style `if:` / `then:` / `else:` blocks." in prompt
+        assert "Do not append a multiline conditional directly onto another expression" in prompt
 
     def test_build_eval_prompt_requires_decimal_ratios_for_rate_dtype(self, tmp_path):
         workspace = prepare_eval_workspace(

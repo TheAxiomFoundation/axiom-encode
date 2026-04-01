@@ -1977,6 +1977,7 @@ Rules:
       from 2024-07-01:
           165
 - For conditionals, RAC uses inline conditional expressions like `if condition: value else: other_value`.
+- Do not append a multiline conditional directly onto another expression like `base_amount + if condition: ...`; factor the conditional into its own helper variable or make the whole formula a single conditional expression.
 - For derived values, keep using normal RAC blocks with `entity`, `period`, `dtype`, and `from YYYY-MM-DD:` formulas.
 - For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals.
 - Do not use Python inline ternaries like `x if cond else y`; use RAC conditional expressions instead.
