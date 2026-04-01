@@ -213,6 +213,20 @@ class NamedScalarOccurrence:
     line: int
     name: str
     value: float
+
+
+@dataclass(frozen=True)
+class ResolvedDefinedTerm:
+    """One canonical legal term resolved to an import target."""
+
+    term: str
+    import_target: str
+    symbol: str
+    citation: str
+    entity: str
+    period: str
+    dtype: str
+    label: str
 _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"ParameterNotFoundError"),
     re.compile(r"VariableNotFoundError"),
@@ -222,6 +236,25 @@ _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
     r"(?:as defined in|defined in|meaning given in|within the meaning of|described in)\s+"
     r"section\s+([0-9A-Za-z.-]+(?:\([^)]+\))*)",
     re.IGNORECASE,
+)
+_DEFINED_TERM_PATTERNS: tuple[tuple[re.Pattern[str], ResolvedDefinedTerm], ...] = (
+    (
+        re.compile(r"\bmixed-age couple\b", re.IGNORECASE),
+        ResolvedDefinedTerm(
+            term="mixed-age couple",
+            import_target="legislation/ukpga/2002/16/section/3ZA/3#is_member_of_mixed_age_couple",
+            symbol="is_member_of_mixed_age_couple",
+            citation="State Pension Credit Act 2002 section 3ZA(3)",
+            entity="Person",
+            period="Day",
+            dtype="Boolean",
+            label=(
+                "`mixed-age couple` -> import "
+                "`legislation/ukpga/2002/16/section/3ZA/3#is_member_of_mixed_age_couple` "
+                "(State Pension Credit Act 2002 section 3ZA(3))"
+            ),
+        ),
+    ),
 )
 _DEFINED_SYMBOL_METADATA_KEYS = {
     "imports",
@@ -238,6 +271,15 @@ _DEFINED_SYMBOL_METADATA_KEYS = {
     "stub_for",
     "skip_reason",
 }
+
+
+def resolve_defined_terms_from_text(text: str) -> list[ResolvedDefinedTerm]:
+    """Resolve known legally-defined terms mentioned in source text."""
+    resolved: list[ResolvedDefinedTerm] = []
+    for pattern, term in _DEFINED_TERM_PATTERNS:
+        if pattern.search(text) and term not in resolved:
+            resolved.append(term)
+    return resolved
 
 
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
@@ -930,6 +972,8 @@ class ValidatorPipeline:
             issues.extend(self._check_cross_statute_definition_imports(rac_file))
         except Exception as e:
             issues.append(f"Cross-reference import check exception: {e}")
+        with contextlib.suppress(Exception):
+            issues.extend(self._check_resolved_defined_term_imports(rac_file))
 
         with contextlib.suppress(Exception):
             issues.extend(self._check_embedded_scalar_literals(rac_file))
@@ -1082,6 +1126,29 @@ class ValidatorPipeline:
                 "Cross-statute definition import missing: "
                 f"source text references section {citation} but file does not import "
                 f"from {import_path}"
+            )
+        return issues
+
+    def _check_resolved_defined_term_imports(self, rac_file: Path) -> list[str]:
+        """Flag missing imports for known legally-defined terms mentioned in source text."""
+        content = rac_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        imports = self._extract_import_paths(content)
+        issues: list[str] = []
+        for term in resolve_defined_terms_from_text(source_text):
+            import_base = term.import_target.split("#", 1)[0]
+            if any(
+                existing == import_base or existing.startswith(import_base + "/")
+                for existing in imports
+            ):
+                continue
+            issues.append(
+                "Defined term import missing: "
+                f'`{term.term}` resolves to {term.citation} but file does not import '
+                f"from {import_base}"
             )
         return issues
 

@@ -1101,6 +1101,82 @@ minimum_age_threshold_years:
         assert result.passed is True
         assert not any("Decomposed date scalar" in issue for issue in result.issues)
 
+    def test_ci_requires_import_for_resolved_defined_term(self, pipeline):
+        """CI should fail when a known defined term is modeled locally instead of imported."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+A person who is a member of a mixed-age couple is not entitled to savings credit.
+"""
+
+status: encoded
+
+is_member_of_mixed_age_couple:
+    entity: Person
+    period: Day
+    dtype: Boolean
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is False
+        assert any("Defined term import missing" in issue for issue in result.issues)
+        assert any("mixed-age couple" in issue for issue in result.issues)
+
+    def test_ci_allows_import_for_resolved_defined_term(self, pipeline):
+        """CI should pass the defined-term check when the canonical import is present."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+A person who is a member of a mixed-age couple is not entitled to savings credit.
+"""
+
+status: encoded
+
+savings_credit_condition:
+    imports:
+        - legislation/ukpga/2002/16/section/3ZA/3#is_member_of_mixed_age_couple
+    entity: Person
+    period: Day
+    dtype: Boolean
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert not any("Defined term import missing" in issue for issue in result.issues)
+
     def test_ci_adds_non_blocking_shared_concept_advisory(self, pipeline):
         """CI emits advisory text when a nearby file already defines the same symbol."""
         sibling = pipeline.rac_us_path / "26" / "24" / "b.rac"

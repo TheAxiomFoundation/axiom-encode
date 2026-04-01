@@ -32,6 +32,7 @@ from .encoding_db import TokenUsage
 from .observability import emit_eval_result, extract_reasoning_output_tokens
 from .pricing import estimate_usage_cost_usd
 from .validator_pipeline import (
+    ResolvedDefinedTerm,
     ValidationResult,
     ValidatorPipeline,
     extract_embedded_source_text,
@@ -39,6 +40,7 @@ from .validator_pipeline import (
     extract_named_scalar_occurrences,
     extract_numbers_from_text,
     extract_numeric_occurrences_from_text,
+    resolve_defined_terms_from_text,
 )
 
 EvalMode = Literal["cold", "repo-augmented"]
@@ -133,6 +135,7 @@ class EvalContextFile:
     source_path: str
     workspace_path: str
     kind: str
+    label: str | None = None
 
 
 @dataclass
@@ -1428,6 +1431,15 @@ def prepare_eval_workspace(
 
     context_files: list[EvalContextFile] = []
     context_root = workspace_root / "context"
+    for resolved_term in resolve_defined_terms_from_text(source_text):
+        context_files.append(
+            _materialize_resolved_definition_stub(
+                context_root=context_root,
+                resolved_term=resolved_term,
+                workspace_root=workspace_root,
+            )
+        )
+
     rac_us_root = rac_path.parent / "rac-us" / "statute"
 
     if mode == "repo-augmented":
@@ -1479,6 +1491,51 @@ def prepare_eval_workspace(
         source_file=source_file,
         manifest_file=manifest_file,
         context_files=context_files,
+    )
+
+
+def _import_target_to_relative_rac_path(import_target: str) -> Path:
+    """Convert an import target like legislation/...#name into a .rac path."""
+    normalized = import_target.strip().strip('"').strip("'")
+    normalized = normalized.split("#", 1)[0]
+    if normalized.endswith(".rac"):
+        return Path(normalized)
+    return Path(f"{normalized}.rac")
+
+
+def _build_resolved_definition_stub_content(resolved_term: ResolvedDefinedTerm) -> str:
+    """Return a compile-friendly stub file for one resolved legal term."""
+    return (
+        f'"""\nCanonical definition stub for `{resolved_term.term}`.\n'
+        f"Resolved to {resolved_term.citation}.\n"
+        '"""\n\n'
+        "status: stub\n\n"
+        f"{resolved_term.symbol}:\n"
+        f"    stub_for: {resolved_term.import_target}\n"
+        f"    entity: {resolved_term.entity}\n"
+        f"    period: {resolved_term.period}\n"
+        f"    dtype: {resolved_term.dtype}\n"
+    )
+
+
+def _materialize_resolved_definition_stub(
+    *,
+    context_root: Path,
+    resolved_term: ResolvedDefinedTerm,
+    workspace_root: Path,
+) -> EvalContextFile:
+    """Write one resolved definition stub into the eval workspace context."""
+    relative_target = Path("context") / _import_target_to_relative_rac_path(
+        resolved_term.import_target
+    )
+    workspace_path = workspace_root / relative_target
+    workspace_path.parent.mkdir(parents=True, exist_ok=True)
+    workspace_path.write_text(_build_resolved_definition_stub_content(resolved_term))
+    return EvalContextFile(
+        source_path=resolved_term.citation,
+        workspace_path=str(relative_target),
+        kind="definition_stub",
+        label=resolved_term.label,
     )
 
 
@@ -1652,7 +1709,7 @@ def _run_single_eval(
         workspace_root=workspace.root,
     )
     if wrote_artifact:
-        _hydrate_eval_root(output_file.parents[2], workspace)
+        _hydrate_eval_root(output_file.parents[1], workspace)
 
     trace_file = (
         Path(output_root)
@@ -1744,7 +1801,7 @@ def _run_single_source_eval(
         workspace_root=workspace.root,
     )
     if wrote_artifact:
-        _hydrate_eval_root(output_file.parents[2], workspace)
+        _hydrate_eval_root(output_file.parents[1], workspace)
 
     trace_file = (
         Path(output_root)
@@ -1813,6 +1870,12 @@ def _build_eval_prompt(
     """Build a prompt-only eval request with explicit provenance rules."""
     source_text = workspace.source_file.read_text().strip()
     single_amount_table_slice = _is_single_amount_table_slice(source_text)
+    definition_context_files = [
+        item for item in context_files if item.kind == "definition_stub"
+    ]
+    precedent_context_files = [
+        item for item in context_files if item.kind != "definition_stub"
+    ]
 
     inline_source_section = ""
     if runner_backend == "openai":
@@ -1825,10 +1888,45 @@ are copied inline below and must be treated as the contents of that file.
 === END SOURCE.TXT ===
 """
 
+    definition_section = ""
+    if definition_context_files:
+        listed_definitions = "\n".join(
+            f"- `{item.workspace_path}`: {item.label or item.source_path}"
+            for item in definition_context_files
+        )
+        inline_definition_copies = ""
+        if runner_backend == "openai":
+            inline_definition_copies = f"""
+
+Inline resolved definition file copies:
+{_format_inline_context_snippets(workspace, definition_context_files)}
+"""
+        definition_section = f"""
+Resolved definition files are available below.
+If `./source.txt` uses one of these defined terms, import the listed canonical definition instead of inventing a local helper:
+{listed_definitions}
+
+Exact RAC import syntax for a resolved definition:
+resolved_term_local_name:
+    imports:
+        - legislation/ukpga/2002/16/section/3ZA/3#is_member_of_mixed_age_couple
+    entity: Person
+    period: Day
+    dtype: Boolean
+    from 2025-03-21:
+        is_member_of_mixed_age_couple
+
+Do not replace that import with a local deferred stub or a path-mangled variable name like
+`legislation_ukpga_2002_16_section_3ZA_3_is_member_of_mixed_age_couple`.
+{inline_definition_copies}
+"""
+
     context_section = ""
-    if context_files:
-        listed = "\n".join(f"- `{item.workspace_path}`" for item in context_files)
-        scaffold_dates = _collect_scaffold_dates(workspace, context_files)
+    if precedent_context_files:
+        listed = "\n".join(
+            f"- `{item.workspace_path}`" for item in precedent_context_files
+        )
+        scaffold_dates = _collect_scaffold_dates(workspace, precedent_context_files)
         scaffold_date_lines = ""
         if scaffold_dates:
             dates = ", ".join(f"`{date}`" for date in scaffold_dates)
@@ -1947,7 +2045,7 @@ Primary legal authority:
 {inline_source_section}
 
 Context mode: `{mode}`
-{context_section}
+{definition_section}{context_section}
 
 Rules:
 - Do not inspect or rely on any path outside this workspace.
@@ -1963,10 +2061,13 @@ Rules:
 - Include the source text in a triple-quoted docstring.
 - Use RAC DSL conventions.
 - If `./source.txt` explicitly cites another section or source for a definition, emit the upstream import instead of restating the concept locally.
+- If `./source.txt` uses a legally-defined term for which a resolved canonical definition file is provided above, import that canonical definition instead of inventing a leaf-local helper.
+- For resolved definition files listed above, the required syntax is an `imports:` block that references the exact `path#symbol` target.
+- Do not replace a resolved canonical import with a local deferred symbol whose name is just a mangled version of the import target.
 - If that cited upstream file is absent from this workspace, still emit the unresolved import path; the external-stub workflow is expected to fill it in later.
 - If the source text only implies a shared concept, import an existing canonical concept only when one is actually present in the workspace; otherwise keep the helper local to this leaf.
 - For isolated amount/rate leaves that cite same-instrument conditions or exceptions, do not fabricate sibling-file imports just because the text mentions another paragraph or schedule test. Model those cited conditions as local booleans or fact-shaped inputs unless the exact canonical import file is already present in this workspace.
-- If you do not know the exact RAC import syntax from copied workspace files, do not guess. Keep cited same-instrument conditions local instead of inventing `import` statements or `imports:` blocks.
+- If no resolved definition file or copied precedent file shows you the import syntax, do not guess. Keep cited same-instrument conditions local instead of inventing `import` statements or `imports:` blocks.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 {schema_rules}{uk_guidance}{single_amount_row_guidance}{target_hint_guidance}
 - Prefer standard RAC blocks shaped like:

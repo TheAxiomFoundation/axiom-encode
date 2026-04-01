@@ -1686,6 +1686,82 @@ class TestEvalPrompt:
         assert "Do not invent `dtype: String` variables just to restate the effective date" in prompt
         assert "Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables" in prompt
 
+    def test_prepare_eval_workspace_injects_resolved_defined_term_stub(self, tmp_path):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/7A",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="A person who is a member of a mixed-age couple is not entitled.",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        definition_files = [
+            item for item in workspace.context_files if item.kind == "definition_stub"
+        ]
+        assert len(definition_files) == 1
+        assert (
+            definition_files[0].workspace_path
+            == "context/legislation/ukpga/2002/16/section/3ZA/3.rac"
+        )
+        stub_path = workspace.root / definition_files[0].workspace_path
+        assert stub_path.exists()
+        assert "is_member_of_mixed_age_couple" in stub_path.read_text()
+
+    def test_hydrate_eval_root_places_resolved_definition_stub_under_runner_root(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/7A",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="A person who is a member of a mixed-age couple is not entitled.",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        runner_root = tmp_path / "case" / "openai-gpt-5.4"
+        source_dir = runner_root / "source"
+        source_dir.mkdir(parents=True)
+        (source_dir / "example.rac").write_text("status: encoded\n")
+
+        _hydrate_eval_root(runner_root, workspace)
+
+        hydrated = runner_root / "legislation" / "ukpga" / "2002" / "16" / "section" / "3ZA" / "3.rac"
+        assert hydrated.exists()
+        assert "is_member_of_mixed_age_couple" in hydrated.read_text()
+
+    def test_build_eval_prompt_includes_resolved_defined_term_guidance(self, tmp_path):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/7A",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="A person who is a member of a mixed-age couple is not entitled.",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/7A",
+            "cold",
+            workspace,
+            workspace.context_files,
+            target_file_name="example.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Resolved definition files are available below." in prompt
+        assert "mixed-age couple" in prompt
+        assert "legislation/ukpga/2002/16/section/3ZA/3#is_member_of_mixed_age_couple" in prompt
+        assert "import that canonical definition instead of inventing a leaf-local helper" in prompt
+        assert "Exact RAC import syntax for a resolved definition:" in prompt
+        assert "imports:" in prompt
+        assert "Do not replace that import with a local deferred stub" in prompt
+
     def test_build_eval_prompt_includes_import_vs_local_helper_protocol(
         self, tmp_path
     ):
