@@ -1986,8 +1986,10 @@ Available precedent files:
 - Use `Family` only when the encoded quantity is explicitly aggregate at claimant or benefit-unit level.
 - For UK rate leaves with one grounded monetary amount, encode the directly payable person-level or unit-level amount described by the text; do not collapse it into an unconditional family-level constant.
 - For UK branch leaves like `(a)`, `(b)`, or `80A(2)(c)`, encode the branch identity in the output variable name. Do not reuse generic parent variable names like `child_benefit_weekly_rate`, `standard_minimum_guarantee`, or `benefit_cap` for a branch-specific leaf.
+- If the target text includes a deepest nested branch token like `(i)`, `(ii)`, `(iii)`, `(a)`, or `(b)`, the principal output variable must encode that deepest token, e.g. `qualifying_young_person_4A_1_b_i`, not just the parent branch like `qualifying_young_person_4A_1_b`.
 - In `.rac.test`, use helper/input names that expose the actual legal facts from the source text. Prefer names like `child_benefit_is_only_person`, `child_benefit_is_elder_or_eldest_person`, `claimant_has_partner`, `is_single_claimant`, `is_joint_claimant`, `resident_in_greater_london`, or `responsible_for_child_or_qualifying_young_person`.
 - In `.rac.test`, avoid opaque placeholders like `*_condition`, `*_eligibility_flag`, or `family_has_partner` when a more direct legal-fact name is available from the source text.
+- For provisions phrased like `Where X, Y must ...`, encode the triggered requirement itself. Include a `.rac.test` case where `X` is false; unless `./source.txt` expressly says otherwise, the requirement should evaluate as satisfied or inapplicable rather than false in that case.
 - In `.rac.test`, choose periods on or after the explicit effective date in `./source.txt`.
 - Do not add speculative future-period tests that would rely on uprating, later amendments, or rates not stated in `./source.txt`.
 """
@@ -2040,6 +2042,7 @@ Rules:
 - Do not create scalar variables for citation numbers that only appear inside section, paragraph, regulation, schedule, or similar legal cross-references.
 - Do not invent `dtype: String` variables just to restate the effective date or to hold quoted date text from `./source.txt`.
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables; keep date references semantic inside boolean/fact-shaped helpers instead.
+- For phrases like `1st September following the person's 19th birthday`, keep the calendar-date portion semantic inside a boolean/fact helper; do not invent numeric `1`/`September` scalars, but do preserve the substantive `19` age threshold as a named scalar if your logic uses it.
 - Include the source text in a triple-quoted docstring.
 - Use RAC DSL conventions.
 - If `./source.txt` explicitly cites another section or source for a definition, emit the upstream import instead of restating the concept locally.
@@ -2064,6 +2067,7 @@ Rules:
       from 2024-07-01:
           165
 - For conditionals, RAC uses inline conditional expressions like `if condition: value else: other_value`.
+- Use `==` for equality comparisons inside RAC expressions; never use bare `=` as an expression operator.
 - Do not append a multiline conditional directly onto another expression like `base_amount + if condition: ...`; factor the conditional into its own helper variable or make the whole formula a single conditional expression.
 - For derived values, keep using normal RAC blocks with `entity`, `period`, `dtype`, and `from YYYY-MM-DD:` formulas.
 - For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals.

@@ -1576,8 +1576,38 @@ class TestEvalPrompt:
         )
 
         assert "encode the branch identity in the output variable name" in prompt
+        assert "principal output variable must encode that deepest token" in prompt
         assert "`standard_minimum_guarantee`" in prompt
         assert "`child_benefit_weekly_rate`" in prompt
+
+    def test_build_eval_prompt_for_where_must_clauses_requires_inapplicable_case(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/4A",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Where the young person is aged 19, he or she must have started the education "
+                "or training before reaching that age."
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/4A",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-4A.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Where X, Y must ..." in prompt
+        assert "Include a `.rac.test` case where `X` is false" in prompt
 
     def test_build_eval_prompt_for_uk_leaf_discourages_opaque_condition_helpers(
         self, tmp_path
@@ -1685,6 +1715,8 @@ class TestEvalPrompt:
         assert "Do not create scalar variables for citation numbers" in prompt
         assert "Do not invent `dtype: String` variables just to restate the effective date" in prompt
         assert "Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables" in prompt
+        assert "1st September following the person's 19th birthday" in prompt
+        assert "Use `==` for equality comparisons inside RAC expressions" in prompt
 
     def test_prepare_eval_workspace_injects_resolved_defined_term_stub(self, tmp_path):
         workspace = prepare_eval_workspace(

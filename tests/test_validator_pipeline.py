@@ -190,6 +190,14 @@ class TestExtractNumbersFromText:
         assert 0.55 in numbers
         assert 0.85 in numbers
 
+    def test_extracts_ordinal_numbers_for_grounding(self):
+        numbers = extract_numbers_from_text(
+            "up to, but not including, the 1st September following the person's 19th birthday"
+        )
+
+        assert 1.0 in numbers
+        assert 19.0 in numbers
+
 
 class TestExtractNumericOccurrencesFromText:
     def test_ignores_structural_references_and_counts_repeated_scalars(self):
@@ -219,6 +227,17 @@ The taper is 55%.
         assert 1.0 not in occurrences
         assert 3.0 not in occurrences
         assert 2025.0 not in occurrences
+
+    def test_counts_substantive_ordinals_but_ignores_calendar_day_ordinals(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+A person is a qualifying young person up to, but not including, the 1st September
+following the person's 19th birthday.
+"""
+        )
+
+        assert 19.0 in occurrences
+        assert 1.0 not in occurrences
 
 
 class TestExtractNamedScalarOccurrences:
@@ -1100,6 +1119,58 @@ minimum_age_threshold_years:
 
         assert result.passed is True
         assert not any("Decomposed date scalar" in issue for issue in result.issues)
+
+    def test_ci_requires_deepest_branch_token_in_principal_output_name(self, pipeline):
+        """CI should fail when a nested branch leaf drops its deepest branch token."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+4A. Meaning of “qualifying young person”
+
+(1)
+
+(b)
+
+(ii)
+
+which is provided at a school or college.
+"""
+
+status: encoded
+
+person_age:
+    entity: Person
+    period: Day
+    dtype: Integer
+
+qualifying_young_person_4A_1_b:
+    entity: Person
+    period: Day
+    dtype: Boolean
+    from 2025-03-21:
+        true
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is False
+        assert any("Branch-specific output name missing" in issue for issue in result.issues)
 
     def test_ci_requires_import_for_resolved_defined_term(self, pipeline):
         """CI should fail when a known defined term is modeled locally instead of imported."""

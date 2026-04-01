@@ -205,6 +205,7 @@ _MONTH_NAME_PATTERN = re.compile(
     r"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b",
     re.IGNORECASE,
 )
+_ORDINAL_NUMBER_PATTERN = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -357,6 +358,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
         with contextlib.suppress(ValueError):
             numbers.add(float(match.group(1)) / 100)
 
+    for match in _ORDINAL_NUMBER_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError):
+            numbers.add(float(match.group(1)))
+
     fraction_words = {
         "one-half": 0.5,
         "one half": 0.5,
@@ -375,6 +380,14 @@ def extract_numbers_from_text(text: str) -> set[float]:
             numbers.add(value)
 
     return numbers
+
+
+def _ordinal_is_calendar_day_reference(text: str, end_index: int, value: float) -> bool:
+    """Return True when an ordinal is functioning as a calendar day before a month name."""
+    if not value.is_integer() or not (1 <= value <= 31):
+        return False
+    trailing = text[end_index:]
+    return bool(re.match(rf"\s+{_MONTH_NAME_PATTERN.pattern}", trailing, re.IGNORECASE))
 
 
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
@@ -415,6 +428,15 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
         with contextlib.suppress(ValueError):
             value = float(match.group(1).replace(",", ""))
             if value.is_integer() and 1900 <= value <= 2100:
+                continue
+            occurrences.append(value)
+
+    for match in _ORDINAL_NUMBER_PATTERN.finditer(cleaned):
+        with contextlib.suppress(ValueError):
+            value = float(match.group(1))
+            if value.is_integer() and 1900 <= value <= 2100:
+                continue
+            if _ordinal_is_calendar_day_reference(cleaned, match.end(), value):
                 continue
             occurrences.append(value)
 
@@ -939,6 +961,8 @@ class ValidatorPipeline:
         with contextlib.suppress(Exception):
             issues.extend(self._check_decomposed_date_scalars(rac_file))
         with contextlib.suppress(Exception):
+            issues.extend(self._check_branch_specific_output_names(rac_file))
+        with contextlib.suppress(Exception):
             issues.extend(self._check_placeholder_fact_variables(rac_file))
 
         advisories: list[str] = []
@@ -1191,6 +1215,31 @@ class ValidatorPipeline:
                 )
         return issues
 
+    def _check_branch_specific_output_names(self, rac_file: Path) -> list[str]:
+        """Flag branch leaves whose principal output name drops the deepest branch token."""
+        content = rac_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        expected_branch = self._extract_expected_branch_token(source_text)
+        if expected_branch is None:
+            return []
+
+        blocks = self._extract_definition_blocks(content)
+        if not blocks:
+            return []
+
+        principal_name = str(blocks[-1]["name"]).lower()
+        if self._name_contains_branch_token(principal_name, expected_branch):
+            return []
+
+        return [
+            "Branch-specific output name missing: "
+            f"source text targets branch ({expected_branch}), but the principal output "
+            f"`{principal_name}` does not encode that deepest branch token"
+        ]
+
     def _extract_definition_blocks(self, content: str) -> list[dict[str, object]]:
         """Extract simple summaries of top-level RAC definition blocks."""
         lines = content.splitlines()
@@ -1223,6 +1272,23 @@ class ValidatorPipeline:
 
         flush()
         return blocks
+
+    def _extract_expected_branch_token(self, source_text: str) -> str | None:
+        """Return the deepest non-numeric structural branch token from source text."""
+        tokens: list[str] = []
+        for line in source_text.splitlines():
+            stripped = line.strip()
+            if not _STRUCTURAL_SOURCE_LINE_PATTERN.match(stripped):
+                continue
+            token = stripped.strip("()[] .").lower()
+            if token.isdigit():
+                continue
+            tokens.append(token)
+        return tokens[-1] if tokens else None
+
+    def _name_contains_branch_token(self, name: str, token: str) -> bool:
+        """Return True when a definition name encodes a structural branch token."""
+        return bool(re.search(rf"(?:^|_){re.escape(token)}(?:_|$)", name))
 
     def _extract_block_metadata(self, body_lines: list[str], key: str) -> str | None:
         """Return a simple scalar metadata value from one definition block."""
