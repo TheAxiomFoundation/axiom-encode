@@ -174,6 +174,7 @@ _EMBEDDED_SCALAR_FORMULA_HEADER = re.compile(r"^(\s*)formula:\s*\|\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
 _EMBEDDED_SCALAR_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 _EMBEDDED_SCALAR_ALLOWED_VALUES = {"-1", "0", "1", "2", "3"}
+_QUOTED_STRING_PATTERN = re.compile(r"'[^']*'|\"[^\"]*\"")
 _STRUCTURAL_SOURCE_LINE_PATTERN = re.compile(
     r"^[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$", re.IGNORECASE
 )
@@ -1163,10 +1164,11 @@ class ValidatorPipeline:
 
     def _extract_embedded_scalar_literals(self, expression: str) -> list[str]:
         literals: list[str] = []
-        for match in _EMBEDDED_SCALAR_NUMBER.finditer(expression):
+        scrubbed_expression = _QUOTED_STRING_PATTERN.sub(" ", expression)
+        for match in _EMBEDDED_SCALAR_NUMBER.finditer(scrubbed_expression):
             start, end = match.span()
-            prev = expression[start - 1] if start > 0 else ""
-            nxt = expression[end] if end < len(expression) else ""
+            prev = scrubbed_expression[start - 1] if start > 0 else ""
+            nxt = scrubbed_expression[end] if end < len(scrubbed_expression) else ""
             if (prev.isalnum() or prev in {"_", ".", "/"}) or (
                 nxt.isalnum() or nxt in {"_", ".", "/"}
             ):

@@ -1682,6 +1682,7 @@ class TestEvalPrompt:
         assert "If the same numeric value appears twice in materially different legal roles" in prompt
         assert 'If `./source.txt` says someone is "aged 18 or over", "under 25"' in prompt
         assert "Do not create scalar variables for citation numbers" in prompt
+        assert "Do not invent `dtype: String` variables just to restate the effective date" in prompt
 
     def test_build_eval_prompt_includes_import_vs_local_helper_protocol(
         self, tmp_path

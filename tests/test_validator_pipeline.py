@@ -977,6 +977,45 @@ example_amount:
 
         assert result.passed is True
 
+    def test_ci_ignores_numeric_tokens_inside_quoted_strings(self, pipeline):
+        """CI should ignore quoted date text when checking embedded scalar literals."""
+        rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+Quoted date string example.
+"""
+
+status: encoded
+
+effective_date_label:
+    entity: TaxUnit
+    period: Month
+    dtype: String
+    from 2025-04-07:
+        "2025-04-07"
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 0  Passed: 0  Failed: 0\nNo tests found.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is True
+        assert not any("Embedded scalar literal" in issue for issue in result.issues)
+
     def test_ci_adds_non_blocking_shared_concept_advisory(self, pipeline):
         """CI emits advisory text when a nearby file already defines the same symbol."""
         sibling = pipeline.rac_us_path / "26" / "24" / "b.rac"

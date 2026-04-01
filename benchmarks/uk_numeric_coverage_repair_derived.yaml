@@ -1,0 +1,52 @@
+name: UK numeric coverage repair (derived leaves)
+runners:
+  - openai:gpt-5.4
+mode: cold
+gates:
+  min_cases: 5
+  min_success_rate: 0.9
+  min_compile_pass_rate: 0.9
+  min_ci_pass_rate: 0.9
+  min_zero_ungrounded_rate: 1.0
+  min_policyengine_pass_rate: 0.8
+  max_mean_estimated_cost_usd: 0.5
+cases:
+  - kind: source
+    name: uc-standard-allowance-single-under-25
+    source_id: uksi-2013-376-regulation-36-3-single-under-25
+    source_file: ./sources/uk/uc_standard_allowance_single_under_25_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_single_claimant_aged_under_25
+
+  - kind: source
+    name: uc-standard-allowance-single-25-or-over
+    source_id: uksi-2013-376-regulation-36-3-single-25-or-over
+    source_file: ./sources/uk/uc_standard_allowance_single_25_or_over_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_single_claimant_aged_25_or_over
+
+  - kind: source
+    name: uc-standard-allowance-joint-under-25
+    source_id: uksi-2013-376-regulation-36-3-joint-under-25
+    source_file: ./sources/uk/uc_standard_allowance_joint_under_25_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_joint_claimants_both_aged_under_25
+
+  - kind: source
+    name: uc-standard-allowance-joint-25-or-over
+    source_id: uksi-2013-376-regulation-36-3-joint-25-or-over
+    source_file: ./sources/uk/uc_standard_allowance_joint_25_or_over_2025.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: uc_standard_allowance_joint_claimants_one_or_both_aged_25_or_over
+
+  - kind: source
+    name: wtc-worker-element
+    source_id: uksi-2002-2005-schedule-2-worker-element
+    source_file: ./sources/uk/wtc_worker_element_2021.txt
+    oracle: policyengine
+    policyengine_country: uk
+    policyengine_rac_var_hint: wtc_worker_element_amount
