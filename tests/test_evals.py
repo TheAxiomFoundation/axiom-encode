@@ -40,6 +40,19 @@ from autorac.harness.evals import (
 from autorac.harness.validator_pipeline import ValidationResult, ValidatorPipeline
 
 
+@pytest.fixture(autouse=True)
+def _mock_generalist_reviewer():
+    """Keep eval tests deterministic unless they explicitly inspect reviewer behavior."""
+    with patch.object(
+        ValidatorPipeline,
+        "_run_reviewer",
+        return_value=ValidationResult(
+            "generalist-reviewer", True, score=8.0, issues=[]
+        ),
+    ):
+        yield
+
+
 class TestParseRunnerSpec:
     def test_parses_named_runner(self):
         runner = parse_runner_spec("gpt=codex:gpt-5.4")
@@ -295,6 +308,58 @@ pc_special_employment_maximum_weekly_amount:
             "appears 2 time(s), but only 1 named scalar definition(s)" in issue
             for issue in metrics.ci_issues
         )
+
+    def test_runs_generalist_reviewer_and_records_result(self, tmp_path):
+        rac_file = tmp_path / "example.rac"
+        rac_file.write_text(
+            '''"""
+Provision text with £10.
+"""
+status: encoded
+
+example_amount:
+    entity: Person
+    period: Year
+    dtype: Money
+    from 2025-01-01:
+        10
+'''
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+        reviewer_result = ValidationResult(
+            "generalist-reviewer",
+            False,
+            score=4.5,
+            issues=["Merged distinct statutory branches."],
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+            patch.object(
+                ValidatorPipeline, "_run_reviewer", return_value=reviewer_result
+            ) as mock_reviewer,
+        ):
+            metrics = evaluate_artifact(
+                rac_file=rac_file,
+                rac_root=tmp_path,
+                rac_path=Path("/tmp/rac"),
+                source_text="Provision text with £10.",
+            )
+
+        assert metrics.compile_pass is True
+        assert metrics.ci_pass is True
+        assert metrics.generalist_review_pass is False
+        assert metrics.generalist_review_score == 4.5
+        assert metrics.generalist_review_issues == [
+            "Merged distinct statutory branches."
+        ]
+        mock_reviewer.assert_called_once()
+        assert mock_reviewer.call_args.args[0] == "generalist-reviewer"
 
 
 class TestGeneratedBundleCleaning:
@@ -2214,6 +2279,28 @@ cases:
             == "uc_standard_allowance_single_claimant_aged_under_25"
         )
 
+    def test_load_eval_suite_manifest_supports_generalist_review_gate(self, tmp_path):
+        manifest_file = tmp_path / "uk-expanded.yaml"
+        manifest_file.write_text(
+            """
+name: UK expanded
+runners:
+  - openai:gpt-5.4
+gates:
+  min_generalist_review_pass_rate: 0.95
+cases:
+  - kind: source
+    name: sample
+    source_id: sample-source
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative row text")
+
+        manifest = load_eval_suite_manifest(manifest_file)
+
+        assert manifest.gates.min_generalist_review_pass_rate == 0.95
+
     def test_run_eval_suite_dispatches_to_matching_case_runner(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
@@ -2530,6 +2617,7 @@ class TestReadinessSummary:
             min_compile_pass_rate=1.0,
             min_ci_pass_rate=1.0,
             min_zero_ungrounded_rate=1.0,
+            min_generalist_review_pass_rate=1.0,
             min_policyengine_pass_rate=0.8,
             max_mean_estimated_cost_usd=0.5,
         )
@@ -2548,6 +2636,8 @@ class TestReadinessSummary:
                 "case-b",
                 compile_pass=True,
                 ci_pass=True,
+                generalist_review_pass=False,
+                generalist_review_score=4.0,
                 policyengine_pass=False,
                 policyengine_score=0.5,
                 estimated_cost_usd=0.40,
@@ -2557,6 +2647,8 @@ class TestReadinessSummary:
                 "case-c",
                 compile_pass=True,
                 ci_pass=True,
+                generalist_review_pass=True,
+                generalist_review_score=7.5,
                 policyengine_pass=None,
                 policyengine_score=None,
                 estimated_cost_usd=0.30,
@@ -2569,12 +2661,17 @@ class TestReadinessSummary:
         assert summary.compile_pass_rate == 1.0
         assert summary.ci_pass_rate == 1.0
         assert summary.zero_ungrounded_rate == 1.0
+        assert summary.generalist_review_pass_rate == pytest.approx(
+            2 / 3, rel=0, abs=1e-6
+        )
+        assert summary.mean_generalist_review_score == pytest.approx(6.5)
         assert summary.policyengine_case_count == 2
         assert summary.policyengine_pass_rate == 0.5
         assert summary.mean_estimated_cost_usd == 0.3
         assert summary.ready is False
         gate_results = {gate.name: gate for gate in summary.gate_results}
         assert gate_results["min_cases"].passed is True
+        assert gate_results["min_generalist_review_pass_rate"].passed is False
         assert gate_results["min_policyengine_pass_rate"].passed is False
         assert gate_results["max_mean_estimated_cost_usd"].passed is True
 
@@ -3027,6 +3124,8 @@ def _fake_eval_result(
     *,
     compile_pass: bool = True,
     ci_pass: bool = True,
+    generalist_review_pass: bool | None = True,
+    generalist_review_score: float | None = 8.0,
     policyengine_pass: bool | None = None,
     policyengine_score: float | None = None,
     estimated_cost_usd: float | None = 0.25,
@@ -3069,6 +3168,9 @@ def _fake_eval_result(
                     grounded=ungrounded_numeric_count == 0,
                 )
             ],
+            generalist_review_pass=generalist_review_pass,
+            generalist_review_score=generalist_review_score,
+            generalist_review_issues=[],
             policyengine_pass=policyengine_pass,
             policyengine_score=policyengine_score,
             policyengine_issues=[],

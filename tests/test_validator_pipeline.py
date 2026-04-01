@@ -1638,6 +1638,7 @@ class TestRunReviewer:
             "formula-reviewer",
             "parameter-reviewer",
             "integration-reviewer",
+            "generalist-reviewer",
             "Formula Reviewer",
             "Parameter Reviewer",
             "Integration Reviewer",
@@ -1651,6 +1652,17 @@ class TestRunReviewer:
                 )
                 result = pipeline._run_reviewer(reviewer_type, temp_rac_file)
                 assert result.validator_name == reviewer_type
+
+    def test_generalist_reviewer_uses_holistic_prompt(self, pipeline, temp_rac_file):
+        with patch("autorac.harness.validator_pipeline.run_claude_code") as mock_claude:
+            mock_claude.return_value = (
+                '{"score": 7.0, "passed": true, "issues": [], "reasoning": "ok"}',
+                0,
+            )
+            pipeline._run_reviewer("generalist-reviewer", temp_rac_file)
+            call_prompt = mock_claude.call_args[0][0]
+            assert "senior statutory-fidelity reviewer" in call_prompt
+            assert "No semantic compression" in call_prompt
 
     def test_reviewer_unknown_type(self, pipeline, temp_rac_file):
         """Unknown reviewer type uses 'overall quality' focus."""

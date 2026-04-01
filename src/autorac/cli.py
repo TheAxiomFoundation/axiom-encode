@@ -1825,6 +1825,10 @@ def _print_eval_metrics(result) -> None:
     print(
         f"  grounded={result.metrics.grounded_numeric_count} ungrounded={result.metrics.ungrounded_numeric_count} embedded_source={'yes' if result.metrics.embedded_source_present else 'no'}"
     )
+    if result.metrics.generalist_review_score is not None:
+        print(
+            f"  generalist_review={'yes' if result.metrics.generalist_review_pass else 'no'} score={result.metrics.generalist_review_score:.1f}/10"
+        )
     if result.metrics.policyengine_score is not None:
         print(
             f"  policyengine={'yes' if result.metrics.policyengine_pass else 'no'} score={result.metrics.policyengine_score:.1%}"
@@ -2145,8 +2149,13 @@ def cmd_eval_suite(args):
         print(
             f"  cases={summary.total_cases} success={summary.success_rate:.1%} "
             f"compile={summary.compile_pass_rate:.1%} ci={summary.ci_pass_rate:.1%} "
-            f"zero_ungrounded={summary.zero_ungrounded_rate:.1%}"
+            f"zero_ungrounded={summary.zero_ungrounded_rate:.1%} "
+            f"generalist_review={summary.generalist_review_pass_rate:.1%}"
         )
+        if summary.mean_generalist_review_score is not None:
+            print(
+                f"  mean_generalist_review_score={summary.mean_generalist_review_score:.2f}/10"
+            )
         if summary.policyengine_case_count:
             print(
                 f"  policyengine_cases={summary.policyengine_case_count} "
@@ -2168,6 +2177,7 @@ def cmd_eval_suite(args):
                 or not result.metrics.compile_pass
                 or not result.metrics.ci_pass
                 or result.metrics.ungrounded_numeric_count > 0
+                or result.metrics.generalist_review_pass is False
             )
         ]
         if notable_failures:
@@ -2177,7 +2187,8 @@ def cmd_eval_suite(args):
                     f"    - {result.citation}: success={result.success} "
                     f"compile={getattr(result.metrics, 'compile_pass', None)} "
                     f"ci={getattr(result.metrics, 'ci_pass', None)} "
-                    f"ungrounded={getattr(result.metrics, 'ungrounded_numeric_count', None)}"
+                    f"ungrounded={getattr(result.metrics, 'ungrounded_numeric_count', None)} "
+                    f"generalist={getattr(result.metrics, 'generalist_review_pass', None)}"
                 )
         print()
 
@@ -2224,6 +2235,13 @@ def _format_duration_seconds(value_ms: float | None) -> str:
     if value_ms is None:
         return "n/a"
     return f"{(value_ms / 1000):.1f}"
+
+
+def _format_generalist_score(value: float | None) -> str:
+    """Format optional 0-10 reviewer scores."""
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}/10"
 
 
 def _build_eval_suite_report(payload: dict, left_runner: str, right_runner: str) -> dict:
@@ -2399,6 +2417,8 @@ def _render_eval_suite_report_markdown(report: dict) -> str:
         f"| Compile pass rate | {_format_percent(left_summary.get('compile_pass_rate'))} | {_format_percent(right_summary.get('compile_pass_rate'))} |",
         f"| CI pass rate | {_format_percent(left_summary.get('ci_pass_rate'))} | {_format_percent(right_summary.get('ci_pass_rate'))} |",
         f"| Zero-ungrounded rate | {_format_percent(left_summary.get('zero_ungrounded_rate'))} | {_format_percent(right_summary.get('zero_ungrounded_rate'))} |",
+        f"| Generalist review pass rate | {_format_percent(left_summary.get('generalist_review_pass_rate'))} | {_format_percent(right_summary.get('generalist_review_pass_rate'))} |",
+        f"| Mean generalist review score | {_format_generalist_score(left_summary.get('mean_generalist_review_score'))} | {_format_generalist_score(right_summary.get('mean_generalist_review_score'))} |",
         f"| PolicyEngine pass rate | {_format_percent(left_summary.get('policyengine_pass_rate'))} | {_format_percent(right_summary.get('policyengine_pass_rate'))} |",
         f"| Mean PolicyEngine score | {_format_percent(left_summary.get('mean_policyengine_score'))} | {_format_percent(right_summary.get('mean_policyengine_score'))} |",
         f"| Mean estimated cost | {_format_money(left_summary.get('mean_estimated_cost_usd'))} | {_format_money(right_summary.get('mean_estimated_cost_usd'))} |",

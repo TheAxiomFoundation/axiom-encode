@@ -319,6 +319,8 @@ class TestCmdEvalSuite:
             compile_pass_rate=1.0,
             ci_pass_rate=1.0,
             zero_ungrounded_rate=1.0,
+            generalist_review_pass_rate=1.0,
+            mean_generalist_review_score=8.0,
             policyengine_case_count=0,
             mean_estimated_cost_usd=0.25,
             gate_results=[],

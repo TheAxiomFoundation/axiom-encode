@@ -125,6 +125,9 @@ class EvalArtifactMetrics:
     covered_source_numeric_occurrence_count: int = 0
     missing_source_numeric_occurrence_count: int = 0
     numeric_occurrence_issues: list[str] = field(default_factory=list)
+    generalist_review_pass: bool | None = None
+    generalist_review_score: float | None = None
+    generalist_review_issues: list[str] = field(default_factory=list)
     policyengine_pass: bool | None = None
     policyengine_score: float | None = None
     policyengine_issues: list[str] = field(default_factory=list)
@@ -209,6 +212,7 @@ class EvalReadinessGates:
     min_compile_pass_rate: float | None = None
     min_ci_pass_rate: float | None = None
     min_zero_ungrounded_rate: float | None = None
+    min_generalist_review_pass_rate: float | None = 1.0
     min_policyengine_pass_rate: float | None = None
     max_mean_estimated_cost_usd: float | None = None
 
@@ -267,6 +271,8 @@ class EvalReadinessSummary:
     compile_pass_rate: float
     ci_pass_rate: float
     zero_ungrounded_rate: float
+    generalist_review_pass_rate: float
+    mean_generalist_review_score: float | None
     policyengine_case_count: int
     policyengine_pass_rate: float | None
     mean_policyengine_score: float | None
@@ -942,6 +948,9 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
         min_zero_ungrounded_rate=_optional_float(
             gates_raw.get("min_zero_ungrounded_rate")
         ),
+        min_generalist_review_pass_rate=_optional_float(
+            gates_raw.get("min_generalist_review_pass_rate", 1.0)
+        ),
         min_policyengine_pass_rate=_optional_float(
             gates_raw.get("min_policyengine_pass_rate")
         ),
@@ -1188,6 +1197,23 @@ def summarize_readiness(
         ),
         total_cases,
     )
+    generalist_review_pass_rate = _fraction(
+        sum(
+            1
+            for result in results
+            if result.metrics is not None and result.metrics.generalist_review_pass
+        ),
+        total_cases,
+    )
+    generalist_scores = [
+        result.metrics.generalist_review_score
+        for result in results
+        if result.metrics is not None
+        and result.metrics.generalist_review_score is not None
+    ]
+    mean_generalist_review_score = (
+        round(mean(generalist_scores), 6) if generalist_scores else None
+    )
 
     policyengine_results = [
         result
@@ -1255,6 +1281,14 @@ def summarize_readiness(
                 gates.min_zero_ungrounded_rate,
             )
         )
+    if gates.min_generalist_review_pass_rate is not None:
+        gate_results.append(
+            _min_gate(
+                "min_generalist_review_pass_rate",
+                generalist_review_pass_rate,
+                gates.min_generalist_review_pass_rate,
+            )
+        )
     if gates.min_policyengine_pass_rate is not None:
         gate_results.append(
             _min_gate(
@@ -1278,6 +1312,8 @@ def summarize_readiness(
         compile_pass_rate=compile_pass_rate,
         ci_pass_rate=ci_pass_rate,
         zero_ungrounded_rate=zero_ungrounded_rate,
+        generalist_review_pass_rate=generalist_review_pass_rate,
+        mean_generalist_review_score=mean_generalist_review_score,
         policyengine_case_count=policyengine_case_count,
         policyengine_pass_rate=policyengine_pass_rate,
         mean_policyengine_score=mean_policyengine_score,
@@ -1581,6 +1617,35 @@ def evaluate_artifact(
                 issues=[str(exc)],
             )
 
+    oracle_context: dict[str, dict[str, object]] = {}
+    if policyengine_result is not None:
+        oracle_context["policyengine"] = {
+            "score": policyengine_result.score,
+            "passed": policyengine_result.passed,
+            "issues": policyengine_result.issues,
+            "duration_ms": policyengine_result.duration_ms,
+        }
+    if taxsim_result is not None:
+        oracle_context["taxsim"] = {
+            "score": taxsim_result.score,
+            "passed": taxsim_result.passed,
+            "issues": taxsim_result.issues,
+            "duration_ms": taxsim_result.duration_ms,
+        }
+    try:
+        generalist_review_result = pipeline._run_reviewer(
+            "generalist-reviewer",
+            rac_file,
+            oracle_context or None,
+        )
+    except Exception as exc:
+        generalist_review_result = ValidationResult(
+            validator_name="generalist-reviewer",
+            passed=False,
+            error=str(exc),
+            issues=[f"Reviewer error: {exc}"],
+        )
+
     content = rac_file.read_text()
     embedded_source = extract_embedded_source_text(content)
     source_numbers = extract_numbers_from_text(embedded_source or source_text)
@@ -1634,6 +1699,9 @@ def evaluate_artifact(
         covered_source_numeric_occurrence_count=covered_source_numeric_occurrence_count,
         missing_source_numeric_occurrence_count=missing_source_numeric_occurrence_count,
         numeric_occurrence_issues=numeric_occurrence_issues,
+        generalist_review_pass=generalist_review_result.passed,
+        generalist_review_score=generalist_review_result.score,
+        generalist_review_issues=generalist_review_result.issues,
         policyengine_pass=(
             policyengine_result.passed if policyengine_result is not None else None
         ),

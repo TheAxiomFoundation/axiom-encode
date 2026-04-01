@@ -135,6 +135,21 @@ Review the RAC file for integration quality:
     + _REVIEW_JSON_FORMAT
 )
 
+GENERALIST_REVIEWER_PROMPT = (
+    """You are a senior statutory-fidelity reviewer for RAC (Rules as Code) encodings.
+
+Review the file holistically for:
+1. **Filepath = citation**: The file encodes exactly the cited provision, not nearby law.
+2. **Whole-rule fidelity**: All operative branches, exceptions, and conditions from the cited text are present.
+3. **No semantic compression**: Distinct statutory branches or repeated scalar occurrences are not collapsed into a single over-generic helper.
+4. **Defined terms and imports**: Explicitly or implicitly legally defined terms are imported from their canonical source when one exists.
+5. **Fact modeling**: Factual predicates are modeled as inputs or canonical imports, not hard-coded booleans or deferred placeholders.
+6. **Entity / period / dtype plausibility**: Core variables use a coherent ontology for the rule being encoded.
+7. **Tests reflect applicability**: Tests cover both applicable and inapplicable branches when the source text makes them meaningful.
+"""
+    + _REVIEW_JSON_FORMAT
+)
+
 GROUNDING_VALUE_PATTERN = re.compile(
     r"^\s*(?:from\s+\d{4}-\d{2}-\d{2}:\s*|value:\s*)"
     r"(-?[\d,]+(?:\.\d+)?)"
@@ -1594,10 +1609,14 @@ class ValidatorPipeline:
             "formula-reviewer": "logic correctness, edge cases, circular dependencies, return statements, type consistency",
             "parameter-reviewer": "no magic numbers (only -1,0,1,2,3 allowed), parameter sourcing, time-varying values",
             "integration-reviewer": "test coverage, dependency resolution, documentation, completeness",
+            "generalist-reviewer": "overall statutory fidelity, missing or merged branches, defined terms, factual predicates, and suspicious semantic compression",
             "Formula Reviewer": "logic correctness, edge cases, circular dependencies, return statements",
             "Parameter Reviewer": "no magic numbers (only -1,0,1,2,3 allowed), parameter sourcing",
             "Integration Reviewer": "test coverage, dependency resolution, documentation",
         }.get(reviewer_type, "overall quality")
+        prompt_template = {
+            "generalist-reviewer": GENERALIST_REVIEWER_PROMPT,
+        }.get(reviewer_type)
 
         # Build oracle context section if available
         oracle_section = ""
@@ -1610,7 +1629,26 @@ class ValidatorPipeline:
                 if ctx.get("issues"):
                     oracle_section += f"- Issues: {', '.join(ctx['issues'][:3])}\n"
 
-        prompt = f"""Review this RAC file for: {review_focus}
+        if prompt_template is not None:
+            prompt = f"""{prompt_template}
+
+---
+
+# TASK
+
+Review this encoding holistically.
+
+File: {rac_file}
+
+Content:
+{rac_content[:6000]}{"..." if len(rac_content) > 6000 else ""}
+{oracle_section}
+If oracle validators show discrepancies, investigate WHY the encoding differs from consensus.
+
+Output ONLY valid JSON matching the schema above.
+"""
+        else:
+            prompt = f"""Review this RAC file for: {review_focus}
 
 File: {rac_file}
 
