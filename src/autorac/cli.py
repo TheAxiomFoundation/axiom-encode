@@ -2219,6 +2219,13 @@ def _format_money(value: float | None) -> str:
     return f"${value:.4f}"
 
 
+def _format_duration_seconds(value_ms: float | None) -> str:
+    """Format optional millisecond durations as seconds."""
+    if value_ms is None:
+        return "n/a"
+    return f"{(value_ms / 1000):.1f}"
+
+
 def _build_eval_suite_report(payload: dict, left_runner: str, right_runner: str) -> dict:
     """Build a structured pairwise report from eval-suite JSON output."""
     results = payload.get("results", []) or []
@@ -2395,7 +2402,7 @@ def _render_eval_suite_report_markdown(report: dict) -> str:
         f"| PolicyEngine pass rate | {_format_percent(left_summary.get('policyengine_pass_rate'))} | {_format_percent(right_summary.get('policyengine_pass_rate'))} |",
         f"| Mean PolicyEngine score | {_format_percent(left_summary.get('mean_policyengine_score'))} | {_format_percent(right_summary.get('mean_policyengine_score'))} |",
         f"| Mean estimated cost | {_format_money(left_summary.get('mean_estimated_cost_usd'))} | {_format_money(right_summary.get('mean_estimated_cost_usd'))} |",
-        f"| Mean duration (s) | {((left_summary.get('mean_duration_ms') or 0) / 1000):.1f if left_summary.get('mean_duration_ms') is not None else 'n/a'} | {((right_summary.get('mean_duration_ms') or 0) / 1000):.1f if right_summary.get('mean_duration_ms') is not None else 'n/a'} |",
+        f"| Mean duration (s) | {_format_duration_seconds(left_summary.get('mean_duration_ms'))} | {_format_duration_seconds(right_summary.get('mean_duration_ms'))} |",
         "",
         "## Pairwise counts",
         "",

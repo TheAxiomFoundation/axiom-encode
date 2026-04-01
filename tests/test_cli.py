@@ -388,6 +388,7 @@ class TestCmdEvalSuiteReport:
                     "policyengine_pass_rate": 1.0,
                     "mean_policyengine_score": 1.0,
                     "mean_estimated_cost_usd": 0.1,
+                    "mean_duration_ms": 1000,
                 },
                 "claude-opus": {
                     "total_cases": 1,
@@ -398,6 +399,7 @@ class TestCmdEvalSuiteReport:
                     "policyengine_pass_rate": 1.0,
                     "mean_policyengine_score": 0.5,
                     "mean_estimated_cost_usd": 0.2,
+                    "mean_duration_ms": 2000,
                 },
             },
         }
