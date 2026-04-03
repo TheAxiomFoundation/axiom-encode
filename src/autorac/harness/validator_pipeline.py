@@ -33,7 +33,10 @@ import yaml
 
 from autorac.constants import REVIEWER_CLI_MODEL
 
-from .dependency_stubs import resolve_defined_terms_from_text
+from .dependency_stubs import (
+    resolve_canonical_concepts_from_text,
+    resolve_defined_terms_from_text,
+)
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
 
 
@@ -1011,6 +1014,8 @@ class ValidatorPipeline:
             issues.append(f"Cross-reference import check exception: {e}")
         with contextlib.suppress(Exception):
             issues.extend(self._check_resolved_defined_term_imports(rac_file))
+        with contextlib.suppress(Exception):
+            issues.extend(self._check_resolved_canonical_concept_imports(rac_file))
 
         with contextlib.suppress(Exception):
             issues.extend(self._check_embedded_scalar_literals(rac_file))
@@ -1196,6 +1201,34 @@ class ValidatorPipeline:
                 "Defined term import missing: "
                 f'`{term.term}` resolves to {term.citation} but file does not import '
                 f"from {import_base}"
+            )
+        return issues
+
+    def _check_resolved_canonical_concept_imports(self, rac_file: Path) -> list[str]:
+        """Flag missing imports for uniquely resolved nearby canonical concepts."""
+        content = rac_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        imports = self._extract_import_paths(content)
+        source_root = self._validation_source_root(rac_file)
+        issues: list[str] = []
+        for concept in resolve_canonical_concepts_from_text(
+            source_text,
+            source_root,
+            current_file=rac_file,
+        ):
+            import_base = concept.import_target.split("#", 1)[0]
+            if any(
+                existing == import_base or existing.startswith(import_base + "/")
+                for existing in imports
+            ):
+                continue
+            issues.append(
+                "Canonical concept import missing: "
+                f'`{concept.term}` resolves to {concept.citation} via '
+                f"{concept.import_target} but file does not import from {import_base}"
             )
         return issues
 

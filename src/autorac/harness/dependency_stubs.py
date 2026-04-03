@@ -22,6 +22,21 @@ class ResolvedDefinedTerm:
     label: str
 
 
+@dataclass(frozen=True)
+class ResolvedCanonicalConcept:
+    """One high-confidence nearby canonical concept resolved from the corpus."""
+
+    term: str
+    import_target: str
+    symbol: str
+    citation: str
+    entity: str
+    period: str
+    dtype: str
+    label: str
+    source_file: Path
+
+
 _REGISTERED_DEFINED_TERM_PATTERNS: tuple[tuple[re.Pattern[str], ResolvedDefinedTerm], ...] = (
     (
         re.compile(r"\bmixed-age couple\b", re.IGNORECASE),
@@ -46,6 +61,14 @@ _REGISTERED_STUBS_BY_KEY = {
     (term.import_target.split("#", 1)[0], term.symbol): term
     for _, term in _REGISTERED_DEFINED_TERM_PATTERNS
 }
+_EMBEDDED_SOURCE_PATTERN = re.compile(r'\s*"""(.*?)"""\s*', re.DOTALL)
+_TOP_LEVEL_SYMBOL_PATTERN = re.compile(r"^([A-Za-z_]\w*):\s*$")
+_METADATA_PATTERN = re.compile(r"^\s+(entity|period|dtype):\s*(.+?)\s*$")
+_QUOTED_DEFINITION_PATTERN = re.compile(
+    r"[\"“]([^\"”]+)[\"”](?:\s+or\s+[\"“]([^\"”]+)[\"”])?\s+means\b",
+    re.IGNORECASE,
+)
+_SOURCE_ROOT_SEGMENTS = {"legislation", "statute", "regulation"}
 
 
 def resolve_defined_terms_from_text(text: str) -> list[ResolvedDefinedTerm]:
@@ -54,6 +77,47 @@ def resolve_defined_terms_from_text(text: str) -> list[ResolvedDefinedTerm]:
     for pattern, term in _REGISTERED_DEFINED_TERM_PATTERNS:
         if pattern.search(text) and term not in resolved:
             resolved.append(term)
+    return resolved
+
+
+def resolve_canonical_concepts_from_text(
+    text: str,
+    corpus_root: Path,
+    *,
+    current_file: Path | None = None,
+) -> list[ResolvedCanonicalConcept]:
+    """Resolve high-confidence reusable legal concepts from nearby corpus files."""
+    index: dict[str, list[ResolvedCanonicalConcept]] = {}
+
+    for candidate_file in sorted(corpus_root.rglob("*.rac")):
+        if current_file is not None and candidate_file.resolve() == current_file.resolve():
+            continue
+
+        candidate = _build_canonical_concept_candidate(candidate_file, corpus_root)
+        if candidate is None:
+            continue
+
+        for term in _extract_defined_concept_terms_from_source(
+            _extract_embedded_source_text(candidate_file.read_text())
+        ):
+            index.setdefault(term, []).append(_with_concept_term(candidate, term))
+
+    resolved: list[ResolvedCanonicalConcept] = []
+    seen_targets: set[tuple[str, str]] = set()
+
+    for term, candidates in index.items():
+        if len(candidates) != 1:
+            continue
+        if not _source_text_mentions_term(text, term):
+            continue
+
+        candidate = candidates[0]
+        key = (candidate.import_target, candidate.symbol)
+        if key in seen_targets:
+            continue
+        seen_targets.add(key)
+        resolved.append(candidate)
+
     return resolved
 
 
@@ -137,3 +201,170 @@ def materialize_registered_stub(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(build_registered_stub_content(specs))
     return target
+
+
+def _extract_embedded_source_text(content: str) -> str:
+    match = _EMBEDDED_SOURCE_PATTERN.match(content)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_defined_concept_terms_from_source(source_text: str) -> list[str]:
+    terms: list[str] = []
+    for match in _QUOTED_DEFINITION_PATTERN.finditer(source_text):
+        for group in match.groups():
+            raw = " ".join((group or "").split()).strip()
+            normalized = _normalize_concept_term(group)
+            if not normalized or not _is_high_confidence_term(raw):
+                continue
+            if normalized not in terms:
+                terms.append(normalized)
+    return terms
+
+
+def _normalize_concept_term(term: str | None) -> str:
+    if not term:
+        return ""
+    return " ".join(term.split()).strip().lower()
+
+
+def _is_high_confidence_term(raw_term: str) -> bool:
+    if not raw_term:
+        return False
+    if len(raw_term.split()) >= 2:
+        return True
+    return raw_term.isupper()
+
+
+def _source_text_mentions_term(source_text: str, term: str) -> bool:
+    if not term:
+        return False
+    escaped = re.escape(term)
+    patterns = (
+        rf"[\"“]{escaped}[\"”]",
+        rf"(?im)^\s*{escaped}(?=$|[\s),.;:])",
+        rf"\b(?:a|an|the|this|that|these|those|such|any|each|every)\s+{escaped}(?=$|[\s),.;:])",
+        rf"\b(?:of|for|to|by|in|from|with|under|on|into)\s+(?:(?:a|an|the|this|that|these|those)\s+)?{escaped}(?=$|[\s),.;:])",
+    )
+    return any(re.search(pattern, source_text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def _build_canonical_concept_candidate(
+    candidate_file: Path,
+    corpus_root: Path,
+) -> ResolvedCanonicalConcept | None:
+    content = candidate_file.read_text()
+    source_text = _extract_embedded_source_text(content)
+    if not source_text:
+        return None
+
+    metadata = _extract_principal_symbol_metadata(content)
+    if metadata is None:
+        return None
+
+    symbol, entity, period, dtype = metadata
+    try:
+        relative = candidate_file.resolve().relative_to(corpus_root.resolve())
+    except ValueError:
+        return None
+
+    if not relative.parts or relative.parts[0] not in _SOURCE_ROOT_SEGMENTS:
+        return None
+
+    citation = _first_nonempty_line(source_text) or relative.as_posix()
+    import_base = relative.with_suffix("").as_posix()
+    return ResolvedCanonicalConcept(
+        term="",
+        import_target=f"{import_base}#{symbol}",
+        symbol=symbol,
+        citation=citation,
+        entity=entity,
+        period=period,
+        dtype=dtype,
+        label="",
+        source_file=candidate_file,
+    )
+
+
+def _extract_principal_symbol_metadata(
+    content: str,
+) -> tuple[str, str, str, str] | None:
+    current_name: str | None = None
+    current_entity: str | None = None
+    current_period: str | None = None
+    current_dtype: str | None = None
+    principal: tuple[str, str, str, str] | None = None
+
+    for line in content.splitlines():
+        header_match = _TOP_LEVEL_SYMBOL_PATTERN.match(line)
+        if header_match:
+            if (
+                current_name is not None
+                and current_entity is not None
+                and current_period is not None
+                and current_dtype is not None
+            ):
+                principal = (
+                    current_name,
+                    current_entity,
+                    current_period,
+                    current_dtype,
+                )
+            current_name = header_match.group(1)
+            current_entity = None
+            current_period = None
+            current_dtype = None
+            continue
+
+        metadata_match = _METADATA_PATTERN.match(line)
+        if metadata_match and current_name is not None:
+            key, value = metadata_match.groups()
+            cleaned = value.strip().strip('"').strip("'")
+            if key == "entity":
+                current_entity = cleaned
+            elif key == "period":
+                current_period = cleaned
+            elif key == "dtype":
+                current_dtype = cleaned
+
+    if (
+        current_name is not None
+        and current_entity is not None
+        and current_period is not None
+        and current_dtype is not None
+    ):
+        principal = (
+            current_name,
+            current_entity,
+            current_period,
+            current_dtype,
+        )
+
+    return principal
+
+
+def _first_nonempty_line(text: str) -> str | None:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _with_concept_term(
+    candidate: ResolvedCanonicalConcept,
+    term: str,
+) -> ResolvedCanonicalConcept:
+    return ResolvedCanonicalConcept(
+        term=term,
+        import_target=candidate.import_target,
+        symbol=candidate.symbol,
+        citation=candidate.citation,
+        entity=candidate.entity,
+        period=candidate.period,
+        dtype=candidate.dtype,
+        label=(
+            f"`{term}` -> import `{candidate.import_target}` "
+            f"({candidate.citation})"
+        ),
+        source_file=candidate.source_file,
+    )

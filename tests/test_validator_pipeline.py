@@ -1407,6 +1407,174 @@ savings_credit_condition:
 
         assert not any("Defined term import missing" in issue for issue in result.issues)
 
+    def test_ci_requires_import_for_resolved_canonical_concept(self, pipeline):
+        """CI should fail when a unique nearby canonical concept exists but is modeled locally."""
+        concept_file = pipeline.rac_us_path / "statute" / "crs" / "26-2-703" / "12.rac"
+        concept_file.parent.mkdir(parents=True, exist_ok=True)
+        concept_file.write_text(
+            '''
+"""
+C.R.S. § 26-2-703(12)
+Definitions
+
+"Individual responsibility contract" or "IRC" means the contract entered into by the participant and the county department pursuant to section 26-2-708.
+"""
+
+is_individual_responsibility_contract:
+    entity: Person
+    period: Month
+    dtype: Boolean
+'''
+        )
+
+        rac_file = pipeline.rac_us_path / "regulation" / "9-CCR-2503-6" / "3.609.1" / "A.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+The participant must comply with the individual responsibility contract.
+"""
+
+status: encoded
+
+individual_responsibility_contract_requirement_satisfied:
+    entity: Person
+    period: Month
+    dtype: Boolean
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert result.passed is False
+        assert any("Canonical concept import missing" in issue for issue in result.issues)
+        assert any("individual responsibility contract" in issue for issue in result.issues)
+
+    def test_ci_allows_import_for_resolved_canonical_concept(self, pipeline):
+        """CI should allow a uniquely resolved nearby canonical concept import."""
+        concept_file = pipeline.rac_us_path / "statute" / "crs" / "26-2-703" / "12.rac"
+        concept_file.parent.mkdir(parents=True, exist_ok=True)
+        concept_file.write_text(
+            '''
+"""
+C.R.S. § 26-2-703(12)
+Definitions
+
+"Individual responsibility contract" or "IRC" means the contract entered into by the participant and the county department pursuant to section 26-2-708.
+"""
+
+is_individual_responsibility_contract:
+    entity: Person
+    period: Month
+    dtype: Boolean
+'''
+        )
+
+        rac_file = pipeline.rac_us_path / "regulation" / "9-CCR-2503-6" / "3.609.1" / "A.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+The participant must comply with the individual responsibility contract.
+"""
+
+status: encoded
+
+individual_responsibility_contract_requirement_satisfied:
+    imports:
+        - statute/crs/26-2-703/12#is_individual_responsibility_contract
+    entity: Person
+    period: Month
+    dtype: Boolean
+    from 2026-04-03:
+        is_individual_responsibility_contract
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert not any("Canonical concept import missing" in issue for issue in result.issues)
+
+    def test_ci_does_not_force_import_for_low_confidence_one_word_concept(self, pipeline):
+        """Generic one-word concepts like `income` should not become required imports."""
+        concept_file = pipeline.rac_us_path / "statute" / "crs" / "26-2-703" / "10.5.rac"
+        concept_file.parent.mkdir(parents=True, exist_ok=True)
+        concept_file.write_text(
+            '''
+"""
+C.R.S. § 26-2-703(10.5)
+Definitions
+
+"Income" means any cash or gain received by a member of an assistance unit.
+"""
+
+is_income:
+    entity: Person
+    period: Month
+    dtype: Boolean
+'''
+        )
+
+        rac_file = pipeline.rac_us_path / "regulation" / "9-CCR-2503-6" / "3.605.2" / "X.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            '''
+"""
+Income is considered for eligibility in the month of application.
+"""
+
+status: encoded
+
+income_is_considered_for_eligibility:
+    entity: Person
+    period: Month
+    dtype: Boolean
+'''
+        )
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                Mock(
+                    stdout="============================================================\nTests: 1  Passed: 1  Failed: 0\nAll tests passed.\n",
+                    stderr="",
+                    returncode=0,
+                ),
+                Mock(
+                    stdout="Checked 1 .rac files\n\nAll files pass validation\n",
+                    stderr="",
+                    returncode=0,
+                ),
+            ]
+            result = pipeline._run_ci(rac_file)
+
+        assert not any("Canonical concept import missing" in issue for issue in result.issues)
+
     def test_ci_rejects_constant_placeholder_fact_variables(self, pipeline):
         """CI should reject source-derived fact variables encoded as constant booleans."""
         rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"

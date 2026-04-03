@@ -30,9 +30,11 @@ from autorac.statute import (
 )
 
 from .dependency_stubs import (
+    ResolvedCanonicalConcept,
     ResolvedDefinedTerm,
     import_target_to_relative_rac_path,
     materialize_registered_stub,
+    resolve_canonical_concepts_from_text,
     resolve_defined_terms_from_text,
 )
 from .encoding_db import TokenUsage
@@ -1476,11 +1478,25 @@ def prepare_eval_workspace(
 
     context_files: list[EvalContextFile] = []
     context_root = workspace_root / "context"
+    target_rel = _target_rel_for_eval_identifier(citation)
+    current_file = rac_path / target_rel if target_rel is not None else None
     for resolved_term in resolve_defined_terms_from_text(source_text):
         context_files.append(
             _materialize_resolved_definition_stub(
                 context_root=context_root,
                 resolved_term=resolved_term,
+                workspace_root=workspace_root,
+            )
+        )
+    for resolved_concept in resolve_canonical_concepts_from_text(
+        source_text,
+        rac_path,
+        current_file=current_file,
+    ):
+        context_files.append(
+            _materialize_resolved_canonical_concept(
+                context_root=context_root,
+                resolved_concept=resolved_concept,
                 workspace_root=workspace_root,
             )
         )
@@ -1494,7 +1510,6 @@ def prepare_eval_workspace(
             if path.exists():
                 selected.append(path)
 
-        target_rel = _target_rel_for_eval_identifier(citation)
         expanded_context = _expand_context_files(selected, rac_us_root, target_rel)
 
         for source_path, kind in expanded_context:
@@ -1559,6 +1574,27 @@ def _materialize_resolved_definition_stub(
         workspace_path=str(relative_target),
         kind="definition_stub",
         label=resolved_term.label,
+    )
+
+
+def _materialize_resolved_canonical_concept(
+    *,
+    context_root: Path,
+    resolved_concept: ResolvedCanonicalConcept,
+    workspace_root: Path,
+) -> EvalContextFile:
+    """Copy one resolved canonical concept file into the eval workspace context."""
+    relative_target = Path("context") / import_target_to_relative_rac_path(
+        resolved_concept.import_target
+    )
+    target = workspace_root / relative_target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(resolved_concept.source_file, target)
+    return EvalContextFile(
+        source_path=str(resolved_concept.source_file),
+        workspace_path=str(relative_target),
+        kind="canonical_concept",
+        label=resolved_concept.label,
     )
 
 
@@ -1947,8 +1983,13 @@ def _build_eval_prompt(
     definition_context_files = [
         item for item in context_files if item.kind == "definition_stub"
     ]
+    canonical_concept_context_files = [
+        item for item in context_files if item.kind == "canonical_concept"
+    ]
     precedent_context_files = [
-        item for item in context_files if item.kind != "definition_stub"
+        item
+        for item in context_files
+        if item.kind not in {"definition_stub", "canonical_concept"}
     ]
 
     inline_source_section = ""
@@ -1993,6 +2034,38 @@ resolved_term_local_name:
 Do not replace that import with a local deferred stub or a path-mangled variable name like
 `legislation_ukpga_2002_16_section_3ZA_3_is_member_of_mixed_age_couple`.
 {inline_definition_copies}
+"""
+
+    canonical_concept_section = ""
+    if canonical_concept_context_files:
+        listed_concepts = "\n".join(
+            f"- `{item.workspace_path}`: {item.label or item.source_path}"
+            for item in canonical_concept_context_files
+        )
+        inline_concept_copies = ""
+        if runner_backend == "openai":
+            inline_concept_copies = f"""
+
+Inline canonical concept file copies:
+{_format_inline_context_snippets(workspace, canonical_concept_context_files)}
+"""
+        canonical_concept_section = f"""
+Resolved canonical concept files from this corpus are available below.
+If `./source.txt` uses one of these legal concepts, import the listed canonical definition instead of restating that concept locally:
+{listed_concepts}
+
+Exact RAC import syntax for a copied canonical concept:
+local_fact_name:
+    imports:
+        - statute/crs/26-2-703/12#is_individual_responsibility_contract
+    entity: Person
+    period: Month
+    dtype: Boolean
+    from 2026-04-03:
+        is_individual_responsibility_contract
+
+Because the canonical concept file already exists in this workspace, do not keep that concept as a leaf-local helper when the listed import target matches the source text.
+{inline_concept_copies}
 """
 
     context_section = ""
@@ -2135,7 +2208,7 @@ Primary legal authority:
 {inline_source_section}
 
 Context mode: `{mode}`
-{definition_section}{context_section}
+{definition_section}{canonical_concept_section}{context_section}
 
 Rules:
 - Do not inspect or rely on any path outside this workspace.
@@ -2154,7 +2227,9 @@ Rules:
 - Use RAC DSL conventions.
 - If `./source.txt` explicitly cites another section or source for a definition, emit the upstream import instead of restating the concept locally.
 - If `./source.txt` uses a legally-defined term for which a resolved canonical definition file is provided above, import that canonical definition instead of inventing a leaf-local helper.
+- If `./source.txt` uses a legal concept for which a copied canonical concept file is provided above, import or re-export that exact canonical concept instead of duplicating it locally.
 - For resolved definition files listed above, the required syntax is an `imports:` block that references the exact `path#symbol` target.
+- For copied canonical concept files listed above, the required syntax is an `imports:` block that references the exact `path#symbol` target.
 - Do not replace a resolved canonical import with a local deferred symbol whose name is just a mangled version of the import target.
 - If that cited upstream file is absent from this workspace, still emit the unresolved import path; the external-stub workflow is expected to fill it in later.
 - If the source text only implies a shared concept, import an existing canonical concept only when one is actually present in the workspace; otherwise keep the helper local to this leaf.

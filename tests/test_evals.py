@@ -2074,6 +2074,47 @@ class TestEvalPrompt:
         assert stub_path.exists()
         assert "is_member_of_mixed_age_couple" in stub_path.read_text()
 
+    def test_prepare_eval_workspace_copies_resolved_canonical_concept_file(
+        self, tmp_path
+    ):
+        rac_root = tmp_path / "rac-us-co"
+        concept_file = rac_root / "statute" / "crs" / "26-2-703" / "12.rac"
+        concept_file.parent.mkdir(parents=True, exist_ok=True)
+        concept_file.write_text(
+            '''
+"""
+C.R.S. § 26-2-703(12)
+Definitions
+
+"Individual responsibility contract" or "IRC" means the contract entered into by the participant and the county department pursuant to section 26-2-708.
+"""
+
+is_individual_responsibility_contract:
+    entity: Person
+    period: Month
+    dtype: Boolean
+'''
+        )
+
+        workspace = prepare_eval_workspace(
+            citation="co/regulation/3.609.1/A",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="The participant must comply with the individual responsibility contract.",
+            rac_path=rac_root,
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        concept_files = [
+            item for item in workspace.context_files if item.kind == "canonical_concept"
+        ]
+        assert len(concept_files) == 1
+        assert concept_files[0].workspace_path == "context/statute/crs/26-2-703/12.rac"
+        copied_path = workspace.root / concept_files[0].workspace_path
+        assert copied_path.exists()
+        assert "is_individual_responsibility_contract" in copied_path.read_text()
+
     def test_hydrate_eval_root_places_resolved_definition_stub_under_runner_root(
         self, tmp_path
     ):
@@ -2129,6 +2170,53 @@ class TestEvalPrompt:
         assert "Do not encode such local factual predicates as placeholder constants like `true` or `false`." in prompt
         assert "Do not encode such local factual predicates as `status: deferred`" in prompt
         assert "do not collapse the principal output to an unconditional `true` or `false`" in prompt
+
+    def test_build_eval_prompt_includes_resolved_canonical_concept_guidance(
+        self, tmp_path
+    ):
+        rac_root = tmp_path / "rac-us-co"
+        concept_file = rac_root / "statute" / "crs" / "26-2-703" / "12.rac"
+        concept_file.parent.mkdir(parents=True, exist_ok=True)
+        concept_file.write_text(
+            '''
+"""
+C.R.S. § 26-2-703(12)
+Definitions
+
+"Individual responsibility contract" or "IRC" means the contract entered into by the participant and the county department pursuant to section 26-2-708.
+"""
+
+is_individual_responsibility_contract:
+    entity: Person
+    period: Month
+    dtype: Boolean
+'''
+        )
+
+        workspace = prepare_eval_workspace(
+            citation="co/regulation/3.609.1/A",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="The participant must comply with the individual responsibility contract.",
+            rac_path=rac_root,
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "co/regulation/3.609.1/A",
+            "cold",
+            workspace,
+            workspace.context_files,
+            target_file_name="example.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Resolved canonical concept files from this corpus are available below." in prompt
+        assert "individual responsibility contract" in prompt
+        assert "statute/crs/26-2-703/12#is_individual_responsibility_contract" in prompt
+        assert "import or re-export that exact canonical concept instead of duplicating it locally" in prompt
 
     def test_build_eval_prompt_includes_import_vs_local_helper_protocol(
         self, tmp_path
