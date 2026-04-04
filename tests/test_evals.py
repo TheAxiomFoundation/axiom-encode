@@ -476,6 +476,39 @@ example_timing_rule:
         assert "feed the asserted output back into `input:`" in prompt
         assert "treat the carve-out as displacing this slice" in prompt
 
+    def test_build_eval_prompt_for_branch_slice_preserves_binding_lead_in_conjuncts(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/10",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "This paragraph applies where the period which—\n\n"
+                "is a period of the same length as the period in respect of which "
+                "the last payment of the pre-increase assessed amount was made.\n\n"
+                "(b)\n\n"
+                "ends on the first increased payment date,"
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/10",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-10.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "distinguish mere placement context from binding lead-in conjuncts" in prompt
+        assert "preserve both conjuncts" in prompt
+        assert "do not drop the same-length requirement" in prompt
+
 
 class TestGeneratedBundleCleaning:
     def test_clean_generated_file_content_strips_fence_and_trailing_prose(self):
