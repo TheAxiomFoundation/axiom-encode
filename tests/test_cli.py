@@ -336,6 +336,17 @@ class TestCmdEvalSuite:
             ci_pass=True,
             ungrounded_numeric_count=0,
         )
+        fake_result.to_dict.return_value = {
+            "citation": "case-a",
+            "runner": "codex-gpt-5.4",
+            "success": True,
+            "error": None,
+            "metrics": {
+                "compile_pass": True,
+                "ci_pass": True,
+                "ungrounded_numeric_count": 0,
+            },
+        }
 
         fake_summary = MagicMock(
             ready=False,
@@ -347,6 +358,8 @@ class TestCmdEvalSuite:
             generalist_review_pass_rate=1.0,
             mean_generalist_review_score=8.0,
             policyengine_case_count=0,
+            policyengine_pass_rate=None,
+            mean_policyengine_score=None,
             mean_estimated_cost_usd=0.25,
             gate_results=[],
         )
@@ -370,6 +383,8 @@ class TestCmdEvalSuite:
         assert mock_run.call_args.kwargs["runner_specs"] == ["codex:gpt-5.4"]
         captured = capsys.readouterr()
         assert "NOT READY" in captured.out
+        assert (args.output / "results.json").exists()
+        assert (args.output / "summary.json").exists()
 
 
 class TestCmdEvalSuiteReport:

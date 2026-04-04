@@ -198,6 +198,14 @@ class TestExtractNumbersFromText:
         assert 1.0 in numbers
         assert 19.0 in numbers
 
+    def test_extracts_pence_amounts_as_decimal_pounds(self):
+        numbers = extract_numbers_from_text(
+            "Where the amount payable is less than 10 pence per week, it is not payable."
+        )
+
+        assert 0.1 in numbers
+        assert 10.0 not in numbers
+
 
 class TestExtractNumericOccurrencesFromText:
     def test_ignores_structural_references_and_counts_repeated_scalars(self):
@@ -250,6 +258,17 @@ date shown against that period in column 2 of that table.
 
         assert 1.0 not in occurrences
         assert 2.0 not in occurrences
+
+    def test_counts_pence_occurrences_as_decimal_pounds(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+Where the amount of state pension credit payable is less than 10 pence per week,
+the credit shall not be payable. A deduction of 10 pence per week is ignored.
+"""
+        )
+
+        assert occurrences.count(0.1) == 2
+        assert 10.0 not in occurrences
 
 
 class TestExtractNamedScalarOccurrences:

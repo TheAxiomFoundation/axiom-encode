@@ -16,7 +16,7 @@ import csv
 import json
 import os
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 from .harness.encoding_db import (
@@ -2147,6 +2147,91 @@ def _format_gate_result(gate) -> str:
     )
 
 
+def _serialize_eval_result(result) -> dict:
+    """Return a JSON-serializable eval result payload."""
+    if hasattr(result, "to_dict"):
+        return result.to_dict()
+    if isinstance(result, dict):
+        return result
+    return {
+        "citation": getattr(result, "citation", None),
+        "runner": getattr(result, "runner", None),
+        "backend": getattr(result, "backend", None),
+        "model": getattr(result, "model", None),
+        "mode": getattr(result, "mode", None),
+        "output_file": getattr(result, "output_file", None),
+        "trace_file": getattr(result, "trace_file", None),
+        "context_manifest_file": getattr(result, "context_manifest_file", None),
+        "duration_ms": getattr(result, "duration_ms", None),
+        "success": getattr(result, "success", None),
+        "error": getattr(result, "error", None),
+        "metrics": getattr(result, "metrics", None),
+    }
+
+
+def _serialize_gate_result(gate) -> dict:
+    """Return a JSON-serializable readiness gate payload."""
+    if is_dataclass(gate):
+        return asdict(gate)
+    if isinstance(gate, dict):
+        return gate
+    return {
+        "name": getattr(gate, "name", None),
+        "comparator": getattr(gate, "comparator", None),
+        "threshold": getattr(gate, "threshold", None),
+        "actual": getattr(gate, "actual", None),
+        "passed": getattr(gate, "passed", None),
+    }
+
+
+def _serialize_readiness_summary(summary) -> dict:
+    """Return a JSON-serializable readiness summary payload."""
+    if is_dataclass(summary):
+        return asdict(summary)
+    if isinstance(summary, dict):
+        return summary
+    return {
+        "total_cases": getattr(summary, "total_cases", None),
+        "success_rate": getattr(summary, "success_rate", None),
+        "compile_pass_rate": getattr(summary, "compile_pass_rate", None),
+        "ci_pass_rate": getattr(summary, "ci_pass_rate", None),
+        "zero_ungrounded_rate": getattr(summary, "zero_ungrounded_rate", None),
+        "generalist_review_pass_rate": getattr(
+            summary, "generalist_review_pass_rate", None
+        ),
+        "mean_generalist_review_score": getattr(
+            summary, "mean_generalist_review_score", None
+        ),
+        "policyengine_case_count": getattr(summary, "policyengine_case_count", None),
+        "policyengine_pass_rate": getattr(summary, "policyengine_pass_rate", None),
+        "mean_policyengine_score": getattr(summary, "mean_policyengine_score", None),
+        "mean_estimated_cost_usd": getattr(summary, "mean_estimated_cost_usd", None),
+        "gate_results": [
+            _serialize_gate_result(gate)
+            for gate in getattr(summary, "gate_results", []) or []
+        ],
+        "ready": getattr(summary, "ready", None),
+    }
+
+
+def _build_eval_suite_payload(manifest, effective_runners, results, readiness, all_ready):
+    """Build the persisted eval-suite payload shared by text and JSON output."""
+    return {
+        "manifest": {
+            "name": manifest.name,
+            "path": str(manifest.path),
+            "runners": manifest.runners,
+            "effective_runners": effective_runners,
+        },
+        "results": [_serialize_eval_result(result) for result in results],
+        "readiness": {
+            runner: _serialize_readiness_summary(summary)
+            for runner, summary in readiness.items()
+        },
+        "all_ready": all_ready,
+    }
+
+
 def cmd_eval_suite(args):
     """Run a manifest-driven benchmark suite and evaluate readiness gates."""
     manifest = load_eval_suite_manifest(args.manifest)
@@ -2180,27 +2265,29 @@ def cmd_eval_suite(args):
         for runner, runner_results in grouped.items()
     }
     all_ready = all(summary.ready for summary in readiness.values())
+    payload = _build_eval_suite_payload(
+        manifest=manifest,
+        effective_runners=effective_runners,
+        results=results,
+        readiness=readiness,
+        all_ready=all_ready,
+    )
+    args.output.mkdir(parents=True, exist_ok=True)
+    (args.output / "results.json").write_text(json.dumps(payload, indent=2) + "\n")
+    (args.output / "summary.json").write_text(
+        json.dumps(
+            {
+                "manifest": payload["manifest"],
+                "readiness": payload["readiness"],
+                "all_ready": all_ready,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
     if args.json:
-        print(
-            json.dumps(
-                {
-                    "manifest": {
-                        "name": manifest.name,
-                        "path": str(manifest.path),
-                        "runners": manifest.runners,
-                        "effective_runners": effective_runners,
-                    },
-                    "results": [result.to_dict() for result in results],
-                    "readiness": {
-                        runner: asdict(summary)
-                        for runner, summary in readiness.items()
-                    },
-                    "all_ready": all_ready,
-                },
-                indent=2,
-            )
-        )
+        print(json.dumps(payload, indent=2))
         sys.exit(0 if all_ready else 1)
 
     print(f"Manifest: {manifest.path}")

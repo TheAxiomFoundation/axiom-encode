@@ -12,7 +12,7 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Literal
@@ -1046,91 +1046,208 @@ def run_eval_suite(
     suite_retry_attempts: int = 2,
 ) -> list[EvalResult]:
     """Run every case in a benchmark suite manifest."""
+    output_root = Path(output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
     resolved_runners = runner_specs or manifest.runners
     parsed_runners = [parse_runner_spec(spec) for spec in resolved_runners]
     results: list[EvalResult] = []
+    started_at = _utc_now_iso()
+    completed_cases = 0
+    last_case_name: str | None = None
+    _write_eval_suite_run_state(
+        output_root=output_root,
+        manifest=manifest,
+        resolved_runners=resolved_runners,
+        status="running",
+        started_at=started_at,
+        completed_cases=0,
+        result_count=0,
+    )
     _validate_uk_shared_scalar_sibling_sets(manifest, Path(output_root))
-
-    for index, case in enumerate(manifest.cases, start=1):
-        case_output_root = Path(output_root) / f"{index:02d}-{_slugify(case.name)}"
-        extra_context = [*manifest.allow_context, *case.allow_context]
-        attempts = max(suite_retry_attempts, 0) + 1
-        for attempt_index in range(attempts):
-            try:
-                if case.kind == "citation":
-                    if atlas_path is None:
-                        raise ValueError(
-                            "atlas_path is required for citation eval suite cases"
+    try:
+        for index, case in enumerate(manifest.cases, start=1):
+            case_output_root = output_root / f"{index:02d}-{_slugify(case.name)}"
+            extra_context = [*manifest.allow_context, *case.allow_context]
+            attempts = max(suite_retry_attempts, 0) + 1
+            for attempt_index in range(attempts):
+                try:
+                    if case.kind == "citation":
+                        if atlas_path is None:
+                            raise ValueError(
+                                "atlas_path is required for citation eval suite cases"
+                            )
+                        case_results = run_model_eval(
+                            citations=[case.citation or ""],
+                            runner_specs=resolved_runners,
+                            output_root=case_output_root,
+                            rac_path=rac_path,
+                            atlas_path=atlas_path,
+                            mode=case.mode,
+                            extra_context_paths=extra_context,
                         )
-                    case_results = run_model_eval(
-                        citations=[case.citation or ""],
-                        runner_specs=resolved_runners,
-                        output_root=case_output_root,
-                        rac_path=rac_path,
-                        atlas_path=atlas_path,
-                        mode=case.mode,
-                        extra_context_paths=extra_context,
-                    )
-                elif case.kind == "source":
-                    case_results = run_source_eval(
-                        source_id=case.source_id or case.name,
-                        source_text=(case.source_file or Path()).read_text(),
-                        runner_specs=resolved_runners,
-                        output_root=case_output_root,
-                        rac_path=rac_path,
-                        mode=case.mode,
-                        extra_context_paths=extra_context,
-                        oracle=case.oracle,
-                        policyengine_country=case.policyengine_country,
-                        policyengine_rac_var_hint=case.policyengine_rac_var_hint,
-                    )
-                elif case.kind == "akn_section":
-                    case_results = run_akn_section_eval(
-                        source_id=case.source_id or case.name,
-                        akn_file=case.akn_file or Path(),
-                        section_eid=case.section_eid or "",
-                        runner_specs=resolved_runners,
-                        output_root=case_output_root,
-                        rac_path=rac_path,
-                        mode=case.mode,
-                        extra_context_paths=extra_context,
-                        allow_parent=case.allow_parent,
-                        table_row_query=case.table_row_query,
-                        oracle=case.oracle,
-                        policyengine_country=case.policyengine_country,
-                        policyengine_rac_var_hint=case.policyengine_rac_var_hint,
-                    )
-                else:
-                    case_results = run_legislation_gov_uk_section_eval(
-                        source_ref=case.source_ref or "",
-                        section_eid=case.section_eid,
-                        runner_specs=resolved_runners,
-                        output_root=case_output_root,
-                        rac_path=rac_path,
-                        mode=case.mode,
-                        extra_context_paths=extra_context,
-                        allow_parent=case.allow_parent,
-                        table_row_query=case.table_row_query,
-                        oracle=case.oracle,
-                        policyengine_country=case.policyengine_country,
-                        policyengine_rac_var_hint=case.policyengine_rac_var_hint,
-                        fetch_cache_root=Path(output_root),
-                    )
-            except Exception as exc:
-                case_results = _suite_case_failure_results(case, parsed_runners, exc)
+                    elif case.kind == "source":
+                        case_results = run_source_eval(
+                            source_id=case.source_id or case.name,
+                            source_text=(case.source_file or Path()).read_text(),
+                            runner_specs=resolved_runners,
+                            output_root=case_output_root,
+                            rac_path=rac_path,
+                            mode=case.mode,
+                            extra_context_paths=extra_context,
+                            oracle=case.oracle,
+                            policyengine_country=case.policyengine_country,
+                            policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                        )
+                    elif case.kind == "akn_section":
+                        case_results = run_akn_section_eval(
+                            source_id=case.source_id or case.name,
+                            akn_file=case.akn_file or Path(),
+                            section_eid=case.section_eid or "",
+                            runner_specs=resolved_runners,
+                            output_root=case_output_root,
+                            rac_path=rac_path,
+                            mode=case.mode,
+                            extra_context_paths=extra_context,
+                            allow_parent=case.allow_parent,
+                            table_row_query=case.table_row_query,
+                            oracle=case.oracle,
+                            policyengine_country=case.policyengine_country,
+                            policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                        )
+                    else:
+                        case_results = run_legislation_gov_uk_section_eval(
+                            source_ref=case.source_ref or "",
+                            section_eid=case.section_eid,
+                            runner_specs=resolved_runners,
+                            output_root=case_output_root,
+                            rac_path=rac_path,
+                            mode=case.mode,
+                            extra_context_paths=extra_context,
+                            allow_parent=case.allow_parent,
+                            table_row_query=case.table_row_query,
+                            oracle=case.oracle,
+                            policyengine_country=case.policyengine_country,
+                            policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                            fetch_cache_root=output_root,
+                        )
+                except Exception as exc:
+                    case_results = _suite_case_failure_results(case, parsed_runners, exc)
 
-            if (
-                attempt_index >= attempts - 1
-                or not _suite_case_results_should_retry(case_results)
-            ):
-                break
+                if (
+                    attempt_index >= attempts - 1
+                    or not _suite_case_results_should_retry(case_results)
+                ):
+                    break
 
-        for result in case_results:
-            if case.name and case.name != result.citation:
-                result.citation = f"{case.name} ({result.citation})"
-        results.extend(case_results)
+            for result in case_results:
+                if case.name and case.name != result.citation:
+                    result.citation = f"{case.name} ({result.citation})"
+            results.extend(case_results)
+            completed_cases = index
+            last_case_name = case.name
+            _append_eval_suite_case_results(output_root, index, case, case_results)
+            _write_eval_suite_run_state(
+                output_root=output_root,
+                manifest=manifest,
+                resolved_runners=resolved_runners,
+                status="running",
+                started_at=started_at,
+                completed_cases=completed_cases,
+                result_count=len(results),
+                last_case_name=last_case_name,
+            )
+    except BaseException as exc:
+        _write_eval_suite_run_state(
+            output_root=output_root,
+            manifest=manifest,
+            resolved_runners=resolved_runners,
+            status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+            started_at=started_at,
+            completed_cases=completed_cases,
+            result_count=len(results),
+            last_case_name=last_case_name,
+            error=_format_suite_exception(exc),
+        )
+        raise
 
+    _write_eval_suite_run_state(
+        output_root=output_root,
+        manifest=manifest,
+        resolved_runners=resolved_runners,
+        status="completed",
+        started_at=started_at,
+        completed_cases=completed_cases,
+        result_count=len(results),
+        last_case_name=last_case_name,
+    )
     return results
+
+
+def _utc_now_iso() -> str:
+    """Return the current UTC time in a stable JSON-friendly format."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _format_suite_exception(exc: BaseException) -> str:
+    """Return a non-empty error string for suite state logs."""
+    message = str(exc).strip()
+    return message or exc.__class__.__name__
+
+
+def _write_eval_suite_run_state(
+    output_root: Path,
+    manifest: EvalSuiteManifest,
+    resolved_runners: list[str],
+    status: str,
+    started_at: str,
+    completed_cases: int,
+    result_count: int,
+    last_case_name: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Persist suite lifecycle state so interrupted runs remain inspectable."""
+    payload = {
+        "manifest": {
+            "name": manifest.name,
+            "path": str(manifest.path),
+            "runners": manifest.runners,
+            "effective_runners": resolved_runners,
+        },
+        "status": status,
+        "started_at": started_at,
+        "updated_at": _utc_now_iso(),
+        "total_cases": len(manifest.cases),
+        "completed_cases": completed_cases,
+        "result_count": result_count,
+    }
+    if last_case_name:
+        payload["last_case_name"] = last_case_name
+    if error:
+        payload["error"] = error
+    if status != "running":
+        payload["finished_at"] = payload["updated_at"]
+    (output_root / "suite-run.json").write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    )
+
+
+def _append_eval_suite_case_results(
+    output_root: Path,
+    case_index: int,
+    case: EvalSuiteCase,
+    case_results: list[EvalResult],
+) -> None:
+    """Append finalized case results to a durable JSONL ledger."""
+    ledger_path = output_root / "suite-results.jsonl"
+    with ledger_path.open("a", encoding="utf-8") as handle:
+        for result in case_results:
+            payload = {
+                "case_index": case_index,
+                "case_name": case.name,
+                "case_kind": case.kind,
+                "result": result.to_dict(),
+            }
+            handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def _suite_case_failure_results(
@@ -2152,6 +2269,9 @@ Available precedent files:
 - Prefer `Person` when the source states an amount or condition "in respect of" a child, qualifying young person, or other individual.
 - Use `Family` only when the encoded quantity is explicitly aggregate at claimant or benefit-unit level.
 - For UK rate leaves with one grounded monetary amount, encode the directly payable person-level or unit-level amount described by the text; do not collapse it into an unconditional family-level constant.
+- For UK `dtype: Money` variables derived from sterling amounts, include `unit: GBP`.
+- If the source states a sterling amount in pence, encode it in pounds sterling as a decimal with `unit: GBP`; for example, `10 pence` should become `0.10`, not `10`.
+- If the source states that a monetary amount or threshold is payable `per week`, `per month`, or `per year`, prefer a money variable with matching `period:` cadence rather than a day-level money variable, unless the principal output is instead a day-level boolean rule that merely depends on that money threshold.
 - For UK branch leaves like `(a)`, `(b)`, or `80A(2)(c)`, encode the branch identity in the output variable name. Do not reuse generic parent variable names like `child_benefit_weekly_rate`, `standard_minimum_guarantee`, or `benefit_cap` for a branch-specific leaf.
 - If the target text includes a deepest nested branch token like `(i)`, `(ii)`, `(iii)`, `(a)`, or `(b)`, the principal output variable must encode that deepest token, e.g. `qualifying_young_person_4A_1_b_i`, not just the parent branch like `qualifying_young_person_4A_1_b`.
 - For example, if the target source branch is `regulation-10-4-b`, a principal output like `assessed_amount_deemed_increase_10_4` is too generic; it must carry the branch token, e.g. `assessed_amount_deemed_increase_10_4_b`.

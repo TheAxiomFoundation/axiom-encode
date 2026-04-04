@@ -309,6 +309,64 @@ pc_special_employment_maximum_weekly_amount:
             for issue in metrics.ci_issues
         )
 
+    def test_accepts_pence_threshold_grounded_as_decimal_gbp(self, tmp_path):
+        rac_file = tmp_path / "example.rac"
+        rac_file.write_text(
+            '''"""
+13. Small amounts of state pension credit
+
+Where the amount of state pension credit payable is less than 10 pence per week,
+the credit shall not be payable unless the claimant is in receipt of another benefit
+payable with the credit.
+"""
+
+small_amount_threshold:
+    entity: Person
+    period: Week
+    dtype: Money
+    unit: GBP
+    from 2025-03-21:
+        0.10
+
+amount_payable:
+    entity: Person
+    period: Week
+    dtype: Money
+    unit: GBP
+
+is_payable:
+    entity: Person
+    period: Week
+    dtype: Boolean
+    from 2025-03-21:
+        amount_payable >= small_amount_threshold
+'''
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rac_file=rac_file,
+                rac_root=tmp_path,
+                rac_path=Path("/tmp/rac"),
+                source_text=(
+                    "Where the amount of state pension credit payable is less than "
+                    "10 pence per week, the credit shall not be payable."
+                ),
+            )
+
+        assert metrics.compile_pass
+        assert metrics.ci_pass
+        assert metrics.ungrounded_numeric_count == 0
+        assert metrics.missing_source_numeric_occurrence_count == 0
+
     def test_runs_generalist_reviewer_and_records_result(self, tmp_path):
         rac_file = tmp_path / "example.rac"
         rac_file.write_text(
@@ -1889,6 +1947,38 @@ class TestEvalPrompt:
         assert 'Prefer `Person` when the source states an amount or condition "in respect of"' in prompt
         assert "do not collapse it into an unconditional family-level constant" in prompt
 
+    def test_build_eval_prompt_for_uk_pence_threshold_requires_gbp_decimal_and_weekly_cadence(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/13",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Editorial note: current text valid from 2025-03-21.\n\n"
+                "Where the amount of state pension credit payable is less than 10 pence per week, "
+                "the credit shall not be payable unless the claimant is in receipt of another "
+                "benefit payable with the credit."
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/13",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-13.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "include `unit: GBP`" in prompt
+        assert "`10 pence` should become `0.10`, not `10`" in prompt
+        assert "prefer a money variable with matching `period:` cadence" in prompt
+
     def test_build_eval_prompt_for_uk_leaf_forbids_speculative_future_period_tests(
         self, tmp_path
     ):
@@ -2844,6 +2934,62 @@ cases:
         assert failed.error == "502 Server Error"
         assert failed.metrics is None
         assert results[1] == source_result
+
+    def test_run_eval_suite_persists_run_state_and_case_result_ledger(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Mixed suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: uk_legislation
+    name: child-benefit-enhanced
+    source_ref: /uksi/2006/965/regulation/2
+    section_eid: regulation-2-1-a
+  - kind: source
+    name: tanf-slice
+    source_id: co-tanf-f
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+        output_root = tmp_path / "out"
+
+        source_result = _fake_eval_result("openai-gpt-5.4", "co-tanf-f")
+
+        with patch(
+            "autorac.harness.evals._validate_uk_shared_scalar_sibling_sets",
+            return_value=None,
+        ), patch(
+            "autorac.harness.evals.run_legislation_gov_uk_section_eval",
+            side_effect=RuntimeError("502 Server Error"),
+        ), patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=[source_result],
+        ):
+            run_eval_suite(
+                manifest=manifest,
+                output_root=output_root,
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        state = json.loads((output_root / "suite-run.json").read_text())
+        assert state["status"] == "completed"
+        assert state["completed_cases"] == 2
+        assert state["result_count"] == 2
+        lines = (output_root / "suite-results.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 2
+        first = json.loads(lines[0])
+        second = json.loads(lines[1])
+        assert first["case_index"] == 1
+        assert first["case_name"] == "child-benefit-enhanced"
+        assert first["result"]["success"] is False
+        assert second["case_index"] == 2
+        assert second["case_name"] == "tanf-slice"
+        assert second["result"]["success"] is True
 
     def test_run_eval_suite_retries_transient_exception(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"

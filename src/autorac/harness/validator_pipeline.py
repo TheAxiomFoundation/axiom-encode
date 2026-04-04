@@ -254,6 +254,9 @@ _MONTH_NAME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _ORDINAL_NUMBER_PATTERN = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.IGNORECASE)
+_SUBPOUND_MONEY_PATTERN = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:pence|penny)\b", re.IGNORECASE
+)
 _DATE_DECOMPOSITION_CUE_TOKENS = {
     "date",
     "birthday",
@@ -400,23 +403,20 @@ def _extract_formula_grounding_values(
 def extract_numbers_from_text(text: str) -> set[float]:
     """Extract numeric values from embedded statute text."""
     numbers = set()
+    occupied_spans: list[tuple[int, int]] = []
+
+    for span, value in _iter_normalized_special_numeric_matches(text):
+        numbers.add(value)
+        occupied_spans.append(span)
 
     for match in re.finditer(
         r"(?:^|(?<=[\s$£€(\[,]))(-?[\d,]+(?:\.\d+)?)\b", text
     ):
+        if _span_overlaps(match.span(1), occupied_spans):
+            continue
         raw = match.group(1).replace(",", "")
         with contextlib.suppress(ValueError):
             numbers.add(float(raw))
-
-    for match in re.finditer(
-        r"(\d+(?:\.\d+)?)\s+(?:percent|per\s*cent(?:um)?)", text, re.IGNORECASE
-    ):
-        with contextlib.suppress(ValueError):
-            numbers.add(float(match.group(1)) / 100)
-
-    for match in re.finditer(r"(\d+(?:\.\d+)?)\s*%", text):
-        with contextlib.suppress(ValueError):
-            numbers.add(float(match.group(1)) / 100)
 
     for match in _ORDINAL_NUMBER_PATTERN.finditer(text):
         with contextlib.suppress(ValueError):
@@ -450,6 +450,31 @@ def _ordinal_is_calendar_day_reference(text: str, end_index: int, value: float) 
     return bool(re.match(rf"\s+{_MONTH_NAME_PATTERN.pattern}", trailing, re.IGNORECASE))
 
 
+def _iter_normalized_special_numeric_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return normalized special-case numeric matches like percentages and pence."""
+    matches: list[tuple[tuple[int, int], float]] = []
+
+    for pattern in (
+        re.compile(r"(\d+(?:\.\d+)?)\s+(?:percent|per\s*cent(?:um)?)", re.IGNORECASE),
+        re.compile(r"(\d+(?:\.\d+)?)\s*%"),
+    ):
+        for match in pattern.finditer(text):
+            with contextlib.suppress(ValueError):
+                matches.append((match.span(), float(match.group(1).replace(",", "")) / 100))
+
+    for match in _SUBPOUND_MONEY_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError):
+            matches.append((match.span(), float(match.group(1).replace(",", "")) / 100))
+
+    return matches
+
+
+def _span_overlaps(span: tuple[int, int], occupied_spans: list[tuple[int, int]]) -> bool:
+    return any(not (span[1] <= start or span[0] >= end) for start, end in occupied_spans)
+
+
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
     cleaned_lines: list[str] = []
@@ -469,21 +494,13 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     occurrences: list[float] = []
     spans: list[tuple[int, int]] = []
 
-    for pattern in (
-        re.compile(r"(\d+(?:\.\d+)?)\s+(?:percent|per\s*cent(?:um)?)", re.IGNORECASE),
-        re.compile(r"(\d+(?:\.\d+)?)\s*%"),
-    ):
-        for match in pattern.finditer(cleaned):
-            with contextlib.suppress(ValueError):
-                occurrences.append(float(match.group(1).replace(",", "")) / 100)
-                spans.append(match.span())
-
-    def overlaps_percent(span: tuple[int, int]) -> bool:
-        return any(not (span[1] <= start or span[0] >= end) for start, end in spans)
+    for span, value in _iter_normalized_special_numeric_matches(cleaned):
+        occurrences.append(value)
+        spans.append(span)
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned):
         span = match.span(1)
-        if overlaps_percent(span):
+        if _span_overlaps(span, spans):
             continue
         with contextlib.suppress(ValueError):
             value = float(match.group(1).replace(",", ""))
