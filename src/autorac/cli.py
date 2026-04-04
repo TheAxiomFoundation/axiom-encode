@@ -14,6 +14,7 @@ Self-contained -- no external plugin dependencies.
 import argparse
 import csv
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -78,6 +79,57 @@ def _reviewer_score_map(scores) -> dict[str, float | None]:
             values[name] = 10.0 if getattr(review, "passed", False) else 0.0
 
     return values
+
+
+def _add_gpt_backend_argument(parser: argparse.ArgumentParser) -> None:
+    """Add a GPT backend override for local-vs-API runner selection."""
+    parser.add_argument(
+        "--gpt-backend",
+        choices=["codex", "openai"],
+        default=None,
+        help=(
+            "Override GPT runner backend for evals. "
+            "Use 'codex' locally to route gpt-* runners through Codex CLI/ChatGPT, "
+            "or 'openai' to force API-backed Responses runs. "
+            "Defaults to the AUTORAC_GPT_BACKEND env var when set."
+        ),
+    )
+
+
+def _resolved_gpt_backend(args) -> str | None:
+    """Resolve the requested GPT backend override from args/env."""
+    return getattr(args, "gpt_backend", None) or os.getenv("AUTORAC_GPT_BACKEND") or None
+
+
+def _rewrite_gpt_runner_backend(spec: str, backend: str | None) -> str:
+    """Rewrite gpt-* runner specs onto the requested backend, preserving aliases."""
+    if backend not in {"codex", "openai"}:
+        return spec
+
+    alias = ""
+    target = spec
+    if "=" in spec:
+        alias, target = spec.split("=", 1)
+
+    if ":" not in target:
+        return spec
+
+    current_backend, model = target.split(":", 1)
+    current_backend = current_backend.strip()
+    model = model.strip()
+    if current_backend not in {"codex", "openai"}:
+        return spec
+    if not model.startswith("gpt-"):
+        return spec
+
+    rewritten = f"{backend}:{model}"
+    return f"{alias}={rewritten}" if alias else rewritten
+
+
+def _effective_runner_specs(specs: list[str], args) -> list[str]:
+    """Apply GPT backend override to a runner list."""
+    backend = _resolved_gpt_backend(args)
+    return [_rewrite_gpt_runner_backend(spec, backend) for spec in specs]
 
 
 def main():
@@ -282,6 +334,7 @@ def main():
         default=[],
         help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
     )
+    _add_gpt_backend_argument(eval_parser)
     eval_parser.add_argument(
         "--output",
         type=Path,
@@ -334,6 +387,7 @@ def main():
         default=[],
         help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
     )
+    _add_gpt_backend_argument(eval_source_parser)
     eval_source_parser.add_argument(
         "--output",
         type=Path,
@@ -402,6 +456,7 @@ def main():
         default=[],
         help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
     )
+    _add_gpt_backend_argument(eval_akn_section_parser)
     eval_akn_section_parser.add_argument(
         "--output",
         type=Path,
@@ -466,6 +521,7 @@ def main():
         default=[],
         help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
     )
+    _add_gpt_backend_argument(eval_uk_legislation_parser)
     eval_uk_legislation_parser.add_argument(
         "--output",
         type=Path,
@@ -516,6 +572,7 @@ def main():
         default=[],
         help="Override manifest runners with [name=]backend:model (repeatable)",
     )
+    _add_gpt_backend_argument(eval_suite_parser)
     eval_suite_parser.add_argument(
         "--output",
         type=Path,
@@ -1846,7 +1903,9 @@ def _print_eval_metrics(result) -> None:
 
 def cmd_eval(args):
     """Run deterministic model comparisons on one or more citations."""
-    runners = args.runner or ["claude:opus", "codex:gpt-5.4"]
+    runners = _effective_runner_specs(
+        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+    )
     atlas_path = args.atlas_path or _default_repo_checkout("atlas")
     rac_path = args.rac_path or _default_repo_checkout("rac")
 
@@ -1899,7 +1958,9 @@ def cmd_eval(args):
 
 def cmd_eval_source(args):
     """Run deterministic model comparisons on one arbitrary source slice."""
-    runners = args.runner or ["claude:opus", "codex:gpt-5.4"]
+    runners = _effective_runner_specs(
+        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+    )
     rac_path = args.rac_path or _default_repo_checkout("rac")
 
     if not rac_path.exists():
@@ -1955,7 +2016,9 @@ def cmd_eval_source(args):
 
 def cmd_eval_akn_section(args):
     """Run deterministic model comparisons on one AKN section."""
-    runners = args.runner or ["claude:opus", "codex:gpt-5.4"]
+    runners = _effective_runner_specs(
+        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+    )
     rac_path = args.rac_path or _default_repo_checkout("rac")
 
     if not rac_path.exists():
@@ -2016,7 +2079,9 @@ def cmd_eval_akn_section(args):
 
 def cmd_eval_uk_legislation_section(args):
     """Run deterministic model comparisons on official UK legislation XML."""
-    runners = args.runner or ["claude:opus", "codex:gpt-5.4"]
+    runners = _effective_runner_specs(
+        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+    )
     rac_path = args.rac_path or _default_repo_checkout("rac")
 
     if not rac_path.exists():
@@ -2085,6 +2150,7 @@ def _format_gate_result(gate) -> str:
 def cmd_eval_suite(args):
     """Run a manifest-driven benchmark suite and evaluate readiness gates."""
     manifest = load_eval_suite_manifest(args.manifest)
+    effective_runners = _effective_runner_specs(args.runner or manifest.runners, args)
     rac_path = args.rac_path or _default_repo_checkout("rac")
     atlas_path = args.atlas_path or _default_repo_checkout("atlas")
 
@@ -2102,7 +2168,7 @@ def cmd_eval_suite(args):
         output_root=args.output,
         rac_path=rac_path,
         atlas_path=atlas_path if has_citation_case else None,
-        runner_specs=args.runner or None,
+        runner_specs=effective_runners,
     )
 
     grouped: dict[str, list] = {}
@@ -2123,6 +2189,7 @@ def cmd_eval_suite(args):
                         "name": manifest.name,
                         "path": str(manifest.path),
                         "runners": manifest.runners,
+                        "effective_runners": effective_runners,
                     },
                     "results": [result.to_dict() for result in results],
                     "readiness": {
@@ -2139,6 +2206,7 @@ def cmd_eval_suite(args):
     print(f"Manifest: {manifest.path}")
     print(f"Suite: {manifest.name}")
     print(f"Output root: {args.output}")
+    print(f"Runners: {', '.join(effective_runners)}")
     print(f"rac: {rac_path}")
     if has_citation_case:
         print(f"Atlas: {atlas_path}")

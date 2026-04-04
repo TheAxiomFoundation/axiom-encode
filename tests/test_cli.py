@@ -14,7 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from autorac.cli import (
+    _effective_runner_specs,
     _extract_subsections_from_xml,
+    _rewrite_gpt_runner_backend,
     cmd_benchmark,
     cmd_calibration,
     cmd_compile,
@@ -51,6 +53,28 @@ from autorac.harness.encoding_db import (
 # =========================================================================
 # Test main() dispatch
 # =========================================================================
+
+
+class TestRunnerOverrides:
+    def test_rewrites_openai_gpt_runner_to_codex(self):
+        assert (
+            _rewrite_gpt_runner_backend("openai:gpt-5.4", "codex")
+            == "codex:gpt-5.4"
+        )
+
+    def test_preserves_alias_when_rewriting_gpt_runner_backend(self):
+        assert (
+            _rewrite_gpt_runner_backend("gpt=openai:gpt-5.4", "codex")
+            == "gpt=codex:gpt-5.4"
+        )
+
+    def test_effective_runner_specs_uses_env_override(self, monkeypatch):
+        monkeypatch.setenv("AUTORAC_GPT_BACKEND", "codex")
+        args = SimpleNamespace(gpt_backend=None)
+
+        assert _effective_runner_specs(
+            ["openai:gpt-5.4", "claude:opus"], args
+        ) == ["codex:gpt-5.4", "claude:opus"]
 
 
 class TestMain:
@@ -299,6 +323,7 @@ class TestCmdEvalSuite:
             atlas_path=tmp_path / "atlas",
             rac_path=tmp_path / "rac",
             json=False,
+            gpt_backend="codex",
         )
         args.rac_path.mkdir()
 
@@ -333,7 +358,7 @@ class TestCmdEvalSuite:
         ):
             mock_load.return_value.name = "Readiness"
             mock_load.return_value.path = manifest_file
-            mock_load.return_value.runners = ["codex:gpt-5.4"]
+            mock_load.return_value.runners = ["openai:gpt-5.4"]
             mock_load.return_value.cases = [MagicMock(kind="source")]
             mock_load.return_value.gates = MagicMock()
 
@@ -342,6 +367,7 @@ class TestCmdEvalSuite:
 
         assert exc_info.value.code == 1
         assert mock_run.called
+        assert mock_run.call_args.kwargs["runner_specs"] == ["codex:gpt-5.4"]
         captured = capsys.readouterr()
         assert "NOT READY" in captured.out
 
