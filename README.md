@@ -70,3 +70,32 @@ while `eval-suite-report` emits:
 - a Markdown summary table suitable for a paper appendix
 - a case-level CSV for downstream analysis
 - a JSON comparison object when run with `--json`
+
+## Constrained AutoAgent pilot
+
+There is now a deliberately narrow outer-loop tuning setup for prompt/search
+experiments. The pilot is meant to optimize one editable prompt surface, not the
+corpus repos or promotion flow.
+
+- Frozen repair manifests:
+  - `benchmarks/uk_wave18_remaining_repair.yaml`
+  - `benchmarks/uk_wave19_failure_repair.yaml`
+  - `benchmarks/uk_wave19_branch_conjunction_repair.yaml`
+- Editable surface:
+  - `src/autorac/harness/eval_prompt_surface.py`
+- Pilot runner:
+  - `scripts/run_autoagent_pilot.py`
+
+Run it with:
+
+```bash
+uv run python scripts/run_autoagent_pilot.py --gpt-backend codex
+```
+
+The script:
+- runs the frozen manifests through `autorac eval-suite`
+- writes per-manifest outputs plus an aggregate report
+- prints a single `AUTOAGENT_SCORE=...` scalar for outer-loop optimization
+
+The score heavily rewards readiness and deterministic/semantic pass rates, with
+cost used only as a small tiebreaker.

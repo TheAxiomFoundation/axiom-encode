@@ -570,6 +570,38 @@ example_timing_rule:
         assert "preserve both conjuncts" in prompt
         assert "do not drop the same-length requirement" in prompt
 
+    def test_build_eval_prompt_for_where_on_branch_discourages_material_implication(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/13B",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "All benefits except those mentioned in paragraph (1) shall be treated as paid—\n\n"
+                "(b)\n\n"
+                "where the benefit is paid in arrears, on the last day of the benefit week "
+                "in which the benefit is payable."
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/13B",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-13B.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "treat `X` and `Y` as a positive conjunction for this branch" in prompt
+        assert "Do not rewrite that as material implication like `not X or Y`" in prompt
+        assert "if the branch-triggering condition itself is false, the branch-specific output should usually be `false`" in prompt
+
 
 class TestGeneratedBundleCleaning:
     def test_clean_generated_file_content_strips_fence_and_trailing_prose(self):
