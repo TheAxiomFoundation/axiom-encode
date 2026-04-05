@@ -12,6 +12,8 @@ general agent-harness framework.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 
 from .eval_prompt_surface import AUTOAGENT_PILOT_EDITABLE_FILES
@@ -22,6 +24,7 @@ AUTORESEARCH_PILOT_MANIFESTS = (
     "benchmarks/uk_wave19_failure_repair.yaml",
     "benchmarks/uk_wave19_branch_conjunction_repair.yaml",
 )
+LEGISLATION_CACHE_DIR_NAMES = ("_legislation_gov_uk", "_legislation_gov_uk_cache")
 
 
 def autorac_repo_root() -> Path:
@@ -33,6 +36,14 @@ def program_path(repo_root: Path | None = None) -> Path:
     """Resolve the autoresearch program file."""
     root = repo_root or autorac_repo_root()
     return (root / AUTORESEARCH_PROGRAM_PATH).resolve()
+
+
+def shared_legislation_cache_root() -> Path:
+    """Return the persistent local cache root for legislation.gov.uk payloads."""
+    override = os.getenv("AUTORAC_SHARED_LEGISLATION_CACHE")
+    if override:
+        return Path(override).expanduser().resolve()
+    return (Path.home() / "tmp" / "autorac-shared-legislation-cache").resolve()
 
 
 def pilot_manifest_paths(repo_root: Path | None = None) -> list[Path]:
@@ -86,3 +97,104 @@ def load_suite_summary(path: Path) -> dict:
     if "readiness" in payload:
         return payload
     raise ValueError(f"Unsupported eval-suite payload: {path}")
+
+
+def _candidate_legislation_cache_sources(
+    *,
+    dir_name: str,
+    output_root: Path,
+    shared_root: Path,
+    search_root: Path | None = None,
+) -> list[Path]:
+    """Return local cache directories worth copying into a pilot run root."""
+    candidates: list[Path] = []
+    shared_dir = shared_root / dir_name
+    if shared_dir.exists():
+        candidates.append(shared_dir)
+
+    search_base = (search_root or (Path.home() / "tmp")).resolve()
+    if search_base.exists():
+        run_dirs = sorted(
+            (
+                path
+                for path in search_base.glob("autorac-*")
+                if path.is_dir() and path.resolve() != output_root.resolve()
+            ),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        for run_dir in run_dirs:
+            candidate = run_dir / dir_name
+            if candidate.exists():
+                candidates.append(candidate)
+
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(resolved)
+    return unique
+
+
+def _merge_tree(source: Path, destination: Path) -> int:
+    """Copy files from source into destination when they are missing."""
+    copied = 0
+    if not source.exists():
+        return copied
+    destination.mkdir(parents=True, exist_ok=True)
+    for source_path in source.rglob("*"):
+        if source_path.is_dir():
+            continue
+        relative = source_path.relative_to(source)
+        target_path = destination / relative
+        if target_path.exists():
+            continue
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+        copied += 1
+    return copied
+
+
+def seed_legislation_cache(
+    output_root: Path,
+    *,
+    shared_root: Path | None = None,
+    search_root: Path | None = None,
+) -> dict[str, int]:
+    """Prepopulate a pilot run root with reusable legislation.gov.uk caches."""
+    root = output_root.resolve()
+    cache_root = (shared_root or shared_legislation_cache_root()).resolve()
+    copied: dict[str, int] = {}
+
+    for dir_name in LEGISLATION_CACHE_DIR_NAMES:
+        target_dir = root / dir_name
+        copied[dir_name] = 0
+        for candidate in _candidate_legislation_cache_sources(
+            dir_name=dir_name,
+            output_root=root,
+            shared_root=cache_root,
+            search_root=search_root,
+        ):
+            copied[dir_name] += _merge_tree(candidate, target_dir)
+            if any(target_dir.rglob("*")):
+                break
+    return copied
+
+
+def sync_legislation_cache(
+    output_root: Path,
+    *,
+    shared_root: Path | None = None,
+) -> dict[str, int]:
+    """Promote any newly fetched legislation.gov.uk files into the shared cache."""
+    root = output_root.resolve()
+    cache_root = (shared_root or shared_legislation_cache_root()).resolve()
+    synced: dict[str, int] = {}
+    for dir_name in LEGISLATION_CACHE_DIR_NAMES:
+        source_dir = root / dir_name
+        target_dir = cache_root / dir_name
+        synced[dir_name] = _merge_tree(source_dir, target_dir)
+    return synced

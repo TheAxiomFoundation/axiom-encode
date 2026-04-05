@@ -11,6 +11,9 @@ from autorac.harness.autoresearch_pilot import (
     pilot_manifest_paths,
     program_path,
     score_readiness_summary,
+    seed_legislation_cache,
+    shared_legislation_cache_root,
+    sync_legislation_cache,
 )
 
 
@@ -36,6 +39,60 @@ def test_pilot_editable_paths_point_at_prompt_surface():
 
 def test_program_path_resolves_autoresearch_program():
     assert program_path() == autorac_repo_root() / "autoresearch/program.md"
+
+
+def test_shared_legislation_cache_root_honors_env(monkeypatch, tmp_path):
+    target = tmp_path / "shared-cache"
+    monkeypatch.setenv("AUTORAC_SHARED_LEGISLATION_CACHE", str(target))
+
+    assert shared_legislation_cache_root() == target.resolve()
+
+
+def test_seed_legislation_cache_copies_existing_local_cache(monkeypatch, tmp_path):
+    search_root = tmp_path / "tmp"
+    prior_run = search_root / "autorac-prior-run"
+    cache_dir = prior_run / "_legislation_gov_uk_cache" / "uksi-2002-1792-2025-03-31"
+    source_dir = prior_run / "_legislation_gov_uk" / "uksi-2002-1792-2025-03-31"
+    cache_dir.mkdir(parents=True)
+    source_dir.mkdir(parents=True)
+    (cache_dir / "source.akn").write_text("cached akn\n")
+    (cache_dir / "source.xml").write_text("cached xml\n")
+    (source_dir / "source.akn").write_text("fetched akn\n")
+    (source_dir / "source.xml").write_text("fetched xml\n")
+
+    shared_root = tmp_path / "shared"
+    run_root = tmp_path / "run"
+
+    copied = seed_legislation_cache(
+        run_root,
+        shared_root=shared_root,
+        search_root=search_root,
+    )
+
+    assert copied["_legislation_gov_uk"] == 2
+    assert copied["_legislation_gov_uk_cache"] == 2
+    assert (
+        run_root / "_legislation_gov_uk_cache" / "uksi-2002-1792-2025-03-31" / "source.akn"
+    ).read_text() == "cached akn\n"
+
+
+def test_sync_legislation_cache_promotes_new_files_into_shared_root(tmp_path):
+    run_root = tmp_path / "run"
+    shared_root = tmp_path / "shared"
+    source_dir = run_root / "_legislation_gov_uk_cache" / "uksi-2002-1792-2025-03-31"
+    source_dir.mkdir(parents=True)
+    (source_dir / "source.akn").write_text("new akn\n")
+    (source_dir / "source.xml").write_text("new xml\n")
+
+    synced = sync_legislation_cache(run_root, shared_root=shared_root)
+
+    assert synced["_legislation_gov_uk_cache"] == 2
+    assert (
+        shared_root
+        / "_legislation_gov_uk_cache"
+        / "uksi-2002-1792-2025-03-31"
+        / "source.xml"
+    ).read_text() == "new xml\n"
 
 
 def test_score_readiness_summary_rewards_ready_runner():

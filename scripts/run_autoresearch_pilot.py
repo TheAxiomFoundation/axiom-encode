@@ -32,6 +32,9 @@ def main() -> int:
         pilot_manifest_paths,
         program_path,
         score_readiness_summary,
+        seed_legislation_cache,
+        shared_legislation_cache_root,
+        sync_legislation_cache,
     )
 
     parser = argparse.ArgumentParser(
@@ -58,11 +61,26 @@ def main() -> int:
         default=None,
         help="Override GPT runner backend for local-vs-API eval execution",
     )
+    parser.add_argument(
+        "--shared-legislation-cache-root",
+        type=Path,
+        default=None,
+        help=(
+            "Persistent directory for reusing legislation.gov.uk payloads across "
+            "pilot runs. Defaults to AUTORAC_SHARED_LEGISLATION_CACHE or "
+            "~/tmp/autorac-shared-legislation-cache."
+        ),
+    )
     args = parser.parse_args()
 
     repo_root = autorac_repo_root()
     output_root = args.output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
+    legislation_cache_root = (
+        args.shared_legislation_cache_root.resolve()
+        if args.shared_legislation_cache_root is not None
+        else shared_legislation_cache_root()
+    )
 
     manifests = (
         [Path(item).resolve() for item in args.manifest]
@@ -83,6 +101,7 @@ def main() -> int:
         "program": str(program_path(repo_root)),
         "editable_files": [str(path) for path in pilot_editable_paths(repo_root)],
         "output_root": str(output_root),
+        "shared_legislation_cache_root": str(legislation_cache_root),
         "manifests": [str(path) for path in manifests],
         "results": [],
     }
@@ -92,6 +111,10 @@ def main() -> int:
     for manifest in manifests:
         run_root = output_root / manifest.stem
         run_root.mkdir(parents=True, exist_ok=True)
+        preseeded = seed_legislation_cache(
+            run_root,
+            shared_root=legislation_cache_root,
+        )
         stdout_path = run_root / "autoresearch-pilot.stdout"
         stderr_path = run_root / "autoresearch-pilot.stderr"
         cmd = [
@@ -113,12 +136,18 @@ def main() -> int:
         )
         stdout_path.write_text(process.stdout)
         stderr_path.write_text(process.stderr)
+        synced_cache = sync_legislation_cache(
+            run_root,
+            shared_root=legislation_cache_root,
+        )
 
         result_record: dict[str, object] = {
             "manifest": str(manifest),
             "run_root": str(run_root),
             "command": cmd,
             "returncode": process.returncode,
+            "preseeded_cache_files": preseeded,
+            "synced_cache_files": synced_cache,
             "stdout_file": str(stdout_path),
             "stderr_file": str(stderr_path),
         }
