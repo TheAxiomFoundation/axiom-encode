@@ -1,10 +1,15 @@
-"""Tests for the constrained AutoAgent pilot helpers."""
+"""Tests for the autoresearch-style pilot helpers."""
 
 from autorac.harness.autoagent_pilot import (
+    AUTOAGENT_PILOT_MANIFESTS,
+)
+from autorac.harness.autoresearch_pilot import (
+    AUTORESEARCH_PILOT_MANIFESTS,
     autorac_repo_root,
     extract_primary_runner_summary,
     pilot_editable_paths,
     pilot_manifest_paths,
+    program_path,
     score_readiness_summary,
 )
 
@@ -17,12 +22,20 @@ def test_pilot_manifest_paths_resolve_existing_files():
     assert manifests[0].name == "uk_wave18_remaining_repair.yaml"
 
 
+def test_autoagent_alias_points_at_same_manifest_set():
+    assert AUTOAGENT_PILOT_MANIFESTS == AUTORESEARCH_PILOT_MANIFESTS
+
+
 def test_pilot_editable_paths_point_at_prompt_surface():
     paths = pilot_editable_paths()
 
     assert paths == [
         autorac_repo_root() / "src/autorac/harness/eval_prompt_surface.py"
     ]
+
+
+def test_program_path_resolves_autoresearch_program():
+    assert program_path() == autorac_repo_root() / "autoresearch/program.md"
 
 
 def test_score_readiness_summary_rewards_ready_runner():

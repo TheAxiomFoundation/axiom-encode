@@ -71,11 +71,18 @@ while `eval-suite-report` emits:
 - a case-level CSV for downstream analysis
 - a JSON comparison object when run with `--json`
 
-## Constrained AutoAgent pilot
+## Autoresearch-style harness tuning
 
-There is now a deliberately narrow outer-loop tuning setup for prompt/search
-experiments. The pilot is meant to optimize one editable prompt surface, not the
-corpus repos or promotion flow.
+There is now a deliberately narrow outer-loop tuning setup for prompt-search
+experiments. It is structured in an autoresearch style:
+
+- one editable prompt surface
+- one declarative program file
+- one frozen benchmark set
+- one scalar score
+
+The pilot is meant to optimize harness wording, not the corpus repos or
+promotion flow.
 
 - Frozen repair manifests:
   - `benchmarks/uk_wave18_remaining_repair.yaml`
@@ -83,19 +90,24 @@ corpus repos or promotion flow.
   - `benchmarks/uk_wave19_branch_conjunction_repair.yaml`
 - Editable surface:
   - `src/autorac/harness/eval_prompt_surface.py`
+- Program:
+  - `autoresearch/program.md`
 - Pilot runner:
-  - `scripts/run_autoagent_pilot.py`
+  - `scripts/run_autoresearch_pilot.py`
 
 Run it with:
 
 ```bash
-uv run python scripts/run_autoagent_pilot.py --gpt-backend codex
+uv run python scripts/run_autoresearch_pilot.py --gpt-backend codex
 ```
 
 The script:
 - runs the frozen manifests through `autorac eval-suite`
 - writes per-manifest outputs plus an aggregate report
-- prints a single `AUTOAGENT_SCORE=...` scalar for outer-loop optimization
+- prints a single `AUTORESEARCH_SCORE=...` scalar for outer-loop optimization
 
 The score heavily rewards readiness and deterministic/semantic pass rates, with
 cost used only as a small tiebreaker.
+
+`scripts/run_autoagent_pilot.py` still exists as a compatibility wrapper, but
+the canonical path is now the autoresearch one above.
