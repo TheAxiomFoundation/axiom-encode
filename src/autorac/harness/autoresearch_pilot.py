@@ -157,11 +157,14 @@ def build_mutation_prompt(
         - Read `{program_relpath}` for the optimization rules.
         - Read `{baseline_report_relpath}` for the current baseline score and per-manifest results.
         - Your candidate will also be judged on a separate holdout final-review set outside this training report, so avoid broad stylistic rewrites that could shift semantics.
+        - If the baseline training report is already fully ready, assume the prompt surface is near-optimal and prefer a no-op unless you can point to a concrete semantic weakness in the report or the declared repair clusters.
 
         Hard constraints:
         - Edit only `{editable_relpath}`.
         - Do not create, delete, or rename files.
         - Do not weaken correctness gates or ask for validator changes.
+        - Do not make naming-only, readability-only, or token-count-only edits unless the benchmark evidence shows that naming itself is causing a semantic or review failure.
+        - Target at most one concrete failure cluster per iteration, and name that cluster explicitly in your final message.
         - Prefer a no-op over speculative churn if the current wording already looks near-optimal.
 
         Output rules:

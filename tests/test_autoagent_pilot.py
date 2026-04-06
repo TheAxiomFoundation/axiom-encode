@@ -186,3 +186,6 @@ def test_build_mutation_prompt_mentions_only_editable_file():
     assert "baseline-report.json" in prompt
     assert "Do not create, delete, or rename files." in prompt
     assert "separate holdout final-review set" in prompt
+    assert "baseline training report is already fully ready" in prompt
+    assert "Do not make naming-only, readability-only, or token-count-only edits" in prompt
+    assert "Target at most one concrete failure cluster per iteration" in prompt

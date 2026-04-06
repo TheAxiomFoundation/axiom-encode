@@ -35,6 +35,13 @@ These are repair slices for known UK failure patterns:
 - conditional amount/exclusion leaves
 - branch conjunction vs material implication
 
+If the current baseline report is already fully ready across that training set,
+assume the prompt surface is near-optimal. In that situation, prefer a no-op
+unless you can identify one concrete semantic weakness tied to those clusters.
+Do not spend iterations on naming cleanup, readability tweaks, or token-count
+reduction unless the benchmark evidence itself shows that naming is causing a
+semantic or reviewer failure.
+
 ## Final review holdout
 
 A candidate is not accepted on training score alone.
@@ -78,6 +85,8 @@ first, cost second.
   clearer prompt wording with no regressions.
 - Also require the candidate to preserve or improve the separate final-review
   holdout score.
+- Target one concrete issue cluster per iteration rather than broad prompt
+  cleanup.
 - Discard any change that lowers readiness, weakens checks, or increases
   semantic regressions even if it improves a single case.
 
