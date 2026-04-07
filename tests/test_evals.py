@@ -602,6 +602,44 @@ example_timing_rule:
         assert "Do not rewrite that as material implication like `not X or Y`" in prompt
         assert "if the branch-triggering condition itself is false, the branch-specific output should usually be `false`" in prompt
 
+    def test_build_eval_prompt_for_disjunctive_payment_description_preserves_qualifier_scope(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/15",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "For the purposes of section 15(1)(j) (income to include income of prescribed descriptions), "
+                "income of the following descriptions is prescribed—\n\n"
+                "(ac)\n\n"
+                "any retired pay, pension or allowance granted in respect of disablement or any pension or "
+                "allowance granted to a widow, widower or surviving civil partner in respect of a death due to "
+                "service or war injury under an instrument specified in section 639(2) of the Income Tax "
+                "(Earnings and Pensions) Act 2003, where such payment does not fall within paragraph (a) of the "
+                "definition of “war disablement pension” in section 17(1) of the State Pension Credit Act 2002 or, "
+                "in respect of any retired pay or pension granted in respect of disablement, where such payment "
+                "does not fall within paragraph (b) of that definition;"
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/15",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-15.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "preserve the scope of the first qualifier across every antecedent payment type it grammatically modifies" in prompt
+        assert "do not narrow the first `where ...` clause to only the later-mentioned category" in prompt
+        assert "preserve the paragraph-(a) path for retired pay and pension" in prompt
+
 
 class TestGeneratedBundleCleaning:
     def test_clean_generated_file_content_strips_fence_and_trailing_prose(self):
