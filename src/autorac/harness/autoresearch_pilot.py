@@ -24,6 +24,7 @@ AUTORESEARCH_TRAINING_MANIFESTS = (
     "benchmarks/uk_wave18_remaining_repair.yaml",
     "benchmarks/uk_wave19_failure_repair.yaml",
     "benchmarks/uk_wave19_branch_conjunction_repair.yaml",
+    "benchmarks/uk_autoresearch_partner_disjunction.yaml",
     "benchmarks/uk_autoresearch_semantic_margin.yaml",
 )
 AUTORESEARCH_FINAL_REVIEW_MANIFESTS = ("benchmarks/uk_autoresearch_final_review.yaml",)
@@ -166,6 +167,7 @@ def build_mutation_prompt(
         - Do not weaken correctness gates or ask for validator changes.
         - Do not make naming-only, readability-only, or token-count-only edits unless the benchmark evidence shows that naming itself is causing a semantic or review failure.
         - Target at most one concrete failure cluster per iteration, and name that cluster explicitly in your final message.
+        - If the baseline report shows a phrase like `the claimant or, if he has a partner, his partner`, preserve that as a real disjunction. Do not rewrite it as partner-only substitution such as `if claimant_has_partner: partner_fact else: claimant_fact`.
         - Prefer a no-op over speculative churn if the current wording already looks near-optimal.
 
         Output rules:

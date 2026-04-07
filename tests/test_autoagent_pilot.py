@@ -26,9 +26,10 @@ from autorac.harness.autoresearch_pilot import (
 def test_pilot_manifest_paths_resolve_existing_files():
     manifests = pilot_manifest_paths()
 
-    assert len(manifests) == 4
+    assert len(manifests) == 5
     assert all(path.exists() for path in manifests)
     assert manifests[0].name == "uk_wave18_remaining_repair.yaml"
+    assert manifests[-2].name == "uk_autoresearch_partner_disjunction.yaml"
     assert manifests[-1].name == "uk_autoresearch_semantic_margin.yaml"
 
 
@@ -190,3 +191,4 @@ def test_build_mutation_prompt_mentions_only_editable_file():
     assert "baseline training report is already fully ready" in prompt
     assert "Do not make naming-only, readability-only, or token-count-only edits" in prompt
     assert "Target at most one concrete failure cluster per iteration" in prompt
+    assert "preserve that as a real disjunction" in prompt

@@ -26,6 +26,7 @@ Run all of:
 - `benchmarks/uk_wave18_remaining_repair.yaml`
 - `benchmarks/uk_wave19_failure_repair.yaml`
 - `benchmarks/uk_wave19_branch_conjunction_repair.yaml`
+- `benchmarks/uk_autoresearch_partner_disjunction.yaml`
 - `benchmarks/uk_autoresearch_semantic_margin.yaml`
 
 Treat those as the inner-loop training set.
@@ -35,6 +36,7 @@ These are repair slices for known UK failure patterns:
 - binding lead-in conjuncts
 - conditional amount/exclusion leaves
 - branch conjunction vs material implication
+- claimant-or-partner disjunctions encoded as partner substitution
 - weekly amount/divisor semantics
 - unnecessary entitlement guards
 - distinct statutory disjuncts or benefit routes collapsed into one fact
@@ -46,6 +48,11 @@ unless you can identify one concrete semantic weakness tied to those clusters.
 Do not spend iterations on naming cleanup, readability tweaks, or token-count
 reduction unless the benchmark evidence itself shows that naming is causing a
 semantic or reviewer failure.
+
+When the baseline report surfaces text like `the claimant or, if he has a
+partner, his partner`, treat that as a true disjunction over potential
+satisfiers. Do not encode it as partner-only substitution, exclusive branching,
+or `if claimant_has_partner: partner_fact else: claimant_fact`.
 
 ## Final review holdout
 
