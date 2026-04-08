@@ -59,6 +59,10 @@ def run_claude_code(
     Returns:
         Tuple of (output text, return code)
     """
+    reviewer_cli_preference = os.getenv("AUTORAC_REVIEWER_CLI", "").strip().lower()
+    if reviewer_cli_preference == "codex":
+        return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
+
     cmd = ["claude", "--print", "--model", model, "-p", prompt]
 
     try:

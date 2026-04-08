@@ -26,6 +26,7 @@ from autorac.harness.evals import (
     _normalize_nonannual_test_period_value,
     _post_openai_eval_request,
     _resolve_akn_section_eid,
+    _resolve_legislation_gov_uk_fetch_cache_root,
     _run_codex_prompt_eval,
     _wait_for_codex_process,
     evaluate_artifact,
@@ -536,6 +537,35 @@ example_timing_rule:
         assert "do not make the principal output a bare input stub" in prompt
         assert "feed the asserted output back into `input:`" in prompt
         assert "treat the carve-out as displacing this slice" in prompt
+
+    def test_build_eval_prompt_for_comparative_month_apart_phrase_discourages_numeric_thresholds(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/17",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "the last four payments if the last two payments are less than one month apart; or"
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/17",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-17.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "less than one month apart" in prompt
+        assert "one_month_threshold = 1" in prompt
+        assert "trigger decomposed-date CI failures" in prompt
 
     def test_build_eval_prompt_for_branch_slice_preserves_binding_lead_in_conjuncts(
         self, tmp_path
@@ -1830,6 +1860,52 @@ class TestUkLegislationFetch:
         assert first.clml_file == second.clml_file
         assert str(first.akn_file).startswith(str(shared_cache_root))
         assert mock_get.call_count == 2
+
+    def test_resolve_legislation_gov_uk_fetch_cache_root_prefers_override(self, tmp_path):
+        override = tmp_path / "shared-cache"
+        with patch.dict(
+            "os.environ",
+            {"AUTORAC_SHARED_LEGISLATION_CACHE": str(override)},
+            clear=False,
+        ):
+            resolved = _resolve_legislation_gov_uk_fetch_cache_root(tmp_path / "run-root")
+
+        assert resolved == override.resolve()
+
+    def test_run_legislation_gov_uk_section_eval_uses_shared_cache_root_by_default(
+        self, tmp_path
+    ):
+        shared_root = tmp_path / "shared-cache"
+        fetched = FetchedLegislationGovUkDocument(
+            source_id="uksi/2002/1792",
+            content_url="https://www.legislation.gov.uk/uksi/2002/1792",
+            akn_file=tmp_path / "source.akn",
+            clml_file=tmp_path / "source.xml",
+        )
+        fetched.akn_file.write_text("<akomaNtoso/>")
+        fetched.clml_file.write_text("<Legislation/>")
+
+        with patch(
+            "autorac.harness.evals._resolve_legislation_gov_uk_fetch_cache_root",
+            return_value=shared_root,
+        ), patch(
+            "autorac.harness.evals._fetch_legislation_gov_uk_document",
+            return_value=fetched,
+        ) as mock_fetch, patch(
+            "autorac.harness.evals.run_akn_section_eval",
+            return_value=[],
+        ) as mock_run:
+            results = run_legislation_gov_uk_section_eval(
+                source_ref="https://www.legislation.gov.uk/uksi/2002/1792",
+                section_eid="regulation-1",
+                runner_specs=["codex:gpt-5.4"],
+                output_root=tmp_path / "out",
+                rac_path=tmp_path / "rac",
+            )
+
+        assert results == []
+        assert mock_fetch.call_args.kwargs["fetch_cache_root"] == shared_root
+        mock_run.assert_called_once()
 
     def test_fetch_legislation_gov_uk_document_retries_transient_http_errors(
         self, tmp_path

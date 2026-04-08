@@ -100,6 +100,9 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
 )
+_DEFAULT_SHARED_LEGISLATION_CACHE_ROOT = (
+    Path.home() / "tmp" / "autorac-shared-legislation-cache"
+).resolve()
 
 
 @dataclass(frozen=True)
@@ -499,7 +502,7 @@ def _validate_uk_shared_scalar_sibling_sets(
         fetched = _fetch_legislation_gov_uk_document(
             source_ref,
             output_root,
-            fetch_cache_root=output_root,
+            fetch_cache_root=_resolve_legislation_gov_uk_fetch_cache_root(output_root),
         )
         selected_eids = {case.section_eid for case in cases if case.section_eid}
         for case in cases:
@@ -577,6 +580,16 @@ def _normalize_legislation_gov_uk_source_ref(source_ref: str) -> tuple[str, str]
 
     source_id = path.lstrip("/")
     return source_id, f"https://www.legislation.gov.uk/{source_id}"
+
+
+def _resolve_legislation_gov_uk_fetch_cache_root(output_root: Path) -> Path:
+    """Prefer a persistent local fetch cache when one is configured or already exists."""
+    override = os.getenv("AUTORAC_SHARED_LEGISLATION_CACHE")
+    if override:
+        return Path(override).expanduser().resolve()
+    if _DEFAULT_SHARED_LEGISLATION_CACHE_ROOT.exists():
+        return _DEFAULT_SHARED_LEGISLATION_CACHE_ROOT
+    return Path(output_root).resolve()
 
 
 def _fetch_legislation_gov_uk_document(
@@ -914,10 +927,15 @@ def run_legislation_gov_uk_section_eval(
     fetch_cache_root: Path | None = None,
 ) -> list[EvalResult]:
     """Fetch official UK legislation XML and run an AKN section eval."""
+    resolved_fetch_cache_root = (
+        fetch_cache_root
+        if fetch_cache_root is not None
+        else _resolve_legislation_gov_uk_fetch_cache_root(output_root)
+    )
     fetched = _fetch_legislation_gov_uk_document(
         source_ref,
         output_root,
-        fetch_cache_root=fetch_cache_root,
+        fetch_cache_root=resolved_fetch_cache_root,
     )
     target_section_eid = section_eid or _find_primary_akn_section_eid(fetched.akn_file)
     return run_akn_section_eval(
@@ -1138,7 +1156,9 @@ def run_eval_suite(
                             oracle=case.oracle,
                             policyengine_country=case.policyengine_country,
                             policyengine_rac_var_hint=case.policyengine_rac_var_hint,
-                            fetch_cache_root=output_root,
+                            fetch_cache_root=_resolve_legislation_gov_uk_fetch_cache_root(
+                                output_root
+                            ),
                         )
                 except Exception as exc:
                     case_results = _suite_case_failure_results(case, parsed_runners, exc)

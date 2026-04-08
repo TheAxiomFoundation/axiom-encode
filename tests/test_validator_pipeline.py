@@ -117,6 +117,24 @@ class TestRunClaudeCode:
             assert "Timeout" in output
             assert code == 1
 
+    def test_prefers_codex_when_env_requests_it(self):
+        with patch.dict(
+            "os.environ",
+            {"AUTORAC_REVIEWER_CLI": "codex"},
+            clear=False,
+        ), patch(
+            "autorac.harness.validator_pipeline._run_codex_reviewer_cli",
+            return_value=('{"passed": true}', 0),
+        ) as mock_codex, patch(
+            "autorac.harness.validator_pipeline.subprocess.run"
+        ) as mock_run:
+            output, code = run_claude_code("test")
+
+        assert output == '{"passed": true}'
+        assert code == 0
+        mock_codex.assert_called_once()
+        mock_run.assert_not_called()
+
     def test_handles_missing_cli(self):
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
             mock_run.side_effect = [FileNotFoundError(), FileNotFoundError()]
