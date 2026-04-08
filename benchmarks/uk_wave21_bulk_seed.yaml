@@ -340,3 +340,9 @@ cases:
     source_ref: /uksi/2002/1792/2025-03-31
     section_eid: regulation-17A-2-ic
     oracle: none
+
+  - kind: uk_legislation
+    name: regulation-17A-2-j
+    source_ref: /uksi/2002/1792/2025-03-31
+    section_eid: regulation-17A-2-j
+    oracle: none
