@@ -666,6 +666,7 @@ example_timing_rule:
         assert "preserve that payment-scoped subject" in prompt
         assert "prefer `entity: Payment`" in prompt
         assert "provide per-payment rows under `tables:`" in prompt
+        assert "exact entity name `Payment:`" in prompt
         assert "Use `status: entity_not_supported`" in prompt
         assert "only as a last resort" in prompt
         assert "Do not prefer that fallback" in prompt

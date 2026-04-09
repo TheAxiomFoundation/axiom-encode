@@ -22,6 +22,7 @@ def render_uk_legislation_guidance() -> str:
 - When the source slice genuinely operates on individual payments and the rule can be represented as per-payment rows, prefer `entity: Payment` over broadening the logic to `Person` or `Family`.
 - For those payment-scoped leaves, use `status: entity_not_supported` only if even a `Payment`-scoped encoding would still fail to represent the statutory consequence faithfully.
 - In `.rac.test` for `entity: Payment` outputs, provide per-payment rows under `tables:` and assert the entity output as a row-ordered YAML list rather than flattening payment facts into scalar `input:` values.
+- In those `entity: Payment` tests, the `tables:` key should match the exact entity name `Payment:` rather than an inferred plural like `payments:`.
 - Use `status: entity_not_supported` for those payment-scoped slices only as a last resort when the supported schema truly cannot represent the statutory consequence faithfully. Do not prefer that fallback when a narrow, payment-scoped approximation can still encode the branch's actual legal effect.
 - For UK `dtype: Money` variables derived from sterling amounts, include `unit: GBP`.
 - If the source states a sterling amount in pence, encode it in pounds sterling as a decimal with `unit: GBP`; for example, `10 pence` should become `0.10`, not `10`.
