@@ -267,6 +267,8 @@ Review the file holistically for:
 7. **Tests reflect applicability**: Tests cover both applicable and inapplicable branches when the source text makes them meaningful.
 8. **Blocking threshold**: Fail only for substantive fidelity defects that would make promotion unsafe. Minor cleanup notes, naming issues, dead code, or arguably missing-but-uncertain imports are non-blocking.
 9. **Unsupported ontology fallback**: A file that honestly declares `status: entity_not_supported` is not automatically a blocking failure. If the source slice genuinely depends on an unsupported ontology or granularity, treat that explicit fallback as acceptable so long as the file does not pretend to compute the rule and the unsupported reason is plausible from the source text.
+10. **Editorial omission fallback**: If the embedded source text is only an editorial omission or dotted ellipsis with no operative rule content for the target slice, a top-level `status: deferred` fallback is acceptable and should not be failed merely for lacking a computable rule body.
+11. **Subject-to qualification placeholders**: When a slice says `Subject to paragraphs ...` and the cited provisions are not available in the workspace, paragraph-specific local inputs can be acceptable for an isolated slice artifact so long as they preserve the cited paragraph numbers and the branch-specific legal effect. Prefer imports when available, but do not fail solely because the file cannot import unavailable cited paragraphs.
 
 Scoring rubric:
 - 9-10: strong, promotion-ready

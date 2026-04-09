@@ -2339,6 +2339,37 @@ class TestEvalPrompt:
         assert "assertions against deferred symbols" in prompt
         assert "emit only a top-level `status: deferred`" in prompt
 
+    def test_build_eval_prompt_for_editorially_omitted_slice_allows_deferred_docstring(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/17/10/c",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Editorial note: current text valid from 2025-03-21.\n\n"
+                "(c)\n\n"
+                ". . . . . . . . . . . . . . . . . . . . . . . ."
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/17/10/c",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-17-10-c.rac",
+            include_tests=True,
+        )
+
+        assert "omitted/repealed text shown only by ellipses" in prompt
+        assert "keep the embedded source/docstring showing that omission" in prompt
+        assert "editorially omitted or repealed text shown by ellipses or dotted placeholders" in prompt
+        assert "leave `.rac.test` empty" in prompt
+
     def test_build_eval_prompt_forbids_python_inline_ternaries(self, tmp_path):
         workspace = prepare_eval_workspace(
             citation="uksi/2006/965/regulation/2",
@@ -2609,6 +2640,36 @@ class TestEvalPrompt:
         assert "prefer `status: entity_not_supported` over a pseudo-boolean approximation" in prompt
         assert "If the current ontology cannot faithfully tie the deeming effect to the same payment amount" in prompt
 
+    def test_build_eval_prompt_for_claimant_incurred_expenses_preserves_claimant_predicate(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/17A/2/f/i",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "travelling expenses incurred by the claimant between his home and place "
+                "of employment;"
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/17A/2/f/i",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-17A-2-f-i.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "If an expenses limb says the expenses are `incurred by the claimant`" in prompt
+        assert "preserve that claimant-incurred predicate explicitly" in prompt
+        assert "Do not collapse it into only an employer-made-payment fact" in prompt
+
     def test_build_eval_prompt_for_claim_date_reference_day_uses_single_operative_date(
         self, tmp_path
     ):
@@ -2672,6 +2733,37 @@ class TestEvalPrompt:
         assert "treat the cited provision as a possible override or displacement" in prompt
         assert "model a local override/displacement boolean" in prompt
         assert "Do not encode those `Subject to ...` qualifiers as helper names like `*_permits_*`" in prompt
+
+    def test_build_eval_prompt_for_subject_to_unavailable_imports_allows_paragraph_specific_inputs(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/17A/2/e",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Subject to paragraphs (3), (4) and (4A), “earnings” in the case of "
+                "employment as an employed earner, means any remuneration or profit "
+                "derived from that employment and includes any payment by way of a retainer."
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/17A/2/e",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-17A-2-e.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "When canonical imports for those cited paragraphs are available in the workspace, import them." in prompt
+        assert "paragraph-specific local inputs are acceptable for an isolated slice artifact" in prompt
+        assert "preserve the cited paragraph numbers and the branch-specific legal effect" in prompt
 
     def test_build_eval_prompt_for_pure_cross_reference_computation_preserves_distinct_cited_alternatives(
         self, tmp_path

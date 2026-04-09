@@ -2275,7 +2275,7 @@ Available precedent files:
 <raw .rac.test YAML>
 - The `.rac.test` file must contain 1-4 cases, unless the `.rac` file is fully `status: deferred` or `status: entity_not_supported` with no assertable outputs.
 - For a fully deferred or `entity_not_supported` fallback file with no assertable outputs, leave `.rac.test` empty instead of emitting `output: {{}}` or assertions against deferred symbols.
-- If `./source.txt` is omitted/repealed text shown only by ellipses or otherwise contains no operative rule content for the target slice, emit only a top-level `status: deferred` (or `status: entity_not_supported` when appropriate) and no local rule blocks.
+- If `./source.txt` is omitted/repealed text shown only by ellipses or otherwise contains no operative rule content for the target slice, emit only a top-level `status: deferred` (or `status: entity_not_supported` when appropriate), keep the embedded source/docstring showing that omission, and emit no local rule blocks.
 - For ordinary source slices, the `.rac.test` file should usually contain 3-4 cases covering true/applicable, false/inapplicable, and boundary or alternate factual branches.
 - Only a single fixed-amount source slice may use 1-2 cases.
 - The `.rac.test` file must be a YAML list of cases beginning with `- name:` entries, not a top-level mapping keyed by case names.

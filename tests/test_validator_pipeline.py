@@ -100,6 +100,13 @@ def test_generalist_reviewer_prompt_allows_justified_entity_not_supported_fallba
     assert "unsupported ontology or granularity" in GENERALIST_REVIEWER_PROMPT
 
 
+def test_generalist_reviewer_prompt_allows_editorial_omission_and_unavailable_subject_to_imports():
+    assert "editorial omission or dotted ellipsis" in GENERALIST_REVIEWER_PROMPT
+    assert "top-level `status: deferred` fallback is acceptable" in GENERALIST_REVIEWER_PROMPT
+    assert "paragraph-specific local inputs can be acceptable" in GENERALIST_REVIEWER_PROMPT
+    assert "Prefer imports when available" in GENERALIST_REVIEWER_PROMPT
+
+
 # =========================================================================
 # run_claude_code function tests
 # =========================================================================
