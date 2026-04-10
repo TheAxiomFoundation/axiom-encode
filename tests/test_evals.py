@@ -2605,6 +2605,9 @@ class TestEvalPrompt:
         assert "do not invent sibling outcomes for inapplicable cases with `else: 0`" in prompt
         assert "pair the branch-specific money or rate output with a separate applicability boolean" in prompt
         assert "omit assertions about the branch-specific money or rate output" in prompt
+        assert "qualifies its averaging basis with operative parenthetical text" in prompt
+        assert "includes periods in which the claimant does no work but disregards other absences" in prompt
+        assert "generic `average_weekly_income_*` input" in prompt
         assert "do not reuse the parent provision's generic final-amount phrase" in prompt
         assert "name the principal money or rate output after this limb's own basis or method" in prompt
 
