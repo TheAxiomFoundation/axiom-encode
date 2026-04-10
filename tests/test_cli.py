@@ -339,6 +339,7 @@ class TestCmdEvalSuite:
             rac_path=tmp_path / "rac",
             json=False,
             gpt_backend="codex",
+            resume=False,
         )
         args.rac_path.mkdir()
 
@@ -400,6 +401,75 @@ class TestCmdEvalSuite:
         assert "NOT READY" in captured.out
         assert (args.output / "results.json").exists()
         assert (args.output / "summary.json").exists()
+
+    def test_passes_resume_flag_to_run_eval_suite(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text("name: readiness\ncases:\n  - kind: source\n    source_id: x\n    source_file: ./source.txt\n")
+        (tmp_path / "source.txt").write_text("authoritative text")
+        args = SimpleNamespace(
+            manifest=manifest_file,
+            runner=None,
+            output=tmp_path / "out",
+            atlas_path=tmp_path / "atlas",
+            rac_path=tmp_path / "rac",
+            json=False,
+            gpt_backend="codex",
+            resume=True,
+        )
+        args.rac_path.mkdir()
+
+        fake_result = MagicMock()
+        fake_result.runner = "codex-gpt-5.4"
+        fake_result.success = True
+        fake_result.error = None
+        fake_result.metrics = MagicMock(
+            compile_pass=True,
+            ci_pass=True,
+            ungrounded_numeric_count=0,
+        )
+        fake_result.to_dict.return_value = {
+            "citation": "case-a",
+            "runner": "codex-gpt-5.4",
+            "success": True,
+            "error": None,
+            "metrics": {
+                "compile_pass": True,
+                "ci_pass": True,
+                "ungrounded_numeric_count": 0,
+            },
+        }
+
+        fake_summary = MagicMock(
+            ready=True,
+            total_cases=1,
+            success_rate=1.0,
+            compile_pass_rate=1.0,
+            ci_pass_rate=1.0,
+            zero_ungrounded_rate=1.0,
+            generalist_review_pass_rate=1.0,
+            mean_generalist_review_score=8.0,
+            policyengine_case_count=0,
+            policyengine_pass_rate=None,
+            mean_policyengine_score=None,
+            mean_estimated_cost_usd=0.25,
+            gate_results=[],
+        )
+
+        with patch("autorac.cli.load_eval_suite_manifest") as mock_load, patch(
+            "autorac.cli.run_eval_suite", return_value=[fake_result]
+        ) as mock_run, patch(
+            "autorac.cli.summarize_readiness", return_value=fake_summary
+        ):
+            mock_load.return_value.name = "Readiness"
+            mock_load.return_value.path = manifest_file
+            mock_load.return_value.runners = ["openai:gpt-5.4"]
+            mock_load.return_value.cases = [MagicMock(kind="source")]
+            mock_load.return_value.gates = MagicMock()
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_eval_suite(args)
+
+        assert exc_info.value.code == 0
+        assert mock_run.call_args.kwargs["resume_existing"] is True
 
 
 class TestCmdEvalSuiteReport:

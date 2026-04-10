@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -1073,6 +1073,7 @@ def run_eval_suite(
     atlas_path: Path | None = None,
     runner_specs: list[str] | None = None,
     suite_retry_attempts: int = 2,
+    resume_existing: bool = False,
 ) -> list[EvalResult]:
     """Run every case in a benchmark suite manifest."""
     output_root = Path(output_root)
@@ -1081,20 +1082,40 @@ def run_eval_suite(
     parsed_runners = [parse_runner_spec(spec) for spec in resolved_runners]
     results: list[EvalResult] = []
     started_at = _utc_now_iso()
+    completed_case_indexes: set[int] = set()
     completed_cases = 0
     last_case_name: str | None = None
+    if resume_existing:
+        (
+            started_at,
+            results,
+            completed_case_indexes,
+        ) = _load_eval_suite_resume_state(
+            output_root=output_root,
+            manifest=manifest,
+            resolved_runners=resolved_runners,
+            runner_count=len(parsed_runners),
+        )
+        completed_cases = _contiguous_completed_case_count(
+            completed_case_indexes, len(manifest.cases)
+        )
+        if completed_cases > 0:
+            last_case_name = manifest.cases[completed_cases - 1].name
     _write_eval_suite_run_state(
         output_root=output_root,
         manifest=manifest,
         resolved_runners=resolved_runners,
         status="running",
         started_at=started_at,
-        completed_cases=0,
-        result_count=0,
+        completed_cases=completed_cases,
+        result_count=len(results),
+        last_case_name=last_case_name,
     )
     _validate_uk_shared_scalar_sibling_sets(manifest, Path(output_root))
     try:
         for index, case in enumerate(manifest.cases, start=1):
+            if index in completed_case_indexes:
+                continue
             case_output_root = output_root / f"{index:02d}-{_slugify(case.name)}"
             extra_context = [*manifest.allow_context, *case.allow_context]
             attempts = max(suite_retry_attempts, 0) + 1
@@ -1174,6 +1195,7 @@ def run_eval_suite(
                 if case.name and case.name != result.citation:
                     result.citation = f"{case.name} ({result.citation})"
             results.extend(case_results)
+            completed_case_indexes.add(index)
             completed_cases = index
             last_case_name = case.name
             _append_eval_suite_case_results(output_root, index, case, case_results)
@@ -1214,6 +1236,19 @@ def run_eval_suite(
     return results
 
 
+def _contiguous_completed_case_count(
+    completed_case_indexes: set[int],
+    total_cases: int,
+) -> int:
+    """Return the largest completed case prefix represented in the ledger."""
+    completed = 0
+    for index in range(1, total_cases + 1):
+        if index not in completed_case_indexes:
+            break
+        completed = index
+    return completed
+
+
 def _utc_now_iso() -> str:
     """Return the current UTC time in a stable JSON-friendly format."""
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -1223,6 +1258,59 @@ def _format_suite_exception(exc: BaseException) -> str:
     """Return a non-empty error string for suite state logs."""
     message = str(exc).strip()
     return message or exc.__class__.__name__
+
+
+def _load_eval_suite_resume_state(
+    output_root: Path,
+    manifest: EvalSuiteManifest,
+    resolved_runners: list[str],
+    runner_count: int,
+) -> tuple[str, list[EvalResult], set[int]]:
+    """Load prior suite state and completed case results for resumption."""
+    state_path = output_root / "suite-run.json"
+    ledger_path = output_root / "suite-results.jsonl"
+    started_at = _utc_now_iso()
+    if state_path.exists():
+        state = json.loads(state_path.read_text())
+        manifest_payload = state.get("manifest") or {}
+        existing_path = manifest_payload.get("path")
+        if existing_path and existing_path != str(manifest.path):
+            raise ValueError(
+                "Cannot resume eval suite with a different manifest path: "
+                f"{existing_path}"
+            )
+        existing_runners = manifest_payload.get("effective_runners")
+        if existing_runners and list(existing_runners) != list(resolved_runners):
+            raise ValueError(
+                "Cannot resume eval suite with different effective runners: "
+                f"{existing_runners}"
+            )
+        started_at = state.get("started_at") or started_at
+
+    if not ledger_path.exists():
+        return started_at, [], set()
+
+    rows_by_case: dict[int, list[dict]] = defaultdict(list)
+    for line in ledger_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        payload = json.loads(line)
+        case_index = int(payload.get("case_index", 0) or 0)
+        if case_index <= 0:
+            continue
+        rows_by_case[case_index].append(payload)
+
+    completed_case_indexes: set[int] = set()
+    results: list[EvalResult] = []
+    for case_index in sorted(rows_by_case):
+        rows = rows_by_case[case_index]
+        if len(rows) < runner_count:
+            continue
+        completed_case_indexes.add(case_index)
+        for payload in rows[:runner_count]:
+            results.append(_eval_result_from_payload(payload.get("result") or {}))
+
+    return started_at, results, completed_case_indexes
 
 
 def _write_eval_suite_run_state(
@@ -1279,6 +1367,85 @@ def _append_eval_suite_case_results(
                 "result": result.to_dict(),
             }
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+
+def _eval_result_from_payload(payload: dict) -> EvalResult:
+    """Rehydrate an EvalResult from a persisted JSON payload."""
+    metrics_payload = payload.get("metrics")
+    metrics = None
+    if isinstance(metrics_payload, dict):
+        grounding = [
+            GroundingMetric(
+                line=int(item.get("line", 0) or 0),
+                raw=str(item.get("raw", "")),
+                value=float(item.get("value", 0.0) or 0.0),
+                grounded=bool(item.get("grounded", False)),
+            )
+            for item in metrics_payload.get("grounding") or []
+        ]
+        metrics = EvalArtifactMetrics(
+            compile_pass=bool(metrics_payload.get("compile_pass", False)),
+            compile_issues=list(metrics_payload.get("compile_issues") or []),
+            ci_pass=bool(metrics_payload.get("ci_pass", False)),
+            ci_issues=list(metrics_payload.get("ci_issues") or []),
+            embedded_source_present=bool(
+                metrics_payload.get("embedded_source_present", False)
+            ),
+            grounded_numeric_count=int(
+                metrics_payload.get("grounded_numeric_count", 0) or 0
+            ),
+            ungrounded_numeric_count=int(
+                metrics_payload.get("ungrounded_numeric_count", 0) or 0
+            ),
+            grounding=grounding,
+            source_numeric_occurrence_count=int(
+                metrics_payload.get("source_numeric_occurrence_count", 0) or 0
+            ),
+            covered_source_numeric_occurrence_count=int(
+                metrics_payload.get("covered_source_numeric_occurrence_count", 0) or 0
+            ),
+            missing_source_numeric_occurrence_count=int(
+                metrics_payload.get("missing_source_numeric_occurrence_count", 0) or 0
+            ),
+            numeric_occurrence_issues=list(
+                metrics_payload.get("numeric_occurrence_issues") or []
+            ),
+            generalist_review_pass=metrics_payload.get("generalist_review_pass"),
+            generalist_review_score=metrics_payload.get("generalist_review_score"),
+            generalist_review_issues=list(
+                metrics_payload.get("generalist_review_issues") or []
+            ),
+            policyengine_pass=metrics_payload.get("policyengine_pass"),
+            policyengine_score=metrics_payload.get("policyengine_score"),
+            policyengine_issues=list(metrics_payload.get("policyengine_issues") or []),
+            taxsim_pass=metrics_payload.get("taxsim_pass"),
+            taxsim_score=metrics_payload.get("taxsim_score"),
+            taxsim_issues=list(metrics_payload.get("taxsim_issues") or []),
+        )
+
+    return EvalResult(
+        citation=str(payload.get("citation", "")),
+        runner=str(payload.get("runner", "")),
+        backend=str(payload.get("backend", "")),
+        model=str(payload.get("model", "")),
+        mode=payload.get("mode", "cold"),
+        output_file=str(payload.get("output_file", "")),
+        trace_file=str(payload.get("trace_file", "")),
+        context_manifest_file=str(payload.get("context_manifest_file", "")),
+        duration_ms=int(payload.get("duration_ms", 0) or 0),
+        success=bool(payload.get("success", False)),
+        error=payload.get("error"),
+        input_tokens=int(payload.get("input_tokens", 0) or 0),
+        output_tokens=int(payload.get("output_tokens", 0) or 0),
+        cache_read_tokens=int(payload.get("cache_read_tokens", 0) or 0),
+        cache_creation_tokens=int(payload.get("cache_creation_tokens", 0) or 0),
+        reasoning_output_tokens=int(payload.get("reasoning_output_tokens", 0) or 0),
+        estimated_cost_usd=payload.get("estimated_cost_usd"),
+        actual_cost_usd=payload.get("actual_cost_usd"),
+        retrieved_files=list(payload.get("retrieved_files") or []),
+        unexpected_accesses=list(payload.get("unexpected_accesses") or []),
+        metrics=metrics,
+    )
 
 
 def _suite_case_failure_results(

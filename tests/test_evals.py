@@ -4031,6 +4031,89 @@ cases:
         assert results == [failed]
         assert mock_source.call_count == 1
 
+    def test_run_eval_suite_resume_skips_completed_cases(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Resume suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: case-one
+    source_id: case-one
+    source_file: ./source.txt
+  - kind: source
+    name: case-two
+    source_id: case-two
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+        output_root = tmp_path / "out"
+        output_root.mkdir()
+
+        first = _fake_eval_result("openai-gpt-5.4", "case-one")
+        second = _fake_eval_result("openai-gpt-5.4", "case-two")
+        (output_root / "suite-run.json").write_text(
+            json.dumps(
+                {
+                    "manifest": {
+                        "name": manifest.name,
+                        "path": str(manifest.path),
+                        "runners": manifest.runners,
+                        "effective_runners": manifest.runners,
+                    },
+                    "status": "running",
+                    "started_at": "2026-04-10T16:17:28+00:00",
+                    "updated_at": "2026-04-10T16:30:00+00:00",
+                    "total_cases": 2,
+                    "completed_cases": 1,
+                    "result_count": 1,
+                    "last_case_name": "case-one",
+                }
+            )
+            + "\n"
+        )
+        (output_root / "suite-results.jsonl").write_text(
+            json.dumps(
+                {
+                    "case_index": 1,
+                    "case_name": "case-one",
+                    "case_kind": "source",
+                    "result": first.to_dict(),
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=[second],
+        ) as mock_source, patch(
+            "autorac.harness.evals._validate_uk_shared_scalar_sibling_sets",
+            return_value=None,
+        ):
+            results = run_eval_suite(
+                manifest=manifest,
+                output_root=output_root,
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+                resume_existing=True,
+            )
+
+        assert [result.citation for result in results] == ["case-one", "case-two"]
+        mock_source.assert_called_once()
+        assert mock_source.call_args.kwargs["source_id"] == "case-two"
+        state = json.loads((output_root / "suite-run.json").read_text())
+        assert state["status"] == "completed"
+        assert state["started_at"] == "2026-04-10T16:17:28+00:00"
+        assert state["completed_cases"] == 2
+        lines = (output_root / "suite-results.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 2
+
 
 class TestReadinessSummary:
     def test_summarize_readiness_applies_suite_gates(self):

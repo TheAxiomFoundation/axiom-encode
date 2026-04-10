@@ -580,6 +580,11 @@ def main():
         help="Directory for suite artifacts and traces",
     )
     eval_suite_parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume a partially completed suite in the same output directory",
+    )
+    eval_suite_parser.add_argument(
         "--atlas-path",
         type=Path,
         default=None,
@@ -2254,6 +2259,7 @@ def cmd_eval_suite(args):
         rac_path=rac_path,
         atlas_path=atlas_path if has_citation_case else None,
         runner_specs=effective_runners,
+        resume_existing=getattr(args, "resume", False),
     )
 
     grouped: dict[str, list] = {}
