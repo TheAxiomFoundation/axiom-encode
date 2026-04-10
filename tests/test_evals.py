@@ -933,6 +933,41 @@ example_timing_rule:
         assert "do not narrow the first `where ...` clause to only the later-mentioned category" in prompt
         assert "preserve the paragraph-(a) path for retired pay and pension" in prompt
 
+    def test_build_eval_prompt_for_royalties_slice_preserves_consideration_scope(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="uksi/2002/1792/regulation/17/5/a",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "PART III Income\n\n"
+                "17. Calculation of weekly income\n\n"
+                "(5)\n\n"
+                "This paragraph applies to—\n\n"
+                "(a)\n\n"
+                "royalties or other sums received as a consideration for the use of, or the "
+                "right to use, any copyright, design, patent or trade mark;"
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "uksi/2002/1792/regulation/17/5/a",
+            "cold",
+            workspace,
+            [],
+            target_file_name="uksi-2002-1792-regulation-17-5-a.rac",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "preserve the consideration-for-use/right-to-use qualifier across both `royalties` and `other sums`" in prompt
+        assert "do not model `royalty` as a free-standing qualifying limb" in prompt
+        assert "a bare `payment_is_royalty` fact is too broad" in prompt
+
     def test_build_eval_prompt_for_complete_capital_bands_discourages_fractional_division(
         self, tmp_path
     ):
