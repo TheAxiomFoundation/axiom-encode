@@ -68,6 +68,13 @@ class TestRunnerOverrides:
             == "gpt=codex:gpt-5.4"
         )
 
+    def test_effective_runner_specs_defaults_to_codex(self):
+        args = SimpleNamespace(gpt_backend=None)
+
+        assert _effective_runner_specs(
+            ["openai:gpt-5.4", "claude:opus"], args
+        ) == ["codex:gpt-5.4", "claude:opus"]
+
     def test_effective_runner_specs_uses_env_override(self, monkeypatch):
         monkeypatch.setenv("AUTORAC_GPT_BACKEND", "codex")
         args = SimpleNamespace(gpt_backend=None)
@@ -75,6 +82,14 @@ class TestRunnerOverrides:
         assert _effective_runner_specs(
             ["openai:gpt-5.4", "claude:opus"], args
         ) == ["codex:gpt-5.4", "claude:opus"]
+
+    def test_effective_runner_specs_allows_explicit_openai_override(self, monkeypatch):
+        monkeypatch.delenv("AUTORAC_GPT_BACKEND", raising=False)
+        args = SimpleNamespace(gpt_backend="openai")
+
+        assert _effective_runner_specs(
+            ["codex:gpt-5.4", "claude:opus"], args
+        ) == ["openai:gpt-5.4", "claude:opus"]
 
 
 class TestMain:

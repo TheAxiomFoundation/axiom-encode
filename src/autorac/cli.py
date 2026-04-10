@@ -91,14 +91,14 @@ def _add_gpt_backend_argument(parser: argparse.ArgumentParser) -> None:
             "Override GPT runner backend for evals. "
             "Use 'codex' locally to route gpt-* runners through Codex CLI/ChatGPT, "
             "or 'openai' to force API-backed Responses runs. "
-            "Defaults to the AUTORAC_GPT_BACKEND env var when set."
+            "Defaults to 'codex' locally, or the AUTORAC_GPT_BACKEND env var when set."
         ),
     )
 
 
 def _resolved_gpt_backend(args) -> str | None:
     """Resolve the requested GPT backend override from args/env."""
-    return getattr(args, "gpt_backend", None) or os.getenv("AUTORAC_GPT_BACKEND") or None
+    return getattr(args, "gpt_backend", None) or os.getenv("AUTORAC_GPT_BACKEND") or "codex"
 
 
 def _rewrite_gpt_runner_backend(spec: str, backend: str | None) -> str:

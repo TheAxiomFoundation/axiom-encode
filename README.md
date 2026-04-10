@@ -102,7 +102,7 @@ promotion flow.
 Run it with:
 
 ```bash
-uv run python scripts/run_autoresearch_pilot.py --gpt-backend codex
+uv run python scripts/run_autoresearch_pilot.py
 ```
 
 The script:
@@ -113,7 +113,7 @@ The script:
 To run one real mutate-score-keep iteration on the same frozen set:
 
 ```bash
-uv run python scripts/run_autoresearch_iteration.py --gpt-backend codex
+uv run python scripts/run_autoresearch_iteration.py
 ```
 
 That script:

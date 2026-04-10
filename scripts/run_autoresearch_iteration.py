@@ -80,8 +80,8 @@ def main() -> int:
     parser.add_argument(
         "--gpt-backend",
         choices=["codex", "openai"],
-        default=None,
-        help="Override GPT runner backend for local-vs-API eval execution",
+        default="codex",
+        help="GPT runner backend for local-vs-API eval execution (default: codex)",
     )
     parser.add_argument(
         "--shared-legislation-cache-root",
@@ -119,8 +119,7 @@ def main() -> int:
     if env.get("PYTHONPATH"):
         pythonpath_entries.append(env["PYTHONPATH"])
     env["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
-    if args.gpt_backend:
-        env["AUTORAC_GPT_BACKEND"] = args.gpt_backend
+    env["AUTORAC_GPT_BACKEND"] = args.gpt_backend
 
     editable_paths = pilot_editable_paths(repo_root)
     if len(editable_paths) != 1:
