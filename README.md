@@ -52,6 +52,16 @@ Each suite reports:
 
 The command exits `0` only when all readiness gates pass.
 
+## Methods and paper notes
+
+The repo now keeps paper-oriented internal documentation for benchmark-relevant
+changes and current evidence.
+
+- `docs/autorac-methods-log.md` tracks the last meaningful harness changes,
+  their hypotheses, and the evidence path to justify them later.
+- `docs/paper-evidence-register.md` lists safe claims, claims to avoid, and
+  reproducible count commands for refreshing paper numbers.
+
 ## Paper-ready model comparison
 
 Use a fixed multi-runner manifest plus the report exporter when you want a
