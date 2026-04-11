@@ -2548,6 +2548,8 @@ class TestEvalPrompt:
         assert "For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals." in prompt
         assert "Do not respond with summaries like `Both files written`" in prompt
         assert "Do not use inline assignment syntax like `:=` inside `from` blocks" in prompt
+        assert "use supported RAC helpers like `floor(...)`" in prompt
+        assert "unsupported operators such as `%`" in prompt
 
     def test_build_eval_prompt_for_uk_leaf_prefers_person_over_family_constant(
         self, tmp_path
@@ -2641,6 +2643,8 @@ class TestEvalPrompt:
         assert "positive conditional leaves" in prompt
         assert "the inapplicable case should usually be `0` for `dtype: Money` or `false` for `dtype: Boolean`" in prompt
         assert "do not use an unconditional amount or `else: true`" in prompt
+        assert "fixed supplement, allowance, or addition is payable only while an eligibility condition holds" in prompt
+        assert "do not leave that money output unconditional" in prompt
 
     def test_build_eval_prompt_for_determination_limb_discourages_invented_fallback(
         self, tmp_path
@@ -3199,6 +3203,10 @@ class TestEvalPrompt:
             definition_files[0].workspace_path
             == "context/legislation/ukpga/2002/16/section/3ZA/3.rac"
         )
+        assert (
+            definition_files[0].import_path
+            == "legislation/ukpga/2002/16/section/3ZA/3.rac"
+        )
         stub_path = workspace.root / definition_files[0].workspace_path
         assert stub_path.exists()
         assert "is_member_of_mixed_age_couple" in stub_path.read_text()
@@ -3240,6 +3248,7 @@ is_individual_responsibility_contract:
         ]
         assert len(concept_files) == 1
         assert concept_files[0].workspace_path == "context/statute/crs/26-2-703/12.rac"
+        assert concept_files[0].import_path == "statute/crs/26-2-703/12.rac"
         copied_path = workspace.root / concept_files[0].workspace_path
         assert copied_path.exists()
         assert "is_individual_responsibility_contract" in copied_path.read_text()
@@ -4442,6 +4451,55 @@ cases:
             ).resolve(),
         ]
 
+    def test_repo_us_co_colorado_works_leaf_repair_manifest_loads_expected_cases(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root / "benchmarks" / "us_co_colorado_works_leaf_repair.yaml"
+        )
+
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 5
+        assert manifest.gates.min_cases == 5
+        assert manifest.gates.min_compile_pass_rate == 1.0
+        assert manifest.gates.min_ci_pass_rate == 1.0
+        assert all(case.kind == "source" for case in manifest.cases)
+        assert [case.name for case in manifest.cases] == [
+            "co-3-606-1-g",
+            "co-3-606-1-h",
+            "co-3-606-1-i",
+            "co-3-606-1-j",
+            "co-3-606-1-k",
+        ]
+        assert manifest.cases[0].allow_context == []
+        assert manifest.cases[1].allow_context == [
+            (
+                repo_root.parent
+                / "rac-us-co"
+                / "regulation"
+                / "9-CCR-2503-6"
+                / "3.606.1"
+                / "F.rac"
+            ).resolve()
+        ]
+        assert manifest.cases[4].allow_context == [
+            (
+                repo_root.parent
+                / "rac-us-co"
+                / "regulation"
+                / "9-CCR-2503-6"
+                / "3.606.1"
+                / "F.rac"
+            ).resolve(),
+            (
+                repo_root.parent
+                / "rac-us-co"
+                / "regulation"
+                / "9-CCR-2503-6"
+                / "3.606.1"
+                / "I.rac"
+            ).resolve(),
+        ]
+
 
 class TestReadinessSummary:
     def test_summarize_readiness_applies_suite_gates(self):
@@ -4535,6 +4593,7 @@ class TestRepoAugmentedContext:
         manifest = json.loads(workspace.manifest_file.read_text())
         assert manifest["mode"] == "repo-augmented"
         assert manifest["context_files"][0]["source_path"] == str(context_file)
+        assert manifest["context_files"][0]["import_path"] == "26/32/b/2/A.rac"
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
@@ -4580,8 +4639,45 @@ class TestRepoAugmentedContext:
         assert manifest["mode"] == "repo-augmented"
         assert manifest["source_file"] == "source.txt"
         assert manifest["context_files"][0]["source_path"] == str(context_file)
+        assert manifest["context_files"][0]["import_path"] == "26/24/b.rac"
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
+
+    def test_build_eval_prompt_lists_external_context_import_target(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        rac_root = repo_root / "rac"
+        rac_root.mkdir(parents=True)
+        external_file = (
+            repo_root / "rac-us-co" / "regulation" / "9-CCR-2503-6" / "3.606.1" / "F.rac"
+        )
+        external_file.parent.mkdir(parents=True, exist_ok=True)
+        external_file.write_text(
+            "grant_standard_for_assistance_unit:\n"
+            "    entity: TanfUnit\n"
+            "    period: Month\n"
+            "    dtype: Money\n"
+        )
+
+        workspace = prepare_eval_workspace(
+            citation="9 CCR 2503-6 3.606.1(I)",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Deduct the total from step 2, above, from the grant amount.",
+            rac_path=rac_root,
+            mode="repo-augmented",
+            extra_context_paths=[external_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "9 CCR 2503-6 3.606.1(I)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="9-CCR-2503-6-3.606.1-I.rac",
+        )
+
+        assert "inspect `context/external/F.rac`; import target `external/F.rac`" in prompt
+        assert "use the listed import target rather than the `./context/...` inspection path" in prompt
 
     def test_hydrate_eval_root_copies_context_into_import_tree(self, tmp_path):
         repo_root = tmp_path / "repos"

@@ -327,7 +327,8 @@ _STRUCTURAL_SOURCE_HEADING_PATTERN = re.compile(
     r"^(PART|CHAPTER|SCHEDULE|REGULATION|ARTICLE)\b", re.IGNORECASE
 )
 _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:\d+[A-Za-z]?\.\s+|\([0-9A-Za-zivxlcdm]+\)\s+)", re.IGNORECASE
+    r"^\s*(?:\d+(?:\.\d+){2,}\s+|\d+[A-Za-z]?\.\s+|\([0-9A-Za-zivxlcdm]+\)\s+)",
+    re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 _SOURCE_REFERENCE_TARGET_PATTERN = (
@@ -345,6 +346,10 @@ _SOURCE_REFERENCE_PATTERNS = (
     ),
     re.compile(
         rf"\b(?:column|columns)\s+{_SOURCE_REFERENCE_SEQUENCE_PATTERN}(?:\s+to\s+{_SOURCE_REFERENCE_SEQUENCE_PATTERN})?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"\b(?:step|steps)\s+{_SOURCE_REFERENCE_SEQUENCE_PATTERN}(?:\s*,?\s*(?:above|below))?",
         re.IGNORECASE,
     ),
     re.compile(r"\b(?:Act|Order|Regulations?)\s+\d{4}\b"),

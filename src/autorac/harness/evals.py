@@ -159,6 +159,7 @@ class EvalContextFile:
 
     source_path: str
     workspace_path: str
+    import_path: str
     kind: str
     label: str | None = None
 
@@ -1918,13 +1919,15 @@ def prepare_eval_workspace(
             except ValueError:
                 relative_target = Path("external") / source_path.name
 
-            workspace_path = context_root / relative_target
+            workspace_relative_path = Path("context") / relative_target
+            workspace_path = workspace_root / workspace_relative_path
             workspace_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, workspace_path)
             context_files.append(
                 EvalContextFile(
                     source_path=str(source_path),
-                    workspace_path=str(workspace_path.relative_to(workspace_root)),
+                    workspace_path=str(workspace_relative_path),
+                    import_path=str(relative_target),
                     kind=kind,
                 )
             )
@@ -1969,6 +1972,7 @@ def _materialize_resolved_definition_stub(
     return EvalContextFile(
         source_path=resolved_term.citation,
         workspace_path=str(relative_target),
+        import_path=str(relative_target.relative_to("context")),
         kind="definition_stub",
         label=resolved_term.label,
     )
@@ -1990,6 +1994,7 @@ def _materialize_resolved_canonical_concept(
     return EvalContextFile(
         source_path=str(resolved_concept.source_file),
         workspace_path=str(relative_target),
+        import_path=str(relative_target.relative_to("context")),
         kind="canonical_concept",
         label=resolved_concept.label,
     )
@@ -2403,7 +2408,7 @@ are copied inline below and must be treated as the contents of that file.
     definition_section = ""
     if definition_context_files:
         listed_definitions = "\n".join(
-            f"- `{item.workspace_path}`: {item.label or item.source_path}"
+            _format_context_file_listing(item, include_label=True)
             for item in definition_context_files
         )
         inline_definition_copies = ""
@@ -2417,6 +2422,8 @@ Inline resolved definition file copies:
 Resolved definition files are available below.
 If `./source.txt` uses one of these defined terms, import the listed canonical definition instead of inventing a local helper:
 {listed_definitions}
+
+Inspect the copied file at the listed `./context/...` path when needed, but emit any RAC `imports:` entry using the listed import target rather than the `./context/` inspection path.
 
 Exact RAC import syntax for a resolved definition:
 resolved_term_local_name:
@@ -2436,7 +2443,7 @@ Do not replace that import with a local deferred stub or a path-mangled variable
     canonical_concept_section = ""
     if canonical_concept_context_files:
         listed_concepts = "\n".join(
-            f"- `{item.workspace_path}`: {item.label or item.source_path}"
+            _format_context_file_listing(item, include_label=True)
             for item in canonical_concept_context_files
         )
         inline_concept_copies = ""
@@ -2450,6 +2457,8 @@ Inline canonical concept file copies:
 Resolved canonical concept files from this corpus are available below.
 If `./source.txt` uses one of these legal concepts, import the listed canonical definition instead of restating that concept locally:
 {listed_concepts}
+
+Inspect the copied file at the listed `./context/...` path when needed, but emit any RAC `imports:` entry using the listed import target rather than the `./context/` inspection path.
 
 Exact RAC import syntax for a copied canonical concept:
 local_fact_name:
@@ -2468,7 +2477,7 @@ Because the canonical concept file already exists in this workspace, do not keep
     context_section = ""
     if precedent_context_files:
         listed = "\n".join(
-            f"- `{item.workspace_path}`" for item in precedent_context_files
+            _format_context_file_listing(item) for item in precedent_context_files
         )
         scaffold_dates = _collect_scaffold_dates(workspace, precedent_context_files)
         scaffold_date_lines = ""
@@ -2489,6 +2498,7 @@ Implementation precedent files are available below as inline copies.
 You may use ONLY the copied files below for syntax, naming, entity, import, re-export, and style conventions.
 They are not legal authority and may not justify new substantive numeric values.
 Prefer importing or re-exporting a copied concept instead of inventing a fresh stub input when a matching concept already exists.
+When you emit a RAC `imports:` entry based on one of these copied files, use the listed import target rather than the `./context/...` inspection path.
 {scaffold_date_lines}
 
 Available precedent files:
@@ -2503,6 +2513,7 @@ Implementation precedent files are available under `./context/`.
 You may use ONLY the copied files below for syntax, naming, entity, import, re-export, and style conventions.
 They are not legal authority and may not justify new substantive numeric values.
 Prefer importing or re-exporting a copied concept instead of inventing a fresh stub input when a matching concept already exists.
+When you emit a RAC `imports:` entry based on one of these copied files, use the listed import target rather than the `./context/...` inspection path.
 You may inspect `./source.txt`, `./context-manifest.json`, and the listed copied files only when needed.
 {scaffold_date_lines}
 
@@ -2597,6 +2608,8 @@ Rules:
 - When the source states factual predicates that this leaf depends on, expose those predicates as plain fact-shaped inputs (`entity`, `period`, `dtype`) unless they are imported from a canonical definition.
 - Do not encode such local factual predicates as placeholder constants like `true` or `false`.
 - Do not encode such local factual predicates as `status: deferred`; if they are not imported, leave them as plain input stubs instead.
+- If `./source.txt` states that a fixed supplement, allowance, or addition is payable only while an eligibility condition holds, do not leave that money output unconditional; make the amount depend on that eligibility condition, usually with `else: 0` when the source states no alternate amount.
+- For textual rounding instructions like `drop the cents`, `drop any cents`, `round down`, or `truncate`, use supported RAC helpers like `floor(...)` rather than unsupported operators such as `%`.
 - Wrong:
   some_paragraph_applies:
       entity: Person
@@ -2687,6 +2700,21 @@ def _format_inline_context_snippets(
             content = content[:max_chars_per_file].rstrip() + "\n... [truncated]"
         snippets.append(f"=== FILE: {item.workspace_path} ===\n{content}")
     return "\n\n".join(snippets)
+
+
+def _format_context_file_listing(
+    item: EvalContextFile,
+    *,
+    include_label: bool = False,
+) -> str:
+    """Format one copied context file for prompt display."""
+    details = f": {item.label or item.source_path}" if include_label else ""
+    if item.workspace_path == item.import_path:
+        return f"- `{item.workspace_path}`{details}"
+    return (
+        f"- inspect `{item.workspace_path}`; import target `{item.import_path}`"
+        f"{details}"
+    )
 
 
 def _collect_scaffold_dates(
@@ -2822,7 +2850,7 @@ def _hydrate_eval_root(eval_root: Path, workspace: EvalWorkspace) -> None:
         if not workspace_path.parts or workspace_path.parts[0] != "context":
             continue
 
-        target = eval_root.joinpath(*workspace_path.parts[1:])
+        target = eval_root / item.import_path
         if target.exists():
             continue
 

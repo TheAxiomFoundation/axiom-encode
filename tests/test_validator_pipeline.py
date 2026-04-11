@@ -353,6 +353,25 @@ the net profit derived from that employment;
         )
 
         assert 1.0 not in occurrences
+
+    def test_ignores_structural_section_headings_and_step_references(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+3.606.1 Basic Cash Assistance
+
+To calculate the basic cash assistance amount for an eligible assistance unit:
+
+1. Deduct the earned income disregard(s) from the gross earned income.
+
+2. Add to the result from step 1, above, the unearned income.
+
+3. Deduct the total from step 2, above, from the grant amount for the household size.
+"""
+        )
+
+        assert 3.606 not in occurrences
+        assert 1.0 not in occurrences
+        assert 2.0 not in occurrences
         assert 11.0 not in occurrences
 
 
