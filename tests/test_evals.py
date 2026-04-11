@@ -4724,6 +4724,8 @@ class TestRepoAugmentedContext:
         assert "use the listed import target rather than the `./context/...` inspection path" in prompt
         assert "do not guess contradictory `.rac.test` expectations for those imported values" in prompt
         assert "keep `.rac.test` inputs and expected outputs consistent with the rows visible in that imported file" in prompt
+        assert "Do not invent degenerate placeholder rows like `number_of_children_in_assistance_unit: 0` plus `number_of_caretakers_in_assistance_unit: 0`" in prompt
+        assert "Do not assert an exact zero imported standard, grant, or threshold unless that exact imported row is visible in the copied chart file" in prompt
 
     def test_hydrate_eval_root_copies_context_into_import_tree(self, tmp_path):
         repo_root = tmp_path / "repos"

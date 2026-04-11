@@ -329,6 +329,9 @@ _STRUCTURAL_SOURCE_LINE_PATTERN = re.compile(
 _STRUCTURAL_SOURCE_HEADING_PATTERN = re.compile(
     r"^(PART|CHAPTER|SCHEDULE|REGULATION|ARTICLE)\b", re.IGNORECASE
 )
+_STRUCTURAL_SOURCE_CITATION_PATTERN = re.compile(
+    r"^\d+\s+[A-Z]{2,}(?:\s+\d+[A-Za-z0-9./-]*)+\s*$"
+)
 _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
     r"^\s*(?:\d+(?:\.\d+){2,}\s+|\d+[A-Za-z]?\.\s+|\([0-9A-Za-zivxlcdm]+\)\s+)",
     re.IGNORECASE,
@@ -615,6 +618,8 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
         if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
             continue
         if _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped):
+            continue
+        if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
             continue
         normalized_line = line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         cleaned_lines.append(_STRUCTURAL_SOURCE_PREFIX_PATTERN.sub("", normalized_line))

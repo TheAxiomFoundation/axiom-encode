@@ -374,6 +374,20 @@ To calculate the basic cash assistance amount for an eligible assistance unit:
         assert 2.0 not in occurrences
         assert 11.0 not in occurrences
 
+    def test_ignores_citation_heading_lines(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+9 CCR 2503-6
+3.606.1 Basic Cash Assistance
+
+The amount is $20 per month.
+"""
+        )
+
+        assert 9.0 not in occurrences
+        assert 2503.0 not in occurrences
+        assert 20.0 in occurrences
+
 
 class TestImportClosureHelpers:
     def test_extract_import_paths_supports_list_and_mapping_forms(self, pipeline):

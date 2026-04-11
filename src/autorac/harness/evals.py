@@ -2635,6 +2635,8 @@ Rules:
 - For textual rounding instructions like `drop the cents`, `drop any cents`, `round down`, or `truncate`, use supported RAC helpers like `floor(...)` rather than unsupported operators such as `%`.
 - When a copied precedent file supplies chart values, thresholds, or standard amounts that your artifact imports, do not guess contradictory `.rac.test` expectations for those imported values. Choose test rows that match explicit imported chart values, or assert only relationships that do not require guessing the imported amount.
 - If you import variables like `need_standard_for_assistance_unit` or `grant_standard_for_assistance_unit` from a copied chart/standard file, keep `.rac.test` inputs and expected outputs consistent with the rows visible in that imported file rather than inventing zero or placeholder standards.
+- If an imported chart file keys those values by household composition, pick `.rac.test` households from explicit chart rows that visibly exist in the copied file. Do not invent degenerate placeholder rows like `number_of_children_in_assistance_unit: 0` plus `number_of_caretakers_in_assistance_unit: 0` unless the imported chart explicitly defines that exact row for the imported symbol.
+- Do not assert an exact zero imported standard, grant, or threshold unless that exact imported row is visible in the copied chart file. When the chart row is not visible, prefer relational assertions over guessed exact imported outputs.
 - Wrong:
   some_paragraph_applies:
       entity: Person
