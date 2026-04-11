@@ -205,6 +205,30 @@ As of 2026-04-10:
   - [test_cli.py](../tests/test_cli.py)
   - [README.md](../README.md)
 
+### 2026-04-11: Colorado repo-augmented validation exposed and repaired import-path mismatches
+
+- Primary commits:
+  - `33d3fef` `Fix Colorado repair harness prompts`
+  - `8d4e569` `Fix Colorado import closure and prompt rails`
+  - `0863433` `Terminate Codex evals after persistent output`
+  - `8cc8bf4` `Preserve canonical context import paths`
+  - `b9a0223` `Require unquoted RAC import targets`
+- Hypothesis:
+  - The remaining Colorado Works misses were not mostly parser failures; they were a mix of repo-augmented harness mismatches and prompt-level import/test conventions that the model was inferring incorrectly.
+- Effect:
+  - The harness now preserves canonical import paths for sibling `rac*` corpora instead of collapsing those files under `external/...`.
+  - Validation import-closure handling was tightened for benchmark workspaces and mixed import-block syntax.
+  - Prompt guidance became more explicit about direct factual inputs, chart-consistent tests, canonical import targets, and unquoted `imports:` entries.
+  - Codex eval waiting logic now terminates once output has persisted long enough, reducing hangs after the model has already emitted a final bundle.
+- Primary evidence paths:
+  - [evals.py](../src/autorac/harness/evals.py)
+  - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+  - [us_co_colorado_works_leaf_repair.yaml](../benchmarks/us_co_colorado_works_leaf_repair.yaml)
+  - [us-co-colorado-works-leaf-repair1-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-repair1-20260411)
+  - [us-co-colorado-works-leaf-repair2-interrupted-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-repair2-interrupted-20260411)
+  - [us-co-colorado-works-leaf-repair3-interrupted-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-repair3-interrupted-20260411)
+  - [us-co-colorado-works-leaf-repair4-usage-limit-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-repair4-usage-limit-20260411)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.

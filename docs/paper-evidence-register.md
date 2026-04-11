@@ -71,6 +71,9 @@ This file is the claim register for future writing. It separates claims that are
 - Do not claim that Codex-default improved benchmark accuracy until the current Codex-backed rerun and repair cycle fully closes.
   - Correct framing:
     - Codex is now the local default backend for GPT evals because it reduces cost and simplifies local runs.
+- Do not claim that the Colorado Works leaf repair lane is fully closed yet.
+  - Correct framing:
+    - The harness now records a documented sequence of Colorado import-path and prompt repairs, but a clean full rerun on the latest harness state is still pending the next post-quota Codex run.
 - Do not claim that Atlas already has a finished program-level match/mismatch dashboard.
   - Correct framing:
     - We have durable run artifacts and per-rule detail panes, but not yet a full aggregate dashboard of program-level agreement.
