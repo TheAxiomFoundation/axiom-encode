@@ -1085,6 +1085,10 @@ def run_eval_suite(
     completed_case_indexes: set[int] = set()
     completed_cases = 0
     last_case_name: str | None = None
+    active_case_index: int | None = None
+    active_case_name: str | None = None
+    active_case_started_at: str | None = None
+    active_case_output_root: Path | None = None
     if resume_existing:
         (
             started_at,
@@ -1119,6 +1123,24 @@ def run_eval_suite(
             case_output_root = output_root / f"{index:02d}-{_slugify(case.name)}"
             extra_context = [*manifest.allow_context, *case.allow_context]
             attempts = max(suite_retry_attempts, 0) + 1
+            active_case_index = index
+            active_case_name = case.name
+            active_case_started_at = _utc_now_iso()
+            active_case_output_root = case_output_root
+            _write_eval_suite_run_state(
+                output_root=output_root,
+                manifest=manifest,
+                resolved_runners=resolved_runners,
+                status="running",
+                started_at=started_at,
+                completed_cases=completed_cases,
+                result_count=len(results),
+                last_case_name=last_case_name,
+                active_case_index=active_case_index,
+                active_case_name=active_case_name,
+                active_case_started_at=active_case_started_at,
+                active_case_output_root=active_case_output_root,
+            )
             for attempt_index in range(attempts):
                 try:
                     if case.kind == "citation":
@@ -1198,6 +1220,10 @@ def run_eval_suite(
             completed_case_indexes.add(index)
             completed_cases = index
             last_case_name = case.name
+            active_case_index = None
+            active_case_name = None
+            active_case_started_at = None
+            active_case_output_root = None
             _append_eval_suite_case_results(output_root, index, case, case_results)
             _write_eval_suite_run_state(
                 output_root=output_root,
@@ -1220,6 +1246,10 @@ def run_eval_suite(
             result_count=len(results),
             last_case_name=last_case_name,
             error=_format_suite_exception(exc),
+            active_case_index=active_case_index,
+            active_case_name=active_case_name,
+            active_case_started_at=active_case_started_at,
+            active_case_output_root=active_case_output_root,
         )
         raise
 
@@ -1323,6 +1353,10 @@ def _write_eval_suite_run_state(
     result_count: int,
     last_case_name: str | None = None,
     error: str | None = None,
+    active_case_index: int | None = None,
+    active_case_name: str | None = None,
+    active_case_started_at: str | None = None,
+    active_case_output_root: Path | None = None,
 ) -> None:
     """Persist suite lifecycle state so interrupted runs remain inspectable."""
     payload = {
@@ -1343,6 +1377,15 @@ def _write_eval_suite_run_state(
         payload["last_case_name"] = last_case_name
     if error:
         payload["error"] = error
+    if active_case_index is not None and active_case_name:
+        payload["active_case"] = {
+            "index": active_case_index,
+            "name": active_case_name,
+            "started_at": active_case_started_at,
+            "output_root": str(active_case_output_root)
+            if active_case_output_root is not None
+            else None,
+        }
     if status != "running":
         payload["finished_at"] = payload["updated_at"]
     (output_root / "suite-run.json").write_text(

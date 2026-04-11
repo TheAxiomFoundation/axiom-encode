@@ -3996,6 +3996,59 @@ cases:
         assert second["case_index"] == 2
         assert second["case_name"] == "tanf-slice"
         assert second["result"]["success"] is True
+        assert "active_case" not in state
+
+    def test_run_eval_suite_records_active_case_before_dispatch(self, tmp_path):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Active case suite
+runners:
+  - openai:gpt-5.4
+cases:
+  - kind: source
+    name: tanf-slice
+    source_id: co-tanf-f
+    source_file: ./source.txt
+            """.strip()
+        )
+        (tmp_path / "source.txt").write_text("authoritative source text")
+        manifest = load_eval_suite_manifest(manifest_file)
+        output_root = tmp_path / "out"
+        source_result = _fake_eval_result("openai-gpt-5.4", "co-tanf-f")
+        snapshots: list[dict] = []
+
+        def fake_run_source_eval(**_kwargs):
+            snapshots.append(json.loads((output_root / "suite-run.json").read_text()))
+            return [source_result]
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            side_effect=fake_run_source_eval,
+        ), patch(
+            "autorac.harness.evals._validate_uk_shared_scalar_sibling_sets",
+            return_value=None,
+        ):
+            run_eval_suite(
+                manifest=manifest,
+                output_root=output_root,
+                rac_path=tmp_path / "rac",
+                atlas_path=None,
+            )
+
+        assert len(snapshots) == 1
+        active_state = snapshots[0]
+        assert active_state["status"] == "running"
+        assert active_state["completed_cases"] == 0
+        assert active_state["result_count"] == 0
+        assert active_state["active_case"]["index"] == 1
+        assert active_state["active_case"]["name"] == "tanf-slice"
+        assert active_state["active_case"]["output_root"] == str(
+            output_root / "01-tanf-slice"
+        )
+        final_state = json.loads((output_root / "suite-run.json").read_text())
+        assert final_state["status"] == "completed"
+        assert "active_case" not in final_state
 
     def test_run_eval_suite_retries_transient_exception(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
