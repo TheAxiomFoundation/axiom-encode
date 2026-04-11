@@ -39,6 +39,7 @@ from .dependency_stubs import (
 )
 from .encoding_db import TokenUsage
 from .eval_prompt_surface import (
+    render_date_silent_scaffold_guidance,
     render_single_amount_row_guidance,
     render_uk_legislation_guidance,
 )
@@ -2514,6 +2515,7 @@ Available precedent files:
     single_amount_row_guidance = ""
     if single_amount_table_slice:
         single_amount_row_guidance = render_single_amount_row_guidance()
+    date_silent_scaffold_guidance = render_date_silent_scaffold_guidance()
     target_hint_guidance = ""
     if policyengine_rac_var_hint:
         target_hint_guidance = f"""
@@ -2582,7 +2584,7 @@ Rules:
       period: Day
       dtype: Boolean
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
-{schema_rules}{uk_guidance}{single_amount_row_guidance}{target_hint_guidance}
+{schema_rules}{uk_guidance}{single_amount_row_guidance}{date_silent_scaffold_guidance}{target_hint_guidance}
 - Prefer standard RAC blocks shaped like:
   example_name:
       entity: TaxUnit

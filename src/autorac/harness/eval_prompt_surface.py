@@ -165,3 +165,12 @@ def render_single_amount_row_guidance() -> str:
 - Do not include `alternate_branch_*` tests unless `./source.txt` states a second grounded amount.
 - Do not use thousands separators in RAC numeric literals or `.rac.test` outputs; write `2500`, not `2,500`.
 """
+
+
+def render_date_silent_scaffold_guidance() -> str:
+    """Return fallback guidance for date-silent source slices."""
+    return """
+- If `./source.txt` is silent on effective dates and no copied precedent file provides a scaffold date, you may use `from 0001-01-01:` as a neutral scaffold date solely to satisfy RAC syntax.
+- Treat that `0001-01-01` scaffold as a harness-only fallback, not as a claim about the true legal effective date.
+- Numeric grounding rules do not apply to the `0001-01-01` tokens inside that neutral scaffold date.
+"""

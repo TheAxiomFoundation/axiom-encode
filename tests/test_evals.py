@@ -3425,6 +3425,35 @@ is_individual_responsibility_contract:
         assert "Editorial note: current text valid from 2025-04-07." in prompt
         assert "26.05" in prompt
 
+    def test_build_eval_prompt_for_date_silent_source_includes_neutral_scaffold_fallback(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="9 CCR 2503-6 3.606.1(E)",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Applications received will be certified for six (6) consecutive months "
+                "beginning the first month the assistance unit is found eligible for basic cash assistance."
+            ),
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "9 CCR 2503-6 3.606.1(E)",
+            "cold",
+            workspace,
+            [],
+            target_file_name="9-CCR-2503-6-3.606.1-E.rac",
+            include_tests=True,
+            runner_backend="codex",
+        )
+
+        assert "from 0001-01-01:" in prompt
+        assert "harness-only fallback" in prompt
+
 
 class TestOpenAIEvalRequest:
     def test_post_openai_eval_request_retries_transient_status(self):
