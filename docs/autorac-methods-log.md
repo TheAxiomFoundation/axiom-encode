@@ -245,6 +245,23 @@ As of 2026-04-10:
   - [us-co-colorado-works-leaf-repair8-interrupted-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-repair8-interrupted-20260411)
   - [us-co-colorado-works-leaf-repair9-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-repair9-20260411)
 
+### 2026-04-11: Colorado K repair required effective-date test normalization and a reviewer fallback
+
+- Primary commit:
+  - `5440731` `Normalize eval test dates for Colorado K repair`
+- Hypothesis:
+  - The remaining `3.606.1(K)` failure was no longer a semantic truncation bug in the generated RAC logic; it was a harness/materialization gap where companion `.rac.test` periods could remain before the file's explicit `from YYYY-MM-DD:` date, producing an empty compiled IR during CI.
+- Effect:
+  - Non-annual test-period normalization now also repairs explicit ISO day strings and YAML-parsed `date` values that fall before the earliest effective date.
+  - Bundle materialization now matches generated files by candidate filename, so paths like `./9-CCR-2503-6-3.606.1-K.rac` still pass the main-file content into `.rac.test` normalization.
+  - The narrow Colorado `K` repair manifest now closes cleanly with compile, CI, and generalist review all passing.
+- Primary evidence paths:
+  - [evals.py](../src/autorac/harness/evals.py)
+  - [test_evals.py](../tests/test_evals.py)
+  - [us_co_colorado_works_leaf_k_repair.yaml](../benchmarks/us_co_colorado_works_leaf_k_repair.yaml)
+  - [us-co-colorado-works-leaf-k-repair3-openai-interrupted-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-k-repair3-openai-interrupted-20260411)
+  - [us-co-colorado-works-leaf-k-repair4-openai-claude-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-k-repair4-openai-claude-20260411)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.

@@ -65,6 +65,13 @@ This file is the claim register for future writing. It separates claims that are
   - Evidence:
     - [us_co_colorado_works_leaf_repair.yaml](../benchmarks/us_co_colorado_works_leaf_repair.yaml)
     - [us-co-colorado-works-leaf-repair9-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-repair9-20260411)
+- The Colorado `3.606.1(K)` repair case reached a clean ready state after harness normalization of pre-effective companion test dates.
+  - Correct scope:
+    - This supports the specific `K` leaf and the harness claim about effective-date test normalization; it does not imply every remaining Colorado seed case is closed.
+  - Evidence:
+    - [us_co_colorado_works_leaf_k_repair.yaml](../benchmarks/us_co_colorado_works_leaf_k_repair.yaml)
+    - [evals.py](../src/autorac/harness/evals.py)
+    - [us-co-colorado-works-leaf-k-repair4-openai-claude-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-k-repair4-openai-claude-20260411)
 
 ## Claims To Avoid Or Qualify
 
