@@ -2647,6 +2647,52 @@ Rules:
 - Do not import a canonical output like `snap_one_person_thrifty_food_plan_cost` or `snap_maximum_allotment` and then redeclare that same variable locally in the same file. That creates duplicate-variable failures once the import closure is compiled.
 - Wrong for annual parameter tables: importing `statute/...#snap_maximum_allotment` and then defining a new local `snap_maximum_allotment:` rule body. Right: keep the canonical symbol in context and emit `amend snap_maximum_allotment:` entries that update its values for the publication period.
 - When a publication table keys values by household size, region, filing status, bracket row, or another schedule index, do not create documentary scalar constants like `snap_household_size_four: 4` just to restate the row labels. Compare directly against the canonical input or derive one helper like `additional_household_members_above_eight` only when the source actually requires that arithmetic.
+- Right pattern for the USDA SNAP FY2026 table:
+```rac
+imports:
+  - statute/7/2017/a#snap_household_size
+  - statute/7/2017/a#snap_region
+  - statute/7/2017/a#snap_one_person_thrifty_food_plan_cost
+  - statute/7/2017/a#snap_minimum_allotment
+  - statute/7/2017/a#snap_maximum_allotment
+
+amend snap_one_person_thrifty_food_plan_cost:
+    from 2025-10-01:
+        match snap_region:
+            "CONTIGUOUS_US" => 298
+            ...
+
+amend snap_minimum_allotment:
+    from 2025-10-01:
+        if snap_household_size <= 0: 0
+        elif snap_household_size == 1 or snap_household_size == 2:
+            match snap_region:
+                "CONTIGUOUS_US" => 24
+                ...
+        else: 0
+
+amend snap_maximum_allotment:
+    from 2025-10-01:
+        match snap_region:
+            "CONTIGUOUS_US" =>
+                if snap_household_size == 1: 298
+                elif snap_household_size == 2: 546
+                ...
+                else: 1789 + ((snap_household_size - 8) * 218)
+```
+- Wrong pattern for that same table:
+```rac
+imports:
+  - statute/7/2017/a#snap_maximum_allotment
+
+snap_household_size_four:
+    from 2025-10-01: 4
+
+snap_maximum_allotment:
+    from 2025-10-01:
+        ...
+```
+- For publication tables that update canonical statute outputs, prefer one `amend` per canonical output and direct comparisons like `snap_household_size == 4`; do not introduce helper constants solely for row labels.
 - For resolved definition files listed above, the required syntax is an `imports:` block that references the exact `path#symbol` target.
 - For copied canonical concept files listed above, the required syntax is an `imports:` block that references the exact `path#symbol` target.
 - In any `imports:` block, emit bare import targets like `- regulation/9-CCR-2503-6/3.606.1/F#need_standard_for_assistance_unit`; do not wrap import targets in quotes.

@@ -3504,6 +3504,10 @@ is_individual_responsibility_contract:
         assert "Do not import a canonical output like `snap_one_person_thrifty_food_plan_cost`" in prompt
         assert "Wrong for annual parameter tables" in prompt
         assert "do not create documentary scalar constants like `snap_household_size_four: 4`" in prompt
+        assert "Right pattern for the USDA SNAP FY2026 table" in prompt
+        assert "amend snap_one_person_thrifty_food_plan_cost:" in prompt
+        assert "amend snap_minimum_allotment:" in prompt
+        assert "amend snap_maximum_allotment:" in prompt
         assert "after the 15th day of a month" in prompt
         assert "do not decompose it into separate numeric `*_day`" in prompt
         assert "Do not add a documentary scalar like `*_cutoff_day: 15`" in prompt
