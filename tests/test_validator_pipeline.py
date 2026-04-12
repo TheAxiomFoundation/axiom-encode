@@ -4681,6 +4681,21 @@ class TestGetPeVariableMap:
         assert "'is_snap_ineligible_student': {'2025': True}" in script
         assert "'is_snap_immigration_status_eligible': {'2025-10': False}" in script
 
+    def test_build_pe_us_script_synthesizes_snap_eligibility_renamed_member_proxy(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "is_snap_eligible",
+            {
+                "period": "2025-10",
+                "snap_household_has_member_individually_eligible_to_participate": True,
+            },
+            "2025",
+        )
+
+        assert "'is_snap_ineligible_student': {'2025': False}" in script
+        assert "'is_snap_immigration_status_eligible': {'2025-10': True}" in script
+
     def test_build_pe_us_script_derives_snap_net_income_override(self, pipeline):
         script = pipeline._build_pe_us_scenario_script(
             "snap_net_income",

@@ -4695,14 +4695,24 @@ print("BENCHMARK:" + json.dumps(result))
                         f"{{'{period}': {bool(inputs[rac_key])}}}"
                     )
 
+        snap_eligible_member_proxy = None
+        if "snap_household_has_eligible_participating_member" in inputs:
+            snap_eligible_member_proxy = bool(
+                inputs["snap_household_has_eligible_participating_member"]
+            )
+        elif "snap_household_has_member_individually_eligible_to_participate" in inputs:
+            snap_eligible_member_proxy = bool(
+                inputs["snap_household_has_member_individually_eligible_to_participate"]
+            )
+
         if (
             adapter is not None
             and adapter.pe_var == "is_snap_eligible"
-            and "snap_household_has_eligible_participating_member" in inputs
+            and snap_eligible_member_proxy is not None
             and "is_snap_ineligible_student" not in inputs
             and "is_snap_immigration_status_eligible" not in inputs
         ):
-            has_eligible_member = bool(inputs["snap_household_has_eligible_participating_member"])
+            has_eligible_member = snap_eligible_member_proxy
             adult_attrs.append(
                 f"'is_snap_ineligible_student': "
                 f"{{'{year}': {not has_eligible_member}}}"
