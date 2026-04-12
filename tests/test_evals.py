@@ -3503,6 +3503,7 @@ is_individual_responsibility_contract:
         assert "emit dated `amend` blocks for those canonical symbols" in prompt
         assert "after the 15th day of a month" in prompt
         assert "do not decompose it into separate numeric `*_day`" in prompt
+        assert "Do not add a documentary scalar like `*_cutoff_day: 15`" in prompt
         assert "still emit the unresolved import path" in prompt
         assert "otherwise keep the helper local to this leaf" in prompt
 
@@ -4836,6 +4837,44 @@ cases:
         ]
         assert manifest.cases[3].allow_context == [
             (repo_root.parent / "rac-us" / "statute" / "7" / "2017" / "a.rac").resolve()
+        ]
+
+    def test_repo_us_snap_federal_c3_repair_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root / "benchmarks" / "us_snap_federal_c3_repair.yaml"
+        )
+
+        assert manifest.name == "SNAP federal 2017(c)(3) repair"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_cases == 1
+        assert manifest.gates.min_success_rate == 1.0
+        assert manifest.gates.min_compile_pass_rate == 1.0
+        assert manifest.gates.min_ci_pass_rate == 1.0
+        assert manifest.gates.min_zero_ungrounded_rate == 1.0
+        assert manifest.gates.min_generalist_review_pass_rate == 1.0
+        assert manifest.gates.max_mean_estimated_cost_usd == 0.2
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap-2017-c-3"
+        assert case.source_id == "7 USC 2017(c)(3)"
+        assert case.source_file == (
+            repo_root.parent / "rac-us" / "sources" / "slices" / "7-USC" / "2017" / "c" / "3.txt"
+        ).resolve()
+        assert case.allow_context == [
+            (repo_root.parent / "rac-us" / "statute" / "7" / "2017" / "a.rac").resolve(),
+            (
+                repo_root.parent
+                / "rac-us"
+                / "statute"
+                / "7"
+                / "2017"
+                / "c"
+                / "1.rac"
+            ).resolve(),
         ]
 
 
