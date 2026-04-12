@@ -4078,6 +4078,16 @@ class TestBuildPeScenarioScript:
         )
         assert "2024-01" in script
 
+    def test_monthly_var_normalizes_daily_period_to_month(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "snap_normal_allotment",
+            {"period": "2025-03-21"},
+            "2025",
+            500,
+        )
+        assert "'2025-03'" in script
+        assert "'2025-03-21'" not in script
+
     def test_joint_filing(self, pipeline):
         script = pipeline._build_pe_scenario_script(
             "eitc",
@@ -4105,6 +4115,16 @@ class TestBuildPeScenarioScript:
             500,
         )
         assert "snap_net_income" in script
+
+    def test_snap_monthly_overrides_use_normalized_month_period(self, pipeline):
+        script = pipeline._build_pe_scenario_script(
+            "snap_normal_allotment",
+            {"snap_net_income": 1000, "period": "2025-03-01"},
+            "2025",
+            500,
+        )
+        assert "'snap_net_income': {'2025-03': 1000}" in script
+        assert "'2025-03-01'" not in script
 
     def test_annual_overrides(self, pipeline):
         script = pipeline._build_pe_scenario_script(

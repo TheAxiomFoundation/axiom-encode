@@ -4112,6 +4112,26 @@ print("BENCHMARK:" + json.dumps(result))
 
         return self._build_pe_us_scenario_script(pe_var, inputs, year)
 
+    def _normalize_monthly_pe_period(
+        self,
+        period: Any,
+        year: str,
+        fallback_month: str,
+    ) -> str:
+        """Normalize oracle monthly periods to YYYY-MM."""
+        period_str = str(period).strip() if period is not None else ""
+        if not period_str:
+            return f"{year}-{fallback_month}"
+        if re.fullmatch(r"\d{4}-\d{2}", period_str):
+            return period_str
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", period_str):
+            return period_str[:7]
+        if re.fullmatch(r"\d{4}", period_str):
+            return f"{period_str}-{fallback_month}"
+        if len(period_str) >= 7 and re.fullmatch(r"\d{4}-\d{2}.*", period_str):
+            return period_str[:7]
+        return f"{year}-{fallback_month}"
+
     def _build_pe_us_scenario_script(self, pe_var: str, inputs: dict, year: str) -> str:
         """Build a Python script to run a US PolicyEngine scenario."""
         # Determine household composition from inputs
@@ -4151,9 +4171,9 @@ print("BENCHMARK:" + json.dumps(result))
         # Determine period for calculation
         is_monthly = pe_var in self._PE_MONTHLY_VARS
         if is_monthly:
-            period = inputs.get("period", f"{year}-01")
-            if "-" not in str(period):
-                period = f"{year}-01"
+            period = self._normalize_monthly_pe_period(
+                inputs.get("period"), year, "01"
+            )
             calc_period = f"'{period}'"
         else:
             calc_period = f"int('{year}')"
@@ -4229,8 +4249,9 @@ print(f'RESULT:{{val}}')
         self, pe_var: str, inputs: dict, year: str, rac_var: str | None = None
     ) -> str:
         """Build a Python script to run a UK PolicyEngine scenario."""
-        period_value = str(inputs.get("period", f"{year}-04"))
-        month_period = period_value[:7] if len(period_value) >= 7 else f"{year}-04"
+        month_period = self._normalize_monthly_pe_period(
+            inputs.get("period"), year, "04"
+        )
         year_key = repr(str(year))
         rac_var_lower = (rac_var or "").lower()
         lowered = {str(key).lower(): value for key, value in inputs.items()}
