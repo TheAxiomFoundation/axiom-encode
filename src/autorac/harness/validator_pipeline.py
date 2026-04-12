@@ -66,16 +66,19 @@ def run_claude_code(
     cmd = ["claude", "--print", "--model", model, "-p", prompt]
 
     try:
-        result = subprocess.run(
+        idle_timeout_env = os.getenv("AUTORAC_REVIEWER_CLAUDE_IDLE_TIMEOUT_SECONDS")
+        idle_timeout = timeout
+        if idle_timeout_env is not None:
+            idle_timeout = min(timeout, max(0, int(idle_timeout_env)))
+        result = _run_subprocess_with_idle_timeout(
             cmd,
-            capture_output=True,
-            text=True,
             timeout=timeout,
+            idle_timeout=idle_timeout,
             cwd=cwd,
         )
-        return result.stdout + result.stderr, result.returncode
-    except subprocess.TimeoutExpired:
-        return f"Timeout after {timeout}s", 1
+        return result.output, result.returncode
+    except subprocess.TimeoutExpired as exc:
+        return f"Timeout after {exc.timeout}s", 1
     except FileNotFoundError:
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
     except Exception as e:
@@ -297,6 +300,42 @@ _PE_US_VAR_ADAPTERS = (
                 ("snap_dependent_care_deduction",),
             ),
         ),
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_standard_utility_allowance",),
+        pe_var="snap_standard_utility_allowance",
+        monthly=True,
+        spm=True,
+        direct_spm_overrides=(
+            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
+            ("spm_unit_size", "spm_unit_size"),
+        ),
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_limited_utility_allowance",),
+        pe_var="snap_limited_utility_allowance",
+        monthly=True,
+        spm=True,
+        direct_spm_overrides=(
+            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
+            ("spm_unit_size", "spm_unit_size"),
+        ),
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_individual_utility_allowance",),
+        pe_var="snap_individual_utility_allowance",
+        monthly=True,
+        spm=True,
+        direct_spm_overrides=(
+            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
+            ("spm_unit_size", "spm_unit_size"),
+        ),
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_state_using_standard_utility_allowance",),
+        pe_var="snap_state_using_standard_utility_allowance",
+        monthly=True,
+        spm=True,
     ),
     _PolicyEngineUSVarAdapter(
         rac_vars=("meets_snap_asset_test",),
@@ -767,6 +806,9 @@ _SOURCE_REFERENCE_PATTERNS = (
         r"\d+[A-Za-z0-9./-]*(?:\([^)]+\))+",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\b[A-Z]{2,6}[ \t]+\d+(?:\.\d+)*(?:\([^)]+\))*",
+    ),
     re.compile(r"\b(?:Act|Order|Regulations?)\s+\d{4}\b"),
 )
 _DIRECT_SCALAR_VALUE_PATTERN = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -793,6 +835,22 @@ _SCHEDULE_BLOCK_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9_ ]+:\s*$")
 _SCHEDULE_SIZE_ROW_PATTERN = re.compile(
     r"^\s*[-*]?\s*(?:size|household size|unit size)(?:\s+\d+(?:\s+or\s+more)?)?\s*:\s*"
     r"(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+_SCHEDULE_PIPE_ROW_PATTERN = re.compile(
+    r"^\s*[-*]?\s*(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
+    r"household size\s+\d+(?:\s+or\s+more)?|unit size\s+\d+(?:\s+or\s+more)?)\s*\|\s*"
+    r"(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+_SCHEDULE_ARROW_ROW_PATTERN = re.compile(
+    r"^\s*[-*]?\s*(?:\d+(?:\s+or\s+more)?|size\s+\d+(?:\s+or\s+more)?|"
+    r"household size\s+\d+(?:\s+or\s+more)?|unit size\s+\d+(?:\s+or\s+more)?)\s*"
+    r"(?:=>|->|=)\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
+    re.IGNORECASE,
+)
+_SCHEDULE_BARE_ARROW_ROW_PATTERN = re.compile(
+    r"^\s*[-*]\s*(?:=>|->|=)\s*(?:[$£€]\s*)?(-?[\d,]+(?:\.\d+)?)\s*$",
     re.IGNORECASE,
 )
 _VALUE_BEARING_TABLE_ROW_PATTERN = re.compile(
@@ -1053,11 +1111,35 @@ def _is_structural_schedule_index_helper(name: str, value: float) -> bool:
     """Return True when a scalar helper only labels a schedule row index."""
     if not value.is_integer() or not (4 <= int(value) <= 8):
         return False
+    normalized_name = name.lower()
+    if "or_more" in normalized_name or "threshold" in normalized_name:
+        return False
     index = int(value)
+    word = {
+        4: "four",
+        5: "five",
+        6: "six",
+        7: "seven",
+        8: "eight",
+    }.get(index)
     return bool(
-        re.search(rf"(?:^|_)size_{index}(?:_|$)", name)
-        or re.search(rf"(?:^|_)household_size_{index}(?:_|$)", name)
-        or re.search(rf"(?:^|_)unit_size_{index}(?:_|$)", name)
+        re.search(rf"(?:^|_)size_{index}(?:_|$)", normalized_name)
+        or re.search(rf"(?:^|_)household_size_{index}(?:_|$)", normalized_name)
+        or re.search(rf"(?:^|_)unit_size_{index}(?:_|$)", normalized_name)
+        or (
+            word is not None
+            and re.search(rf"(?:^|_)size_{word}(?:_|$)", normalized_name)
+        )
+        or (
+            word is not None
+            and re.search(
+                rf"(?:^|_)household_size_{word}(?:_|$)", normalized_name
+            )
+        )
+        or (
+            word is not None
+            and re.search(rf"(?:^|_)unit_size_{word}(?:_|$)", normalized_name)
+        )
     )
 
 
@@ -1228,6 +1310,7 @@ def _extract_collapsed_schedule_row_occurrences(
     retained_lines: list[str] = []
     current_heading: str | None = None
     last_value_by_block: dict[str, float] = {}
+    seen_values: set[float] = set()
     ungrouped_block = 0
     current_ungrouped_block: str | None = None
 
@@ -1239,7 +1322,12 @@ def _extract_collapsed_schedule_row_occurrences(
             retained_lines.append(line)
             continue
 
-        row_match = _SCHEDULE_SIZE_ROW_PATTERN.fullmatch(stripped)
+        row_match = (
+            _SCHEDULE_SIZE_ROW_PATTERN.fullmatch(stripped)
+            or _SCHEDULE_PIPE_ROW_PATTERN.fullmatch(stripped)
+            or _SCHEDULE_ARROW_ROW_PATTERN.fullmatch(stripped)
+            or _SCHEDULE_BARE_ARROW_ROW_PATTERN.fullmatch(stripped)
+        )
         if row_match:
             with contextlib.suppress(ValueError):
                 value = float(row_match.group(1).replace(",", ""))
@@ -1250,9 +1338,19 @@ def _extract_collapsed_schedule_row_occurrences(
                         ungrouped_block += 1
                         current_ungrouped_block = f"__ungrouped_{ungrouped_block}"
                     block_key = current_ungrouped_block
-                if last_value_by_block.get(block_key) != value:
+                if (
+                    last_value_by_block.get(block_key) != value
+                    and value not in seen_values
+                ):
                     occurrences.append(value)
                     last_value_by_block[block_key] = value
+                    seen_values.add(value)
+                cap_match = re.search(r"\b(\d+)\s+or\s+more\b", stripped, re.IGNORECASE)
+                if cap_match:
+                    cap_value = float(cap_match.group(1))
+                    if cap_value not in seen_values:
+                        occurrences.append(cap_value)
+                        seen_values.add(cap_value)
             continue
 
         if stripped:
@@ -2928,23 +3026,36 @@ Output ONLY valid JSON:
         self, script: str, pe_python: str
     ) -> OracleSubprocessResult:
         """Run a Python script using the PE-capable interpreter with stderr."""
+        timeout = int(os.getenv("AUTORAC_POLICYENGINE_TIMEOUT_SECONDS", "120"))
         try:
-            result = subprocess.run(
+            idle_timeout = min(
+                timeout,
+                max(
+                    0,
+                    int(
+                        os.getenv(
+                            "AUTORAC_POLICYENGINE_IDLE_TIMEOUT_SECONDS",
+                            "45",
+                        )
+                    ),
+                ),
+            )
+            result = _run_subprocess_with_idle_timeout(
                 [pe_python, "-c", script],
-                capture_output=True,
-                text=True,
-                timeout=120,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
             )
             return OracleSubprocessResult(
                 returncode=result.returncode,
-                stdout=result.stdout or "",
-                stderr=result.stderr or "",
+                stdout=result.output or "",
+                stderr="",
             )
         except subprocess.TimeoutExpired as exc:
             return OracleSubprocessResult(
                 returncode=124,
-                stdout=exc.stdout or "",
-                stderr=(exc.stderr or "").strip() or "Timeout after 120s",
+                stdout=getattr(exc, "stdout", "") or "",
+                stderr=(getattr(exc, "stderr", "") or "").strip()
+                or f"Timeout after {timeout}s",
             )
         except Exception as exc:
             return OracleSubprocessResult(returncode=1, stderr=str(exc))
@@ -4629,6 +4740,26 @@ print("BENCHMARK:" + json.dumps(result))
                 derived_value = source_values[0] * 12.0
             return derived_value
 
+        def pe_literal(value: Any) -> str:
+            if isinstance(value, str):
+                return repr(value)
+            if isinstance(value, bool):
+                return "True" if value else "False"
+            return str(value)
+
+        def normalize_pe_override_value(pe_key: str, value: Any) -> Any:
+            if pe_key == "snap_utility_allowance_type" and isinstance(value, str):
+                normalized = value.strip().upper()
+                return {
+                    "SUA": "SUA",
+                    "LUA": "LUA",
+                    "IUA": "IUA",
+                    "NONE": "NONE",
+                    "BUA": "LUA",
+                    "TUA": "IUA",
+                }.get(normalized, normalized)
+            return value
+
         # Determine household composition from inputs
         filing_status = inputs.get("filing_status", "SINGLE")
         joint_filing = filing_status.upper() in ("JOINT", "MARRIED_FILING_JOINTLY")
@@ -4793,12 +4924,16 @@ print("BENCHMARK:" + json.dumps(result))
         override_values: dict[str, Any] = {}
         for rac_key, pe_key in snap_overridable.items():
             if rac_key in inputs:
-                override_values[pe_key] = inputs[rac_key]
+                override_values[pe_key] = normalize_pe_override_value(
+                    pe_key, inputs[rac_key]
+                )
 
         if adapter is not None:
             for rac_key, pe_key in adapter.direct_spm_overrides:
                 if rac_key in inputs:
-                    override_values[pe_key] = inputs[rac_key]
+                    override_values[pe_key] = normalize_pe_override_value(
+                        pe_key, inputs[rac_key]
+                    )
             for target_key, operation, source_keys in adapter.derived_spm_overrides:
                 if target_key in override_values:
                     continue
@@ -4816,7 +4951,9 @@ print("BENCHMARK:" + json.dumps(result))
         if adapter is not None:
             for rac_key, pe_key in adapter.annual_direct_spm_overrides:
                 if rac_key in inputs:
-                    annual_override_values[pe_key] = inputs[rac_key]
+                    annual_override_values[pe_key] = normalize_pe_override_value(
+                        pe_key, inputs[rac_key]
+                    )
             for (
                 target_key,
                 operation,
@@ -4840,11 +4977,17 @@ print("BENCHMARK:" + json.dumps(result))
         override_parts = []
         for pe_key, val in override_values.items():
             if is_monthly:
-                override_parts.append(f"'{pe_key}': {{'{period}': {val}}}")
+                override_parts.append(
+                    f"'{pe_key}': {{'{period}': {pe_literal(val)}}}"
+                )
             else:
-                override_parts.append(f"'{pe_key}': {{'{year}': {val}}}")
+                override_parts.append(
+                    f"'{pe_key}': {{'{year}': {pe_literal(val)}}}"
+                )
         for pe_key, val in annual_override_values.items():
-            override_parts.append(f"'{pe_key}': {{'{year}': {val}}}")
+            override_parts.append(
+                f"'{pe_key}': {{'{year}': {pe_literal(val)}}}"
+            )
 
         spm_extra = ""
         if override_parts:
@@ -4866,6 +5009,8 @@ print("BENCHMARK:" + json.dumps(result))
             household_state = str(inputs["state_code_str"])
         elif "state_name" in inputs:
             household_state = str(inputs["state_name"])
+        elif "snap_utility_region_str" in inputs:
+            household_state = str(inputs["snap_utility_region_str"])
 
         household_extra_parts = [
             f"'state_name': {{'{year}': {repr(household_state)}}}",

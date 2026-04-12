@@ -117,8 +117,10 @@ class TestRunClaudeCode:
     """Tests for the module-level run_claude_code function."""
 
     def test_returns_output_and_returncode(self):
-        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
-            mock_run.return_value = Mock(stdout="test output", stderr="", returncode=0)
+        with patch(
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
+        ) as mock_run:
+            mock_run.return_value = Mock(output="test output", returncode=0)
             output, code = run_claude_code("test prompt")
             assert "test output" in output
             assert code == 0
@@ -126,7 +128,9 @@ class TestRunClaudeCode:
     def test_handles_timeout(self):
         import subprocess
 
-        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+        with patch(
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
+        ) as mock_run:
             mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=60)
             output, code = run_claude_code("test", timeout=60)
             assert "Timeout" in output
@@ -141,7 +145,7 @@ class TestRunClaudeCode:
             "autorac.harness.validator_pipeline._run_codex_reviewer_cli",
             return_value=('{"passed": true}', 0),
         ) as mock_codex, patch(
-            "autorac.harness.validator_pipeline.subprocess.run"
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
         ) as mock_run:
             output, code = run_claude_code("test")
 
@@ -151,7 +155,9 @@ class TestRunClaudeCode:
         mock_run.assert_not_called()
 
     def test_handles_missing_cli(self):
-        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run, patch(
+        with patch(
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
+        ) as mock_run, patch(
             "autorac.harness.validator_pipeline._run_codex_reviewer_cli",
             return_value=("Reviewer CLIs not found (missing claude and codex)", 1),
         ):
@@ -161,7 +167,9 @@ class TestRunClaudeCode:
             assert code == 1
 
     def test_falls_back_to_codex_when_claude_missing(self):
-        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run, patch(
+        with patch(
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
+        ) as mock_run, patch(
             "autorac.harness.validator_pipeline._run_codex_reviewer_cli",
             return_value=('{"score": 8.0, "passed": true, "issues": [], "reasoning": "ok"}', 0),
         ) as mock_codex:
@@ -170,6 +178,71 @@ class TestRunClaudeCode:
             assert '"score": 8.0' in output
             assert code == 0
             mock_codex.assert_called_once()
+
+    def test_claude_reviewer_cli_times_out_when_idle(self):
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd):
+                self.args = cmd
+                self.returncode = None
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with patch.dict(
+            "os.environ",
+            {"AUTORAC_REVIEWER_CLAUDE_IDLE_TIMEOUT_SECONDS": "0"},
+            clear=False,
+        ), patch("autorac.harness.validator_pipeline.subprocess.Popen", FakePopen):
+            output, code = run_claude_code("test prompt", timeout=5)
+
+        assert "Timeout after 0s" in output
+        assert code == 1
+
+    def test_claude_reviewer_cli_defaults_idle_timeout_to_total_timeout(self):
+        with patch(
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
+        ) as mock_run:
+            mock_run.return_value = Mock(output="ok", returncode=0)
+            output, code = run_claude_code("test prompt", timeout=90)
+
+        assert output == "ok"
+        assert code == 0
+        _, kwargs = mock_run.call_args
+        assert kwargs["timeout"] == 90
+        assert kwargs["idle_timeout"] == 90
+
+
+class TestRunPeSubprocessDetailed:
+    def test_returns_combined_output_and_returncode(self, pipeline):
+        with patch(
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
+        ) as mock_run:
+            mock_run.return_value = Mock(output="RESULT:123\n", returncode=0)
+
+            result = pipeline._run_pe_subprocess_detailed("print('RESULT:123')", "python")
+
+        assert result.returncode == 0
+        assert result.stdout == "RESULT:123\n"
+        assert result.stderr == ""
+
+    def test_handles_timeout(self, pipeline):
+        import subprocess
+
+        with patch(
+            "autorac.harness.validator_pipeline._run_subprocess_with_idle_timeout"
+        ) as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="python", timeout=120)
+
+            result = pipeline._run_pe_subprocess_detailed("print('RESULT:123')", "python")
+
+        assert result.returncode == 124
+        assert result.stderr == "Timeout after 120s"
 
     def test_codex_reviewer_cli_extracts_jsonl_output(self):
         codex_jsonl = "\n".join(
@@ -513,6 +586,40 @@ Effective October 1, 2025 through September 30, 2026.
         assert 298.0 in occurrences
         assert 546.0 in occurrences
         assert 218.0 in occurrences
+
+    def test_ignores_manual_references_and_schedule_row_labels(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+North Carolina SNAP standard utility allowance under FNS 360.01(A)(1)
+North Carolina Food and Nutrition Services Certification Manual, FNS 360
+
+Food and Nutrition Services Unit Size | SUA
+1 | $620
+2 | $681
+3 | $748
+4 | $815
+5 or more | $888
+
+For North Carolina, the allowance varies by spm_unit_size:
+- 1 => 620
+- 2 => 681
+- 3 => 748
+- 4 => 815
+- 5 or more => 888
+"""
+        )
+
+        assert 360.0 not in occurrences
+        assert 1.0 not in occurrences
+        assert 2.0 not in occurrences
+        assert 3.0 not in occurrences
+        assert 4.0 not in occurrences
+        assert occurrences.count(5.0) == 1
+        assert occurrences.count(620.0) == 1
+        assert occurrences.count(681.0) == 1
+        assert occurrences.count(748.0) == 1
+        assert occurrences.count(815.0) == 1
+        assert occurrences.count(888.0) == 1
 
     def test_ignores_table_heading_numbers_and_label_ages_but_keeps_row_values(self):
         occurrences = extract_numeric_occurrences_from_text(
@@ -2069,6 +2176,26 @@ size_6_or_more_amount:
 
         assert result.passed is True
         assert not any("Embedded scalar literal" in issue for issue in result.issues)
+
+    def test_extract_grounding_values_ignores_worded_schedule_index_helpers(self):
+        values = extract_grounding_values(
+            '''
+north_carolina_sua_unit_size_four:
+    entity: SnapUnit
+    period: Month
+    dtype: Count
+    from 2025-01-01: 4
+
+north_carolina_sua_unit_size_five_or_more_threshold:
+    entity: SnapUnit
+    period: Month
+    dtype: Count
+    from 2025-01-01: 5
+'''
+        )
+
+        assert not any(raw == "4" and value == 4.0 for _, raw, value in values)
+        assert any(raw == "5" and value == 5.0 for _, raw, value in values)
 
     def test_ci_rejects_decomposed_date_scalars(self, pipeline):
         """CI should fail when calendar dates are split into numeric day/year scalars."""
@@ -4392,6 +4519,22 @@ class TestGetPeVariableMap:
         assert mapping["snap_min_allotment"] == "snap_min_allotment"
         assert mapping["snap_net_income"] == "snap_net_income"
         assert mapping["snap_net_income_pre_shelter"] == "snap_net_income_pre_shelter"
+        assert (
+            mapping["snap_standard_utility_allowance"]
+            == "snap_standard_utility_allowance"
+        )
+        assert (
+            mapping["snap_limited_utility_allowance"]
+            == "snap_limited_utility_allowance"
+        )
+        assert (
+            mapping["snap_individual_utility_allowance"]
+            == "snap_individual_utility_allowance"
+        )
+        assert (
+            mapping["snap_state_using_standard_utility_allowance"]
+            == "snap_state_using_standard_utility_allowance"
+        )
         assert mapping["meets_snap_asset_test"] == "meets_snap_asset_test"
         assert mapping["meets_snap_gross_income_test"] == "meets_snap_gross_income_test"
         assert mapping["meets_snap_net_income_test"] == "meets_snap_net_income_test"
@@ -4424,6 +4567,10 @@ class TestGetPeVariableMap:
         assert "snap_earned_income_deduction" in pipeline._PE_MONTHLY_VARS
         assert "snap_net_income_pre_shelter" in pipeline._PE_MONTHLY_VARS
         assert "snap_standard_deduction" in pipeline._PE_MONTHLY_VARS
+        assert "snap_standard_utility_allowance" in pipeline._PE_MONTHLY_VARS
+        assert "snap_limited_utility_allowance" in pipeline._PE_MONTHLY_VARS
+        assert "snap_individual_utility_allowance" in pipeline._PE_MONTHLY_VARS
+        assert "snap_state_using_standard_utility_allowance" in pipeline._PE_MONTHLY_VARS
         assert "meets_snap_asset_test" in pipeline._PE_MONTHLY_VARS
         assert "meets_snap_gross_income_test" in pipeline._PE_MONTHLY_VARS
         assert "meets_snap_net_income_test" in pipeline._PE_MONTHLY_VARS
@@ -4437,6 +4584,10 @@ class TestGetPeVariableMap:
         assert "snap_earned_income_deduction" in pipeline._PE_SPM_VARS
         assert "snap_net_income_pre_shelter" in pipeline._PE_SPM_VARS
         assert "snap_standard_deduction" in pipeline._PE_SPM_VARS
+        assert "snap_standard_utility_allowance" in pipeline._PE_SPM_VARS
+        assert "snap_limited_utility_allowance" in pipeline._PE_SPM_VARS
+        assert "snap_individual_utility_allowance" in pipeline._PE_SPM_VARS
+        assert "snap_state_using_standard_utility_allowance" in pipeline._PE_SPM_VARS
         assert "meets_snap_asset_test" in pipeline._PE_SPM_VARS
         assert "meets_snap_gross_income_test" in pipeline._PE_SPM_VARS
         assert "meets_snap_net_income_test" in pipeline._PE_SPM_VARS
@@ -4492,6 +4643,40 @@ class TestGetPeVariableMap:
         )
 
         assert "'snap_earned_income': {'2022-01': 10}" in script
+
+    def test_build_pe_us_script_maps_snap_standard_utility_allowance_inputs(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_standard_utility_allowance",
+            {
+                "period": "2025-01",
+                "snap_utility_allowance_type": "SUA",
+                "snap_utility_region_str": "NC",
+                "spm_unit_size": 4,
+            },
+            "2025",
+        )
+
+        assert "'snap_utility_allowance_type': {'2025-01': 'SUA'}" in script
+        assert "'spm_unit_size': {'2025-01': 4}" in script
+        assert "'state_code_str': {'2025': 'NC'}" in script
+
+    def test_build_pe_us_script_normalizes_snap_utility_allowance_aliases(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_standard_utility_allowance",
+            {
+                "period": "2025-01",
+                "snap_utility_allowance_type": "BUA",
+                "snap_utility_region_str": "NC",
+                "spm_unit_size": 3,
+            },
+            "2025",
+        )
+
+        assert "'snap_utility_allowance_type': {'2025-01': 'LUA'}" in script
 
     def test_build_pe_us_script_derives_snap_earned_income_from_exclusions(
         self, pipeline
