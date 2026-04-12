@@ -4627,6 +4627,45 @@ class TestGetPeVariableMap:
         assert "'medical_out_of_pocket_expenses': {'2022': 480.0}" in script
         assert "'state_code_str': {'2022': 'NY'}" in script
 
+    def test_build_pe_us_script_maps_snap_eligibility_component_inputs(self, pipeline):
+        script = pipeline._build_pe_us_scenario_script(
+            "is_snap_eligible",
+            {
+                "period": "2025-10",
+                "meets_snap_gross_income_test": True,
+                "meets_snap_net_income_test": True,
+                "meets_snap_asset_test": True,
+                "meets_snap_categorical_eligibility": False,
+                "meets_snap_work_requirements": True,
+                "is_snap_ineligible_student": False,
+                "is_snap_immigration_status_eligible": True,
+            },
+            "2025",
+        )
+
+        assert "'meets_snap_gross_income_test': {'2025-10': True}" in script
+        assert "'meets_snap_net_income_test': {'2025-10': True}" in script
+        assert "'meets_snap_asset_test': {'2025-10': True}" in script
+        assert "'meets_snap_categorical_eligibility': {'2025-10': False}" in script
+        assert "'meets_snap_work_requirements': {'2025-10': True}" in script
+        assert "'is_snap_ineligible_student': {'2025': False}" in script
+        assert "'is_snap_immigration_status_eligible': {'2025-10': True}" in script
+
+    def test_build_pe_us_script_synthesizes_snap_eligibility_person_proxy(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "is_snap_eligible",
+            {
+                "period": "2025-10",
+                "snap_household_has_eligible_participating_member": False,
+            },
+            "2025",
+        )
+
+        assert "'is_snap_ineligible_student': {'2025': True}" in script
+        assert "'is_snap_immigration_status_eligible': {'2025-10': False}" in script
+
     def test_build_pe_us_script_derives_snap_net_income_override(self, pipeline):
         script = pipeline._build_pe_us_scenario_script(
             "snap_net_income",

@@ -148,6 +148,7 @@ class _PolicyEngineUSVarAdapter:
     spm: bool = False
     annualized_person_inputs: tuple[tuple[str, str], ...] = ()
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
+    monthly_boolean_person_inputs: tuple[tuple[str, str], ...] = ()
     direct_spm_overrides: tuple[tuple[str, str], ...] = ()
     derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
     annual_direct_spm_overrides: tuple[tuple[str, str], ...] = ()
@@ -330,6 +331,25 @@ _PE_US_VAR_ADAPTERS = (
         pe_var="is_snap_eligible",
         monthly=True,
         spm=True,
+        boolean_person_inputs=(
+            ("is_snap_ineligible_student", "is_snap_ineligible_student"),
+        ),
+        monthly_boolean_person_inputs=(
+            (
+                "is_snap_immigration_status_eligible",
+                "is_snap_immigration_status_eligible",
+            ),
+        ),
+        direct_spm_overrides=(
+            ("meets_snap_gross_income_test", "meets_snap_gross_income_test"),
+            ("meets_snap_net_income_test", "meets_snap_net_income_test"),
+            ("meets_snap_asset_test", "meets_snap_asset_test"),
+            (
+                "meets_snap_categorical_eligibility",
+                "meets_snap_categorical_eligibility",
+            ),
+            ("meets_snap_work_requirements", "meets_snap_work_requirements"),
+        ),
     ),
     _PolicyEngineUSVarAdapter(
         rac_vars=("snap_standard_deduction",),
@@ -4668,6 +4688,29 @@ print("BENCHMARK:" + json.dumps(result))
                         f"'{pe_attr}': "
                         f"{{'{year}': {bool(inputs[rac_key])}}}"
                     )
+            for rac_key, pe_attr in adapter.monthly_boolean_person_inputs:
+                if rac_key in inputs:
+                    adult_attrs.append(
+                        f"'{pe_attr}': "
+                        f"{{'{period}': {bool(inputs[rac_key])}}}"
+                    )
+
+        if (
+            adapter is not None
+            and adapter.pe_var == "is_snap_eligible"
+            and "snap_household_has_eligible_participating_member" in inputs
+            and "is_snap_ineligible_student" not in inputs
+            and "is_snap_immigration_status_eligible" not in inputs
+        ):
+            has_eligible_member = bool(inputs["snap_household_has_eligible_participating_member"])
+            adult_attrs.append(
+                f"'is_snap_ineligible_student': "
+                f"{{'{year}': {not has_eligible_member}}}"
+            )
+            adult_attrs.append(
+                f"'is_snap_immigration_status_eligible': "
+                f"{{'{period}': {has_eligible_member}}}"
+            )
 
         people_parts = [f"'adult': {{{', '.join(adult_attrs)}}}"]
 
