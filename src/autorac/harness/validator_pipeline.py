@@ -222,6 +222,20 @@ _PE_US_VAR_ADAPTERS = (
                 "has_usda_elderly_disabled",
             ),
         ),
+        derived_spm_overrides=(
+            (
+                "snap_assets",
+                "difference",
+                (
+                    "snap_total_resources_before_exclusions",
+                    "snap_mandatory_retirement_account_resource_exclusion",
+                    "snap_discretionary_retirement_account_resource_exclusion",
+                    "snap_mandatory_education_account_resource_exclusion",
+                    "snap_discretionary_education_account_resource_exclusion",
+                    "snap_other_resource_exclusions_under_g",
+                ),
+            ),
+        ),
         unsupported_input_keys=(
             "snap_statutory_asset_limit",
             "snap_applicable_asset_limit",
@@ -4573,8 +4587,8 @@ print("BENCHMARK:" + json.dumps(result))
                 except (TypeError, ValueError):
                     continue
                 derived_value: float | None = None
-                if operation == "difference" and len(source_values) == 2:
-                    derived_value = source_values[0] - source_values[1]
+                if operation == "difference" and len(source_values) >= 2:
+                    derived_value = source_values[0] - sum(source_values[1:])
                 if derived_value is None:
                     continue
                 override_values[target_key] = int(derived_value) if derived_value.is_integer() else derived_value

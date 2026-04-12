@@ -4569,6 +4569,25 @@ class TestBuildPeScenarioScript:
         assert "'snap_assets': {'2024-01': 3000}" in script
         assert "'has_usda_elderly_disabled': {'2024-01': True}" in script
 
+    def test_snap_asset_test_derives_assets_from_total_resources_minus_exclusions(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "meets_snap_asset_test",
+            {
+                "snap_total_resources_before_exclusions": 4500,
+                "snap_mandatory_retirement_account_resource_exclusion": 500,
+                "snap_discretionary_retirement_account_resource_exclusion": 200,
+                "snap_mandatory_education_account_resource_exclusion": 300,
+                "snap_discretionary_education_account_resource_exclusion": 0,
+                "snap_other_resource_exclusions_under_g": 500,
+                "period": "2024-01",
+            },
+            "2024",
+            True,
+        )
+        assert "'snap_assets': {'2024-01': 3000}" in script
+
     def test_snap_monthly_overrides_use_normalized_month_period(self, pipeline):
         script = pipeline._build_pe_scenario_script(
             "snap_normal_allotment",
@@ -5331,6 +5350,27 @@ class TestIsPeTestMappable:
             {
                 "snap_countable_financial_resources": 2600,
                 "snap_household_has_elderly_or_disabled_member": True,
+            },
+            True,
+        )
+
+        assert mappable is True
+        assert reason is None
+
+    def test_us_snap_asset_test_with_total_resources_and_exclusions_is_mappable(
+        self, pipeline
+    ):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "us",
+            "meets_snap_asset_test",
+            {
+                "snap_total_resources_before_exclusions": 3000,
+                "snap_mandatory_retirement_account_resource_exclusion": 0,
+                "snap_discretionary_retirement_account_resource_exclusion": 0,
+                "snap_mandatory_education_account_resource_exclusion": 0,
+                "snap_discretionary_education_account_resource_exclusion": 0,
+                "snap_other_resource_exclusions_under_g": 0,
+                "snap_household_has_elderly_or_disabled_member": False,
             },
             True,
         )
