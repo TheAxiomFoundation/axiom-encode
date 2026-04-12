@@ -5204,6 +5204,53 @@ class TestBuildPeScenarioScript:
 
 
 class TestIsPeTestMappable:
+    def test_us_snap_min_allotment_with_exogenous_tfp_cost_is_unmappable(
+        self, pipeline
+    ):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "us",
+            "snap_min_allotment",
+            {
+                "spm_unit_size": 1,
+                "snap_one_person_thrifty_food_plan_cost": 251,
+            },
+            21,
+        )
+
+        assert mappable is False
+        assert "internal parameter" in reason.lower()
+
+    def test_us_snap_normal_allotment_with_intermediate_inputs_is_unmappable(
+        self, pipeline
+    ):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "us",
+            "snap_normal_allotment",
+            {
+                "is_snap_eligible": True,
+                "snap_expected_contribution": 1,
+                "snap_max_allotment": 3,
+                "snap_min_allotment": 1,
+            },
+            2,
+        )
+
+        assert mappable is False
+        assert "scenario inputs" in reason.lower()
+
+    def test_us_snap_expected_contribution_with_net_income_override_is_mappable(
+        self, pipeline
+    ):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "us",
+            "snap_expected_contribution",
+            {"snap_net_income": 833},
+            249.9,
+        )
+
+        assert mappable is True
+        assert reason is None
+
     def test_uk_child_benefit_paragraph_exception_true_is_unmappable(self, pipeline):
         mappable, reason = pipeline._is_pe_test_mappable(
             "uk",

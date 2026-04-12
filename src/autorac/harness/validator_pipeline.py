@@ -149,6 +149,8 @@ class _PolicyEngineUSVarAdapter:
     annualized_person_inputs: tuple[tuple[str, str], ...] = ()
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
     derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    unsupported_input_keys: tuple[str, ...] = ()
+    unsupported_input_reason: str | None = None
     default_state_code: str | None = None
     state_code_from_boolean_input: tuple[str, str, str] | None = None
 
@@ -165,6 +167,16 @@ _PE_US_VAR_ADAPTERS = (
         pe_var="snap_normal_allotment",
         monthly=True,
         spm=True,
+        unsupported_input_keys=(
+            "snap_max_allotment",
+            "snap_expected_contribution",
+            "snap_min_allotment",
+            "is_snap_eligible",
+        ),
+        unsupported_input_reason=(
+            "RAC test supplies intermediate SNAP allotment inputs that PolicyEngine US "
+            "does not expose as scenario inputs"
+        ),
     ),
     _PolicyEngineUSVarAdapter(
         rac_vars=("snap_expected_contribution",),
@@ -177,6 +189,11 @@ _PE_US_VAR_ADAPTERS = (
         pe_var="snap_min_allotment",
         monthly=True,
         spm=True,
+        unsupported_input_keys=("snap_one_person_thrifty_food_plan_cost",),
+        unsupported_input_reason=(
+            "RAC test supplies a thrifty-food-plan cost input that PolicyEngine US "
+            "treats as an internal parameter, not a scenario input"
+        ),
     ),
     _PolicyEngineUSVarAdapter(
         rac_vars=("snap_net_income", "snap_net_income_calculation"),
@@ -4096,6 +4113,18 @@ print("BENCHMARK:" + json.dumps(result))
     ) -> tuple[bool, str | None]:
         """Return whether the test case can be represented in PolicyEngine."""
         rac_var_lower = rac_var.lower()
+        if country == "us":
+            adapter = self._get_pe_us_var_adapter(rac_var)
+            if adapter is not None and adapter.unsupported_input_keys:
+                lowered_input_keys = {str(key).lower() for key in inputs}
+                unsupported_keys = [
+                    key for key in adapter.unsupported_input_keys if key.lower() in lowered_input_keys
+                ]
+                if unsupported_keys:
+                    reason = adapter.unsupported_input_reason or (
+                        "RAC test supplies unsupported PolicyEngine US scenario inputs"
+                    )
+                    return False, f"{reason}: {', '.join(sorted(unsupported_keys))}"
         if country == "uk" and isinstance(expected, dict):
             return (
                 False,
