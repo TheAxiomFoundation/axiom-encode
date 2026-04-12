@@ -4376,6 +4376,10 @@ class TestGetPeVariableMap:
         assert mapping["snap_expected_contribution"] == "snap_expected_contribution"
         assert mapping["snap_min_allotment"] == "snap_min_allotment"
         assert mapping["snap_net_income"] == "snap_net_income"
+        assert mapping["meets_snap_asset_test"] == "meets_snap_asset_test"
+        assert mapping["meets_snap_gross_income_test"] == "meets_snap_gross_income_test"
+        assert mapping["meets_snap_net_income_test"] == "meets_snap_net_income_test"
+        assert mapping["is_snap_eligible"] == "is_snap_eligible"
         assert mapping["snap_standard_deduction"] == "snap_standard_deduction"
         assert (
             mapping["snap_child_support_deduction"]
@@ -4402,6 +4406,10 @@ class TestGetPeVariableMap:
     def test_pe_monthly_vars(self, pipeline):
         assert "snap" in pipeline._PE_MONTHLY_VARS
         assert "snap_standard_deduction" in pipeline._PE_MONTHLY_VARS
+        assert "meets_snap_asset_test" in pipeline._PE_MONTHLY_VARS
+        assert "meets_snap_gross_income_test" in pipeline._PE_MONTHLY_VARS
+        assert "meets_snap_net_income_test" in pipeline._PE_MONTHLY_VARS
+        assert "is_snap_eligible" in pipeline._PE_MONTHLY_VARS
         assert "snap_child_support_deduction" in pipeline._PE_MONTHLY_VARS
         assert "snap_child_support_gross_income_deduction" in pipeline._PE_MONTHLY_VARS
         assert "snap_excess_medical_expense_deduction" in pipeline._PE_MONTHLY_VARS
@@ -4409,6 +4417,10 @@ class TestGetPeVariableMap:
     def test_pe_spm_vars(self, pipeline):
         assert "snap" in pipeline._PE_SPM_VARS
         assert "snap_standard_deduction" in pipeline._PE_SPM_VARS
+        assert "meets_snap_asset_test" in pipeline._PE_SPM_VARS
+        assert "meets_snap_gross_income_test" in pipeline._PE_SPM_VARS
+        assert "meets_snap_net_income_test" in pipeline._PE_SPM_VARS
+        assert "is_snap_eligible" in pipeline._PE_SPM_VARS
         assert "snap_child_support_deduction" in pipeline._PE_SPM_VARS
         assert "snap_child_support_gross_income_deduction" in pipeline._PE_SPM_VARS
         assert "snap_excess_medical_expense_deduction" in pipeline._PE_SPM_VARS
@@ -5472,6 +5484,10 @@ class TestResolvePeVariable:
         assert pipeline._resolve_pe_variable("us", "snap_expected_contribution") == "snap_expected_contribution"
         assert pipeline._resolve_pe_variable("us", "snap_min_allotment") == "snap_min_allotment"
         assert pipeline._resolve_pe_variable("us", "snap_net_income") == "snap_net_income"
+        assert pipeline._resolve_pe_variable("us", "meets_snap_asset_test") == "meets_snap_asset_test"
+        assert pipeline._resolve_pe_variable("us", "meets_snap_gross_income_test") == "meets_snap_gross_income_test"
+        assert pipeline._resolve_pe_variable("us", "meets_snap_net_income_test") == "meets_snap_net_income_test"
+        assert pipeline._resolve_pe_variable("us", "is_snap_eligible") == "is_snap_eligible"
 
     def test_resolves_uk_child_benefit_enhanced_rate_family_by_substring(self, pipeline):
         assert (

@@ -207,6 +207,30 @@ _PE_US_VAR_ADAPTERS = (
         ),
     ),
     _PolicyEngineUSVarAdapter(
+        rac_vars=("meets_snap_asset_test",),
+        pe_var="meets_snap_asset_test",
+        monthly=True,
+        spm=True,
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("meets_snap_gross_income_test",),
+        pe_var="meets_snap_gross_income_test",
+        monthly=True,
+        spm=True,
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("meets_snap_net_income_test",),
+        pe_var="meets_snap_net_income_test",
+        monthly=True,
+        spm=True,
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("is_snap_eligible",),
+        pe_var="is_snap_eligible",
+        monthly=True,
+        spm=True,
+    ),
+    _PolicyEngineUSVarAdapter(
         rac_vars=("snap_standard_deduction",),
         pe_var="snap_standard_deduction",
         monthly=True,
