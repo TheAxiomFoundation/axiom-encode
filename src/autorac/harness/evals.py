@@ -2719,6 +2719,7 @@ snap_maximum_allotment:
 - When the source rounds, floors, or truncates a downstream combined amount after a subtraction or other composition, keep that rounding on the downstream output. Do not push it upstream into an intermediate component unless the source expressly rounds that component itself.
 - Wrong for a clause like `allotment equals the thrifty food plan reduced by 30 per centum of income, rounded to the nearest lower whole dollar`: `snap_expected_contribution = floor(snap_net_income * 0.3)`.
 - Right for that clause: keep `snap_expected_contribution = snap_net_income * 0.3` and let the downstream allotment variable apply the `floor(...)` or other rounding instruction.
+- When you write `.rac.test` cases for nearest-dollar or half-up rounding, compute the pre-rounding amount exactly and choose test inputs that truly cross the rounding threshold. For example, `251 * 0.08 = 20.08`, which still rounds to `20`, not `21`; do not claim a round-up unless the fractional part is at least `.5`.
 - A safe RAC pattern is `floor(amount + 0.5)` when the amount is non-negative; if negative values are possible, use a sign-aware half-up equivalent rather than banker’s rounding.
 - If negative values are possible, use a sign-aware RAC expression such as `if amount >= 0: floor(amount) else: ceil(amount)` instead of bare `floor(amount)`.
 - Reserve bare `floor(...)` for instructions that explicitly say `round down` or for complete-band/counting rules, and do not use unsupported operators such as `%`.
