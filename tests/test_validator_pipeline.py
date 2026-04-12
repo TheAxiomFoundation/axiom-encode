@@ -4388,8 +4388,10 @@ class TestGetPeVariableMap:
         assert "snap" in mapping
         assert mapping["snap_normal_allotment"] == "snap_normal_allotment"
         assert mapping["snap_expected_contribution"] == "snap_expected_contribution"
+        assert mapping["snap_earned_income_deduction"] == "snap_earned_income_deduction"
         assert mapping["snap_min_allotment"] == "snap_min_allotment"
         assert mapping["snap_net_income"] == "snap_net_income"
+        assert mapping["snap_net_income_pre_shelter"] == "snap_net_income_pre_shelter"
         assert mapping["meets_snap_asset_test"] == "meets_snap_asset_test"
         assert mapping["meets_snap_gross_income_test"] == "meets_snap_gross_income_test"
         assert mapping["meets_snap_net_income_test"] == "meets_snap_net_income_test"
@@ -4419,6 +4421,8 @@ class TestGetPeVariableMap:
 
     def test_pe_monthly_vars(self, pipeline):
         assert "snap" in pipeline._PE_MONTHLY_VARS
+        assert "snap_earned_income_deduction" in pipeline._PE_MONTHLY_VARS
+        assert "snap_net_income_pre_shelter" in pipeline._PE_MONTHLY_VARS
         assert "snap_standard_deduction" in pipeline._PE_MONTHLY_VARS
         assert "meets_snap_asset_test" in pipeline._PE_MONTHLY_VARS
         assert "meets_snap_gross_income_test" in pipeline._PE_MONTHLY_VARS
@@ -4430,6 +4434,8 @@ class TestGetPeVariableMap:
 
     def test_pe_spm_vars(self, pipeline):
         assert "snap" in pipeline._PE_SPM_VARS
+        assert "snap_earned_income_deduction" in pipeline._PE_SPM_VARS
+        assert "snap_net_income_pre_shelter" in pipeline._PE_SPM_VARS
         assert "snap_standard_deduction" in pipeline._PE_SPM_VARS
         assert "meets_snap_asset_test" in pipeline._PE_SPM_VARS
         assert "meets_snap_gross_income_test" in pipeline._PE_SPM_VARS
@@ -4472,6 +4478,125 @@ class TestGetPeVariableMap:
 
         assert "'state_group_str': {'2022': 'AK'}" in script
         assert "'snap_unit_size': {'2022-01': 4}" in script
+
+    def test_build_pe_us_script_maps_snap_earned_income_deduction_inputs(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_earned_income_deduction",
+            {
+                "period": "2022-01-01",
+                "snap_earned_income": 10,
+            },
+            "2022",
+        )
+
+        assert "'snap_earned_income': {'2022-01': 10}" in script
+
+    def test_build_pe_us_script_derives_snap_earned_income_from_exclusions(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_earned_income_deduction",
+            {
+                "period": "2022-01-01",
+                "snap_earned_income_before_exclusions": 1000,
+                "snap_child_earned_income_exclusion": 100,
+                "snap_other_earned_income_exclusions": 200,
+                "snap_work_support_public_assistance_income": 0,
+            },
+            "2022",
+        )
+
+        assert "'snap_earned_income': {'2022-01': 700}" in script
+
+    def test_build_pe_us_script_clamps_derived_snap_earned_income_at_zero(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_earned_income_deduction",
+            {
+                "period": "2022-01-01",
+                "snap_earned_income_before_exclusions": 100,
+                "snap_child_earned_income_exclusion": 0,
+                "snap_other_earned_income_exclusions": 0,
+                "snap_work_support_public_assistance_income": 1000,
+            },
+            "2022",
+        )
+
+        assert "'snap_earned_income': {'2022-01': 0}" in script
+
+    def test_build_pe_us_script_maps_snap_net_income_pre_shelter_inputs(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_net_income_pre_shelter",
+            {
+                "period": "2022-01-01",
+                "snap_gross_income": 2000,
+                "snap_standard_deduction": 181,
+                "snap_earned_income_deduction": 400,
+                "snap_dependent_care_deduction": 10,
+                "snap_child_support_deduction": 20,
+                "snap_excess_medical_expense_deduction": 30,
+            },
+            "2022",
+        )
+
+        assert "'snap_gross_income': {'2022-01': 2000}" in script
+        assert "'snap_standard_deduction': {'2022-01': 181}" in script
+        assert "'snap_earned_income_deduction': {'2022-01': 400}" in script
+        assert "'snap_child_support_deduction': {'2022-01': 20}" in script
+        assert "'snap_excess_medical_expense_deduction': {'2022-01': 30}" in script
+
+    def test_build_pe_us_script_derives_pre_subsidy_childcare_expenses_for_pre_shelter_path(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_net_income_pre_shelter",
+            {
+                "period": "2022-01",
+                "snap_dependent_care_actual_costs": 75,
+                "snap_dependent_care_excluded_expenses": 25,
+            },
+            "2022",
+        )
+
+        assert "'child0': {'age': {'2022': 8}, 'is_tax_unit_dependent': {'2022': True}}" in script
+        assert "'spm_unit_pre_subsidy_childcare_expenses': {'2022': 600}" in script
+
+    def test_build_pe_us_script_annualizes_direct_pre_shelter_dependent_care_deduction(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_net_income_pre_shelter",
+            {
+                "period": "2022-01",
+                "snap_dependent_care_deduction": 10,
+            },
+            "2022",
+        )
+
+        assert "'child0': {'age': {'2022': 8}, 'is_tax_unit_dependent': {'2022': True}}" in script
+        assert "'spm_unit_pre_subsidy_childcare_expenses': {'2022': 120}" in script
+
+    def test_build_pe_us_script_derives_snap_earned_income_for_pre_shelter_path(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_net_income_pre_shelter",
+            {
+                "period": "2022-01-01",
+                "snap_earned_income_before_exclusions": 1000,
+                "snap_child_earned_income_exclusion": 100,
+                "snap_other_earned_income_exclusions": 200,
+                "snap_work_support_public_assistance_income": 0,
+            },
+            "2022",
+        )
+
+        assert "'snap_earned_income': {'2022-01': 700}" in script
 
     def test_build_pe_us_script_maps_child_support_inputs(self, pipeline):
         script = pipeline._build_pe_us_scenario_script(
@@ -5450,6 +5575,23 @@ class TestIsPeTestMappable:
         assert mappable is True
         assert reason is None
 
+    def test_ignores_usc_citation_numbers_when_extracting_source_occurrences(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            "SNAP earned income deduction under 7 USC 2014(e)(2)(B) for period 2022-01.\n"
+            "Under 7 USC 2014(e)(2)(B), the allowable earned income deduction is 20 percent of earned income."
+        )
+
+        assert occurrences == [0.2]
+
+    def test_ignores_synthetic_modeling_instruction_numeric_occurrences(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            "SNAP earned income deduction under 7 USC 2014(e)(2)(B) for period 2022-01.\n"
+            "Under 7 USC 2014(e)(2)(B), the allowable earned income deduction is 20 percent of earned income.\n"
+            "Model `snap_earned_income_deduction` as 20 percent of `snap_earned_income`."
+        )
+
+        assert occurrences == [0.2]
+
     def test_uk_child_benefit_paragraph_exception_true_is_unmappable(self, pipeline):
         mappable, reason = pipeline._is_pe_test_mappable(
             "uk",
@@ -5625,6 +5767,14 @@ class TestResolvePeVariable:
     def test_resolves_direct_us_snap_variable_names(self, pipeline):
         assert pipeline._resolve_pe_variable("us", "snap_normal_allotment") == "snap_normal_allotment"
         assert pipeline._resolve_pe_variable("us", "snap_expected_contribution") == "snap_expected_contribution"
+        assert (
+            pipeline._resolve_pe_variable("us", "snap_earned_income_deduction")
+            == "snap_earned_income_deduction"
+        )
+        assert (
+            pipeline._resolve_pe_variable("us", "snap_net_income_pre_shelter")
+            == "snap_net_income_pre_shelter"
+        )
         assert pipeline._resolve_pe_variable("us", "snap_min_allotment") == "snap_min_allotment"
         assert pipeline._resolve_pe_variable("us", "snap_net_income") == "snap_net_income"
         assert pipeline._resolve_pe_variable("us", "meets_snap_asset_test") == "meets_snap_asset_test"

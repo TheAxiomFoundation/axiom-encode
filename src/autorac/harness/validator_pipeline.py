@@ -189,6 +189,27 @@ _PE_US_VAR_ADAPTERS = (
         spm=True,
     ),
     _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_earned_income_deduction",),
+        pe_var="snap_earned_income_deduction",
+        monthly=True,
+        spm=True,
+        direct_spm_overrides=(
+            ("snap_earned_income", "snap_earned_income"),
+        ),
+        derived_spm_overrides=(
+            (
+                "snap_earned_income",
+                "difference_floor_zero",
+                (
+                    "snap_earned_income_before_exclusions",
+                    "snap_child_earned_income_exclusion",
+                    "snap_other_earned_income_exclusions",
+                    "snap_work_support_public_assistance_income",
+                ),
+            ),
+        ),
+    ),
+    _PolicyEngineUSVarAdapter(
         rac_vars=("snap_min_allotment", "minimum_allotment"),
         pe_var="snap_min_allotment",
         monthly=True,
@@ -207,6 +228,49 @@ _PE_US_VAR_ADAPTERS = (
         spm=True,
         derived_spm_overrides=(
             ("snap_net_income", "difference", ("snap_household_income", "snap_deductions")),
+        ),
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_net_income_pre_shelter",),
+        pe_var="snap_net_income_pre_shelter",
+        monthly=True,
+        spm=True,
+        direct_spm_overrides=(
+            ("snap_gross_income", "snap_gross_income"),
+            ("snap_standard_deduction", "snap_standard_deduction"),
+            ("snap_earned_income_deduction", "snap_earned_income_deduction"),
+            ("snap_child_support_deduction", "snap_child_support_deduction"),
+            (
+                "snap_excess_medical_expense_deduction",
+                "snap_excess_medical_expense_deduction",
+            ),
+        ),
+        derived_spm_overrides=(
+            (
+                "snap_earned_income",
+                "difference_floor_zero",
+                (
+                    "snap_earned_income_before_exclusions",
+                    "snap_child_earned_income_exclusion",
+                    "snap_other_earned_income_exclusions",
+                    "snap_work_support_public_assistance_income",
+                ),
+            ),
+        ),
+        annual_derived_spm_overrides=(
+            (
+                "spm_unit_pre_subsidy_childcare_expenses",
+                "difference_floor_zero_annualized",
+                (
+                    "snap_dependent_care_actual_costs",
+                    "snap_dependent_care_excluded_expenses",
+                ),
+            ),
+            (
+                "spm_unit_pre_subsidy_childcare_expenses",
+                "monthly_to_annual",
+                ("snap_dependent_care_deduction",),
+            ),
         ),
     ),
     _PolicyEngineUSVarAdapter(
@@ -629,6 +693,10 @@ _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
+_SYNTHETIC_MODELING_INSTRUCTION_PATTERN = re.compile(
+    r"^\s*model\s+`[^`]+`\s+as\b",
+    re.IGNORECASE,
+)
 _SOURCE_REFERENCE_TARGET_PATTERN = (
     r"(?:\([^)]+\)|\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])|[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
 )
@@ -1079,6 +1147,8 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
         if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
             continue
         if _TABLE_HEADING_PATTERN.match(structural_stripped):
+            continue
+        if _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped):
             continue
 
         normalized_line = line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
@@ -4499,6 +4569,22 @@ print("BENCHMARK:" + json.dumps(result))
 
     def _build_pe_us_scenario_script(self, pe_var: str, inputs: dict, year: str) -> str:
         """Build a Python script to run a US PolicyEngine scenario."""
+        def derive_override_value(
+            operation: str, source_values: list[float]
+        ) -> float | None:
+            derived_value: float | None = None
+            if operation == "difference" and len(source_values) >= 2:
+                derived_value = source_values[0] - sum(source_values[1:])
+            elif operation == "difference_floor_zero" and len(source_values) >= 2:
+                derived_value = max(0.0, source_values[0] - sum(source_values[1:]))
+            elif operation == "difference_floor_zero_annualized" and len(source_values) >= 2:
+                derived_value = (
+                    max(0.0, source_values[0] - sum(source_values[1:])) * 12.0
+                )
+            elif operation == "monthly_to_annual" and len(source_values) == 1:
+                derived_value = source_values[0] * 12.0
+            return derived_value
+
         # Determine household composition from inputs
         filing_status = inputs.get("filing_status", "SINGLE")
         joint_filing = filing_status.upper() in ("JOINT", "MARRIED_FILING_JOINTLY")
@@ -4532,6 +4618,17 @@ print("BENCHMARK:" + json.dumps(result))
         num_children = (
             explicit_child_count if explicit_child_count is not None else household_children
         )
+        dependent_care_keys = (
+            "snap_dependent_care_actual_costs",
+            "snap_dependent_care_deduction",
+        )
+        if num_children == 0:
+            for key in dependent_care_keys:
+                value = inputs.get(key)
+                with contextlib.suppress(TypeError, ValueError):
+                    if value is not None and float(value) > 0:
+                        num_children = 1
+                        break
 
         # Determine period for calculation
         is_monthly = pe_var in self._PE_MONTHLY_VARS
@@ -4616,9 +4713,7 @@ print("BENCHMARK:" + json.dumps(result))
                     source_values = [float(inputs[source_key]) for source_key in source_keys]
                 except (TypeError, ValueError):
                     continue
-                derived_value: float | None = None
-                if operation == "difference" and len(source_values) >= 2:
-                    derived_value = source_values[0] - sum(source_values[1:])
+                derived_value = derive_override_value(operation, source_values)
                 if derived_value is None:
                     continue
                 override_values[target_key] = int(derived_value) if derived_value.is_integer() else derived_value
@@ -4640,9 +4735,7 @@ print("BENCHMARK:" + json.dumps(result))
                     source_values = [float(inputs[source_key]) for source_key in source_keys]
                 except (TypeError, ValueError):
                     continue
-                derived_value: float | None = None
-                if operation == "difference" and len(source_values) >= 2:
-                    derived_value = source_values[0] - sum(source_values[1:])
+                derived_value = derive_override_value(operation, source_values)
                 if derived_value is None:
                     continue
                 annual_override_values[target_key] = (

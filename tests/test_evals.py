@@ -3480,6 +3480,16 @@ is_individual_responsibility_contract:
         assert "Do not encode such local factual predicates as `status: deferred`" in prompt
         assert "preserve that post-adjustment quantity directly as an input/helper" in prompt
         assert "prefer an input like `countable_gross_earned_income_after_disregards` over raw `gross_earned_income`" in prompt
+        assert "after all other applicable deductions have been allowed" in prompt
+        assert "do not truncate the logic to only the deduction categories exercised by the example tests" in prompt
+        assert "import those exact symbols instead of inventing renamed locals that overlap with the copied file" in prompt
+        assert "import that helper and alias the requested target to it instead of rebuilding the same arithmetic locally" in prompt
+        assert "alias `snap_net_income_pre_shelter` to `snap_income_after_non_shelter_deductions`" in prompt
+        assert "preserve that helper's nearest input surface in tests" in prompt
+        assert "prefer test inputs like `snap_gross_income` plus the applicable deduction symbols" in prompt
+        assert "creating near-duplicate locals such as `snap_excess_medical_deduction`" in prompt
+        assert "make it a real rate-valued helper" in prompt
+        assert "encode `50 percent` as `0.5`" in prompt
         assert "do not collapse the principal output to an unconditional `true` or `false`" in prompt
 
     def test_build_eval_prompt_includes_resolved_canonical_concept_guidance(
