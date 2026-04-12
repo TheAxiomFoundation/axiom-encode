@@ -4439,6 +4439,26 @@ class TestGetPeVariableMap:
         assert "snap_child_support_gross_income_deduction" in pipeline._PE_SPM_VARS
         assert "snap_excess_medical_expense_deduction" in pipeline._PE_SPM_VARS
 
+    def test_policyengine_hint_skips_auxiliary_unmapped_outputs(self, pipeline):
+        pipeline.policyengine_rac_var_hint = "meets_snap_asset_test"
+
+        assert (
+            pipeline._should_compare_pe_test_output(
+                "us", "snap_applicable_asset_limit", "meets_snap_asset_test"
+            )
+            is False
+        )
+
+    def test_policyengine_hint_keeps_alias_outputs_with_same_pe_target(self, pipeline):
+        pipeline.policyengine_rac_var_hint = "snap_normal_allotment"
+
+        assert (
+            pipeline._should_compare_pe_test_output(
+                "us", "snap_allotment", "snap_normal_allotment"
+            )
+            is True
+        )
+
     def test_build_pe_us_script_maps_snap_standard_deduction_inputs(self, pipeline):
         script = pipeline._build_pe_us_scenario_script(
             "snap_standard_deduction",
@@ -4564,8 +4584,8 @@ class TestBuildPeScenarioScript:
             "2024",
             True,
         )
-        assert "'snap_assets': {'2024-01': 3000}" in script
-        assert "'has_usda_elderly_disabled': {'2024-01': True}" in script
+        assert "'snap_assets': {'2024': 3000}" in script
+        assert "'has_usda_elderly_disabled': {'2024': True}" in script
 
     def test_snap_asset_test_financial_resource_aliases_override_snap_assets(
         self, pipeline
@@ -4580,8 +4600,8 @@ class TestBuildPeScenarioScript:
             "2024",
             True,
         )
-        assert "'snap_assets': {'2024-01': 3000}" in script
-        assert "'has_usda_elderly_disabled': {'2024-01': True}" in script
+        assert "'snap_assets': {'2024': 3000}" in script
+        assert "'has_usda_elderly_disabled': {'2024': True}" in script
 
     def test_snap_asset_test_derives_assets_from_total_resources_minus_exclusions(
         self, pipeline
@@ -4600,7 +4620,7 @@ class TestBuildPeScenarioScript:
             "2024",
             True,
         )
-        assert "'snap_assets': {'2024-01': 3000}" in script
+        assert "'snap_assets': {'2024': 3000}" in script
 
     def test_snap_monthly_overrides_use_normalized_month_period(self, pipeline):
         script = pipeline._build_pe_scenario_script(

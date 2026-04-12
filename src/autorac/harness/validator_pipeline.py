@@ -150,6 +150,8 @@ class _PolicyEngineUSVarAdapter:
     boolean_person_inputs: tuple[tuple[str, str], ...] = ()
     direct_spm_overrides: tuple[tuple[str, str], ...] = ()
     derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
+    annual_direct_spm_overrides: tuple[tuple[str, str], ...] = ()
+    annual_derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
     unsupported_input_keys: tuple[str, ...] = ()
     unsupported_input_patterns: tuple[str, ...] = ()
     unsupported_input_reason: str | None = None
@@ -212,7 +214,7 @@ _PE_US_VAR_ADAPTERS = (
         pe_var="meets_snap_asset_test",
         monthly=True,
         spm=True,
-        direct_spm_overrides=(
+        annual_direct_spm_overrides=(
             ("snap_assets", "snap_assets"),
             ("snap_countable_resources", "snap_assets"),
             ("snap_countable_financial_resources", "snap_assets"),
@@ -222,7 +224,7 @@ _PE_US_VAR_ADAPTERS = (
                 "has_usda_elderly_disabled",
             ),
         ),
-        derived_spm_overrides=(
+        annual_derived_spm_overrides=(
             (
                 "snap_assets",
                 "difference",
@@ -2920,6 +2922,10 @@ Output ONLY valid JSON:
         for test in tests:
             test_rac_var = test.get("variable", "")
             oracle_rac_var = self.policyengine_rac_var_hint or test_rac_var
+            if not self._should_compare_pe_test_output(
+                country, test_rac_var, oracle_rac_var
+            ):
+                continue
             pe_var = self._resolve_pe_variable(country, oracle_rac_var)
             expected = test.get("expect")
             raw_inputs = test.get("inputs", {})
@@ -4436,6 +4442,20 @@ print("BENCHMARK:" + json.dumps(result))
 
         return None
 
+    def _should_compare_pe_test_output(
+        self, country: str, test_rac_var: str, oracle_rac_var: str
+    ) -> bool:
+        """Return whether a RAC test output should be compared against PolicyEngine."""
+        if not self.policyengine_rac_var_hint:
+            return True
+        if test_rac_var == oracle_rac_var:
+            return True
+        hinted_pe_var = self._resolve_pe_variable(country, oracle_rac_var)
+        if not hinted_pe_var:
+            return False
+        test_pe_var = self._resolve_pe_variable(country, test_rac_var)
+        return test_pe_var is not None and test_pe_var == hinted_pe_var
+
     def _build_pe_scenario_script(
         self,
         pe_var: str,
@@ -4602,6 +4622,32 @@ print("BENCHMARK:" + json.dumps(result))
                 if derived_value is None:
                     continue
                 override_values[target_key] = int(derived_value) if derived_value.is_integer() else derived_value
+        annual_override_values: dict[str, Any] = {}
+        if adapter is not None:
+            for rac_key, pe_key in adapter.annual_direct_spm_overrides:
+                if rac_key in inputs:
+                    annual_override_values[pe_key] = inputs[rac_key]
+            for (
+                target_key,
+                operation,
+                source_keys,
+            ) in adapter.annual_derived_spm_overrides:
+                if target_key in annual_override_values:
+                    continue
+                if not all(source_key in inputs for source_key in source_keys):
+                    continue
+                try:
+                    source_values = [float(inputs[source_key]) for source_key in source_keys]
+                except (TypeError, ValueError):
+                    continue
+                derived_value: float | None = None
+                if operation == "difference" and len(source_values) >= 2:
+                    derived_value = source_values[0] - sum(source_values[1:])
+                if derived_value is None:
+                    continue
+                annual_override_values[target_key] = (
+                    int(derived_value) if derived_value.is_integer() else derived_value
+                )
 
         override_parts = []
         for pe_key, val in override_values.items():
@@ -4609,6 +4655,8 @@ print("BENCHMARK:" + json.dumps(result))
                 override_parts.append(f"'{pe_key}': {{'{period}': {val}}}")
             else:
                 override_parts.append(f"'{pe_key}': {{'{year}': {val}}}")
+        for pe_key, val in annual_override_values.items():
+            override_parts.append(f"'{pe_key}': {{'{year}': {val}}}")
 
         spm_extra = ""
         if override_parts:
