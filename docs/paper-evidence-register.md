@@ -72,6 +72,16 @@ This file is the claim register for future writing. It separates claims that are
     - [us_co_colorado_works_leaf_k_repair.yaml](../benchmarks/us_co_colorado_works_leaf_k_repair.yaml)
     - [evals.py](../src/autorac/harness/evals.py)
     - [us-co-colorado-works-leaf-k-repair4-openai-claude-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-k-repair4-openai-claude-20260411)
+- A four-case federal SNAP reconstruction seed now reaches a clean ready state under AutoRAC.
+  - Correct scope:
+    - This supports the specific seed covering `7 USC 2017(a)`, `7 USC 2017(c)(1)`, `7 USC 2017(c)(3)`, and the FY2026 USDA allotment table. It does not yet establish full federal SNAP coverage outside those slices.
+  - Evidence:
+    - [us_snap_federal_reconstruction_seed.yaml](../benchmarks/us_snap_federal_reconstruction_seed.yaml)
+    - [us_snap_fy2026_cola_table_repair.yaml](../benchmarks/us_snap_fy2026_cola_table_repair.yaml)
+    - [evals.py](../src/autorac/harness/evals.py)
+    - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+    - [us-snap-federal-reconstruction-seed-run8-20260411](../artifacts/eval-suites/us-snap-federal-reconstruction-seed-run8-20260411)
+    - [us-snap-fy2026-cola-table-repair4-20260411](../artifacts/eval-suites/us-snap-fy2026-cola-table-repair4-20260411)
 
 ## Claims To Avoid Or Qualify
 
@@ -87,6 +97,9 @@ This file is the claim register for future writing. It separates claims that are
 - Do not claim that Colorado Works as a whole is benchmark-closed.
   - Correct framing:
     - The five-case leaf repair manifest is now clean, but that does not by itself establish broader Colorado program coverage or stability outside that lane.
+- Do not claim that federal SNAP is fully encoded or benchmark-closed.
+  - Correct framing:
+    - The current AutoRAC reconstruction seed for four federal SNAP slices is now green, which is strong evidence for the repaired harness and those specific slices, but broader federal SNAP coverage still remains to be encoded and benchmarked.
 - Do not claim that Atlas already has a finished program-level match/mismatch dashboard.
   - Correct framing:
     - We have durable run artifacts and per-rule detail panes, but not yet a full aggregate dashboard of program-level agreement.

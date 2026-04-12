@@ -262,6 +262,34 @@ As of 2026-04-10:
   - [us-co-colorado-works-leaf-k-repair3-openai-interrupted-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-k-repair3-openai-interrupted-20260411)
   - [us-co-colorado-works-leaf-k-repair4-openai-claude-20260411](../artifacts/eval-suites/us-co-colorado-works-leaf-k-repair4-openai-claude-20260411)
 
+### 2026-04-11: Federal SNAP reconstruction closed after prompt/validator alignment on annual amendment tables
+
+- Primary commits:
+  - `a7ec17f` `Teach SNAP table repairs to amend canonical outputs`
+  - `3816c47` `Allow SNAP household-size table indices in CI`
+  - `10491a2` `Treat SNAP additional-member math as table indexing`
+  - `b49c5a1` `Avoid month-name false positives in date scalar checks`
+- Hypothesis:
+  - The remaining federal SNAP reconstruction misses were not substantive encoding failures in the statute slices themselves; they were harness mismatches around annual publication amendment structure, table-index numerics, and over-eager date-scalar heuristics.
+- Effect:
+  - The encoder prompt now explicitly instructs annual USDA parameter tables to amend canonical statute outputs instead of importing and redeclaring them locally.
+  - Validator CI now treats household-size row labels and `household_size - 8` style additional-member arithmetic as structural schedule indexing rather than ungrounded free numerics.
+  - Date-decomposition checks no longer misclassify ordinary benefit-period names like `initial_month` as calendar-month scalars.
+  - The four-case federal SNAP reconstruction seed (`2017(a)`, `2017(c)(1)`, `2017(c)(3)`, and the FY2026 USDA allotment table) reached a clean ready state.
+- Primary evidence paths:
+  - [evals.py](../src/autorac/harness/evals.py)
+  - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+  - [test_evals.py](../tests/test_evals.py)
+  - [test_validator_pipeline.py](../tests/test_validator_pipeline.py)
+  - [us_snap_federal_reconstruction_seed.yaml](../benchmarks/us_snap_federal_reconstruction_seed.yaml)
+  - [us_snap_fy2026_cola_table_repair.yaml](../benchmarks/us_snap_fy2026_cola_table_repair.yaml)
+  - [us-snap-fy2026-cola-table-repair1-20260411](../artifacts/eval-suites/us-snap-fy2026-cola-table-repair1-20260411)
+  - [us-snap-fy2026-cola-table-repair2-20260411](../artifacts/eval-suites/us-snap-fy2026-cola-table-repair2-20260411)
+  - [us-snap-fy2026-cola-table-repair3-20260411](../artifacts/eval-suites/us-snap-fy2026-cola-table-repair3-20260411)
+  - [us-snap-fy2026-cola-table-repair4-20260411](../artifacts/eval-suites/us-snap-fy2026-cola-table-repair4-20260411)
+  - [us-snap-federal-reconstruction-seed-run7-20260411](../artifacts/eval-suites/us-snap-federal-reconstruction-seed-run7-20260411)
+  - [us-snap-federal-reconstruction-seed-run8-20260411](../artifacts/eval-suites/us-snap-federal-reconstruction-seed-run8-20260411)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.
