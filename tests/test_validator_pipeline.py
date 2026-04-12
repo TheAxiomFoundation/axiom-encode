@@ -5248,6 +5248,22 @@ class TestIsPeTestMappable:
         assert mappable is False
         assert "internal parameter" in reason.lower()
 
+    def test_us_snap_min_allotment_with_renamed_tfp_cost_is_unmappable(
+        self, pipeline
+    ):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "us",
+            "snap_min_allotment",
+            {
+                "spm_unit_size": 1,
+                "snap_one_member_thrifty_food_plan_cost": 251,
+            },
+            21,
+        )
+
+        assert mappable is False
+        assert "internal parameter" in reason.lower()
+
     def test_us_snap_normal_allotment_with_intermediate_inputs_is_unmappable(
         self, pipeline
     ):
