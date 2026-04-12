@@ -5707,7 +5707,15 @@ class TestSourceEval:
             in prompt
         )
         assert (
+            "prefer the direct component surface `meets_snap_gross_income_test`, `meets_snap_net_income_test`, `meets_snap_asset_test`"
+            in prompt
+        )
+        assert (
             "import that copied current-effective symbol rather than jumping past it to an older base-statute symbol"
+            in prompt
+        )
+        assert (
+            "every import path must point to a file that is actually copied into the workspace"
             in prompt
         )
         assert "assert a copied downstream output named by the oracle hint" in prompt
