@@ -2705,6 +2705,10 @@ class TestEvalPrompt:
         assert "model truncation toward zero rather than toward negative infinity" in prompt
         assert "rounded to the nearest whole dollar" in prompt
         assert "Model explicit half-up rounding instead" in prompt
+        assert "keep that rounding on the downstream output" in prompt
+        assert "Do not push it upstream into an intermediate component" in prompt
+        assert "Wrong for a clause like `allotment equals the thrifty food plan reduced by 30 per centum of income" in prompt
+        assert "keep `snap_expected_contribution = snap_net_income * 0.3`" in prompt
         assert "floor(amount + 0.5)" in prompt
         assert "if amount >= 0: floor(amount) else: ceil(amount)" in prompt
         assert "Reserve bare `floor(...)` for instructions that explicitly say `round down`" in prompt

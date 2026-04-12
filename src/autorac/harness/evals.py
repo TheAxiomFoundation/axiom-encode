@@ -2716,6 +2716,9 @@ snap_maximum_allotment:
 - For example, if the source says `pregnant parents are eligible ... through the month in which the pregnancy ends`, prefer direct facts like `client_is_pregnant_parent` and a month-end boundary fact/helper over a black-box `person_is_eligible_for_pregnancy_allowance`.
 - For textual instructions like `drop the cents`, `drop any cents`, or `truncate`, model truncation toward zero rather than toward negative infinity.
 - For instructions like `rounded to the nearest whole dollar` or `nearest whole dollar increment`, do not rely on Python-style `round(...)` if the .5 behavior matters. Model explicit half-up rounding instead.
+- When the source rounds, floors, or truncates a downstream combined amount after a subtraction or other composition, keep that rounding on the downstream output. Do not push it upstream into an intermediate component unless the source expressly rounds that component itself.
+- Wrong for a clause like `allotment equals the thrifty food plan reduced by 30 per centum of income, rounded to the nearest lower whole dollar`: `snap_expected_contribution = floor(snap_net_income * 0.3)`.
+- Right for that clause: keep `snap_expected_contribution = snap_net_income * 0.3` and let the downstream allotment variable apply the `floor(...)` or other rounding instruction.
 - A safe RAC pattern is `floor(amount + 0.5)` when the amount is non-negative; if negative values are possible, use a sign-aware half-up equivalent rather than banker’s rounding.
 - If negative values are possible, use a sign-aware RAC expression such as `if amount >= 0: floor(amount) else: ceil(amount)` instead of bare `floor(amount)`.
 - Reserve bare `floor(...)` for instructions that explicitly say `round down` or for complete-band/counting rules, and do not use unsupported operators such as `%`.
