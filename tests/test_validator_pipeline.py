@@ -3873,6 +3873,10 @@ class TestGetPeVariableMap:
         assert "eitc" in mapping
         assert mapping["eitc"] == "eitc"
         assert "snap" in mapping
+        assert mapping["snap_normal_allotment"] == "snap_normal_allotment"
+        assert mapping["snap_expected_contribution"] == "snap_expected_contribution"
+        assert mapping["snap_min_allotment"] == "snap_min_allotment"
+        assert mapping["snap_net_income"] == "snap_net_income"
 
     def test_uk_child_benefit_leaf_mapping(self, pipeline):
         mapping = pipeline._get_pe_variable_map("uk")
@@ -4808,6 +4812,12 @@ class TestIsPeTestMappable:
 
 
 class TestResolvePeVariable:
+    def test_resolves_direct_us_snap_variable_names(self, pipeline):
+        assert pipeline._resolve_pe_variable("us", "snap_normal_allotment") == "snap_normal_allotment"
+        assert pipeline._resolve_pe_variable("us", "snap_expected_contribution") == "snap_expected_contribution"
+        assert pipeline._resolve_pe_variable("us", "snap_min_allotment") == "snap_min_allotment"
+        assert pipeline._resolve_pe_variable("us", "snap_net_income") == "snap_net_income"
+
     def test_resolves_uk_child_benefit_enhanced_rate_family_by_substring(self, pipeline):
         assert (
             pipeline._resolve_pe_variable(
