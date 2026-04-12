@@ -5132,6 +5132,86 @@ cases:
         assert case.policyengine_country == "auto"
         assert case.policyengine_rac_var_hint == "is_snap_eligible"
 
+    def test_repo_us_snap_earned_income_deduction_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root / "benchmarks" / "us_snap_earned_income_deduction_refresh.yaml"
+        )
+
+        assert manifest.name == "SNAP earned income deduction refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_earned_income_deduction"
+        assert case.source_id == "SNAP earned income deduction under 7 USC 2014(e)(2)(B)"
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us"
+            / "sources"
+            / "slices"
+            / "7-USC"
+            / "snap"
+            / "current-effective"
+            / "snap_earned_income_deduction.txt"
+        ).resolve()
+        assert case.allow_context == [
+            (
+                repo_root.parent
+                / "rac-us"
+                / "statute"
+                / "7"
+                / "2014"
+                / "e.rac"
+            ).resolve()
+        ]
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert case.policyengine_rac_var_hint == "snap_earned_income_deduction"
+
+    def test_repo_us_snap_net_income_pre_shelter_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root / "benchmarks" / "us_snap_net_income_pre_shelter_refresh.yaml"
+        )
+
+        assert manifest.name == "SNAP pre-shelter net income refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_net_income_pre_shelter"
+        assert case.source_id == "SNAP pre-shelter net income under 7 USC 2014(e)(6)(A)"
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us"
+            / "sources"
+            / "slices"
+            / "7-USC"
+            / "snap"
+            / "current-effective"
+            / "snap_net_income_pre_shelter.txt"
+        ).resolve()
+        assert case.allow_context == [
+            (
+                repo_root.parent
+                / "rac-us"
+                / "statute"
+                / "7"
+                / "2014"
+                / "e.rac"
+            ).resolve()
+        ]
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert case.policyengine_rac_var_hint == "snap_net_income_pre_shelter"
+
 
 class TestReadinessSummary:
     def test_summarize_readiness_applies_suite_gates(self):

@@ -1,0 +1,22 @@
+name: SNAP earned income deduction refresh
+runners:
+  - openai:gpt-5.4
+mode: repo-augmented
+gates:
+  min_cases: 1
+  min_success_rate: 1.0
+  min_compile_pass_rate: 1.0
+  min_ci_pass_rate: 1.0
+  min_zero_ungrounded_rate: 1.0
+  min_generalist_review_pass_rate: 1.0
+  min_policyengine_pass_rate: 1.0
+cases:
+  - kind: source
+    name: snap_earned_income_deduction
+    source_id: SNAP earned income deduction under 7 USC 2014(e)(2)(B)
+    source_file: ../../rac-us/sources/slices/7-USC/snap/current-effective/snap_earned_income_deduction.txt
+    allow_context:
+      - ../../rac-us/statute/7/2014/e.rac
+    oracle: policyengine
+    policyengine_country: auto
+    policyengine_rac_var_hint: snap_earned_income_deduction
