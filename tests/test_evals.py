@@ -5079,6 +5079,58 @@ cases:
         assert case.policyengine_country == "auto"
         assert case.policyengine_rac_var_hint == "meets_snap_asset_test"
 
+    def test_repo_us_snap_eligibility_refresh_manifest_loads_expected_case(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root / "benchmarks" / "us_snap_eligibility_refresh.yaml"
+        )
+
+        assert manifest.name == "SNAP eligibility refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_cases == 1
+        assert manifest.gates.min_success_rate == 1.0
+        assert manifest.gates.min_compile_pass_rate == 1.0
+        assert manifest.gates.min_ci_pass_rate == 1.0
+        assert manifest.gates.min_zero_ungrounded_rate == 1.0
+        assert manifest.gates.min_generalist_review_pass_rate == 1.0
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "is_snap_eligible"
+        assert case.source_id == "Federal SNAP current-effective household eligibility"
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us"
+            / "sources"
+            / "slices"
+            / "7-USC"
+            / "snap"
+            / "current-effective"
+            / "is_snap_eligible.txt"
+        ).resolve()
+        assert case.allow_context == [
+            (
+                repo_root.parent
+                / "rac-us"
+                / "usda"
+                / "snap"
+                / "fy-2026-cola"
+                / "2.rac"
+            ).resolve(),
+            (
+                repo_root.parent
+                / "rac-us"
+                / "usda"
+                / "snap"
+                / "fy-2026-cola"
+                / "3.rac"
+            ).resolve(),
+        ]
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert case.policyengine_rac_var_hint == "is_snap_eligible"
+
 
 class TestReadinessSummary:
     def test_summarize_readiness_applies_suite_gates(self):
@@ -5643,6 +5695,15 @@ class TestSourceEval:
         assert "keep `.rac.test` inputs oracle-comparable" in prompt
         assert (
             "prefer a contemporary monthly `.rac.test` period like `2022-01` or `2024-01`"
+            in prompt
+        )
+        assert (
+            "prefer importing those component tests over collapsing them into a single aggregate helper"
+            in prompt
+        )
+        assert "prefer the oracle's direct component facts over inverted household proxy inputs" in prompt
+        assert (
+            "import that copied current-effective symbol rather than jumping past it to an older base-statute symbol"
             in prompt
         )
         assert "assert a copied downstream output named by the oracle hint" in prompt

@@ -1,0 +1,23 @@
+name: SNAP eligibility refresh
+runners:
+  - openai:gpt-5.4
+mode: repo-augmented
+gates:
+  min_cases: 1
+  min_success_rate: 1.0
+  min_compile_pass_rate: 1.0
+  min_ci_pass_rate: 1.0
+  min_zero_ungrounded_rate: 1.0
+  min_generalist_review_pass_rate: 1.0
+  min_policyengine_pass_rate: 1.0
+cases:
+  - kind: source
+    name: is_snap_eligible
+    source_id: Federal SNAP current-effective household eligibility
+    source_file: ../../rac-us/sources/slices/7-USC/snap/current-effective/is_snap_eligible.txt
+    allow_context:
+      - ../../rac-us/usda/snap/fy-2026-cola/2.rac
+      - ../../rac-us/usda/snap/fy-2026-cola/3.rac
+    oracle: policyengine
+    policyengine_country: auto
+    policyengine_rac_var_hint: is_snap_eligible
