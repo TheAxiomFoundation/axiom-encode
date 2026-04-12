@@ -2616,6 +2616,7 @@ Available precedent files:
 - Prefer `{policyengine_rac_var_hint}` as the principal output variable name for this encoding unless the source text clearly requires a materially different concept.
 - For oracle-backed threshold or eligibility outputs, keep `.rac.test` inputs oracle-comparable. Prefer raw program facts and copied canonical limits/thresholds over synthetic local abstractions like `*_statutory_limit`, `*_countable_*`, or other restated intermediate inputs that the oracle would not expose directly.
 - For evergreen monthly rules whose source slice does not itself hinge on a dated annual table, prefer a contemporary monthly `.rac.test` period like `2022-01` or `2024-01` rather than the earliest statutory effective date, unless the source text itself makes a specific historical period legally necessary.
+- When the source is an annual publication or current-effective table that updates copied canonical thresholds or limits, it is acceptable for `.rac.test` cases to assert a copied downstream output named by the oracle hint after your amendments apply, rather than testing only the amended parameter values in isolation.
 """
 
     return f"""You are participating in an encoding eval for {citation}.

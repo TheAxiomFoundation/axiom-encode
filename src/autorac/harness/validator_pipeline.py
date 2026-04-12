@@ -215,14 +215,18 @@ _PE_US_VAR_ADAPTERS = (
         direct_spm_overrides=(
             ("snap_assets", "snap_assets"),
             ("snap_countable_resources", "snap_assets"),
+            ("snap_countable_financial_resources", "snap_assets"),
+            ("snap_financial_resources", "snap_assets"),
             (
                 "snap_household_has_elderly_or_disabled_member",
                 "has_usda_elderly_disabled",
             ),
         ),
-        unsupported_input_patterns=(
-            "statutory_asset_limit",
-            "countable_financial_resources",
+        unsupported_input_keys=(
+            "snap_statutory_asset_limit",
+            "snap_applicable_asset_limit",
+            "snap_asset_limit",
+            "snap_asset_limit_with_elderly_or_disabled_member",
         ),
         unsupported_input_reason=(
             "RAC test restates the SNAP asset-test threshold with local limit/resource "
@@ -647,6 +651,10 @@ _MONTH_NAME_DATE_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}},\s+\d{{4}}\b",
     re.IGNORECASE,
 )
+_MONTH_NAME_DAY_PATTERN = re.compile(
+    rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
+    re.IGNORECASE,
+)
 _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
     r"\b\d{1,2}(?:st|nd|rd|th)\s+day\s+of\s+(?:a|the)\s+month\b",
     re.IGNORECASE,
@@ -1060,6 +1068,7 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     cleaned = "\n".join(cleaned_lines)
     cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DATE_PATTERN.sub(" ", cleaned)
+    cleaned = _MONTH_NAME_DAY_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_DAY_OF_MONTH_PATTERN.sub(" ", cleaned)
     cleaned = _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN.sub(
         lambda match: f"above {match.group(1)} use the capped household rate",

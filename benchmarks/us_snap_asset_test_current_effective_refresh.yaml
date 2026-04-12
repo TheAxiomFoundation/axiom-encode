@@ -1,0 +1,22 @@
+name: SNAP asset test current-effective refresh
+runners:
+  - openai:gpt-5.4
+mode: repo-augmented
+gates:
+  min_cases: 1
+  min_success_rate: 1.0
+  min_compile_pass_rate: 1.0
+  min_ci_pass_rate: 1.0
+  min_zero_ungrounded_rate: 1.0
+  min_generalist_review_pass_rate: 1.0
+  min_policyengine_pass_rate: 1.0
+cases:
+  - kind: source
+    name: meets_snap_asset_test_current_effective
+    source_id: USDA SNAP FY2026 maximum asset limits
+    source_file: ../../rac-us/sources/slices/usda/snap/fy-2026-cola/asset-limits-current-effective.txt
+    allow_context:
+      - ../../rac-us/statute/7/2014/g/1.rac
+    oracle: policyengine
+    policyengine_country: auto
+    policyengine_rac_var_hint: meets_snap_asset_test

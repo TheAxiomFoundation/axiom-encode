@@ -4553,6 +4553,22 @@ class TestBuildPeScenarioScript:
         assert "'snap_assets': {'2024-01': 3000}" in script
         assert "'has_usda_elderly_disabled': {'2024-01': True}" in script
 
+    def test_snap_asset_test_financial_resource_aliases_override_snap_assets(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_scenario_script(
+            "meets_snap_asset_test",
+            {
+                "snap_countable_financial_resources": 3000,
+                "snap_household_has_elderly_or_disabled_member": True,
+                "period": "2024-01",
+            },
+            "2024",
+            True,
+        )
+        assert "'snap_assets': {'2024-01': 3000}" in script
+        assert "'has_usda_elderly_disabled': {'2024-01': True}" in script
+
     def test_snap_monthly_overrides_use_normalized_month_period(self, pipeline):
         script = pipeline._build_pe_scenario_script(
             "snap_normal_allotment",
@@ -5305,6 +5321,29 @@ class TestIsPeTestMappable:
 
         assert mappable is False
         assert "local limit/resource abstractions" in reason.lower()
+
+    def test_us_snap_asset_test_with_comparable_financial_resources_is_mappable(
+        self, pipeline
+    ):
+        mappable, reason = pipeline._is_pe_test_mappable(
+            "us",
+            "meets_snap_asset_test",
+            {
+                "snap_countable_financial_resources": 2600,
+                "snap_household_has_elderly_or_disabled_member": True,
+            },
+            True,
+        )
+
+        assert mappable is True
+        assert reason is None
+
+    def test_ignores_month_name_day_references_without_year(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            "Effective October 1 through September 30 for the current fiscal year."
+        )
+
+        assert 1.0 not in occurrences
 
     def test_us_snap_normal_allotment_with_intermediate_inputs_is_unmappable(
         self, pipeline
