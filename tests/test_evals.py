@@ -2575,6 +2575,7 @@ class TestEvalPrompt:
         assert "entity:" in prompt
         assert "period:" in prompt
         assert "dtype:" in prompt
+        assert "`else:` is not valid inside RAC `match` blocks" in prompt
 
     def test_build_eval_prompt_includes_supported_schema_enums(self, tmp_path):
         workspace = prepare_eval_workspace(
@@ -5544,6 +5545,74 @@ cases:
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
         assert case.policyengine_rac_var_hint == "snap_individual_utility_allowance"
+
+    def test_repo_us_snap_ny_standard_utility_allowance_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root / "benchmarks" / "us_snap_ny_standard_utility_allowance_refresh.yaml"
+        )
+
+        assert manifest.name == "New York SNAP standard utility allowance refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_standard_utility_allowance_ny"
+        assert (
+            case.source_id
+            == "New York SNAP standard utility allowance under OTDA LDSS-5006 effective October 1, 2025"
+        )
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us-ny"
+            / "sources"
+            / "slices"
+            / "otda"
+            / "snap"
+            / "current-effective"
+            / "snap_standard_utility_allowance_ny.txt"
+        ).resolve()
+        assert case.allow_context == []
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert case.policyengine_rac_var_hint == "snap_standard_utility_allowance"
+
+    def test_repo_us_snap_ny_limited_utility_allowance_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root / "benchmarks" / "us_snap_ny_limited_utility_allowance_refresh.yaml"
+        )
+
+        assert manifest.name == "New York SNAP limited utility allowance refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_limited_utility_allowance_ny"
+        assert (
+            case.source_id
+            == "New York SNAP limited utility allowance under OTDA LDSS-5006 effective October 1, 2025"
+        )
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us-ny"
+            / "sources"
+            / "slices"
+            / "otda"
+            / "snap"
+            / "current-effective"
+            / "snap_limited_utility_allowance_ny.txt"
+        ).resolve()
+        assert case.allow_context == []
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert case.policyengine_rac_var_hint == "snap_limited_utility_allowance"
 
 
 class TestReadinessSummary:

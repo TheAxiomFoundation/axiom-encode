@@ -4818,7 +4818,41 @@ class TestGetPeVariableMap:
 
         assert "'snap_utility_allowance_type': {'2025-01': 'SUA'}" in script
         assert "'spm_unit_size': {'2025-01': 4}" in script
+        assert "'snap_utility_region_str': {'2025': 'NC'}" in script
         assert "'state_code_str': {'2025': 'NC'}" in script
+
+    def test_build_pe_us_script_maps_new_york_snap_utility_region_to_state_code(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_standard_utility_allowance",
+            {
+                "period": "2025-10",
+                "snap_utility_allowance_type": "SUA",
+                "snap_utility_region_str": "NY_NYC",
+            },
+            "2025",
+        )
+
+        assert "'state_code_str': {'2025': 'NY'}" in script
+        assert "'state_name': {'2025': 'NY'}" in script
+        assert "'snap_utility_region_str': {'2025': 'NY_NYC'}" in script
+
+    def test_build_pe_us_script_maps_snap_utility_region_alias_to_household_region(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_standard_utility_allowance",
+            {
+                "period": "2025-10",
+                "snap_utility_allowance_type": "SUA",
+                "snap_utility_region": "NY_NAS",
+            },
+            "2025",
+        )
+
+        assert "'snap_utility_region_str': {'2025': 'NY_NAS'}" in script
+        assert "'state_code_str': {'2025': 'NY'}" in script
 
     def test_build_pe_us_script_normalizes_snap_utility_allowance_aliases(
         self, pipeline

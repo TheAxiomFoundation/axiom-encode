@@ -537,6 +537,29 @@ As of 2026-04-10:
   - [us-snap-ny-individual-utility-allowance-smoke2-failed-20260413](../artifacts/eval-suites/us-snap-ny-individual-utility-allowance-smoke2-failed-20260413)
   - [us-snap-ny-individual-utility-allowance-smoke3-ready-20260413](../artifacts/eval-suites/us-snap-ny-individual-utility-allowance-smoke3-ready-20260413)
 
+### 2026-04-13: New York SNAP standard and limited utility overlays close on the jurisdiction repo path
+
+- Hypothesis:
+  - After New York telephone utility allowance closed, the next pressure point was whether the same `rac-us-ny` source-slice pattern and PolicyEngine-backed replay would also hold for the multi-region standard and limited utility allowances without adding New York-specific policy hacks.
+- Effect:
+  - Added New York standard and limited utility source slices plus `relation: sets` sidecars under `rac-us-ny`, both anchored to the delegated federal SNAP utility-allowance slots.
+  - Added checked-in AutoRAC manifests and manifest-load tests for the New York standard and limited lanes.
+  - The first replay failures were not legal-model misses. They exposed two harness issues in the US PolicyEngine bridge: explicit `snap_utility_region` test inputs were not being passed through to the household-level `snap_utility_region_str` variable that PolicyEngine actually consumes, and the first attempt at that bridge seeded the region at a monthly period even though the PolicyEngine household variable is yearly.
+  - After fixing the replay bridge to normalize `snap_utility_region` / `snap_utility_region_str` onto the yearly household variable and adding a prompt rail that `match` fallbacks must use `_ => ...` rather than `else: ...`, both New York standard and limited utility allowance reruns reached clean ready states on compile, CI, generalist review, and PolicyEngine.
+- Primary evidence paths:
+  - [us_snap_ny_standard_utility_allowance_refresh.yaml](../benchmarks/us_snap_ny_standard_utility_allowance_refresh.yaml)
+  - [us_snap_ny_limited_utility_allowance_refresh.yaml](../benchmarks/us_snap_ny_limited_utility_allowance_refresh.yaml)
+  - [test_evals.py](../tests/test_evals.py)
+  - [test_validator_pipeline.py](../tests/test_validator_pipeline.py)
+  - [snap_standard_utility_allowance_ny.txt](../../rac-us-ny/sources/slices/otda/snap/current-effective/snap_standard_utility_allowance_ny.txt)
+  - [snap_standard_utility_allowance_ny.meta.yaml](../../rac-us-ny/sources/slices/otda/snap/current-effective/snap_standard_utility_allowance_ny.meta.yaml)
+  - [snap_limited_utility_allowance_ny.txt](../../rac-us-ny/sources/slices/otda/snap/current-effective/snap_limited_utility_allowance_ny.txt)
+  - [snap_limited_utility_allowance_ny.meta.yaml](../../rac-us-ny/sources/slices/otda/snap/current-effective/snap_limited_utility_allowance_ny.meta.yaml)
+  - [us-snap-ny-standard-utility-allowance-smoke5-failed-20260413](../artifacts/eval-suites/us-snap-ny-standard-utility-allowance-smoke5-failed-20260413)
+  - [us-snap-ny-standard-utility-allowance-refresh1-ready-20260413](../artifacts/eval-suites/us-snap-ny-standard-utility-allowance-refresh1-ready-20260413)
+  - [us-snap-ny-limited-utility-allowance-smoke4-failed-20260413](../artifacts/eval-suites/us-snap-ny-limited-utility-allowance-smoke4-failed-20260413)
+  - [us-snap-ny-limited-utility-allowance-refresh1-ready-20260413](../artifacts/eval-suites/us-snap-ny-limited-utility-allowance-refresh1-ready-20260413)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.

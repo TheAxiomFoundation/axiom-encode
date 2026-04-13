@@ -1,0 +1,20 @@
+name: New York SNAP limited utility allowance refresh
+runners:
+  - openai:gpt-5.4
+mode: repo-augmented
+gates:
+  min_cases: 1
+  min_success_rate: 1.0
+  min_compile_pass_rate: 1.0
+  min_ci_pass_rate: 1.0
+  min_zero_ungrounded_rate: 1.0
+  min_generalist_review_pass_rate: 1.0
+  min_policyengine_pass_rate: 1.0
+cases:
+  - kind: source
+    name: snap_limited_utility_allowance_ny
+    source_id: New York SNAP limited utility allowance under OTDA LDSS-5006 effective October 1, 2025
+    source_file: ../../rac-us-ny/sources/slices/otda/snap/current-effective/snap_limited_utility_allowance_ny.txt
+    oracle: policyengine
+    policyengine_country: auto
+    policyengine_rac_var_hint: snap_limited_utility_allowance

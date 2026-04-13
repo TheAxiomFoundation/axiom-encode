@@ -164,6 +164,14 @@ class _PolicyEngineUSVarAdapter:
     state_code_from_boolean_input: tuple[str, str, str] | None = None
 
 
+def _normalize_state_code_from_utility_region(region: str) -> str:
+    """Map sub-state SNAP utility region codes back to their parent state code."""
+    match = re.match(r"^([A-Z]{2})_", region)
+    if match:
+        return match.group(1)
+    return region
+
+
 _PE_US_VAR_ADAPTERS = (
     _PolicyEngineUSVarAdapter(
         rac_vars=("snap", "snap_benefits"),
@@ -5025,17 +5033,30 @@ print("BENCHMARK:" + json.dumps(result))
                 household_state = (
                     true_state if bool(inputs[input_key]) else false_state
                 )
+        utility_region = None
+        if "snap_utility_region" in inputs:
+            utility_region = str(inputs["snap_utility_region"])
+        elif "snap_utility_region_str" in inputs:
+            utility_region = str(inputs["snap_utility_region_str"])
+
         if "state_code_str" in inputs:
             household_state = str(inputs["state_code_str"])
         elif "state_name" in inputs:
             household_state = str(inputs["state_name"])
-        elif "snap_utility_region_str" in inputs:
-            household_state = str(inputs["snap_utility_region_str"])
+        elif utility_region is not None:
+            household_state = _normalize_state_code_from_utility_region(
+                utility_region
+            )
 
         household_extra_parts = [
             f"'state_name': {{'{year}': {repr(household_state)}}}",
             f"'state_code_str': {{'{year}': {repr(household_state)}}}",
         ]
+        if utility_region is not None:
+            household_extra_parts.append(
+                f"'snap_utility_region_str': "
+                f"{{'{year}': {repr(utility_region)}}}"
+            )
         if "state_group_str" in inputs:
             household_extra_parts.append(
                 f"'state_group_str': {{'{year}': {repr(inputs['state_group_str'])}}}"
