@@ -449,6 +449,22 @@ As of 2026-04-10:
   - [us-snap-tn-standard-utility-allowance-refresh5-failed-20260412](../artifacts/eval-suites/us-snap-tn-standard-utility-allowance-refresh5-failed-20260412)
   - [us-snap-tn-standard-utility-allowance-refresh7-ready-20260412](../artifacts/eval-suites/us-snap-tn-standard-utility-allowance-refresh7-ready-20260412)
 
+### 2026-04-12: Tennessee SNAP telephone utility allowance overlay closed on the same state-overlay pattern
+
+- Primary commits:
+  - `1c6af99` `Add Tennessee SNAP utility allowance source slices`
+  - `261b92d` `Add Tennessee SNAP telephone allowance benchmark`
+- Hypothesis:
+  - With the repaired monthly-update harness already closing Tennessee standard and limited utility allowances, the telephone utility allowance should close cleanly as the next Tennessee state overlay if the source slice is explicit about the SNAP category gate and the PolicyEngine Tennessee utility table already carries the October 1, 2025 amount.
+- Effect:
+  - Added a Tennessee telephone utility allowance source slice anchored to TennCare ABD Manual 125.020 section 3.d.ii.1.c.iii.
+  - Added a checked-in AutoRAC benchmark for `snap_individual_utility_allowance` with a PolicyEngine oracle hint, so the Tennessee telephone lane is now benchmarked the same way as North Carolina telephone and Tennessee standard/limited allowances.
+  - The fresh Tennessee telephone replay reached a clean ready state against compile, CI, generalist review, and PolicyEngine without additional harness tuning, which is good evidence that the repaired state-overlay utility-allowance pattern now generalizes across all three Tennessee allowance categories.
+- Primary evidence paths:
+  - [us_snap_tn_individual_utility_allowance_refresh.yaml](../benchmarks/us_snap_tn_individual_utility_allowance_refresh.yaml)
+  - [snap_individual_utility_allowance_tn.txt](../../rac-us/sources/slices/tenncare/post-eligibility/current-effective/snap_individual_utility_allowance_tn.txt)
+  - [us-snap-tn-individual-utility-allowance-refresh1-ready-20260412](../artifacts/eval-suites/us-snap-tn-individual-utility-allowance-refresh1-ready-20260412)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.
