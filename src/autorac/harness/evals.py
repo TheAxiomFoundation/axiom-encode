@@ -3238,6 +3238,7 @@ def _run_codex_prompt_eval(
     prompt: str,
 ) -> EvalPromptResponse:
     """Run prompt-only eval via Codex CLI."""
+    codex_idle_timeout_seconds = 300
     last_message_file = workspace.root / ".codex-last-message.txt"
     if last_message_file.exists():
         last_message_file.unlink()
@@ -3281,6 +3282,7 @@ def _run_codex_prompt_eval(
                 last_message_file=last_message_file,
                 timeout=600,
                 heartbeat_paths=[stdout_path, stderr_path],
+                max_idle_seconds=codex_idle_timeout_seconds,
             )
         except subprocess.TimeoutExpired:
             timed_out = True

@@ -318,6 +318,60 @@ class TestCodexPromptEval:
         assert response.error is None
         assert response.text == bundle.strip()
 
+    def test_run_codex_prompt_eval_uses_longer_idle_timeout(self, tmp_path):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="10-ccr-2506-1/4.403.11/b/c/3",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="self-employment expenses",
+            rac_path=tmp_path / "rac",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd):
+                self.args = cmd
+                self.returncode = 0
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        observed: dict[str, float] = {}
+
+        def fake_wait(
+            process,
+            last_message_file,
+            timeout,
+            heartbeat_paths=None,
+            settle_seconds=5.0,
+            max_output_wait_seconds=30.0,
+            max_idle_seconds=120.0,
+            poll_interval=0.5,
+        ):
+            observed["max_idle_seconds"] = max_idle_seconds
+            process.returncode = 0
+            return False
+
+        with patch("autorac.harness.evals.subprocess.Popen", FakePopen), patch(
+            "autorac.harness.evals._wait_for_codex_process",
+            side_effect=fake_wait,
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert observed["max_idle_seconds"] == 300
+        assert response.text == ""
+
 
 class TestEvaluateArtifact:
     def test_uses_fallback_source_text_for_grounding(self, tmp_path):
