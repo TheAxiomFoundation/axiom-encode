@@ -128,6 +128,9 @@ This file is the claim register for future writing. It separates claims that are
 - Do not claim that federal SNAP is fully encoded or benchmark-closed.
   - Correct framing:
     - The current AutoRAC reconstruction seed for four federal SNAP slices is now green, which is strong evidence for the repaired harness and those specific slices, but broader federal SNAP coverage still remains to be encoded and benchmarked.
+- Do not claim that North Carolina SNAP utility allowances are fully oracle-aligned.
+  - Correct framing:
+    - The North Carolina standard and limited utility allowance lanes are green against compile, CI, generalist review, and PolicyEngine, but the telephone utility allowance lane currently exposes a PolicyEngine data mismatch against the official NC FNS 360 manual (`$42.15` in PE versus `$41` in the manual for the tested current-effective period).
 - Do not claim that the current-effective federal SNAP eligibility lane is fully person-granular.
   - Correct framing:
     - The `is_snap_eligible` benchmark is now green against compile, CI, generalist review, and PolicyEngine, but the accepted artifact still carries non-blocking household-level compression of the member-disqualification facts. This is a clean closeout for the specific benchmark slice, not a proof that general person-to-household aggregation is solved across the ontology.

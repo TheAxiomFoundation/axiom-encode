@@ -373,6 +373,34 @@ As of 2026-04-10:
   - [us-snap-net-income-pre-shelter-refresh10-failed-20260412](../artifacts/eval-suites/us-snap-net-income-pre-shelter-refresh10-failed-20260412)
   - [us-snap-net-income-pre-shelter-refresh11-ready-20260412](../artifacts/eval-suites/us-snap-net-income-pre-shelter-refresh11-ready-20260412)
 
+### 2026-04-12: First SNAP state-overlay utility benchmarks split into one clean closeout and one external-oracle gap
+
+- Primary commits:
+  - `f8e93d2` `Add North Carolina SNAP SUA source slice`
+  - `00254f2` `Add NC SNAP SUA benchmark and prompt guidance`
+  - `c59094b` `Stabilize NC SNAP utility allowance validation`
+- Hypothesis:
+  - The state-overlay pattern for SNAP utility allowances should generalize cleanly once the benchmark keeps the cited jurisdiction fixed in negative tests, the PE replay bridge understands state utility-allowance variables and aliases, and reviewer supervision stops timing out on non-streaming Claude responses. Any remaining miss after that is more likely to be an external-oracle data gap than a harness failure.
+- Effect:
+  - North Carolina standard and limited utility allowance slices now have checked-in source excerpts and repo-augmented AutoRAC benchmarks grounded in the official NC FNS 360 manual, and the validator can replay nationwide SNAP utility-allowance variables with NC-specific inputs and alias normalization.
+  - The first NC limited utility allowance benchmark reached a clean ready state with success, compile, CI, zero-ungrounded numerics, generalist review, and PolicyEngine all passing.
+  - The first NC telephone utility allowance benchmark did not close. AutoRAC generated a plausible artifact, but PolicyEngine returned `$42.15` while the NC manual slice states `$41`, and direct inspection of the installed PolicyEngine parameter tree showed that PE currently uprates NC phone allowance data from the older `2023-10-01` entry instead of carrying the official `2024-10-01` NC manual value. This is recorded as an external oracle gap, not as a kept harness regression.
+- Primary evidence paths:
+  - [us_snap_nc_standard_utility_allowance_refresh.yaml](../benchmarks/us_snap_nc_standard_utility_allowance_refresh.yaml)
+  - [us_snap_nc_limited_utility_allowance_refresh.yaml](../benchmarks/us_snap_nc_limited_utility_allowance_refresh.yaml)
+  - [us_snap_nc_individual_utility_allowance_refresh.yaml](../benchmarks/us_snap_nc_individual_utility_allowance_refresh.yaml)
+  - [evals.py](../src/autorac/harness/evals.py)
+  - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+  - [test_evals.py](../tests/test_evals.py)
+  - [test_validator_pipeline.py](../tests/test_validator_pipeline.py)
+  - [snap_standard_utility_allowance_nc.txt](../../rac-us/sources/slices/ncdhhs/fns/360/current-effective/snap_standard_utility_allowance_nc.txt)
+  - [snap_limited_utility_allowance_nc.txt](../../rac-us/sources/slices/ncdhhs/fns/360/current-effective/snap_limited_utility_allowance_nc.txt)
+  - [snap_individual_utility_allowance_nc.txt](../../rac-us/sources/slices/ncdhhs/fns/360/current-effective/snap_individual_utility_allowance_nc.txt)
+  - [us-snap-nc-standard-utility-allowance-refresh8-reviewer-timeout-20260412](../artifacts/eval-suites/us-snap-nc-standard-utility-allowance-refresh8-reviewer-timeout-20260412)
+  - [us-snap-nc-standard-utility-allowance-refresh9-ready-20260412](../artifacts/eval-suites/us-snap-nc-standard-utility-allowance-refresh9-ready-20260412)
+  - [us-snap-nc-limited-utility-allowance-refresh1-ready-20260412](../artifacts/eval-suites/us-snap-nc-limited-utility-allowance-refresh1-ready-20260412)
+  - [us-snap-nc-individual-utility-allowance-refresh1-policyengine-gap-20260412](../artifacts/eval-suites/us-snap-nc-individual-utility-allowance-refresh1-policyengine-gap-20260412)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.
