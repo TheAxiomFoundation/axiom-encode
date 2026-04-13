@@ -23,6 +23,7 @@ from xml.etree import ElementTree as ET
 import requests
 import yaml
 
+from autorac.repo_routing import find_policy_repo_root
 from autorac.statute import (
     CitationParts,
     citation_to_relative_rac_path,
@@ -369,7 +370,8 @@ def run_source_eval(
     source_text: str,
     runner_specs: list[str],
     output_root: Path,
-    rac_path: Path,
+    policy_path: Path,
+    runtime_rac_path: Path | None = None,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
     oracle: EvalOracleMode = "none",
@@ -386,7 +388,8 @@ def run_source_eval(
                 source_text=source_text,
                 runner=runner,
                 output_root=output_root,
-                rac_path=rac_path,
+                policy_path=policy_path,
+                runtime_rac_path=runtime_rac_path or policy_path,
                 mode=mode,
                 extra_context_paths=extra_context_paths or [],
                 oracle=oracle,
@@ -884,6 +887,7 @@ def run_akn_section_eval(
     runner_specs: list[str],
     output_root: Path,
     rac_path: Path,
+    runtime_rac_path: Path | None = None,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
     allow_parent: bool = False,
@@ -907,7 +911,8 @@ def run_akn_section_eval(
         ),
         runner_specs=runner_specs,
         output_root=output_root,
-        rac_path=rac_path,
+        policy_path=rac_path,
+        runtime_rac_path=runtime_rac_path or rac_path,
         mode=mode,
         extra_context_paths=extra_context_paths,
         oracle=oracle,
@@ -921,6 +926,7 @@ def run_legislation_gov_uk_section_eval(
     runner_specs: list[str],
     output_root: Path,
     rac_path: Path,
+    runtime_rac_path: Path | None = None,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
     section_eid: str | None = None,
@@ -950,6 +956,7 @@ def run_legislation_gov_uk_section_eval(
         runner_specs=runner_specs,
         output_root=output_root,
         rac_path=rac_path,
+        runtime_rac_path=runtime_rac_path or rac_path,
         mode=mode,
         extra_context_paths=extra_context_paths,
         allow_parent=allow_parent,
@@ -1162,12 +1169,18 @@ def run_eval_suite(
                             extra_context_paths=extra_context,
                         )
                     elif case.kind == "source":
+                        policy_repo_root = (
+                            find_policy_repo_root(case.source_file)
+                            if case.source_file is not None
+                            else None
+                        ) or rac_path
                         case_results = run_source_eval(
                             source_id=case.source_id or case.name,
                             source_text=(case.source_file or Path()).read_text(),
                             runner_specs=resolved_runners,
                             output_root=case_output_root,
-                            rac_path=rac_path,
+                            policy_path=policy_repo_root,
+                            runtime_rac_path=rac_path,
                             mode=case.mode,
                             extra_context_paths=extra_context,
                             oracle=case.oracle,
@@ -1922,16 +1935,18 @@ def prepare_eval_workspace(
             )
         )
 
-    rac_us_root = rac_path.parent / "rac-us" / "statute"
+    context_corpus_root = _repo_augmented_context_root(rac_path)
 
     if mode == "repo-augmented":
-        selected = _auto_select_context_files(citation, rac_us_root)
+        selected = _auto_select_context_files(citation, context_corpus_root)
         for extra_path in extra_context_paths or []:
             path = Path(extra_path)
             if path.exists():
                 selected.append(path)
 
-        expanded_context = _expand_context_files(selected, rac_us_root, target_rel)
+        expanded_context = _expand_context_files(
+            selected, context_corpus_root, target_rel
+        )
 
         for source_path, kind in expanded_context:
             relative_target = _context_import_relative_target(source_path, rac_path)
@@ -2027,6 +2042,21 @@ def _auto_select_context_files(citation: str, rac_us_root: Path) -> list[Path]:
         return select_context_files(citation, rac_us_root)
     except Exception:
         return []
+
+
+def _repo_augmented_context_root(policy_path: Path) -> Path:
+    """Resolve the corpus root used for automatic repo-augmented context selection."""
+    resolved = Path(policy_path).resolve()
+    if resolved.name == "rac":
+        fallback = resolved.parent / "rac-us" / "statute"
+        if fallback.exists():
+            return fallback
+        return resolved
+
+    statute_root = resolved / "statute"
+    if statute_root.exists():
+        return statute_root
+    return resolved
 
 
 def _context_import_relative_target(source_path: Path, rac_path: Path) -> Path:
@@ -2316,7 +2346,8 @@ def _run_single_source_eval(
     source_text: str,
     runner: EvalRunnerSpec,
     output_root: Path,
-    rac_path: Path,
+    policy_path: Path,
+    runtime_rac_path: Path,
     mode: EvalMode,
     extra_context_paths: list[Path],
     oracle: EvalOracleMode,
@@ -2329,7 +2360,7 @@ def _run_single_source_eval(
         runner=runner,
         output_root=output_root,
         source_text=source_text,
-        rac_path=rac_path,
+        rac_path=policy_path,
         mode=mode,
         extra_context_paths=extra_context_paths,
     )
@@ -2371,7 +2402,7 @@ def _run_single_source_eval(
         metrics = evaluate_artifact(
             rac_file=output_file,
             rac_root=output_file.parents[1],
-            rac_path=rac_path,
+            rac_path=runtime_rac_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_country=policyengine_country,

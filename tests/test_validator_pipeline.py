@@ -7068,6 +7068,21 @@ class TestValidateFile:
             result = validate_file(rac_file)
             assert isinstance(result, PipelineResult)
 
+    def test_validate_file_with_non_federal_policy_repo(self, tmp_path, temp_rac_file):
+        """validate_file() works with a file in another rac-* jurisdiction repo."""
+        policy_repo = tmp_path / "rac-us-tn" / "sources"
+        policy_repo.mkdir(parents=True)
+        rac_file = policy_repo / "test.rac"
+        rac_file.write_text(temp_rac_file.read_text())
+        (tmp_path / "rac").mkdir()
+
+        with patch.object(ValidatorPipeline, "validate") as mock_validate:
+            mock_validate.return_value = PipelineResult(
+                results={}, total_duration_ms=0, all_passed=True
+            )
+            result = validate_file(rac_file)
+            assert isinstance(result, PipelineResult)
+
     def test_validate_file_no_rac_us_parent(self, temp_rac_file):
         """validate_file() handles file not in rac-us directory."""
         with patch.object(ValidatorPipeline, "validate") as mock_validate:

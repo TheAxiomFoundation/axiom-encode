@@ -44,6 +44,7 @@ from .harness.evals import (
     summarize_readiness,
 )
 from .harness.validator_pipeline import ValidatorPipeline, extract_embedded_source_text
+from .repo_routing import find_policy_repo_root, is_policy_repo_root
 from .statute import parse_usc_citation
 
 # Default DB path - can be overridden with --db
@@ -62,6 +63,21 @@ def _resolve_repo_checkout(name: str) -> Path:
         if candidate.exists():
             return candidate.resolve()
     return candidates[-1]
+
+
+def _resolve_runtime_rac_checkout(policy_repo_root: Path | None = None) -> Path:
+    """Resolve the core rac runtime checkout, preferring a sibling of the policy repo."""
+    if policy_repo_root is not None:
+        sibling = Path(policy_repo_root).resolve().parent / "rac"
+        if sibling.exists():
+            return sibling.resolve()
+    return _resolve_repo_checkout("rac")
+
+
+def _resolve_validation_repo_roots(rac_file: Path) -> tuple[Path, Path]:
+    """Resolve the policy repo root plus the core rac runtime for validation."""
+    policy_repo_root = find_policy_repo_root(rac_file) or _resolve_repo_checkout("rac-us")
+    return policy_repo_root, _resolve_runtime_rac_checkout(policy_repo_root)
 
 
 def _reviewer_score_map(scores) -> dict[str, float | None]:
@@ -868,22 +884,13 @@ def cmd_validate(args):
 
     rac_file = args.file.resolve()
 
-    # Find rac paths
-    rac_us = rac_file.parent
-    while rac_us.name != "rac-us" and rac_us.parent != rac_us:
-        rac_us = rac_us.parent
-
-    if rac_us.name != "rac-us":
-        rac_us = _resolve_repo_checkout("rac-us")
-        rac_path = _resolve_repo_checkout("rac")
-    else:
-        rac_path = rac_us.parent / "rac"
+    policy_repo_root, rac_path = _resolve_validation_repo_roots(rac_file)
 
     # Enable oracles if --oracle flag is set
     enable_oracles = args.oracle is not None
 
     pipeline = ValidatorPipeline(
-        rac_us_path=rac_us,
+        rac_us_path=policy_repo_root,
         rac_path=rac_path,
         enable_oracles=enable_oracles,
     )
@@ -2050,10 +2057,20 @@ def cmd_eval_source(args):
     runners = _effective_runner_specs(
         args.runner or ["claude:opus", "codex:gpt-5.4"], args
     )
-    rac_path = args.rac_path or _default_repo_checkout("rac")
+    runtime_rac_path = _default_repo_checkout("rac")
+    policy_repo_path = None
+    if args.rac_path:
+        if is_policy_repo_root(args.rac_path):
+            policy_repo_path = args.rac_path
+        else:
+            runtime_rac_path = args.rac_path
+    else:
+        policy_repo_path = find_policy_repo_root(args.source_file)
 
-    if not rac_path.exists():
-        print(f"rac repo not found: {rac_path}")
+    policy_repo_path = policy_repo_path or _default_repo_checkout("rac-us")
+
+    if not runtime_rac_path.exists():
+        print(f"rac repo not found: {runtime_rac_path}")
         sys.exit(1)
     if not args.source_file.exists():
         print(f"Source file not found: {args.source_file}")
@@ -2065,7 +2082,8 @@ def cmd_eval_source(args):
         source_text=source_text,
         runner_specs=runners,
         output_root=args.output,
-        rac_path=rac_path,
+        policy_path=policy_repo_path,
+        runtime_rac_path=runtime_rac_path,
         mode=args.mode,
         extra_context_paths=[Path(path) for path in args.allow_context],
         policyengine_rac_var_hint=args.policyengine_rac_var_hint,
@@ -2076,7 +2094,8 @@ def cmd_eval_source(args):
         return
 
     print(f"Output root: {args.output}")
-    print(f"rac: {rac_path}")
+    print(f"Policy repo: {policy_repo_path}")
+    print(f"rac: {runtime_rac_path}")
     print(f"Source: {args.source_file}")
     if args.policyengine_rac_var_hint:
         print(f"PolicyEngine RAC var hint: {args.policyengine_rac_var_hint}")

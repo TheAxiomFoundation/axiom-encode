@@ -32,6 +32,7 @@ from typing import Any, Optional
 import yaml
 
 from autorac.constants import DEFAULT_OPENAI_MODEL, REVIEWER_CLI_MODEL
+from autorac.repo_routing import find_policy_repo_root
 
 from .dependency_stubs import (
     has_ingested_source_for_import_target,
@@ -6249,18 +6250,16 @@ print(f'RESULT:{{val}}')
 
 def validate_file(rac_file: str | Path) -> PipelineResult:
     """Convenience function to validate a single file."""
-    # Auto-detect paths based on file location
     file_path = Path(rac_file)
-
-    # Find repo roots
-    rac_us = file_path
-    while rac_us.name != "rac-us" and rac_us.parent != rac_us:
-        rac_us = rac_us.parent
-
-    rac = rac_us.parent / "rac"
+    policy_repo_root = find_policy_repo_root(file_path)
+    if policy_repo_root is None:
+        policy_repo_root = file_path.parent
+    rac = policy_repo_root.parent / "rac"
+    if not rac.exists():
+        rac = Path(__file__).resolve().parents[4] / "rac"
 
     pipeline = ValidatorPipeline(
-        rac_us_path=rac_us,
+        rac_us_path=policy_repo_root,
         rac_path=rac,
     )
 

@@ -2865,6 +2865,43 @@ class TestCmdValidateEdgeCases:
             call_kwargs = mock_pipeline_cls.call_args[1]
             assert "rac-us" in str(call_kwargs["rac_us_path"])
 
+    def test_validate_uses_enclosing_non_federal_policy_repo(self, tmp_path):
+        policy_repo = tmp_path / "rac-us-tn" / "sources"
+        policy_repo.mkdir(parents=True)
+        rac_file = policy_repo / "test.rac"
+        rac_file.write_text("# test")
+        (tmp_path / "rac").mkdir()
+
+        args = MagicMock()
+        args.file = rac_file
+        args.json = False
+        args.skip_reviewers = True
+        args.oracle = None
+        args.min_match = 0.95
+
+        mock_result = MagicMock()
+        mock_result.all_passed = True
+        mock_result.ci_pass = True
+        mock_result.results = {}
+        mock_result.to_actual_scores.return_value = MagicMock(
+            rac_reviewer=None,
+            formula_reviewer=None,
+            parameter_reviewer=None,
+            integration_reviewer=None,
+            policyengine_match=None,
+            taxsim_match=None,
+        )
+
+        with patch("autorac.cli.ValidatorPipeline") as mock_pipeline_cls:
+            mock_pipeline_cls.return_value.validate.return_value = mock_result
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_validate(args)
+            assert exc_info.value.code == 0
+
+        call_kwargs = mock_pipeline_cls.call_args[1]
+        assert call_kwargs["rac_us_path"] == tmp_path / "rac-us-tn"
+        assert call_kwargs["rac_path"] == tmp_path / "rac"
+
     def test_validate_fallback_prefers_workspace_repo_roots(self, tmp_path):
         rac_file = tmp_path / "generated" / "test.rac"
         rac_file.parent.mkdir(parents=True)

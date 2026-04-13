@@ -13,6 +13,8 @@ from autorac.harness.evals import (
     EvalArtifactMetrics,
     EvalReadinessGates,
     EvalResult,
+    EvalSuiteCase,
+    EvalSuiteManifest,
     FetchedLegislationGovUkDocument,
     GroundingMetric,
     _build_eval_prompt,
@@ -4338,6 +4340,59 @@ cases:
         assert final_state["status"] == "completed"
         assert "active_case" not in final_state
 
+    def test_run_eval_suite_routes_source_case_to_enclosing_policy_repo(self, tmp_path):
+        policy_repo = tmp_path / "rac-us-tn"
+        source_file = (
+            policy_repo
+            / "sources"
+            / "slices"
+            / "tenncare"
+            / "post-eligibility"
+            / "current-effective"
+            / "snap_standard_utility_allowance_tn.txt"
+        )
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_text("Tennessee source text")
+        runtime_rac = tmp_path / "rac"
+        runtime_rac.mkdir()
+        output_root = tmp_path / "out"
+
+        manifest = EvalSuiteManifest(
+            name="TN suite",
+            path=tmp_path / "suite.yaml",
+            runners=["openai:gpt-5.4"],
+            mode="repo-augmented",
+            allow_context=[],
+            gates=EvalReadinessGates(),
+            cases=[
+                EvalSuiteCase(
+                    kind="source",
+                    name="snap-tn-sua",
+                    source_id="snap_standard_utility_allowance_tn",
+                    source_file=source_file,
+                    mode="repo-augmented",
+                )
+            ],
+        )
+        source_result = _fake_eval_result("openai-gpt-5.4", "snap-tn-sua")
+
+        with patch(
+            "autorac.harness.evals.run_source_eval",
+            return_value=[source_result],
+        ) as mock_run_source_eval, patch(
+            "autorac.harness.evals._validate_uk_shared_scalar_sibling_sets",
+            return_value=None,
+        ):
+            run_eval_suite(
+                manifest=manifest,
+                output_root=output_root,
+                rac_path=runtime_rac,
+                atlas_path=None,
+            )
+
+        assert mock_run_source_eval.call_args.kwargs["policy_path"] == policy_repo
+        assert mock_run_source_eval.call_args.kwargs["runtime_rac_path"] == runtime_rac
+
     def test_run_eval_suite_retries_transient_exception(self, tmp_path):
         manifest_file = tmp_path / "suite.yaml"
         manifest_file.write_text(
@@ -5883,7 +5938,7 @@ class TestSourceEval:
                 source_text="F. Determining Eligibility ... 165",
                 runner_specs=["codex:gpt-5.4"],
                 output_root=tmp_path / "out",
-                rac_path=rac_root,
+                policy_path=rac_root,
                 mode="repo-augmented",
                 extra_context_paths=[context_file],
             )
@@ -5932,7 +5987,7 @@ class TestSourceEval:
                 source_text="26.05",
                 runner_specs=["codex:gpt-5.4"],
                 output_root=tmp_path / "out",
-                rac_path=rac_root,
+                policy_path=rac_root,
                 mode="cold",
                 oracle="policyengine",
                 policyengine_country="uk",
@@ -5978,7 +6033,7 @@ class TestSourceEval:
                 source_text="317.82",
                 runner_specs=["openai:gpt-5.4"],
                 output_root=tmp_path / "out",
-                rac_path=rac_root,
+                policy_path=rac_root,
                 mode="cold",
                 oracle="policyengine",
                 policyengine_country="uk",
