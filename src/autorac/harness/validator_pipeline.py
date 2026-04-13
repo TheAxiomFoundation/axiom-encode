@@ -1126,6 +1126,11 @@ def _is_structural_schedule_index_helper(name: str, value: float) -> bool:
         re.search(rf"(?:^|_)size_{index}(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_)household_size_{index}(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_)unit_size_{index}(?:_|$)", normalized_name)
+        or re.search(rf"(?:^|_)size_row_{index}(?:_|$)", normalized_name)
+        or re.search(
+            rf"(?:^|_)household_size_row_{index}(?:_|$)", normalized_name
+        )
+        or re.search(rf"(?:^|_)unit_size_row_{index}(?:_|$)", normalized_name)
         or (
             word is not None
             and re.search(rf"(?:^|_)size_{word}(?:_|$)", normalized_name)

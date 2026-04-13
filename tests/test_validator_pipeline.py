@@ -2197,6 +2197,26 @@ north_carolina_sua_unit_size_five_or_more_threshold:
         assert not any(raw == "4" and value == 4.0 for _, raw, value in values)
         assert any(raw == "5" and value == 5.0 for _, raw, value in values)
 
+    def test_extract_grounding_values_ignores_row_number_schedule_index_helpers(self):
+        values = extract_grounding_values(
+            '''
+nc_tua_unit_size_row_4:
+    entity: SnapUnit
+    period: Month
+    dtype: Count
+    from 2025-01-01: 4
+
+nc_tua_unit_size_row_5_or_more_threshold:
+    entity: SnapUnit
+    period: Month
+    dtype: Count
+    from 2025-01-01: 5
+'''
+        )
+
+        assert not any(raw == "4" and value == 4.0 for _, raw, value in values)
+        assert any(raw == "5" and value == 5.0 for _, raw, value in values)
+
     def test_ci_rejects_decomposed_date_scalars(self, pipeline):
         """CI should fail when calendar dates are split into numeric day/year scalars."""
         rac_file = pipeline.rac_us_path / "uk" / "leaf.rac"
