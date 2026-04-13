@@ -756,6 +756,7 @@ GROUNDING_INLINE_TEMPORAL_PATTERN = re.compile(
     r"^\s*from\s+\d{4}-\d{2}-\d{2}:\s*(.*?)\s*$"
 )
 GROUNDING_DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+GROUNDING_MONTH_PERIOD_PATTERN = re.compile(r"\b\d{4}-\d{2}\b")
 GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
     r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
 )
@@ -822,8 +823,8 @@ _STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_BULLETIN_NUMBER_PATTERN = re.compile(
-    r"\b(?:Bulletin No\.?|Bulletin Number)\s+"
-    r"\d+(?:\.\d+)+(?:-\d+)?\b",
+    r"\bBulletin(?:\s+(?:No\.?|Number))?\s+"
+    r"\d+(?:[.-]\d+)+(?:-\d+)?\b",
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_REVISION_PATTERN = re.compile(
@@ -847,6 +848,10 @@ _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
 _STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 _SYNTHETIC_MODELING_INSTRUCTION_PATTERN = re.compile(
     r"^\s*model\s+`[^`]+`\s+as\b",
+    re.IGNORECASE,
+)
+_SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN = re.compile(
+    r"^\s*For\s+[A-Za-z][A-Za-z .'-]*,\s+the\s+allowance\s+is\s+statewide\s+at\s+\$?\d+(?:\.\d+)?\.?\s*$",
     re.IGNORECASE,
 )
 _SOURCE_REFERENCE_TARGET_PATTERN = (
@@ -882,10 +887,11 @@ _SOURCE_REFERENCE_PATTERNS = (
 )
 _DIRECT_SCALAR_VALUE_PATTERN = re.compile(r"-?[\d,]+(?:\.\d+)?")
 _MONTH_NAME_BODY = (
-    r"(?:january|february|march|april|may|june|july|august|september|"
-    r"october|november|december)"
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
+    r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+    r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?"
 )
-_MONTH_NAME_PATTERN = re.compile(rf"\b{_MONTH_NAME_BODY}\b", re.IGNORECASE)
+_MONTH_NAME_PATTERN = re.compile(rf"\b{_MONTH_NAME_BODY}(?=$|[\s,.;:])", re.IGNORECASE)
 _MONTH_NAME_DATE_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}},\s+\d{{4}}\b",
     re.IGNORECASE,
@@ -1415,6 +1421,8 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
             continue
         if _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped):
             continue
+        if _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(structural_stripped):
+            continue
 
         normalized_line = line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         normalized_line = _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN.sub(
@@ -1434,6 +1442,7 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     cleaned = _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_SECTION_PATTERN.sub(" ", cleaned)
     cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
+    cleaned = GROUNDING_MONTH_PERIOD_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DATE_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DAY_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_DAY_OF_MONTH_PATTERN.sub(" ", cleaned)

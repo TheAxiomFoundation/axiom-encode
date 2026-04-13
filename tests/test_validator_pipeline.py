@@ -463,6 +463,31 @@ Both legally obligated and informal child support payments are treated as income
         assert 7.0 not in numbers
         assert 2025.0 not in numbers
 
+    def test_ignores_bulletin_dates_month_periods_and_statewide_restatements_for_grounding(self):
+        numbers = extract_numbers_from_text(
+            """
+Texas SNAP telephone standard under MEPD and TW Bulletin 25-15 section 2
+for period 2026-01.
+
+Texas Health and Human Services Commission, MEPD and TW Bulletin 25-15,
+Sept. 5, 2025, section 2. SNAP Income Limits, Deductions, and Allotments:
+
+Standard or Maximum Deduction Amounts (Effective Oct. 1, 2025)
+Use the following updated deduction amounts:
+- Telephone Standard - $62
+
+For Texas, the allowance is statewide at 62.
+"""
+        )
+
+        assert 25.0 not in numbers
+        assert 15.0 not in numbers
+        assert 5.0 not in numbers
+        assert 2025.0 not in numbers
+        assert 2026.0 not in numbers
+        assert 62.0 in numbers
+        assert len(numbers) == 1
+
 
 class TestExtractNumericOccurrencesFromText:
     def test_ignores_structural_references_and_counts_repeated_scalars(self):
@@ -612,6 +637,30 @@ Both legally obligated and informal child support payments are treated as income
 
         assert 7.0 not in occurrences
         assert 2025.0 not in occurrences
+
+    def test_ignores_bulletin_dates_month_periods_and_statewide_restatements(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+Texas SNAP telephone standard under MEPD and TW Bulletin 25-15 section 2
+for period 2026-01.
+
+Texas Health and Human Services Commission, MEPD and TW Bulletin 25-15,
+Sept. 5, 2025, section 2. SNAP Income Limits, Deductions, and Allotments:
+
+Standard or Maximum Deduction Amounts (Effective Oct. 1, 2025)
+Use the following updated deduction amounts:
+- Telephone Standard - $62
+
+For Texas, the allowance is statewide at 62.
+"""
+        )
+
+        assert 25.0 not in occurrences
+        assert 15.0 not in occurrences
+        assert 5.0 not in occurrences
+        assert 2025.0 not in occurrences
+        assert 2026.0 not in occurrences
+        assert occurrences.count(62.0) == 1
 
     def test_ignores_structural_manual_section_numbers(self):
         occurrences = extract_numeric_occurrences_from_text(
