@@ -2987,6 +2987,8 @@ Output ONLY valid JSON:
                 return env_python
 
         pe_venv_paths = [
+            Path.home() / "worktrees" / f"{repo_name}-main-view" / ".venv" / "bin" / "python",
+            Path.home() / "worktrees" / repo_name / ".venv" / "bin" / "python",
             Path.home() / repo_name / ".venv" / "bin" / "python",
             Path.home()
             / "RulesFoundation"
@@ -3000,8 +3002,6 @@ Output ONLY valid JSON:
             / ".venv"
             / "bin"
             / "python",
-            Path.home() / "worktrees" / f"{repo_name}-main-view" / ".venv" / "bin" / "python",
-            Path.home() / "worktrees" / repo_name / ".venv" / "bin" / "python",
         ]
         for pe_python in pe_venv_paths:
             if pe_python.exists() and _python_imports_policyengine(str(pe_python)):

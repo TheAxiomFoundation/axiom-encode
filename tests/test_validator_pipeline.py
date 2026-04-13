@@ -3520,6 +3520,43 @@ class TestFindPePython:
 
         assert result == str(worktree_python)
 
+    def test_worktree_venv_preferred_over_policyengine_checkout(self, pipeline, tmp_path):
+        worktree_python = (
+            tmp_path
+            / "worktrees"
+            / "policyengine-us-main-view"
+            / ".venv"
+            / "bin"
+            / "python"
+        )
+        checkout_python = (
+            tmp_path
+            / "PolicyEngine"
+            / "policyengine-us"
+            / ".venv"
+            / "bin"
+            / "python"
+        )
+        worktree_python.parent.mkdir(parents=True)
+        checkout_python.parent.mkdir(parents=True)
+        worktree_python.touch()
+        checkout_python.touch()
+
+        def mock_run_side_effect(args, **kwargs):
+            python_path = args[0]
+            if python_path == str(worktree_python):
+                return Mock(stdout="ok", stderr="", returncode=0)
+            if python_path == str(checkout_python):
+                pytest.fail("worktree venv should be preferred over PolicyEngine checkout")
+            return Mock(stdout="", stderr="error", returncode=1)
+
+        with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
+            mock_run.side_effect = mock_run_side_effect
+            with patch("autorac.harness.validator_pipeline.Path.home", return_value=tmp_path):
+                result = pipeline._find_pe_python()
+
+        assert result == str(worktree_python)
+
     def test_current_interpreter_exception(self, pipeline):
         """Handles exception when checking current interpreter."""
         with patch("autorac.harness.validator_pipeline.subprocess.run") as mock_run:
