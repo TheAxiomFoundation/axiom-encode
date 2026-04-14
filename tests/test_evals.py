@@ -6688,6 +6688,123 @@ cases:
             == "snap_self_employment_simplified_deduction_rate"
         )
 
+    def test_repo_us_snap_al_child_support_deduction_option_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root
+            / "benchmarks"
+            / "us_snap_al_child_support_deduction_option_refresh.yaml"
+        )
+
+        assert manifest.name == "Alabama SNAP child support deduction option refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_state_uses_child_support_deduction_al"
+        assert (
+            case.source_id
+            == "Alabama SNAP child support deduction under DHR Food Assistance Program Points of Eligibility Manual Appendix I section E"
+        )
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us-al"
+            / "sources"
+            / "slices"
+            / "aldhr"
+            / "poe"
+            / "current-effective"
+            / "snap_state_uses_child_support_deduction_al.txt"
+        ).resolve()
+        assert case.allow_context == []
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert case.policyengine_rac_var_hint == "snap_state_uses_child_support_deduction"
+
+    def test_repo_us_snap_al_self_employment_expense_option_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root
+            / "benchmarks"
+            / "us_snap_al_self_employment_expense_option_refresh.yaml"
+        )
+
+        assert manifest.name == "Alabama SNAP self-employment expense option refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_self_employment_expense_based_deduction_applies_al"
+        assert (
+            case.source_id
+            == "Alabama SNAP self-employment expense option under DHR Food Assistance Program Points of Eligibility Manual Chapter 11 section D"
+        )
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us-al"
+            / "sources"
+            / "slices"
+            / "aldhr"
+            / "poe"
+            / "current-effective"
+            / "snap_self_employment_expense_based_deduction_applies_al.txt"
+        ).resolve()
+        assert case.allow_context == []
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert (
+            case.policyengine_rac_var_hint
+            == "snap_self_employment_expense_based_deduction_applies"
+        )
+
+    def test_repo_us_snap_al_self_employment_simplified_deduction_rate_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root
+            / "benchmarks"
+            / "us_snap_al_self_employment_simplified_deduction_rate_refresh.yaml"
+        )
+
+        assert (
+            manifest.name
+            == "Alabama SNAP self-employment simplified deduction rate refresh"
+        )
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_self_employment_simplified_deduction_rate_al"
+        assert (
+            case.source_id
+            == "Alabama SNAP self-employment simplified deduction rate under DHR Food Assistance Program Points of Eligibility Manual Chapter 11 section 1100"
+        )
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us-al"
+            / "sources"
+            / "slices"
+            / "aldhr"
+            / "poe"
+            / "current-effective"
+            / "snap_self_employment_simplified_deduction_rate_al.txt"
+        ).resolve()
+        assert case.allow_context == []
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert (
+            case.policyengine_rac_var_hint
+            == "snap_self_employment_simplified_deduction_rate"
+        )
+
 
 class TestReadinessSummary:
     def test_summarize_readiness_applies_suite_gates(self):
