@@ -907,6 +907,7 @@ _MONTH_NAME_DATE_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}},\s+\d{{4}}\b",
     re.IGNORECASE,
 )
+_SLASH_DATE_PATTERN = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}\b")
 _MONTH_NAME_DAY_PATTERN = re.compile(
     rf"\b{_MONTH_NAME_BODY}\s+\d{{1,2}}\b",
     re.IGNORECASE,
@@ -1458,6 +1459,7 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
     cleaned = GROUNDING_MONTH_PERIOD_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DATE_PATTERN.sub(" ", cleaned)
+    cleaned = _SLASH_DATE_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DAY_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_DAY_OF_MONTH_PATTERN.sub(" ", cleaned)
     cleaned = _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN.sub(

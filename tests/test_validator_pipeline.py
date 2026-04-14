@@ -488,6 +488,37 @@ For Texas, the allowance is statewide at 62.
         assert 62.0 in numbers
         assert len(numbers) == 1
 
+    def test_ignores_slash_dates_for_grounding(self):
+        numbers = extract_numbers_from_text(
+            """
+Colorado Code of Regulations, 10 CCR 2506-1, effective 10/01/2023,
+section 4.407.5 Child Support Expense Exclusion:
+
+A household shall receive an exclusion from income for legally binding child
+support payments made to or for non-household members.
+"""
+        )
+
+        assert 10.0 not in numbers
+        assert 1.0 not in numbers
+        assert 2023.0 not in numbers
+
+    def test_ignores_slash_dates_for_numeric_occurrences(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+Colorado Code of Regulations, 10 CCR 2506-1, effective 10/01/2023,
+section 4.407.5 Child Support Expense Exclusion:
+
+A household shall receive an exclusion from income for legally binding child
+support payments made to or for non-household members.
+"""
+        )
+
+        values = [occ.value for occ in occurrences]
+        assert 10.0 not in values
+        assert 1.0 not in values
+        assert 2023.0 not in values
+
     def test_ignores_texas_handbook_section_and_revision_codes_for_grounding(self):
         numbers = extract_numbers_from_text(
             """
