@@ -707,6 +707,27 @@ As of 2026-04-10:
   - [snap_state_uses_child_support_deduction_ca.meta.yaml](../../rac-us-ca/sources/slices/cdss/calfresh/current-effective/snap_state_uses_child_support_deduction_ca.meta.yaml)
   - [autorac-snap-state-uses-child-support-deduction-ca-20260413t212724](../artifacts/eval-suites/autorac-snap-state-uses-child-support-deduction-ca-20260413t212724)
 
+### 2026-04-14: Colorado delegated SNAP child-support option closes after a real oracle fix plus slash-date cleanup
+
+- Hypothesis:
+  - Colorado should transfer on the same delegated SNAP child-support state-option lane as California and New York. If it fails, the most likely causes are either a real PolicyEngine state-option data bug or one more structural-source numeric false positive in the validator.
+- Effect:
+  - Added a Colorado SNAP current-effective source slice plus `relation: sets` sidecar for `snap_state_uses_child_support_deduction`, anchored to `usc/7/2014/e/4#snap_state_uses_child_support_deduction`.
+  - Added a checked-in AutoRAC benchmark for the Colorado child-support option and matching manifest-load coverage.
+  - The first event-driven Codex run generated the correct delegated boolean shape and passed compile, but failed review and PolicyEngine because local PolicyEngine incorrectly flipped Colorado to `true` in the SNAP child-support state-option parameter file despite the cited current Colorado regulation still using an exclusion.
+  - Patched local PolicyEngine to keep Colorado `false` under the cited 2023 rule and added a direct Colorado SNAP gross-income-deduction regression.
+  - Generalized AutoRAC numeric cleanup to ignore slash-form effective dates like `10/01/2023`, which had still been leaking a structural `10` into CI.
+  - Requeued the same Colorado manifest on the event-driven runner; the rerun closed fully ready on success, compile, CI, zero ungrounded numerics, generalist review, and PolicyEngine.
+- Primary evidence paths:
+  - [us_snap_co_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_co_child_support_deduction_option_refresh.yaml)
+  - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+  - [test_evals.py](../tests/test_evals.py)
+  - [test_validator_pipeline.py](../tests/test_validator_pipeline.py)
+  - [snap_state_uses_child_support_deduction_co.txt](../../rac-us-co/sources/slices/cdhs/snap/current-effective/snap_state_uses_child_support_deduction_co.txt)
+  - [snap_state_uses_child_support_deduction_co.meta.yaml](../../rac-us-co/sources/slices/cdhs/snap/current-effective/snap_state_uses_child_support_deduction_co.meta.yaml)
+  - [autorac-snap-state-uses-child-support-deduction-co-20260413t213415](../artifacts/eval-suites/autorac-snap-state-uses-child-support-deduction-co-20260413t213415)
+  - [autorac-snap-state-uses-child-support-deduction-co-20260413t214130](../artifacts/eval-suites/autorac-snap-state-uses-child-support-deduction-co-20260413t214130)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.
