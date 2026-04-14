@@ -1,0 +1,20 @@
+name: South Carolina SNAP self-employment expense option refresh
+runners:
+  - openai:gpt-5.4
+mode: repo-augmented
+gates:
+  min_cases: 1
+  min_success_rate: 1.0
+  min_compile_pass_rate: 1.0
+  min_ci_pass_rate: 1.0
+  min_zero_ungrounded_rate: 1.0
+  min_generalist_review_pass_rate: 1.0
+  min_policyengine_pass_rate: 1.0
+cases:
+  - kind: source
+    name: snap_self_employment_expense_based_deduction_applies_sc
+    source_id: South Carolina SNAP self-employment expense option under SNAP Manual Vol 65 section 11.4(3)
+    source_file: ../../rac-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_expense_based_deduction_applies_sc.txt
+    oracle: policyengine
+    policyengine_country: auto
+    policyengine_rac_var_hint: snap_self_employment_expense_based_deduction_applies
