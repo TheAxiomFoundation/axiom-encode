@@ -3996,7 +3996,9 @@ def _extract_effective_date_for_tests(
     if rac_content and (
         from_match := re.search(r"\bfrom\s+(\d{4}-\d{2}-\d{2}):", rac_content)
     ):
-        return date.fromisoformat(from_match.group(1))
+        parsed = date.fromisoformat(from_match.group(1))
+        if parsed != date(1, 1, 1):
+            return parsed
     if source_text and (
         source_match := re.search(
             r"\b(?:text|current text)\s+valid\s+from\s+(\d{4}-\d{2}-\d{2})\b",
@@ -4004,7 +4006,9 @@ def _extract_effective_date_for_tests(
             flags=re.IGNORECASE,
         )
     ):
-        return date.fromisoformat(source_match.group(1))
+        parsed = date.fromisoformat(source_match.group(1))
+        if parsed != date(1, 1, 1):
+            return parsed
     return None
 
 
@@ -4132,6 +4136,22 @@ def _normalize_nonannual_test_period_value(
             if parsed < effective_date:
                 return effective_date.isoformat()
             return period
+    return period
+
+
+def _normalize_placeholder_monthly_test_period_value(period: object) -> object:
+    """Replace placeholder month periods with a contemporary comparable month."""
+    contemporary_month = "2024-01"
+    if period is None:
+        return contemporary_month
+    if isinstance(period, int) and period <= 1:
+        return contemporary_month
+    if isinstance(period, str):
+        stripped = period.strip()
+        if stripped in {"", "1", "0001"}:
+            return contemporary_month
+        if re.fullmatch(r"0001-\d{2}", stripped):
+            return contemporary_month
     return period
 
 
@@ -4317,6 +4337,10 @@ def _normalize_test_periods_to_effective_dates(
                 normalized_case.get("period"),
                 effective_date,
                 granularity=granularity,
+            )
+        elif granularity == "Month":
+            normalized_case["period"] = _normalize_placeholder_monthly_test_period_value(
+                normalized_case.get("period")
             )
 
         for key in ("input", "inputs", "output"):

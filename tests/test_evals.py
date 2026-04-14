@@ -1727,6 +1727,50 @@ class TestGeneratedBundleCleaning:
         test_text = output_file.with_suffix(".rac.test").read_text()
         assert "period: '2025-03-21'" in test_text or "period: 2025-03-21" in test_text
 
+    def test_materialize_eval_artifact_normalizes_placeholder_monthly_periods_without_effective_date(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "source" / "alabama-snap-expense-option.rac"
+        llm_response = (
+            "=== FILE: alabama-snap-expense-option.rac ===\n"
+            "snap_self_employment_expense_based_deduction_applies:\n"
+            "    entity: SnapUnit\n"
+            "    period: Month\n"
+            "    dtype: Boolean\n"
+            "    from 0001-01-01:\n"
+            "        false\n"
+            "=== FILE: alabama-snap-expense-option.rac.test ===\n"
+            "- name: expense_based_option_not_used\n"
+            "  period: 0001-01\n"
+            "  input: {}\n"
+            "  output:\n"
+            "    snap_self_employment_expense_based_deduction_applies: false\n"
+            "- name: expense_based_option_still_not_used\n"
+            "  period: 0001-02\n"
+            "  input: {}\n"
+            "  output:\n"
+            "    snap_self_employment_expense_based_deduction_applies: false\n"
+        )
+
+        wrote = _materialize_eval_artifact(
+            llm_response,
+            output_file,
+            source_text=(
+                "Current-effective Alabama SNAP rule excerpt:\n\n"
+                "\"The standard will be used for all food assistance households "
+                "reporting self-employment income. This procedure is automated.\""
+            ),
+        )
+
+        assert wrote is True
+        test_text = output_file.with_suffix(".rac.test").read_text()
+        assert "period: 0001-01" not in test_text
+        assert "period: 0001-02" not in test_text
+        assert (
+            test_text.count("period: '2024-01'") + test_text.count("period: 2024-01")
+            == 2
+        )
+
     def test_materialize_eval_artifact_normalizes_mapping_style_tests_to_list(
         self, tmp_path
     ):
