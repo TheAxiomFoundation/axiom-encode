@@ -488,6 +488,50 @@ For Texas, the allowance is statewide at 62.
         assert 62.0 in numbers
         assert len(numbers) == 1
 
+    def test_ignores_texas_handbook_section_and_revision_codes_for_grounding(self):
+        numbers = extract_numbers_from_text(
+            """
+Texas SNAP child support deduction election under the Texas Works Handbook,
+sections A-1421.1 and A-1421.2 for period 2026-01.
+
+Texas Health and Human Services Commission, Texas Works Handbook, A-1421.1
+Allowable Child Support Deductions, Revision 15-4; Effective October 1, 2015:
+
+Texas Health and Human Services Commission, Texas Works Handbook, A-1421.2
+Budgeting Child Support Deductions, Revision 24-2; Effective April 1, 2024:
+
+A child support deduction for households that pay legally obligated child
+support is allowed.
+"""
+        )
+
+        assert 1421.1 not in numbers
+        assert 1421.2 not in numbers
+        assert 15.0 not in numbers
+        assert 24.0 not in numbers
+        assert 2015.0 not in numbers
+        assert 2024.0 not in numbers
+
+    def test_ignores_handbook_section_revision_and_form_numbers_for_grounding(self):
+        numbers = extract_numbers_from_text(
+            """
+Texas SNAP self-employment expense option under the Texas Works Handbook,
+sections A-1323.4.5 and A-1323.4.7 for period 2026-01.
+
+Texas Health and Human Services Commission, Texas Works Handbook, A-1323.4.5
+Allowable Costs of Producing Income, Revision 25-2; Effective April 1, 2025:
+
+Allowable self-employment expenses are based on costs that can be deducted from
+federal income taxes on the Internal Revenue Service's Schedule C, Form 1040.
+"""
+        )
+
+        assert 1323.45 not in numbers
+        assert 1323.47 not in numbers
+        assert 25.0 not in numbers
+        assert 1040.0 not in numbers
+        assert 2025.0 not in numbers
+
 
 class TestExtractNumericOccurrencesFromText:
     def test_ignores_structural_references_and_counts_repeated_scalars(self):
@@ -661,6 +705,50 @@ For Texas, the allowance is statewide at 62.
         assert 2025.0 not in occurrences
         assert 2026.0 not in occurrences
         assert occurrences.count(62.0) == 1
+
+    def test_ignores_texas_handbook_section_and_revision_codes(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+Texas SNAP child support deduction election under the Texas Works Handbook,
+sections A-1421.1 and A-1421.2 for period 2026-01.
+
+Texas Health and Human Services Commission, Texas Works Handbook, A-1421.1
+Allowable Child Support Deductions, Revision 15-4; Effective October 1, 2015:
+
+Texas Health and Human Services Commission, Texas Works Handbook, A-1421.2
+Budgeting Child Support Deductions, Revision 24-2; Effective April 1, 2024:
+
+A child support deduction for households that pay legally obligated child
+support is allowed.
+"""
+        )
+
+        assert 1421.1 not in occurrences
+        assert 1421.2 not in occurrences
+        assert 15.0 not in occurrences
+        assert 24.0 not in occurrences
+        assert 2015.0 not in occurrences
+        assert 2024.0 not in occurrences
+
+    def test_ignores_handbook_section_revision_and_form_numbers(self):
+        occurrences = extract_numeric_occurrences_from_text(
+            """
+Texas SNAP self-employment expense option under the Texas Works Handbook,
+sections A-1323.4.5 and A-1323.4.7 for period 2026-01.
+
+Texas Health and Human Services Commission, Texas Works Handbook, A-1323.4.5
+Allowable Costs of Producing Income, Revision 25-2; Effective April 1, 2025:
+
+Allowable self-employment expenses are based on costs that can be deducted from
+federal income taxes on the Internal Revenue Service's Schedule C, Form 1040.
+"""
+        )
+
+        assert 1323.45 not in occurrences
+        assert 1323.47 not in occurrences
+        assert 25.0 not in occurrences
+        assert 1040.0 not in occurrences
+        assert 2025.0 not in occurrences
 
     def test_ignores_structural_manual_section_numbers(self):
         occurrences = extract_numeric_occurrences_from_text(

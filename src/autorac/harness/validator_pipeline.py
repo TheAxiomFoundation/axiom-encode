@@ -831,6 +831,17 @@ _STRUCTURAL_SOURCE_REVISION_PATTERN = re.compile(
     r"\b(?:Rev\.?|Revision)\s+\d{1,2}/\d{4}\b",
     re.IGNORECASE,
 )
+_STRUCTURAL_SOURCE_REVISION_CODE_PATTERN = re.compile(
+    r"\b(?:Rev\.?|Revision)\s+\d{1,2}-\d+\b",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN = re.compile(
+    r"\b[A-Z]-\d+(?:\.\d+)+(?:\([A-Za-z0-9]+\))*\b"
+)
+_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN = re.compile(
+    r"\bForm\s+[A-Z]?\d+[A-Za-z0-9-]*\b",
+    re.IGNORECASE,
+)
 _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN = re.compile(
     r"\b\d+\s+"
     r"(?:U\.?\s*S\.?\s*C\.?|USC|C\.?\s*F\.?\s*R\.?|CFR|C\.?\s*C\.?\s*R\.?|CCR)\s+"
@@ -1439,6 +1450,9 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     cleaned = _STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_BULLETIN_NUMBER_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_REVISION_PATTERN.sub(" ", cleaned)
+    cleaned = _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN.sub(" ", cleaned)
+    cleaned = _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN.sub(" ", cleaned)
+    cleaned = _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_SECTION_PATTERN.sub(" ", cleaned)
     cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
