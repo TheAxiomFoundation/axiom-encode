@@ -5048,6 +5048,11 @@ class TestGetPeVariableMap:
             == "snap_homeless_shelter_deduction_available"
         )
         assert (
+            mapping["snap_tanf_non_cash_gross_income_limit_fpg_ratio"]
+            == "snap_tanf_non_cash_gross_income_limit_fpg_ratio"
+        )
+        assert mapping["snap_tanf_non_cash_asset_limit"] == "snap_tanf_non_cash_asset_limit"
+        assert (
             mapping["snap_child_support_deduction"]
             == "snap_child_support_gross_income_deduction"
         )
@@ -5514,6 +5519,30 @@ class TestGetPeVariableMap:
             in script
         )
 
+    def test_build_pe_us_script_maps_snap_tanf_non_cash_gross_income_limit_fpg_ratio(
+        self, pipeline
+    ):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_tanf_non_cash_gross_income_limit_fpg_ratio",
+            {"period": "2026-01", "state_code_str": "TX"},
+            "2026",
+        )
+
+        assert "CountryTaxBenefitSystem" in script
+        assert "system.parameters('2026-01')" in script
+        assert "float(params.gov.hhs.tanf.non_cash.income_limit.gross['TX'])" in script
+
+    def test_build_pe_us_script_maps_snap_tanf_non_cash_asset_limit(self, pipeline):
+        script = pipeline._build_pe_us_scenario_script(
+            "snap_tanf_non_cash_asset_limit",
+            {"period": "2026-01", "state_code_str": "TX"},
+            "2026",
+        )
+
+        assert "CountryTaxBenefitSystem" in script
+        assert "system.parameters('2026-01')" in script
+        assert "float(params.gov.hhs.tanf.non_cash.asset_limit['TX'])" in script
+
     def test_run_policyengine_uses_source_metadata_jurisdiction_for_state_option(
         self, pipeline, temp_dirs
     ):
@@ -5773,6 +5802,110 @@ snap_homeless_shelter_deduction_available:
         assert result.passed is True
         script = mock_run.call_args.args[0]
         assert "homeless.available['TX']" in script
+
+    def test_run_policyengine_uses_source_metadata_jurisdiction_for_tanf_non_cash_gross_income_limit_fpg_ratio(
+        self, pipeline, temp_dirs
+    ):
+        rac_us, _ = temp_dirs
+        case_root = rac_us / "tmp_eval_case"
+        rac_file = case_root / "openai-gpt-5.4" / "source" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            """
+snap_tanf_non_cash_gross_income_limit_fpg_ratio:
+    entity: Household
+    period: Month
+    dtype: Number
+    tests:
+        - name: tx_bbce_gross_limit
+          period: 2026-01
+          expect: 1.65
+"""
+        )
+
+        manifest_dir = case_root / "_eval_workspaces" / "openai-gpt-5.4" / "leaf" / "workspace"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "context-manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_metadata": {
+                        "relations": [
+                            {
+                                "relation": "sets",
+                                "target": "usc/7/2014/a#snap_tanf_non_cash_gross_income_limit_fpg_ratio",
+                                "jurisdiction": "TX",
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+
+        with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
+            with patch.object(
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:1.65\n"
+                ),
+            ) as mock_run:
+                result = pipeline._run_policyengine(rac_file)
+
+        assert result.passed is True
+        script = mock_run.call_args.args[0]
+        assert "income_limit.gross['TX']" in script
+
+    def test_run_policyengine_uses_source_metadata_jurisdiction_for_tanf_non_cash_asset_limit(
+        self, pipeline, temp_dirs
+    ):
+        rac_us, _ = temp_dirs
+        case_root = rac_us / "tmp_eval_case"
+        rac_file = case_root / "openai-gpt-5.4" / "source" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            """
+snap_tanf_non_cash_asset_limit:
+    entity: Household
+    period: Month
+    dtype: Money
+    tests:
+        - name: tx_bbce_asset_limit
+          period: 2026-01
+          expect: 5000
+"""
+        )
+
+        manifest_dir = case_root / "_eval_workspaces" / "openai-gpt-5.4" / "leaf" / "workspace"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "context-manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_metadata": {
+                        "relations": [
+                            {
+                                "relation": "sets",
+                                "target": "usc/7/2014/a#snap_tanf_non_cash_asset_limit",
+                                "jurisdiction": "TX",
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+
+        with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
+            with patch.object(
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:5000.0\n"
+                ),
+            ) as mock_run:
+                result = pipeline._run_policyengine(rac_file)
+
+        assert result.passed is True
+        script = mock_run.call_args.args[0]
+        assert "asset_limit['TX']" in script
 
     def test_build_pe_us_script_maps_snap_excess_medical_inputs(self, pipeline):
         script = pipeline._build_pe_us_scenario_script(

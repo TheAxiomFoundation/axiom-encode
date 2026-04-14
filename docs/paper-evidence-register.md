@@ -214,7 +214,7 @@ PY
 - Arkansas claim guard:
   - We can now say the delegated SNAP state-option pattern transfers to Arkansas on two official DHS SNAP Certification Manual slices: child-support deduction election and actual self-employment expense treatment. Both closed fully ready on the first event-driven Codex queue pass, with no new harness or oracle repair required.
 - Texas claim guard:
-  - We can now say the Texas current-effective SNAP overlay surface that is green against PolicyEngine extends beyond utilities and option booleans to include the standard medical deduction amount and homeless shelter deduction availability from HHSC MEPD/TW Bulletin 25-15. The accepted fixes were source-slice narrowing to remove duplicate documentary numerics and queue-driven reruns off manifest/source hash changes, not manual RAC edits.
+  - We can now say the Texas current-effective SNAP overlay surface that is green against PolicyEngine extends beyond utilities and option booleans to include the standard medical deduction amount, homeless shelter deduction availability, and the two TANF-NC parameter lanes that PolicyEngine uses for SNAP BBCE: the 165 percent gross-income limit ratio and the $5,000 asset limit from the Texas Works Handbook. The accepted fixes were source-slice narrowing to remove duplicate documentary numerics and queue-driven reruns off manifest/source hash changes, not manual RAC edits.
 - A shareable or publishable benchmark artifact registry, not just a local archive.
 - A table of before/after metrics for each accepted harness change.
 - Record-level public comparison data for UK that can be shown without licensing constraints.

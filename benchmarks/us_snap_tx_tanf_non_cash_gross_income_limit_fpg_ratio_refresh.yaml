@@ -1,0 +1,20 @@
+name: Texas SNAP TANF-NC gross income limit ratio refresh
+runners:
+  - openai:gpt-5.4
+mode: repo-augmented
+gates:
+  min_cases: 1
+  min_success_rate: 1.0
+  min_compile_pass_rate: 1.0
+  min_ci_pass_rate: 1.0
+  min_zero_ungrounded_rate: 1.0
+  min_generalist_review_pass_rate: 1.0
+  min_policyengine_pass_rate: 1.0
+cases:
+  - kind: source
+    name: snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx
+    source_id: Texas SNAP TANF-NC gross income limit ratio under the Texas Works Handbook, B-471 Eligibility Criteria
+    source_file: ../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.txt
+    oracle: policyengine
+    policyengine_country: auto
+    policyengine_rac_var_hint: snap_tanf_non_cash_gross_income_limit_fpg_ratio

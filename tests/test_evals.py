@@ -6651,6 +6651,81 @@ cases:
             == "snap_homeless_shelter_deduction_available"
         )
 
+    def test_repo_us_snap_tx_tanf_non_cash_gross_income_limit_fpg_ratio_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root
+            / "benchmarks"
+            / "us_snap_tx_tanf_non_cash_gross_income_limit_fpg_ratio_refresh.yaml"
+        )
+
+        assert manifest.name == "Texas SNAP TANF-NC gross income limit ratio refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx"
+        assert (
+            case.source_id
+            == "Texas SNAP TANF-NC gross income limit ratio under the Texas Works Handbook, B-471 Eligibility Criteria"
+        )
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us-tx"
+            / "sources"
+            / "slices"
+            / "txhhs"
+            / "twh"
+            / "current-effective"
+            / "snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.txt"
+        ).resolve()
+        assert case.allow_context == []
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert (
+            case.policyengine_rac_var_hint
+            == "snap_tanf_non_cash_gross_income_limit_fpg_ratio"
+        )
+
+    def test_repo_us_snap_tx_tanf_non_cash_asset_limit_refresh_manifest_loads_expected_case(
+        self,
+    ):
+        repo_root = Path(__file__).resolve().parents[1]
+        manifest = load_eval_suite_manifest(
+            repo_root
+            / "benchmarks"
+            / "us_snap_tx_tanf_non_cash_asset_limit_refresh.yaml"
+        )
+
+        assert manifest.name == "Texas SNAP TANF-NC asset limit refresh"
+        assert manifest.mode == "repo-augmented"
+        assert len(manifest.cases) == 1
+        assert manifest.gates.min_policyengine_pass_rate == 1.0
+        case = manifest.cases[0]
+        assert case.kind == "source"
+        assert case.name == "snap_tanf_non_cash_asset_limit_tx"
+        assert (
+            case.source_id
+            == "Texas SNAP TANF-NC asset limit under the Texas Works Handbook, A-1210 General Policy"
+        )
+        assert case.source_file == (
+            repo_root.parent
+            / "rac-us-tx"
+            / "sources"
+            / "slices"
+            / "txhhs"
+            / "twh"
+            / "current-effective"
+            / "snap_tanf_non_cash_asset_limit_tx.txt"
+        ).resolve()
+        assert case.allow_context == []
+        assert case.oracle == "policyengine"
+        assert case.policyengine_country == "auto"
+        assert case.policyengine_rac_var_hint == "snap_tanf_non_cash_asset_limit"
+
     def test_repo_us_snap_ga_self_employment_simplified_deduction_rate_refresh_manifest_loads_expected_case(
         self,
     ):

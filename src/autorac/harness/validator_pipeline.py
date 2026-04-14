@@ -393,6 +393,20 @@ _PE_US_VAR_ADAPTERS = (
         ),
     ),
     _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_tanf_non_cash_gross_income_limit_fpg_ratio",),
+        pe_var="snap_tanf_non_cash_gross_income_limit_fpg_ratio",
+        default_state_code="TX",
+        parameter_path="gov.hhs.tanf.non_cash.income_limit.gross",
+        parameter_value_mode="float",
+    ),
+    _PolicyEngineUSVarAdapter(
+        rac_vars=("snap_tanf_non_cash_asset_limit",),
+        pe_var="snap_tanf_non_cash_asset_limit",
+        default_state_code="TX",
+        parameter_path="gov.hhs.tanf.non_cash.asset_limit",
+        parameter_value_mode="float",
+    ),
+    _PolicyEngineUSVarAdapter(
         rac_vars=("meets_snap_asset_test",),
         pe_var="meets_snap_asset_test",
         monthly=True,

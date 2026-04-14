@@ -892,6 +892,28 @@ As of 2026-04-10:
   - [autorac-snap-standard-medical-expense-deduction-tx-20260414t151911](../artifacts/eval-suites/autorac-snap-standard-medical-expense-deduction-tx-20260414t151911)
   - [autorac-snap-homeless-shelter-deduction-available-tx-20260414t152243](../artifacts/eval-suites/autorac-snap-homeless-shelter-deduction-available-tx-20260414t152243)
 
+### 2026-04-14: Texas SNAP BBCE parameter lanes close on TANF-NC gross and asset limits
+
+- Hypothesis:
+  - Texas SNAP BBCE should be modeled through the same TANF non-cash parameters that PolicyEngine already uses for categorical eligibility: the TANF-NC gross-income limit ratio and TANF-NC asset limit. The likely risk was ontology drift between the state handbook wording and the PE surface, not a generation problem, because the Texas Works Handbook states the 165 percent FPIL gross test and the $5,000 liquid-plus-excess-vehicle resource test directly.
+- Effect:
+  - Added exact `rac-us-tx` source slices and delegated `sets` sidecars for `snap_tanf_non_cash_gross_income_limit_fpg_ratio` and `snap_tanf_non_cash_asset_limit`, both anchored to the federal SNAP categorical-eligibility slot under `7 USC 2014(a)`.
+  - Added checked-in AutoRAC benchmarks for both Texas lanes and extended the PolicyEngine adapter so these benchmark targets compare directly against `gov.hhs.tanf.non_cash.income_limit.gross` and `gov.hhs.tanf.non_cash.asset_limit`.
+  - Locked the manifest and adapter shape with targeted eval and validator tests before letting the event-driven Codex queue pick the new manifests up automatically.
+  - The local queue discovered both manifests without manual queue edits, ran the asset-limit lane first and the gross-limit lane second, and both closed fully ready on success, compile, CI, zero ungrounded numerics, generalist review, and PolicyEngine.
+- Primary evidence paths:
+  - [us_snap_tx_tanf_non_cash_gross_income_limit_fpg_ratio_refresh.yaml](../benchmarks/us_snap_tx_tanf_non_cash_gross_income_limit_fpg_ratio_refresh.yaml)
+  - [us_snap_tx_tanf_non_cash_asset_limit_refresh.yaml](../benchmarks/us_snap_tx_tanf_non_cash_asset_limit_refresh.yaml)
+  - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+  - [test_evals.py](../tests/test_evals.py)
+  - [test_validator_pipeline.py](../tests/test_validator_pipeline.py)
+  - [snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.txt](../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.txt)
+  - [snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml](../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml)
+  - [snap_tanf_non_cash_asset_limit_tx.txt](../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_tanf_non_cash_asset_limit_tx.txt)
+  - [snap_tanf_non_cash_asset_limit_tx.meta.yaml](../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_tanf_non_cash_asset_limit_tx.meta.yaml)
+  - [autorac-snap-tanf-non-cash-asset-limit-tx-20260414t154707](../artifacts/eval-suites/autorac-snap-tanf-non-cash-asset-limit-tx-20260414t154707)
+  - [autorac-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013](../artifacts/eval-suites/autorac-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.
