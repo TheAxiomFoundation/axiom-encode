@@ -766,6 +766,60 @@ As of 2026-04-10:
   - [snap_self_employment_simplified_deduction_rate_md.meta.yaml](../../rac-us-md/sources/slices/dhs/snap/current-effective/snap_self_employment_simplified_deduction_rate_md.meta.yaml)
   - [autorac-snap-self-employment-simplified-deduction-rate-md-20260414t064852](../artifacts/eval-suites/autorac-snap-self-employment-simplified-deduction-rate-md-20260414t064852)
 
+### 2026-04-14: Georgia delegated SNAP option lanes close after integer manual-number cleanup
+
+- Hypothesis:
+  - Georgia should transfer on the already-proven delegated SNAP state-option lanes for child-support deduction election, self-employment actual-expense treatment, and the self-employment simplified deduction rate. The likely failure mode was structural grounding noise from the Georgia DFCS manual section numbers `3035` and `3425`, not a new semantic gap.
+- Effect:
+  - Added `rac-us-ga` as a Georgia jurisdiction repo with exact DFCS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
+  - Added checked-in AutoRAC benchmarks for all three Georgia lanes and matching manifest-load coverage.
+  - The first child-support and expense runs generated promotion-ready RAC and passed compile, review, and PolicyEngine, but failed CI because numeric grounding treated the DFCS manual section labels `3035` and `3425` as missing scalar values.
+  - Generalized validator numeric cleanup to ignore integer SNAP manual section numbers, locked that with a focused regression, and requeued the Georgia blockers on the event-driven Codex runner.
+  - The reruns closed all three Georgia lanes fully ready on success, compile, CI, zero ungrounded numerics, generalist review, and PolicyEngine.
+- Primary evidence paths:
+  - [us_snap_ga_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_ga_child_support_deduction_option_refresh.yaml)
+  - [us_snap_ga_self_employment_expense_option_refresh.yaml](../benchmarks/us_snap_ga_self_employment_expense_option_refresh.yaml)
+  - [us_snap_ga_self_employment_simplified_deduction_rate_refresh.yaml](../benchmarks/us_snap_ga_self_employment_simplified_deduction_rate_refresh.yaml)
+  - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+  - [test_validator_pipeline.py](../tests/test_validator_pipeline.py)
+  - [test_evals.py](../tests/test_evals.py)
+  - [snap_state_uses_child_support_deduction_ga.txt](../../rac-us-ga/sources/slices/dfcs/snap/current-effective/snap_state_uses_child_support_deduction_ga.txt)
+  - [snap_state_uses_child_support_deduction_ga.meta.yaml](../../rac-us-ga/sources/slices/dfcs/snap/current-effective/snap_state_uses_child_support_deduction_ga.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_ga.txt](../../rac-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ga.txt)
+  - [snap_self_employment_expense_based_deduction_applies_ga.meta.yaml](../../rac-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ga.meta.yaml)
+  - [snap_self_employment_simplified_deduction_rate_ga.txt](../../rac-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_simplified_deduction_rate_ga.txt)
+  - [snap_self_employment_simplified_deduction_rate_ga.meta.yaml](../../rac-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_simplified_deduction_rate_ga.meta.yaml)
+  - [autorac-snap-state-uses-child-support-deduction-ga-20260414t072502](../artifacts/eval-suites/autorac-snap-state-uses-child-support-deduction-ga-20260414t072502)
+  - [autorac-snap-self-employment-expense-based-deduction-applies-ga-20260414t072737](../artifacts/eval-suites/autorac-snap-self-employment-expense-based-deduction-applies-ga-20260414t072737)
+  - [autorac-snap-self-employment-simplified-deduction-rate-ga-20260414t073125](../artifacts/eval-suites/autorac-snap-self-employment-simplified-deduction-rate-ga-20260414t073125)
+
+### 2026-04-14: South Carolina delegated SNAP option lanes close after manual-volume cleanup
+
+- Hypothesis:
+  - South Carolina should transfer on the same three delegated SNAP lane shapes as Georgia, using the August 2025 DSS SNAP Manual Vol 65: child-support deduction election, actual self-employment expenses disallowed, and a 40 percent simplified self-employment deduction rate. The likely new failure mode was structural grounding noise from `Vol 65`, not a new ontology gap.
+- Effect:
+  - Created `rac-us-sc` as a South Carolina jurisdiction repo with exact DSS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
+  - Added checked-in AutoRAC benchmarks for all three South Carolina lanes and matching manifest-load coverage.
+  - The first South Carolina child-support and expense runs generated correct policy shapes and passed compile, review, and PolicyEngine, but failed CI because numeric grounding treated `Vol 65` from the manual title as a missing scalar; the first expense run also encoded the related `40%` as a non-rate helper and therefore missed grounding on `0.4`.
+  - Generalized validator numeric cleanup to ignore manual volume numbers like `Vol 65`, locked that with a focused regression, and requeued the blocked South Carolina lanes on the event-driven Codex runner.
+  - On the patched runner, the simplified-rate lane closed ready immediately, the child-support rerun closed ready, and the expense rerun closed ready without any further harness or prompt changes, confirming that the remaining expense miss was generation variance once the volume-number false positive was removed.
+- Primary evidence paths:
+  - [us_snap_sc_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_sc_child_support_deduction_option_refresh.yaml)
+  - [us_snap_sc_self_employment_expense_option_refresh.yaml](../benchmarks/us_snap_sc_self_employment_expense_option_refresh.yaml)
+  - [us_snap_sc_self_employment_simplified_deduction_rate_refresh.yaml](../benchmarks/us_snap_sc_self_employment_simplified_deduction_rate_refresh.yaml)
+  - [validator_pipeline.py](../src/autorac/harness/validator_pipeline.py)
+  - [test_validator_pipeline.py](../tests/test_validator_pipeline.py)
+  - [test_evals.py](../tests/test_evals.py)
+  - [snap_state_uses_child_support_deduction_sc.txt](../../rac-us-sc/sources/slices/scdss/snap/current-effective/snap_state_uses_child_support_deduction_sc.txt)
+  - [snap_state_uses_child_support_deduction_sc.meta.yaml](../../rac-us-sc/sources/slices/scdss/snap/current-effective/snap_state_uses_child_support_deduction_sc.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_sc.txt](../../rac-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_expense_based_deduction_applies_sc.txt)
+  - [snap_self_employment_expense_based_deduction_applies_sc.meta.yaml](../../rac-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_expense_based_deduction_applies_sc.meta.yaml)
+  - [snap_self_employment_simplified_deduction_rate_sc.txt](../../rac-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_simplified_deduction_rate_sc.txt)
+  - [snap_self_employment_simplified_deduction_rate_sc.meta.yaml](../../rac-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_simplified_deduction_rate_sc.meta.yaml)
+  - [autorac-snap-state-uses-child-support-deduction-sc-20260414t075329](../artifacts/eval-suites/autorac-snap-state-uses-child-support-deduction-sc-20260414t075329)
+  - [autorac-snap-self-employment-expense-based-deduction-applies-sc-20260414t075715](../artifacts/eval-suites/autorac-snap-self-employment-expense-based-deduction-applies-sc-20260414t075715)
+  - [autorac-snap-self-employment-simplified-deduction-rate-sc-20260414t074915](../artifacts/eval-suites/autorac-snap-self-employment-simplified-deduction-rate-sc-20260414t074915)
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.

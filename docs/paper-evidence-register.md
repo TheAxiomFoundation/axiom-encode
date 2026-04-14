@@ -205,6 +205,10 @@ PY
   - We can now say the delegated SNAP state-option pattern transfers to Florida on two official Florida ESS manual slices, one for child-support deduction election and one for self-employment actual-expense treatment, both closing fully ready on the first event-driven Codex queue pass.
 - Maryland claim guard:
   - We can now say the Maryland self-employment slice only supports the simplified deduction-rate parameter, not the expense-based boolean option, and the corrected Maryland rate benchmark closes fully ready on the event-driven Codex queue once the ontology is aligned to that source.
+- Georgia claim guard:
+  - We can now say the delegated SNAP state-option pattern transfers to Georgia on three official DFCS manual slices: child-support deduction election, self-employment actual-expense treatment, and the self-employment simplified deduction rate. The only accepted system repair was reusable numeric cleanup for integer manual section numbers like `3035` and `3425`.
+- South Carolina claim guard:
+  - We can now say the delegated SNAP state-option pattern transfers to South Carolina on three official DSS SNAP Manual Vol 65 slices: child-support deduction election, self-employment actual-expense treatment, and the self-employment simplified deduction rate. The accepted system repair was reusable numeric cleanup for manual volume labels like `Vol 65`; no manual RAC editing was needed.
 - A shareable or publishable benchmark artifact registry, not just a local archive.
 - A table of before/after metrics for each accepted harness change.
 - Record-level public comparison data for UK that can be shown without licensing constraints.
