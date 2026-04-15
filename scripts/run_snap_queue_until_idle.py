@@ -354,7 +354,7 @@ def iter_manifest_queue_candidates() -> list[dict[str, str]]:
             if not name or source_file is None or not source_inputs:
                 continue
             source_repo = infer_repo(str(source_file))
-            if source_repo in {"none", "unknown", "rac-us"}:
+            if source_repo in {"none", "unknown"}:
                 continue
             candidates.append(
                 {

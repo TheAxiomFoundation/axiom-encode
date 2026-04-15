@@ -41,6 +41,40 @@ def test_sha256_paths_ignores_file_names(tmp_path):
     assert left_digest == right_digest
 
 
+def test_iter_manifest_queue_candidates_includes_federal_rac_us(
+    tmp_path, monkeypatch
+):
+    module = load_queue_runner_module()
+    autorac_root = tmp_path / "autorac"
+    benchmarks = autorac_root / "benchmarks"
+    benchmarks.mkdir(parents=True)
+    source_file = tmp_path / "rac-us" / "sources" / "slices" / "snap.txt"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text("Federal SNAP source text.\n")
+    manifest = benchmarks / "us_snap_federal_demo_refresh.yaml"
+    manifest.write_text(
+        "name: Federal demo\n"
+        "cases:\n"
+        "  - kind: source\n"
+        "    name: federal_snap_demo\n"
+        "    source_file: ../../rac-us/sources/slices/snap.txt\n"
+    )
+    monkeypatch.setattr(module, "AUTORAC_ROOT", autorac_root)
+    monkeypatch.setattr(module, "infer_repo", lambda source_file: "rac-us")
+
+    candidates = module.iter_manifest_queue_candidates()
+
+    assert candidates == [
+        {
+            "name": "federal_snap_demo",
+            "manifest": str(manifest),
+            "source_file": str(source_file.resolve()),
+            "source_inputs": [str(source_file.resolve())],
+            "source_repo": "rac-us",
+        }
+    ]
+
+
 def test_sync_queue_with_manifests_skips_requeue_on_tracking_version_migration(
     monkeypatch,
 ):
