@@ -2924,7 +2924,7 @@ class TestCmdValidateEdgeCases:
         akn_file = (
             policy_repo
             / "sources"
-            / "official"
+            / "akn"
             / "txhhs"
             / "twh"
             / "current-effective"
@@ -2949,7 +2949,7 @@ class TestCmdValidateEdgeCases:
             "version: 1\n"
             "source_backing:\n"
             "  kind: akn_section\n"
-            "  akn_file: ../../../../official/txhhs/twh/current-effective/source.akn.xml\n"
+            "  akn_file: ../../../../akn/txhhs/twh/current-effective/source.akn.xml\n"
             "  section_eid: sec_sua\n"
             "relations:\n"
             "  - relation: sets\n"

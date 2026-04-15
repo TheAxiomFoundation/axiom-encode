@@ -1,4 +1,4 @@
-"""Model comparison evals for statute and source-slice encoding."""
+"""Model comparison evals for statute and source-backed policy encoding."""
 
 from __future__ import annotations
 
@@ -255,8 +255,10 @@ class EvalSuiteCase:
     citation: str | None = None
     source_id: str | None = None
     source_file: Path | None = None
+    metadata_file: Path | None = None
     akn_file: Path | None = None
     section_eid: str | None = None
+    section_eids: list[str] = field(default_factory=list)
     table_row_query: str | None = None
     policyengine_rac_var_hint: str | None = None
     source_ref: str | None = None
@@ -377,6 +379,8 @@ def run_source_eval(
     output_root: Path,
     policy_path: Path,
     source_path: Path | None = None,
+    source_metadata_path: Path | None = None,
+    source_metadata_payload: dict[str, object] | None = None,
     runtime_rac_path: Path | None = None,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
@@ -384,7 +388,7 @@ def run_source_eval(
     policyengine_country: str = "auto",
     policyengine_rac_var_hint: str | None = None,
 ) -> list[EvalResult]:
-    """Run a deterministic comparison over one arbitrary source slice."""
+    """Run a deterministic comparison over one arbitrary source-backed text unit."""
     results: list[EvalResult] = []
 
     for runner in [parse_runner_spec(spec) for spec in runner_specs]:
@@ -396,6 +400,8 @@ def run_source_eval(
                 output_root=output_root,
                 policy_path=policy_path,
                 source_path=source_path,
+                source_metadata_path=source_metadata_path,
+                source_metadata_payload=source_metadata_payload,
                 runtime_rac_path=runtime_rac_path or policy_path,
                 mode=mode,
                 extra_context_paths=extra_context_paths or [],
@@ -897,7 +903,7 @@ def extract_akn_section_text(
 def run_akn_section_eval(
     source_id: str,
     akn_file: Path,
-    section_eid: str,
+    section_eid: str | None,
     runner_specs: list[str],
     output_root: Path,
     rac_path: Path,
@@ -909,20 +915,43 @@ def run_akn_section_eval(
     oracle: EvalOracleMode = "none",
     policyengine_country: str = "auto",
     policyengine_rac_var_hint: str | None = None,
+    section_eids: list[str] | None = None,
+    source_metadata_path: Path | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison on one section extracted from AKN XML."""
-    resolved_section_eid = _resolve_akn_section_eid(
-        akn_file,
-        section_eid,
-        allow_parent=allow_parent,
-    )
-    return run_source_eval(
-        source_id=source_id,
-        source_text=extract_akn_section_text(
+    raw_section_eids = [item for item in (section_eids or []) if item]
+    if section_eid:
+        raw_section_eids = [section_eid, *raw_section_eids]
+    if not raw_section_eids:
+        raise ValueError("run_akn_section_eval requires at least one section eId")
+
+    resolved_section_eids = [
+        _resolve_akn_section_eid(
+            akn_file,
+            raw_section_eid,
+            allow_parent=allow_parent,
+        )
+        for raw_section_eid in raw_section_eids
+    ]
+    extracted_source_text = "\n\n".join(
+        extract_akn_section_text(
             akn_file,
             resolved_section_eid,
             table_row_query=table_row_query,
-        ),
+        ).strip()
+        for resolved_section_eid in resolved_section_eids
+    ).strip()
+    metadata_payload = None
+    if source_metadata_path is not None:
+        payload = yaml.safe_load(source_metadata_path.read_text())
+        if payload is not None and not isinstance(payload, dict):
+            raise ValueError(
+                f"AKN section metadata sidecar must decode to a mapping: {source_metadata_path}"
+            )
+        metadata_payload = payload
+    return run_source_eval(
+        source_id=source_id,
+        source_text=extracted_source_text,
         runner_specs=runner_specs,
         output_root=output_root,
         policy_path=rac_path,
@@ -932,6 +961,8 @@ def run_akn_section_eval(
         oracle=oracle,
         policyengine_country=policyengine_country,
         policyengine_rac_var_hint=policyengine_rac_var_hint,
+        source_metadata_path=source_metadata_path,
+        source_metadata_payload=metadata_payload,
     )
 
 
@@ -1057,12 +1088,20 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
                 if item.get("source_file")
                 else None
             ),
+            metadata_file=(
+                _resolve_manifest_path(base_dir, item["metadata_file"])
+                if item.get("metadata_file")
+                else None
+            ),
             akn_file=(
                 _resolve_manifest_path(base_dir, item["akn_file"])
                 if item.get("akn_file")
                 else None
             ),
             section_eid=item.get("section_eid"),
+            section_eids=[
+                str(entry).strip() for entry in (item.get("section_eids") or [])
+            ],
             table_row_query=(
                 str(item.get("table_row_query")).strip()
                 if item.get("table_row_query") is not None
@@ -1205,13 +1244,19 @@ def run_eval_suite(
                             policyengine_rac_var_hint=case.policyengine_rac_var_hint,
                         )
                     elif case.kind == "akn_section":
+                        policy_repo_root = (
+                            find_policy_repo_root(case.akn_file)
+                            if case.akn_file is not None
+                            else None
+                        ) or rac_path
                         case_results = run_akn_section_eval(
                             source_id=case.source_id or case.name,
                             akn_file=case.akn_file or Path(),
-                            section_eid=case.section_eid or "",
+                            section_eid=case.section_eid,
                             runner_specs=resolved_runners,
                             output_root=case_output_root,
-                            rac_path=rac_path,
+                            rac_path=policy_repo_root,
+                            runtime_rac_path=rac_path,
                             mode=case.mode,
                             extra_context_paths=extra_context,
                             allow_parent=case.allow_parent,
@@ -1219,6 +1264,8 @@ def run_eval_suite(
                             oracle=case.oracle,
                             policyengine_country=case.policyengine_country,
                             policyengine_rac_var_hint=case.policyengine_rac_var_hint,
+                            section_eids=case.section_eids,
+                            source_metadata_path=case.metadata_file,
                         )
                     else:
                         case_results = run_legislation_gov_uk_section_eval(
@@ -1822,8 +1869,10 @@ def _validate_eval_suite_case(case: EvalSuiteCase, index: int) -> None:
             raise ValueError(f"Eval suite case #{index} is missing 'source_id'")
         if case.akn_file is None:
             raise ValueError(f"Eval suite case #{index} is missing 'akn_file'")
-        if not case.section_eid:
-            raise ValueError(f"Eval suite case #{index} is missing 'section_eid'")
+        if not case.section_eid and not case.section_eids:
+            raise ValueError(
+                f"Eval suite case #{index} is missing 'section_eid' or 'section_eids'"
+            )
     if case.kind == "uk_legislation" and not case.source_ref:
         raise ValueError(f"Eval suite case #{index} is missing 'source_ref'")
 
@@ -1919,6 +1968,8 @@ def prepare_eval_workspace(
     rac_path: Path,
     mode: EvalMode,
     source_path: Path | None = None,
+    source_metadata_path: Path | None = None,
+    source_metadata_payload: dict[str, object] | None = None,
     extra_context_paths: list[Path] | None = None,
 ) -> EvalWorkspace:
     """Create an isolated workspace bundle for a single eval."""
@@ -1932,7 +1983,19 @@ def prepare_eval_workspace(
 
     source_file = workspace_root / "source.txt"
     source_file.write_text(source_text.strip() + "\n")
-    source_metadata_path, source_metadata = _load_source_metadata_for_slice(source_path)
+    source_metadata: dict[str, object] | None = None
+    if source_metadata_payload is not None:
+        source_metadata = dict(source_metadata_payload)
+    elif source_metadata_path is not None:
+        payload = yaml.safe_load(source_metadata_path.read_text())
+        if payload is not None and not isinstance(payload, dict):
+            raise ValueError(
+                "Explicit source metadata sidecar must decode to a mapping: "
+                f"{source_metadata_path}"
+            )
+        source_metadata = payload
+    else:
+        source_metadata_path, source_metadata = _load_source_metadata_for_path(source_path)
     source_metadata_file: Path | None = None
     if source_metadata is not None:
         source_metadata_file = workspace_root / "source-metadata.json"
@@ -2024,10 +2087,10 @@ def prepare_eval_workspace(
     )
 
 
-def _load_source_metadata_for_slice(
+def _load_source_metadata_for_path(
     source_path: Path | None,
 ) -> tuple[Path | None, dict[str, object] | None]:
-    """Return companion source metadata for a source slice when present."""
+    """Return companion source metadata for a source file when present."""
     if source_path is None:
         return None, None
 
@@ -2051,11 +2114,11 @@ def _load_source_metadata_for_slice(
     return metadata_path, payload
 
 
-def _resolve_slice_akn_backing(
+def _resolve_source_akn_backing(
     source_path: Path,
     source_metadata: dict[str, object] | None,
 ) -> tuple[Path | None, list[str], str | None]:
-    """Resolve optional AKN backing metadata for a source slice."""
+    """Resolve optional AKN backing metadata for a source file."""
     if source_metadata is None:
         return None, [], None
 
@@ -2070,13 +2133,13 @@ def _resolve_slice_akn_backing(
     akn_value = backing.get("akn_file")
     if akn_value is None:
         raise ValueError(
-            f"AKN-backed source slice is missing source_backing.akn_file: {source_path}"
+            f"AKN-backed source file is missing source_backing.akn_file: {source_path}"
         )
     akn_file = Path(str(akn_value))
     if not akn_file.is_absolute():
         akn_file = (source_path.parent / akn_file).resolve()
     if not akn_file.exists():
-        raise ValueError(f"AKN backing file not found for source slice: {akn_file}")
+        raise ValueError(f"AKN backing file not found for source file: {akn_file}")
 
     section_eids: list[str] = []
     if backing.get("section_eid") is not None:
@@ -2085,19 +2148,19 @@ def _resolve_slice_akn_backing(
         raw_eids = backing.get("section_eids")
         if raw_eids is None:
             raise ValueError(
-                "AKN-backed source slice must declare source_backing.section_eid "
+                "AKN-backed source file must declare source_backing.section_eid "
                 f"or source_backing.section_eids: {source_path}"
             )
         if not isinstance(raw_eids, list):
             raise ValueError(
-                "AKN-backed source slice source_backing.section_eids must be a list: "
+                "AKN-backed source file source_backing.section_eids must be a list: "
                 f"{source_path}"
             )
         section_eids = [str(item).strip() for item in raw_eids]
 
     if not section_eids or any(not eid for eid in section_eids):
         raise ValueError(
-            f"AKN-backed source slice has empty source_backing section eIds: {source_path}"
+            f"AKN-backed source file has empty source_backing section eIds: {source_path}"
         )
 
     table_row_query = (
@@ -2109,11 +2172,11 @@ def _resolve_slice_akn_backing(
 
 
 def load_source_text_for_eval(source_path: Path) -> str:
-    """Load authoritative eval text for a source slice, preferring AKN backing."""
+    """Load authoritative eval text for a source file, preferring AKN backing."""
     source_path = Path(source_path)
-    metadata_path, source_metadata = _load_source_metadata_for_slice(source_path)
+    metadata_path, source_metadata = _load_source_metadata_for_path(source_path)
     del metadata_path
-    akn_file, section_eids, table_row_query = _resolve_slice_akn_backing(
+    akn_file, section_eids, table_row_query = _resolve_source_akn_backing(
         source_path,
         source_metadata,
     )
@@ -2133,7 +2196,7 @@ def load_source_text_for_eval(source_path: Path) -> str:
 
     if not extracted_sections:
         raise ValueError(
-            f"AKN-backed source slice did not yield any extracted text: {source_path}"
+            f"AKN-backed source file did not yield any extracted text: {source_path}"
         )
 
     return "\n\n".join(extracted_sections) + "\n"
@@ -2303,7 +2366,7 @@ def evaluate_artifact(
         "This review is running inside an eval-suite benchmark workspace. "
         "The artifact file path is generic benchmark output and is not itself the legal citation. "
         "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
-        "The benchmark target is an atomic source slice, so judge fidelity to exactly this slice rather than demanding omitted sibling limbs or parent consequences unless the RAC claims to encode them. "
+        "The benchmark target is an atomic source unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RAC claims to encode them. "
         "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
         f"{source_text.strip()[:4000]}"
     )
@@ -2504,6 +2567,8 @@ def _run_single_source_eval(
     output_root: Path,
     policy_path: Path,
     source_path: Path | None,
+    source_metadata_path: Path | None,
+    source_metadata_payload: dict[str, object] | None,
     runtime_rac_path: Path,
     mode: EvalMode,
     extra_context_paths: list[Path],
@@ -2511,7 +2576,7 @@ def _run_single_source_eval(
     policyengine_country: str,
     policyengine_rac_var_hint: str | None,
 ) -> EvalResult:
-    """Run one eval on an arbitrary source slice rather than a USC citation."""
+    """Run one eval on an arbitrary source-backed text unit rather than a USC citation."""
     workspace = prepare_eval_workspace(
         citation=source_id,
         runner=runner,
@@ -2520,6 +2585,8 @@ def _run_single_source_eval(
         rac_path=policy_path,
         mode=mode,
         source_path=source_path,
+        source_metadata_path=source_metadata_path,
+        source_metadata_payload=source_metadata_payload,
         extra_context_paths=extra_context_paths,
     )
 
@@ -2645,7 +2712,7 @@ are copied inline below and must be treated as the contents of that file.
         )
         source_metadata_section = f"""
 Structured source metadata is available in `./source-metadata.json`.
-It is not independent legal authority; it records how this source slice relates to canonical legal slots already anchored elsewhere in the corpus.
+It is not independent legal authority; it records how this source text relates to canonical legal slots already anchored elsewhere in the corpus.
 If this metadata says the source `sets` a canonical target, treat the slice as setting the effective jurisdiction-specific value for that delegated slot rather than amending an upstream federal numeric baseline.
 If this metadata says the source `sets` a canonical target but the copied workspace context does not actually contain that target file, do not add a top-level `imports:` entry to the bare canonical `cfr/...#...` or `usc/...#...` path just because the metadata names it. Keep the canonical target identity in the local output or dated `amend` block instead of guessing a broken import.
 If this metadata says the source `uses` or `imports` a canonical target, prefer importing or reusing that canonical target instead of redefining it locally.
@@ -2787,12 +2854,12 @@ Available precedent files:
 - The `.rac.test` file must contain 1-4 cases, unless the `.rac` file is fully `status: deferred` or `status: entity_not_supported` with no assertable outputs.
 - For a fully deferred or `entity_not_supported` fallback file with no assertable outputs, leave `.rac.test` empty instead of emitting `output: {{}}` or assertions against deferred symbols.
 - If `./source.txt` is omitted/repealed text shown only by ellipses or otherwise contains no operative rule content for the target slice, emit only a top-level `status: deferred` (or `status: entity_not_supported` when appropriate), keep the embedded source/docstring showing that omission, and emit no local rule blocks.
-- For ordinary source slices, the `.rac.test` file should usually contain 3-4 cases covering true/applicable, false/inapplicable, and boundary or alternate factual branches.
-- Only a single fixed-amount source slice, or a delegated jurisdiction-specific boolean option slice that only states the effective yes/no setting, may use 1-2 cases.
+- For ordinary source units, the `.rac.test` file should usually contain 3-4 cases covering true/applicable, false/inapplicable, and boundary or alternate factual branches.
+- Only a single fixed-amount source unit, or a delegated jurisdiction-specific boolean option unit that only states the effective yes/no setting, may use 1-2 cases.
 - When the rule includes a thresholded positive branch such as `max(0, amount - threshold)` or an `if eligible: computed_amount else: 0` structure, include at least one `.rac.test` case that exercises the positive non-zero path whenever the source permits it.
 - Do not write only zero-output tests for a thresholded deduction, allowance, or offset when the source plainly permits a positive result above the threshold.
 - The `.rac.test` file must be a YAML list of cases beginning with `- name:` entries, not a top-level mapping keyed by case names.
-- For a single fixed-amount source slice, a base case is sufficient.
+- For a single fixed-amount source unit, a base case is sufficient.
 - Add an effective-date boundary only when the period supports a meaningful point-in-time boundary.
 - Add an alternate branch only when `./source.txt` states another grounded branch condition or amount.
 - Test inputs must contain factual predicates or quantities, not the output variable being asserted.
@@ -2832,13 +2899,13 @@ Available precedent files:
 - For SNAP-style oracle-backed eligibility comparisons, do not introduce household proxy inputs like `snap_household_has_eligible_participating_member`, renamed variants like `snap_household_has_member_individually_eligible_to_participate`, or count proxies like `snap_number_of_members_eligible_to_participate`; instead express the member-level participation facts directly and let the household consequence be computed from those person facts.
 - When copied context includes a current-effective annual publication module that already exports the exact threshold or component test the oracle expects, import that copied current-effective symbol rather than jumping past it to an older base-statute symbol.
 - In repo-augmented workspaces, every import path must point to a file that is actually copied into the workspace. If the copied context file is `usda/snap/fy-2026-cola/2.rac`, import `usda/snap/fy-2026-cola/2#...` rather than an uncopied `statute/...` path unless that statute file is also copied explicitly.
-- For evergreen monthly rules whose source slice does not itself hinge on a dated annual table, prefer a contemporary monthly `.rac.test` period like `2022-01` or `2024-01` rather than the earliest statutory effective date, unless the source text itself makes a specific historical period legally necessary.
+- For evergreen monthly rules whose source text does not itself hinge on a dated annual table, prefer a contemporary monthly `.rac.test` period like `2022-01` or `2024-01` rather than the earliest statutory effective date, unless the source text itself makes a specific historical period legally necessary.
 - For monthly rules with an effective date on the first day of a month, treat that same `YYYY-MM` period as already effective. If you want a negative pre-effective test, use the previous month (for example `2025-09` for a rule that starts `from 2025-10-01`), not the effective month itself.
 - Wrong: a rule with `from 2025-10-01: 451` should not have a test like `period: 2025-10` expecting `0`.
 - Right: either test `period: 2025-09` expecting `0`, or test `period: 2025-10` expecting `451`.
 - For current-effective or annual-update parameter slices, do not invent a `pre_effective_*` zero-output test unless `./source.txt` itself says the earlier period value was zero or unavailable. If the source only tells you the new effective value, prefer testing the effective period and an inapplicable branch instead of guessing the prior month's amount.
 - When the source is an annual publication or current-effective table that updates copied canonical thresholds or limits, it is acceptable for `.rac.test` cases to assert a copied downstream output named by the oracle hint after your amendments apply, rather than testing only the amended parameter values in isolation.
-- For state- or jurisdiction-specific source slices that feed a nationwide oracle-backed variable, do not assume a different jurisdiction implies zero unless the source text expressly says so. Keep the cited jurisdiction fixed in negative tests and vary the local applicability condition instead.
+- For state- or jurisdiction-specific source units that feed a nationwide oracle-backed variable, do not assume a different jurisdiction implies zero unless the source text expressly says so. Keep the cited jurisdiction fixed in negative tests and vary the local applicability condition instead.
 - For a delegated `sets` slice whose canonical target is itself a jurisdiction-specific boolean option such as `...#*_applies` or `...#*_uses_*`, do not invent local inputs like `*_is_in_state` or `*_is_in_jurisdiction` just to manufacture an out-of-jurisdiction false branch.
 - If that kind of delegated boolean slice does not state a separate in-jurisdiction negative condition, keep `.rac.test` cases within the cited jurisdiction and use only positive/continuity cases rather than a fabricated out-of-jurisdiction false case.
 - If that kind of delegated boolean slice simply says the cited jurisdiction allows or uses the option, encode the canonical boolean slot as a direct dated constant `true` or `false` rather than wrapping it in a synthetic applicability helper like `tennessee_*_applies_to_snap_unit`.
@@ -2854,7 +2921,7 @@ Available precedent files:
     return f"""You are participating in an encoding eval for {citation}.
 
 Primary legal authority:
-- `./source.txt` contains the complete source text for this target source slice.
+- `./source.txt` contains the complete source text for this target source unit.
 {inline_source_section}
 
 Context mode: `{mode}`
@@ -2889,7 +2956,7 @@ Rules:
 - If copied context already exports the exact aggregate helper for the cited phrase, import that helper and alias the requested target to it instead of rebuilding the same arithmetic locally.
 - For SNAP pre-shelter income, if copied SNAP context exports `snap_non_shelter_deductions` and `snap_income_after_non_shelter_deductions`, reuse those exact helpers or alias `snap_net_income_pre_shelter` to `snap_income_after_non_shelter_deductions`; do not recreate the sum locally and accidentally drop the existing `max(0, ...)` clamp.
 - For example, if copied SNAP context already exports `snap_child_support_deduction`, `snap_excess_medical_expense_deduction`, or a synonymous helper like `snap_income_after_non_shelter_deductions`, reuse those exact symbols and alias the benchmark target to them if needed instead of creating near-duplicate locals such as `snap_excess_medical_deduction` or recomputing a looser variant.
-- When you alias to an imported copied helper, preserve that helper's nearest input surface in tests unless the source slice expressly requires deeper upstream facts. Do not back up to more distant raw inputs from another cited section just because the imported helper ultimately depends on them.
+- When you alias to an imported copied helper, preserve that helper's nearest input surface in tests unless the source text expressly requires deeper upstream facts. Do not back up to more distant raw inputs from another cited section just because the imported helper ultimately depends on them.
 - For example, if copied SNAP context exports `snap_income_after_non_shelter_deductions`, prefer test inputs like `snap_gross_income` plus the applicable deduction symbols over stepping back to deeper upstream raw inputs like `snap_non_self_employment_income`.
 - Do not fabricate an `imports:` target from a cited section unless that exact `path#symbol` import target is listed in the copied workspace context above. If the cited section is not actually present there, keep the value as a local input/helper instead of guessing a broken import like `statute/...#symbol`.
 - If `./source.txt` uses a legally-defined term for which a resolved canonical definition file is provided above, import that canonical definition instead of inventing a leaf-local helper.

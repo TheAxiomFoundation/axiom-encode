@@ -454,7 +454,7 @@ def main():
 
     eval_akn_section_parser = subparsers.add_parser(
         "eval-akn-section",
-        help="Compare model runners on one section extracted from Akoma Ntoso XML",
+        help="Compare model runners on one or more sections extracted from Akoma Ntoso XML",
     )
     eval_akn_section_parser.add_argument(
         "source_id",
@@ -467,7 +467,21 @@ def main():
     )
     eval_akn_section_parser.add_argument(
         "section_eid",
+        nargs="?",
         help="eId of the AKN hcontainer section to extract",
+    )
+    eval_akn_section_parser.add_argument(
+        "--section-eid",
+        dest="section_eids",
+        action="append",
+        default=[],
+        help="Additional AKN section eId to extract (repeatable). Can be used instead of the positional section eId.",
+    )
+    eval_akn_section_parser.add_argument(
+        "--metadata-file",
+        type=Path,
+        default=None,
+        help="Optional metadata sidecar to materialize as source metadata for this AKN-backed eval",
     )
     eval_akn_section_parser.add_argument(
         "--allow-parent",
@@ -2136,11 +2150,18 @@ def cmd_eval_akn_section(args):
     if not args.akn_file.exists():
         print(f"AKN file not found: {args.akn_file}")
         sys.exit(1)
+    if args.metadata_file is not None and not args.metadata_file.exists():
+        print(f"Metadata file not found: {args.metadata_file}")
+        sys.exit(1)
+    if not args.section_eid and not args.section_eids:
+        print("At least one AKN section eId is required.")
+        sys.exit(1)
 
     results = run_akn_section_eval(
         source_id=args.source_id,
         akn_file=args.akn_file,
         section_eid=args.section_eid,
+        section_eids=args.section_eids or None,
         runner_specs=runners,
         output_root=args.output,
         rac_path=rac_path,
@@ -2149,6 +2170,7 @@ def cmd_eval_akn_section(args):
         allow_parent=args.allow_parent,
         table_row_query=args.table_row_query,
         policyengine_rac_var_hint=args.policyengine_rac_var_hint,
+        source_metadata_path=args.metadata_file,
     )
 
     if args.json:
@@ -2158,7 +2180,10 @@ def cmd_eval_akn_section(args):
     print(f"Output root: {args.output}")
     print(f"rac: {rac_path}")
     print(f"AKN file: {args.akn_file}")
-    print(f"Section: {args.section_eid}")
+    section_labels = [value for value in [args.section_eid, *args.section_eids] if value]
+    print(f"Section: {', '.join(section_labels)}")
+    if args.metadata_file:
+        print(f"Metadata file: {args.metadata_file}")
     if args.table_row_query:
         print(f"Table row query: {args.table_row_query}")
     if args.policyengine_rac_var_hint:

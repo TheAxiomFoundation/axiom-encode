@@ -11,10 +11,14 @@ gates:
   min_generalist_review_pass_rate: 1.0
   min_policyengine_pass_rate: 1.0
 cases:
-  - kind: source
+  - kind: akn_section
     name: snap_state_uses_child_support_deduction_tx
     source_id: Texas SNAP child support deduction election under Texas Works Handbook A-1421.1 and A-1421.2
-    source_file: ../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_state_uses_child_support_deduction_tx.txt
+    akn_file: ../../rac-us-tx/sources/akn/txhhs/twh/current-effective/source.akn.xml
+    metadata_file: ../../rac-us-tx/sources/akn/txhhs/twh/current-effective/snap_state_uses_child_support_deduction_tx.meta.yaml
+    section_eids:
+      - sec_a_1421_1
+      - sec_a_1421_2
     oracle: policyengine
     policyengine_country: auto
     policyengine_rac_var_hint: snap_state_uses_child_support_deduction

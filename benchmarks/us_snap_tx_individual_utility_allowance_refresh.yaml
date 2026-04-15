@@ -11,10 +11,12 @@ gates:
   min_generalist_review_pass_rate: 1.0
   min_policyengine_pass_rate: 1.0
 cases:
-  - kind: source
+  - kind: akn_section
     name: snap_individual_utility_allowance_tx
     source_id: Texas SNAP telephone standard under MEPD and TW Bulletin 25-15 section 2
-    source_file: ../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_individual_utility_allowance_tx.txt
+    akn_file: ../../rac-us-tx/sources/akn/txhhs/twh/current-effective/source.akn.xml
+    metadata_file: ../../rac-us-tx/sources/akn/txhhs/twh/current-effective/snap_individual_utility_allowance_tx.meta.yaml
+    section_eid: sec_bulletin_25_15_section_2_tua
     oracle: policyengine
     policyengine_country: auto
     policyengine_rac_var_hint: snap_individual_utility_allowance

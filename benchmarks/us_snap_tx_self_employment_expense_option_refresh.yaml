@@ -11,10 +11,14 @@ gates:
   min_generalist_review_pass_rate: 1.0
   min_policyengine_pass_rate: 1.0
 cases:
-  - kind: source
+  - kind: akn_section
     name: snap_self_employment_expense_based_deduction_applies_tx
     source_id: Texas SNAP self-employment expense option under Texas Works Handbook A-1323.4.5 and A-1323.4.7
-    source_file: ../../rac-us-tx/sources/slices/txhhs/twh/current-effective/snap_self_employment_expense_based_deduction_applies_tx.txt
+    akn_file: ../../rac-us-tx/sources/akn/txhhs/twh/current-effective/source.akn.xml
+    metadata_file: ../../rac-us-tx/sources/akn/txhhs/twh/current-effective/snap_self_employment_expense_based_deduction_applies_tx.meta.yaml
+    section_eids:
+      - sec_a_1323_4_5
+      - sec_a_1323_4_7
     oracle: policyengine
     policyengine_country: auto
     policyengine_rac_var_hint: snap_self_employment_expense_based_deduction_applies
