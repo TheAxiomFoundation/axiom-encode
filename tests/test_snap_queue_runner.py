@@ -160,3 +160,30 @@ def test_reconcile_ready_output_items_marks_revalidated_blocked_item_done(tmp_pa
     assert data["items"][0]["status"] == "done"
     assert data["items"][0]["source_tracking_version"] == module.SOURCE_TRACKING_VERSION
     assert data["items"][0]["note"] == "closed fully ready after revalidation"
+
+
+def test_reconcile_stale_running_items_marks_ready_orphan_done(tmp_path):
+    module = load_queue_runner_module()
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    (output_dir / "summary.json").write_text('{"all_ready": true}')
+    data = {
+        "items": [
+            {
+                "name": "snap_demo",
+                "status": "running",
+                "output_dir": str(output_dir),
+                "note": "started with backend `codex`",
+            }
+        ]
+    }
+
+    changed = module.reconcile_stale_running_items(data, [])
+
+    assert changed is True
+    assert data["items"][0]["status"] == "done"
+    assert data["items"][0]["source_tracking_version"] == module.SOURCE_TRACKING_VERSION
+    assert data["items"][0]["note"] == "closed fully ready after orphaned eval completed"
+    assert data["event_log"][0]["message"] == (
+        "snap_demo was left in `running`, but its output is ready; marked done."
+    )

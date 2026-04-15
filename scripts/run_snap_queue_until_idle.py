@@ -858,6 +858,22 @@ def reconcile_stale_running_items(data: dict[str, Any], active_processes: list[s
     for item in data.get("items", []):
         if item.get("status") != "running":
             continue
+        output_dir = Path(item["output_dir"]).resolve() if item.get("output_dir") else None
+        archive_path = Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        summary = load_json(output_dir / "summary.json") if output_dir else None
+        if (not summary or not summary.get("all_ready")) and archive_path:
+            summary = load_json(archive_path / "summary.json")
+        if summary and summary.get("all_ready"):
+            item["status"] = "done"
+            item["finished_at"] = now_utc()
+            item["source_tracking_version"] = SOURCE_TRACKING_VERSION
+            item["note"] = "closed fully ready after orphaned eval completed"
+            changed = True
+            append_event(
+                data,
+                f"{item['name']} was left in `running`, but its output is ready; marked done.",
+            )
+            continue
         item["status"] = "retryable"
         item["finished_at"] = now_utc()
         item["note"] = "runner exited before this queued eval finished; marked retryable for relaunch"
