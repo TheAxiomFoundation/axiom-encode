@@ -135,3 +135,28 @@ def test_sync_queue_with_manifests_requeues_on_source_change_after_tracking_set(
     assert data["items"][0]["archive_path"] is None
     assert data["items"][0]["finished_at"] is None
     assert data["items"][0]["note"] == "requeued after manifest/source change"
+
+
+def test_reconcile_ready_output_items_marks_revalidated_blocked_item_done(tmp_path):
+    module = load_queue_runner_module()
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    (output_dir / "summary.json").write_text('{"all_ready": true}')
+    data = {
+        "items": [
+            {
+                "name": "snap_demo",
+                "status": "blocked",
+                "output_dir": str(output_dir),
+                "note": "eval-suite exited with code 1",
+            }
+        ]
+    }
+
+    changed, reconciled = module.reconcile_ready_output_items(data)
+
+    assert changed is True
+    assert reconciled == ["snap_demo"]
+    assert data["items"][0]["status"] == "done"
+    assert data["items"][0]["source_tracking_version"] == module.SOURCE_TRACKING_VERSION
+    assert data["items"][0]["note"] == "closed fully ready after revalidation"

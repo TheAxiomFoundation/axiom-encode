@@ -869,6 +869,29 @@ def reconcile_stale_running_items(data: dict[str, Any], active_processes: list[s
     return changed
 
 
+def reconcile_ready_output_items(data: dict[str, Any]) -> tuple[bool, list[str]]:
+    changed = False
+    reconciled: list[str] = []
+    for item in data.get("items", []):
+        if item.get("status") not in {"blocked", "retryable"}:
+            continue
+        output_dir = Path(item["output_dir"]).resolve() if item.get("output_dir") else None
+        archive_path = Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        summary = load_json(output_dir / "summary.json") if output_dir else None
+        if (not summary or not summary.get("all_ready")) and archive_path:
+            summary = load_json(archive_path / "summary.json")
+        if not summary or not summary.get("all_ready"):
+            continue
+
+        item["status"] = "done"
+        item["finished_at"] = now_utc()
+        item["source_tracking_version"] = SOURCE_TRACKING_VERSION
+        item["note"] = "closed fully ready after revalidation"
+        changed = True
+        reconciled.append(str(item.get("name") or "unknown"))
+    return changed, reconciled
+
+
 def process_queue(queue_path: Path) -> int:
     data = load_queue(queue_path)
     sync_changed, added_items, retired_items, refreshed_items = sync_queue_with_manifests(data)
@@ -895,6 +918,13 @@ def process_queue(queue_path: Path) -> int:
     backend = str(data.get("default_backend") or "codex")
     reviewer_cli = str(data.get("default_reviewer_cli") or "claude")
     known_run_ids = load_run_ledger_ids(RUN_LEDGER_PATH)
+    ready_changed, ready_items = reconcile_ready_output_items(data)
+    if ready_changed:
+        append_event(
+            data,
+            "Marked revalidated queue items done: " + ", ".join(ready_items),
+        )
+        save_queue(queue_path, data)
     backfill_run_ledger(data, known_run_ids)
 
     while True:

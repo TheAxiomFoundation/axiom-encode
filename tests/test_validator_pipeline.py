@@ -716,6 +716,7 @@ Both legally obligated and informal child support payments are treated as income
     def test_ignores_bulletin_dates_month_periods_and_statewide_restatements(self):
         occurrences = extract_numeric_occurrences_from_text(
             """
+2 SNAP Income Limits, Deductions, and Allotments: telephone standard
 Texas SNAP telephone standard under MEPD and TW Bulletin 25-15 section 2
 for period 2026-01.
 
@@ -732,6 +733,7 @@ For Texas, the allowance is statewide at 62.
 
         assert 25.0 not in occurrences
         assert 15.0 not in occurrences
+        assert 2.0 not in occurrences
         assert 5.0 not in occurrences
         assert 2025.0 not in occurrences
         assert 2026.0 not in occurrences
@@ -2482,6 +2484,12 @@ size_6_or_more_amount:
         values = extract_grounding_values(
             '''
 north_carolina_sua_unit_size_four:
+    entity: SnapUnit
+    period: Month
+    dtype: Count
+    from 2025-01-01: 4
+
+north_carolina_bua_four_person_unit_size_threshold:
     entity: SnapUnit
     period: Month
     dtype: Count
@@ -5183,7 +5191,7 @@ class TestGetPeVariableMap:
             {
                 "period": "2025-10",
                 "snap_utility_allowance_type": "SUA",
-                "snap_utility_region_str": "NY_NYC",
+                "snap_utility_region_str": "NY",
             },
             "2025",
         )
@@ -5594,6 +5602,62 @@ snap_state_uses_child_support_deduction:
         assert result.passed is True
         script = mock_run.call_args.args[0]
         assert "child_support['NY']" in script
+
+    def test_run_policyengine_uses_source_metadata_for_empty_snap_utility_test(
+        self, pipeline, temp_dirs
+    ):
+        rac_us, _ = temp_dirs
+        case_root = rac_us / "tmp_eval_case"
+        rac_file = case_root / "openai-gpt-5.4" / "source" / "leaf.rac"
+        rac_file.parent.mkdir(parents=True, exist_ok=True)
+        rac_file.write_text(
+            """
+snap_individual_utility_allowance:
+    entity: SnapUnit
+    period: Month
+    dtype: Money
+    unit: USD
+    from 2025-10-01: 62
+    tests:
+        - name: texas_phone_amount
+          period: 2025-10
+          expect: 62
+"""
+        )
+
+        manifest_dir = case_root / "_eval_workspaces" / "openai-gpt-5.4" / "leaf" / "workspace"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "context-manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_metadata": {
+                        "relations": [
+                            {
+                                "relation": "sets",
+                                "target": "cfr/7/273.9/d/6/iii#snap_individual_utility_allowance",
+                                "jurisdiction": "TX",
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+
+        with patch.object(pipeline, "_find_pe_python", return_value="/usr/bin/python"):
+            with patch.object(
+                pipeline,
+                "_run_pe_subprocess_detailed",
+                return_value=OracleSubprocessResult(
+                    returncode=0, stdout="RESULT:62\n"
+                ),
+            ) as mock_run:
+                result = pipeline._run_policyengine(rac_file)
+
+        assert result.passed is True
+        script = mock_run.call_args.args[0]
+        assert "'snap_utility_allowance_type': {'2025-10': 'IUA'}" in script
+        assert "'snap_utility_region_str': {'2025': 'TX'}" in script
+        assert "'state_code_str': {'2025': 'TX'}" in script
 
     def test_run_policyengine_uses_source_metadata_jurisdiction_for_self_employment_state_option(
         self, pipeline, temp_dirs

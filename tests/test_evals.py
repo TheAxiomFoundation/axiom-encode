@@ -2784,7 +2784,8 @@ class TestEvalPrompt:
         assert "entity:" in prompt
         assert "period:" in prompt
         assert "dtype:" in prompt
-        assert "`else:` is not valid inside RAC `match` blocks" in prompt
+        assert "Avoid `match ...:` in generated RAC" in prompt
+        assert "Use chained `if ...: value else:` expressions" in prompt
 
     def test_build_eval_prompt_includes_supported_schema_enums(self, tmp_path):
         workspace = prepare_eval_workspace(

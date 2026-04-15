@@ -842,7 +842,7 @@ _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:\d+(?:\.\d+){2,}\s+|\d+[A-Za-z]?\.\s+|\([0-9A-Za-zivxlcdm]+\)\s+)",
+    r"^\s*(?:\d+(?:\.\d+){2,}\s+|\d+[A-Za-z]?\.\s+|\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN = re.compile(
@@ -1126,6 +1126,25 @@ def _source_metadata_jurisdiction(
     return None
 
 
+def _default_snap_utility_type_for_rac_var(rac_var: str | None) -> str | None:
+    return {
+        "snap_standard_utility_allowance": "SUA",
+        "snap_limited_utility_allowance": "BUA",
+        "snap_individual_utility_allowance": "TUA",
+    }.get(str(rac_var or ""))
+
+
+def _default_snap_utility_region_for_jurisdiction(
+    jurisdiction: str | None,
+) -> str | None:
+    if not jurisdiction:
+        return None
+    normalized = jurisdiction.strip().upper()
+    if normalized == "NY":
+        return "NY_NYC"
+    return normalized
+
+
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
     """Extract grounded numeric values from RAC definitions, excluding formulas/tests."""
     values = []
@@ -1302,7 +1321,9 @@ def _is_structural_schedule_index_helper(name: str, value: float) -> bool:
     if not value.is_integer() or not (4 <= int(value) <= 8):
         return False
     normalized_name = name.lower()
-    if "or_more" in normalized_name or "threshold" in normalized_name:
+    if "or_more" in normalized_name:
+        return False
+    if "threshold" in normalized_name and int(value) >= 5:
         return False
     index = int(value)
     word = {
@@ -1318,6 +1339,7 @@ def _is_structural_schedule_index_helper(name: str, value: float) -> bool:
         or re.search(rf"(?:^|_)unit_size_{index}(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_){word}_person_(?:household_)?size(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_){word}_person_unit_size(?:_|$)", normalized_name)
+        or re.search(rf"(?:^|_){word}_person_spm_unit_size(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_)size_row_{index}(?:_|$)", normalized_name)
         or re.search(
             rf"(?:^|_)household_size_row_{index}(?:_|$)", normalized_name
@@ -3420,10 +3442,24 @@ Output ONLY valid JSON:
 
             # Build and run PE scenario — include period in inputs for monthly detection
             inputs_with_period = {**inputs, "period": str(period)}
-            if country == "us" and "state_code_str" not in inputs_with_period:
+            source_jurisdiction = None
+            if country == "us":
                 source_jurisdiction = _source_metadata_jurisdiction(source_metadata)
-                if source_jurisdiction:
+                if source_jurisdiction and "state_code_str" not in inputs_with_period:
                     inputs_with_period["state_code_str"] = source_jurisdiction
+                if source_jurisdiction and pe_var in {
+                    "snap_standard_utility_allowance",
+                    "snap_limited_utility_allowance",
+                    "snap_individual_utility_allowance",
+                }:
+                    inputs_with_period.setdefault(
+                        "snap_utility_allowance_type",
+                        _default_snap_utility_type_for_rac_var(oracle_rac_var),
+                    )
+                    inputs_with_period.setdefault(
+                        "snap_utility_region_str",
+                        _default_snap_utility_region_for_jurisdiction(source_jurisdiction),
+                    )
             scenario_script = self._build_pe_scenario_script(
                 pe_var,
                 inputs_with_period,
@@ -5231,6 +5267,17 @@ print("BENCHMARK:" + json.dumps(result))
             utility_region = str(inputs["snap_utility_region"])
         elif "snap_utility_region_str" in inputs:
             utility_region = str(inputs["snap_utility_region_str"])
+        if (
+            pe_var
+            in {
+                "snap_standard_utility_allowance",
+                "snap_limited_utility_allowance",
+                "snap_individual_utility_allowance",
+            }
+            and utility_region is not None
+            and utility_region.strip().upper() == "NY"
+        ):
+            utility_region = "NY_NYC"
 
         if "state_code_str" in inputs:
             household_state = str(inputs["state_code_str"])
