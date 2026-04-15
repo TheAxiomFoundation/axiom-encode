@@ -30,10 +30,8 @@ CREATE INDEX IF NOT EXISTS idx_encoding_runs_citation ON encoding_runs(citation)
 -- RLS
 ALTER TABLE encoding_runs ENABLE ROW LEVEL SECURITY;
 
--- Public can read
-CREATE POLICY "Allow public read" ON encoding_runs FOR SELECT TO anon USING (true);
-
--- Service role can write (for sync script)
+-- Base table remains private; public dashboard access should go through the
+-- get_encoding_runs RPC below.
 CREATE POLICY "Allow service write" ON encoding_runs FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- RPC function for frontend (matches what getEncodingRuns expects)

@@ -13,15 +13,22 @@ from typing import Optional
 from supabase import Client, create_client
 
 
-def get_supabase_client() -> Client:
+def get_supabase_client(*, require_write: bool = True) -> Client:
     """Get Supabase client using environment variables."""
     url = os.environ.get("RAC_SUPABASE_URL")
-    # Try service role key first (for writes), fall back to anon key (reads only)
-    key = os.environ.get("RAC_SUPABASE_SECRET_KEY") or os.environ.get(
-        "RAC_SUPABASE_ANON_KEY"
-    )
+    if require_write:
+        key = os.environ.get("RAC_SUPABASE_SECRET_KEY")
+    else:
+        key = os.environ.get("RAC_SUPABASE_SECRET_KEY") or os.environ.get(
+            "RAC_SUPABASE_ANON_KEY"
+        )
 
     if not url or not key:
+        if require_write:
+            raise ValueError(
+                "Missing Supabase write credentials. Set RAC_SUPABASE_URL and "
+                "RAC_SUPABASE_SECRET_KEY."
+            )
         raise ValueError(
             "Missing Supabase credentials. Set RAC_SUPABASE_URL and "
             "RAC_SUPABASE_SECRET_KEY (or RAC_SUPABASE_ANON_KEY for read-only)."
@@ -184,7 +191,7 @@ def fetch_runs_from_supabase(
         List of run records
     """
     if client is None:
-        client = get_supabase_client()
+        client = get_supabase_client(require_write=False)
 
     query = client.table("encoding_runs").select("*")
 

@@ -30,14 +30,18 @@ from autorac.supabase_sync import (
 class TestGetSupabaseClient:
     def test_missing_url(self):
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="Missing Supabase credentials"):
+            with pytest.raises(
+                ValueError, match="Missing Supabase write credentials"
+            ):
                 get_supabase_client()
 
     def test_missing_key(self):
         with patch.dict(
             os.environ, {"RAC_SUPABASE_URL": "https://example.supabase.co"}, clear=True
         ):
-            with pytest.raises(ValueError, match="Missing Supabase credentials"):
+            with pytest.raises(
+                ValueError, match="Missing Supabase write credentials"
+            ):
                 get_supabase_client()
 
     def test_with_secret_key(self):
@@ -56,7 +60,7 @@ class TestGetSupabaseClient:
                     "https://example.supabase.co", "secret-key"
                 )
 
-    def test_with_anon_key_fallback(self):
+    def test_with_anon_key_fallback_for_reads(self):
         with patch.dict(
             os.environ,
             {
@@ -67,10 +71,24 @@ class TestGetSupabaseClient:
         ):
             with patch("autorac.supabase_sync.create_client") as mock_create:
                 mock_create.return_value = MagicMock()
-                get_supabase_client()
+                get_supabase_client(require_write=False)
                 mock_create.assert_called_once_with(
                     "https://example.supabase.co", "anon-key"
                 )
+
+    def test_write_client_requires_secret_key(self):
+        with patch.dict(
+            os.environ,
+            {
+                "RAC_SUPABASE_URL": "https://example.supabase.co",
+                "RAC_SUPABASE_ANON_KEY": "anon-key",
+            },
+            clear=True,
+        ):
+            with pytest.raises(
+                ValueError, match="Missing Supabase write credentials"
+            ):
+                get_supabase_client()
 
 
 # =========================================================================
@@ -201,9 +219,10 @@ class TestSyncRunToSupabase:
 
         with patch(
             "autorac.supabase_sync.get_supabase_client", return_value=mock_client
-        ):
+        ) as mock_get_client:
             result = sync_run_to_supabase(mock_run, "ci_only")
             assert result is True
+            mock_get_client.assert_called_once_with()
 
 
 # =========================================================================
@@ -309,9 +328,10 @@ class TestFetchRunsFromSupabase:
 
         with patch(
             "autorac.supabase_sync.get_supabase_client", return_value=mock_client
-        ):
+        ) as mock_get_client:
             results = fetch_runs_from_supabase()
             assert results == []
+            mock_get_client.assert_called_once_with(require_write=False)
 
 
 # =========================================================================

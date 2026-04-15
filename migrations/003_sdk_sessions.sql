@@ -38,11 +38,8 @@ CREATE INDEX IF NOT EXISTS idx_sdk_session_events_sequence ON rac.sdk_session_ev
 ALTER TABLE rac.sdk_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rac.sdk_session_events ENABLE ROW LEVEL SECURITY;
 
--- Public read access
-CREATE POLICY "Allow public read sdk_sessions" ON rac.sdk_sessions FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow public read sdk_session_events" ON rac.sdk_session_events FOR SELECT TO anon USING (true);
-
--- Service role can write
+-- Base tables remain private; public dashboard access should use the
+-- rac.get_sdk_sessions RPC below.
 CREATE POLICY "Allow service write sdk_sessions" ON rac.sdk_sessions FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "Allow service write sdk_session_events" ON rac.sdk_session_events FOR ALL TO service_role USING (true) WITH CHECK (true);
 

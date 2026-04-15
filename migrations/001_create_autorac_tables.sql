@@ -165,7 +165,7 @@ ORDER BY r.timestamp DESC;
 -- =============================================================================
 -- Row Level Security (RLS)
 -- =============================================================================
--- For now, allow public read access (anon key) and authenticated write access
+-- Keep base tables private. Public access should go through narrow RPCs only.
 
 ALTER TABLE autorac.runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE autorac.sessions ENABLE ROW LEVEL SECURITY;
@@ -173,20 +173,18 @@ ALTER TABLE autorac.session_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE autorac.artifact_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE autorac.run_artifacts ENABLE ROW LEVEL SECURITY;
 
--- Read access for everyone (public dashboard)
-CREATE POLICY "Allow public read access to runs" ON autorac.runs
-    FOR SELECT USING (true);
-CREATE POLICY "Allow public read access to sessions" ON autorac.sessions
-    FOR SELECT USING (true);
-CREATE POLICY "Allow public read access to events" ON autorac.session_events
-    FOR SELECT USING (true);
-CREATE POLICY "Allow public read access to artifacts" ON autorac.artifact_versions
-    FOR SELECT USING (true);
-CREATE POLICY "Allow public read access to run_artifacts" ON autorac.run_artifacts
-    FOR SELECT USING (true);
-
--- Write access requires service role (handled by Python backend)
--- Service role bypasses RLS automatically
+-- Write access requires service_role. Public dashboard access should use
+-- security-definer views or RPCs that expose only the intended fields.
+CREATE POLICY "Allow service write access to runs" ON autorac.runs
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow service write access to sessions" ON autorac.sessions
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow service write access to events" ON autorac.session_events
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow service write access to artifacts" ON autorac.artifact_versions
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow service write access to run_artifacts" ON autorac.run_artifacts
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 COMMENT ON SCHEMA autorac IS 'AutoRAC experiment tracking - encoding runs, sessions, calibration';
 COMMENT ON TABLE autorac.runs IS 'Individual encoding runs with predictions, iterations, and final scores';

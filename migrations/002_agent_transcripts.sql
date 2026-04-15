@@ -32,11 +32,12 @@ ON autorac.agent_transcripts(created_at DESC);
 -- Enable RLS
 ALTER TABLE autorac.agent_transcripts ENABLE ROW LEVEL SECURITY;
 
--- Allow anonymous access for now (matches other autorac tables)
-CREATE POLICY "Allow anonymous access to agent_transcripts"
+-- Subagent transcripts may contain prompts and tool output, so restrict the
+-- base table to service_role writes only.
+CREATE POLICY "Allow service access to agent_transcripts"
 ON autorac.agent_transcripts
 FOR ALL
-TO anon
+TO service_role
 USING (true)
 WITH CHECK (true);
 
