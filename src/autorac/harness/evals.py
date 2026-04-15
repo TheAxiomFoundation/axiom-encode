@@ -2657,6 +2657,7 @@ def _run_single_source_eval(
         output_file,
         source_text=source_text,
         workspace_root=workspace.root,
+        policyengine_rac_var_hint=policyengine_rac_var_hint,
     )
     if wrote_artifact:
         _hydrate_eval_root(output_file.parents[1], workspace)
@@ -4600,11 +4601,90 @@ def _normalize_test_periods_to_effective_dates(
     return normalized
 
 
+def _parse_simple_rac_literal(value: str) -> object | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if stripped in {"true", "false"}:
+        return stripped == "true"
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", stripped):
+        return yaml.safe_load(stripped)
+    return None
+
+
+def _extract_simple_rac_constant(
+    rac_content: str | None,
+    var_name: str | None,
+) -> object | None:
+    if not rac_content or not var_name:
+        return None
+    lines = rac_content.splitlines()
+    for index, line in enumerate(lines):
+        if not re.match(rf"^{re.escape(var_name)}:\s*$", line):
+            continue
+        block_lines: list[str] = []
+        for block_line in lines[index + 1 :]:
+            if block_line and not block_line.startswith((" ", "\t")):
+                break
+            block_lines.append(block_line)
+        for block_index, block_line in enumerate(block_lines):
+            match = re.match(r"\s*from\s+\d{4}-\d{2}-\d{2}:\s*(.*)$", block_line)
+            if not match:
+                continue
+            inline_value = _parse_simple_rac_literal(match.group(1))
+            if inline_value is not None:
+                return inline_value
+            for continuation in block_lines[block_index + 1 :]:
+                if not continuation.strip():
+                    continue
+                return _parse_simple_rac_literal(continuation)
+    return None
+
+
+def _complete_oracle_hint_test_outputs(
+    content: str,
+    rac_content: str | None,
+    policyengine_rac_var_hint: str | None,
+) -> str:
+    if not policyengine_rac_var_hint:
+        return content
+    hint_value = _extract_simple_rac_constant(rac_content, policyengine_rac_var_hint)
+    if hint_value is None:
+        return content
+    try:
+        payload = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return content
+    if not isinstance(payload, list):
+        return content
+
+    changed = False
+    normalized_cases: list[object] = []
+    for case in payload:
+        if not isinstance(case, dict):
+            normalized_cases.append(case)
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict) or policyengine_rac_var_hint in output:
+            normalized_cases.append(case)
+            continue
+        normalized_case = dict(case)
+        normalized_output = dict(output)
+        normalized_output[policyengine_rac_var_hint] = hint_value
+        normalized_case["output"] = normalized_output
+        normalized_cases.append(normalized_case)
+        changed = True
+    if not changed:
+        return content
+    return yaml.safe_dump(normalized_cases, sort_keys=False).strip() + "\n"
+
+
 def _materialize_eval_artifact(
     llm_response: str,
     expected_path: Path,
     source_text: str | None = None,
     workspace_root: Path | None = None,
+    policyengine_rac_var_hint: str | None = None,
 ) -> bool:
     """Write an eval artifact and optional companion test file from model output."""
     single_amount_table_slice = bool(
@@ -4619,6 +4699,7 @@ def _materialize_eval_artifact(
             workspace_root=workspace_root,
             single_amount_table_slice=single_amount_table_slice,
             source_text=source_text,
+            policyengine_rac_var_hint=policyengine_rac_var_hint,
         )
         if wrote_from_workspace:
             return True
@@ -4654,6 +4735,11 @@ def _materialize_eval_artifact(
                     rac_content=bundle_by_candidate_name.get(expected_path.name),
                     source_text=source_text,
                 )
+                content = _complete_oracle_hint_test_outputs(
+                    content,
+                    rac_content=bundle_by_candidate_name.get(expected_path.name),
+                    policyengine_rac_var_hint=policyengine_rac_var_hint,
+                )
             target_path.parent.mkdir(parents=True, exist_ok=True)
             target_path.write_text(content)
             if target_path == expected_path:
@@ -4680,6 +4766,7 @@ def _materialize_workspace_artifacts(
     workspace_root: Path,
     single_amount_table_slice: bool,
     source_text: str | None,
+    policyengine_rac_var_hint: str | None = None,
 ) -> bool:
     """Salvage eval artifacts that a model wrote directly into the workspace."""
     workspace_main = workspace_root / expected_path.name
@@ -4709,6 +4796,11 @@ def _materialize_workspace_artifacts(
                 test_content,
                 rac_content=main_content,
                 source_text=source_text,
+            )
+            test_content = _complete_oracle_hint_test_outputs(
+                test_content,
+                rac_content=main_content,
+                policyengine_rac_var_hint=policyengine_rac_var_hint,
             )
         expected_test_path.write_text(test_content)
 

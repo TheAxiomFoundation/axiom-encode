@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 import requests
+import yaml
 
 from autorac.harness.evals import (
     EvalArtifactMetrics,
@@ -1335,6 +1336,40 @@ class TestGeneratedBundleCleaning:
         assert wrote is True
         assert "1 / 10" not in expected.read_text()
         assert "from 2025-03-21: 0.1" in expected.read_text()
+
+    def test_materialize_eval_artifact_adds_missing_oracle_hint_output(self, tmp_path):
+        response = (
+            "=== FILE: example.rac ===\n"
+            '"""\nHomeless Shelter Deduction - $198.99\n"""\n\n'
+            "snap_homeless_shelter_deduction_amount:\n"
+            "    entity: SnapUnit\n"
+            "    period: Month\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    from 2025-10-01: 198.99\n\n"
+            "snap_homeless_shelter_deduction_available:\n"
+            "    entity: SnapUnit\n"
+            "    period: Month\n"
+            "    dtype: Boolean\n"
+            "    from 2025-10-01:\n"
+            "        true\n"
+            "=== FILE: example.rac.test ===\n"
+            "- name: base\n"
+            "  period: 2025-10\n"
+            "  output:\n"
+            "    snap_homeless_shelter_deduction_amount: 198.99\n"
+        )
+        expected = tmp_path / "source" / "example.rac"
+
+        wrote = _materialize_eval_artifact(
+            response,
+            expected,
+            policyengine_rac_var_hint="snap_homeless_shelter_deduction_available",
+        )
+
+        assert wrote is True
+        test_payload = yaml.safe_load(expected.with_suffix(".rac.test").read_text())
+        assert test_payload[0]["output"]["snap_homeless_shelter_deduction_available"] is True
 
     def test_materialize_eval_artifact_normalizes_test_arithmetic_literals(
         self, tmp_path
