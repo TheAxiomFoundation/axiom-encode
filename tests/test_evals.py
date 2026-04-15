@@ -7517,6 +7517,44 @@ class TestRepoAugmentedContext:
         assert "Allowable child support payments may be deducted." in loaded
         assert "A child support deduction is allowed." in loaded
 
+    def test_load_source_text_for_eval_includes_block_list_items(self, tmp_path):
+        source_path = tmp_path / "sources" / "slices" / "tx" / "telephone_standard.txt"
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_text("stale text")
+        akn_file = tmp_path / "sources" / "akn" / "tx" / "source.akn.xml"
+        akn_file.parent.mkdir(parents=True, exist_ok=True)
+        akn_file.write_text(
+            """
+<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
+  <doc name="doc">
+    <mainBody>
+      <hcontainer name="section" eId="sec_tua">
+        <num>2</num>
+        <heading>Telephone standard</heading>
+        <content>
+          <blockList>
+            <item><p>Telephone Standard - $62</p></item>
+          </blockList>
+        </content>
+      </hcontainer>
+    </mainBody>
+  </doc>
+</akomaNtoso>
+            """.strip()
+        )
+        source_path.with_name("telephone_standard.meta.yaml").write_text(
+            "version: 1\n"
+            "source_backing:\n"
+            "  kind: akn_section\n"
+            "  akn_file: ../../akn/tx/source.akn.xml\n"
+            "  section_eid: sec_tua\n"
+        )
+
+        loaded = load_source_text_for_eval(source_path)
+
+        assert "Telephone Standard - $62" in loaded
+        assert "stale text" not in loaded
+
     def test_build_eval_prompt_lists_canonical_context_import_target(self, tmp_path):
         repo_root = tmp_path / "repos"
         rac_root = repo_root / "rac"

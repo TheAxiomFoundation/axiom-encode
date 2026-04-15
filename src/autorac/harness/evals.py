@@ -790,6 +790,11 @@ def _append_akn_content_block_text(
         if local_tag == "table" and child not in tables:
             tables.insert(0, child)
         if not tables:
+            _append_akn_content_block_text(
+                child,
+                parts,
+                table_row_query=table_row_query,
+            )
             continue
 
         for table in tables:
