@@ -1,5 +1,16 @@
 # 26 USC 1 Validation Report
 
+> **⚠️ STATUS: OUTDATED (as of 2026-04-16)**
+>
+> This report predates the live oracle validation pipeline
+> (PolicyEngine + TAXSIM via `rac-validators`). The methodology below uses a
+> manual, simplified federal-income-tax calculation rather than running the
+> encoded rules against an external oracle.
+>
+> A refreshed report using the current 3-tier validator pipeline
+> (CI → PolicyEngine/TAXSIM oracles → LLM reviewers) is pending. Until then,
+> treat the numbers below as historical context only.
+
 ## Validation Overview
 
 **Statute**: 26 USC Section 1 - Income Tax Rates

@@ -26,6 +26,13 @@ from .encoding_db import (
     ReviewResults,
     create_run,
 )
+from .evals import (
+    EvalResult,
+    EvalRunnerSpec,
+    evaluate_artifact,
+    parse_runner_spec,
+    run_model_eval,
+)
 from .metrics import (
     CalibrationMetrics,
     CalibrationSnapshot,
@@ -34,7 +41,6 @@ from .metrics import (
     print_calibration_report,
     save_calibration_snapshot,
 )
-from .evals import EvalResult, EvalRunnerSpec, evaluate_artifact, parse_runner_spec, run_model_eval
 from .orchestrator import Orchestrator
 from .validator_pipeline import (
     PipelineResult,

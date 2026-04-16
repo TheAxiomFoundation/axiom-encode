@@ -1,10 +1,20 @@
-"""Model pricing helpers for eval and trace analysis."""
+"""Model pricing helpers for eval and trace analysis.
+
+Pricing rates are loaded from ``pricing_rates.toml`` (co-located with this
+module). The TOML file carries a ``version`` and ``effective_date`` so that
+rate changes can be tracked in source control without touching Python code.
+"""
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 from .encoding_db import TokenUsage
+
+_PRICING_RATES_PATH = Path(__file__).with_name("pricing_rates.toml")
 
 
 @dataclass(frozen=True)
@@ -30,25 +40,48 @@ class UsageCostBreakdown:
     total_cost_usd: float
 
 
-_MODEL_PRICING: dict[str, ModelPricing] = {
-    "claude-opus-4-6": ModelPricing(
-        input_per_million=5.0,
-        output_per_million=25.0,
-        cache_read_per_million=0.50,
-        cache_create_per_million=6.25,
-    ),
-    "opus": ModelPricing(
-        input_per_million=5.0,
-        output_per_million=25.0,
-        cache_read_per_million=0.50,
-        cache_create_per_million=6.25,
-    ),
-    "gpt-5.4": ModelPricing(
-        input_per_million=2.5,
-        output_per_million=15.0,
-        cache_read_per_million=0.25,
-    ),
-}
+@dataclass(frozen=True)
+class PricingRates:
+    """Full pricing rate bundle loaded from ``pricing_rates.toml``."""
+
+    version: int
+    effective_date: str
+    models: dict[str, ModelPricing]
+
+
+def _load_pricing_rates(path: Path = _PRICING_RATES_PATH) -> PricingRates:
+    """Parse ``pricing_rates.toml`` into a :class:`PricingRates` bundle."""
+    with path.open("rb") as fh:
+        data = tomllib.load(fh)
+
+    raw_models = data.get("models", {}) or {}
+    models: dict[str, ModelPricing] = {}
+    for name, rates in raw_models.items():
+        models[name] = ModelPricing(
+            input_per_million=float(rates.get("input_per_million", 0.0)),
+            output_per_million=float(rates.get("output_per_million", 0.0)),
+            cache_read_per_million=float(rates.get("cache_read_per_million", 0.0)),
+            cache_create_per_million=float(rates.get("cache_create_per_million", 0.0)),
+        )
+
+    return PricingRates(
+        version=int(data.get("version", 0)),
+        effective_date=str(data.get("effective_date", "")),
+        models=models,
+    )
+
+
+@lru_cache(maxsize=1)
+def _cached_pricing_rates() -> PricingRates:
+    return _load_pricing_rates()
+
+
+def get_pricing_rates() -> PricingRates:
+    """Return the cached pricing rate bundle loaded from TOML."""
+    return _cached_pricing_rates()
+
+
+_MODEL_PRICING: dict[str, ModelPricing] = get_pricing_rates().models
 
 
 def get_model_pricing(model: str) -> ModelPricing | None:
@@ -91,9 +124,7 @@ def estimate_usage_cost_breakdown(
         usage.input_tokens - usage.cache_read_tokens - usage.cache_creation_tokens,
         0,
     )
-    input_cost_usd = (
-        non_cached_input_tokens * pricing.input_per_million / 1_000_000
-    )
+    input_cost_usd = non_cached_input_tokens * pricing.input_per_million / 1_000_000
     cache_read_cost_usd = (
         usage.cache_read_tokens * pricing.cache_read_per_million / 1_000_000
     )

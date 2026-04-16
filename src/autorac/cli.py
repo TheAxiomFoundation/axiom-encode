@@ -77,7 +77,9 @@ def _resolve_runtime_rac_checkout(policy_repo_root: Path | None = None) -> Path:
 
 def _resolve_validation_repo_roots(rac_file: Path) -> tuple[Path, Path]:
     """Resolve the policy repo root plus the core rac runtime for validation."""
-    policy_repo_root = find_policy_repo_root(rac_file) or _resolve_repo_checkout("rac-us")
+    policy_repo_root = find_policy_repo_root(rac_file) or _resolve_repo_checkout(
+        "rac-us"
+    )
     return policy_repo_root, _resolve_runtime_rac_checkout(policy_repo_root)
 
 
@@ -122,7 +124,11 @@ def _add_gpt_backend_argument(parser: argparse.ArgumentParser) -> None:
 
 def _resolved_gpt_backend(args) -> str | None:
     """Resolve the requested GPT backend override from args/env."""
-    return getattr(args, "gpt_backend", None) or os.getenv("AUTORAC_GPT_BACKEND") or "codex"
+    return (
+        getattr(args, "gpt_backend", None)
+        or os.getenv("AUTORAC_GPT_BACKEND")
+        or "codex"
+    )
 
 
 def _rewrite_gpt_runner_backend(spec: str, backend: str | None) -> str:
@@ -404,7 +410,9 @@ def main():
         "eval-source",
         help="Compare model runners on one arbitrary source-text slice",
     )
-    eval_source_parser.add_argument("source_id", help="Logical identifier for the source slice")
+    eval_source_parser.add_argument(
+        "source_id", help="Logical identifier for the source slice"
+    )
     eval_source_parser.add_argument(
         "source_file",
         type=Path,
@@ -2006,9 +2014,7 @@ def _print_eval_metrics(result) -> None:
             f"  taxsim={'yes' if result.metrics.taxsim_pass else 'no'} score={result.metrics.taxsim_score:.1%}"
         )
     if result.metrics.ungrounded_numeric_count:
-        offenders = [
-            item.raw for item in result.metrics.grounding if not item.grounded
-        ]
+        offenders = [item.raw for item in result.metrics.grounding if not item.grounded]
         print(f"  ungrounded_values={', '.join(offenders[:10])}")
 
 
@@ -2180,7 +2186,9 @@ def cmd_eval_akn_section(args):
     print(f"Output root: {args.output}")
     print(f"rac: {rac_path}")
     print(f"AKN file: {args.akn_file}")
-    section_labels = [value for value in [args.section_eid, *args.section_eids] if value]
+    section_labels = [
+        value for value in [args.section_eid, *args.section_eids] if value
+    ]
     print(f"Section: {', '.join(section_labels)}")
     if args.metadata_file:
         print(f"Metadata file: {args.metadata_file}")
@@ -2349,7 +2357,9 @@ def _serialize_readiness_summary(summary) -> dict:
     }
 
 
-def _build_eval_suite_payload(manifest, effective_runners, results, readiness, all_ready):
+def _build_eval_suite_payload(
+    manifest, effective_runners, results, readiness, all_ready
+):
     """Build the persisted eval-suite payload shared by text and JSON output."""
     return {
         "manifest": {
@@ -2842,7 +2852,9 @@ def _build_eval_suite_archive_metadata(
         "finished_at": state.get("finished_at"),
         "total_cases": state.get("total_cases"),
         "completed_cases": state.get("completed_cases"),
-        "result_count": state.get("result_count", len(results.get("results", []) or [])),
+        "result_count": state.get(
+            "result_count", len(results.get("results", []) or [])
+        ),
         "all_ready": summary.get("all_ready"),
         "rewritten_files": rewritten_files,
     }
@@ -2857,7 +2869,9 @@ def cmd_eval_suite_archive(args):
 
     state_path = source_output / "suite-run.json"
     if not state_path.exists():
-        print(f"Not an eval-suite output directory (missing suite-run.json): {source_output}")
+        print(
+            f"Not an eval-suite output directory (missing suite-run.json): {source_output}"
+        )
         sys.exit(1)
 
     archive_root = (
@@ -2871,7 +2885,9 @@ def cmd_eval_suite_archive(args):
     archive_dir = _unique_archive_dir(archive_root, base_name)
     shutil.copytree(source_output, archive_dir)
 
-    rewritten_files = _rewrite_archived_eval_suite_json_files(archive_dir, source_output)
+    rewritten_files = _rewrite_archived_eval_suite_json_files(
+        archive_dir, source_output
+    )
     metadata = _build_eval_suite_archive_metadata(
         archive_dir=archive_dir,
         source_root=source_output,
@@ -2895,7 +2911,10 @@ def cmd_eval_suite_archive(args):
         print(f"Rewrote archived paths in: {', '.join(rewritten_files)}")
     if metadata.get("status"):
         print(f"Status: {metadata['status']}")
-    if metadata.get("completed_cases") is not None and metadata.get("total_cases") is not None:
+    if (
+        metadata.get("completed_cases") is not None
+        and metadata.get("total_cases") is not None
+    ):
         print(
             f"Progress: {metadata['completed_cases']}/{metadata['total_cases']} cases"
         )
@@ -2950,7 +2969,9 @@ def _format_generalist_score(value: float | None) -> str:
     return f"{value:.2f}/10"
 
 
-def _build_eval_suite_report(payload: dict, left_runner: str, right_runner: str) -> dict:
+def _build_eval_suite_report(
+    payload: dict, left_runner: str, right_runner: str
+) -> dict:
     """Build a structured pairwise report from eval-suite JSON output."""
     results = payload.get("results", []) or []
     readiness = payload.get("readiness", {}) or {}
@@ -3009,7 +3030,9 @@ def _build_eval_suite_report(payload: dict, left_runner: str, right_runner: str)
             "left_policyengine_score": left_metrics.get("policyengine_score"),
             "right_policyengine_score": right_metrics.get("policyengine_score"),
             "left_estimated_cost_usd": left.get("estimated_cost_usd") if left else None,
-            "right_estimated_cost_usd": right.get("estimated_cost_usd") if right else None,
+            "right_estimated_cost_usd": right.get("estimated_cost_usd")
+            if right
+            else None,
             "left_duration_ms": left.get("duration_ms") if left else None,
             "right_duration_ms": right.get("duration_ms") if right else None,
             "left_output_file": left.get("output_file") if left else None,
@@ -3061,7 +3084,9 @@ def _build_eval_suite_report(payload: dict, left_runner: str, right_runner: str)
 
     runner_summaries: dict[str, dict] = {}
     for runner in [left_runner, right_runner]:
-        runner_results = [result for result in results if result.get("runner") == runner]
+        runner_results = [
+            result for result in results if result.get("runner") == runner
+        ]
         summary = dict(readiness.get(runner) or {})
         summary["mean_duration_ms"] = _mean_numeric(
             [result.get("duration_ms") for result in runner_results]
@@ -3112,11 +3137,7 @@ def _render_eval_suite_report_markdown(report: dict) -> str:
         f"- Left runner: `{left_runner}`",
         f"- Right runner: `{right_runner}`",
         "",
-        "| Metric | "
-        + left_runner
-        + " | "
-        + right_runner
-        + " |",
+        "| Metric | " + left_runner + " | " + right_runner + " |",
         "| --- | ---: | ---: |",
         f"| Cases | {left_summary.get('total_cases', left_summary.get('case_count', 'n/a'))} | {right_summary.get('total_cases', right_summary.get('case_count', 'n/a'))} |",
         f"| Success rate | {_format_percent(left_summary.get('success_rate'))} | {_format_percent(right_summary.get('success_rate'))} |",
@@ -3173,9 +3194,21 @@ def _render_eval_suite_report_markdown(report: dict) -> str:
             "| "
             + row["case"]
             + " | "
-            + ("pass" if row["left_compile_pass"] else "fail" if row["left_compile_pass"] is not None else "n/a")
+            + (
+                "pass"
+                if row["left_compile_pass"]
+                else "fail"
+                if row["left_compile_pass"] is not None
+                else "n/a"
+            )
             + " | "
-            + ("pass" if row["right_compile_pass"] else "fail" if row["right_compile_pass"] is not None else "n/a")
+            + (
+                "pass"
+                if row["right_compile_pass"]
+                else "fail"
+                if row["right_compile_pass"] is not None
+                else "n/a"
+            )
             + " | "
             + (_format_percent(left_pe) if left_pe is not None else "n/a")
             + " | "
@@ -3198,7 +3231,9 @@ def cmd_eval_suite_report(args):
         print(f"No runner results found in {args.result_json}")
         sys.exit(1)
 
-    left_runner = args.left_runner or (available_runners[0] if available_runners else None)
+    left_runner = args.left_runner or (
+        available_runners[0] if available_runners else None
+    )
     right_runner = args.right_runner or (
         available_runners[1] if len(available_runners) > 1 else None
     )
@@ -3218,7 +3253,9 @@ def cmd_eval_suite_report(args):
     if args.csv_out:
         args.csv_out.parent.mkdir(parents=True, exist_ok=True)
         with args.csv_out.open("w", newline="") as fh:
-            fieldnames = list(report["case_rows"][0].keys()) if report["case_rows"] else []
+            fieldnames = (
+                list(report["case_rows"][0].keys()) if report["case_rows"] else []
+            )
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             if fieldnames:
                 writer.writeheader()

@@ -3638,13 +3638,16 @@ assessed_income_period_10_2_a_satisfied:
         assert any("Carve-out logic inverted" in issue for issue in issues)
 
     def test_reviewer_no_json_in_output(self, pipeline, temp_rac_file):
-        """Reviewer handles response without JSON."""
+        """Reviewer handles response without JSON via structured parse-failure result."""
         with patch("autorac.harness.validator_pipeline.run_claude_code") as mock_claude:
             mock_claude.return_value = ("No JSON here, just text", 0)
             result = pipeline._run_reviewer("rac-reviewer", temp_rac_file)
             assert result.passed is False
             assert result.score is None
-            assert any("error" in issue.lower() for issue in result.issues)
+            # New behavior: structured reviewer_parse_failed tag + detail message
+            assert "reviewer_parse_failed" in result.issues
+            assert result.error is not None
+            assert "reviewer_parse_failed" in result.error
 
     def test_reviewer_parses_fenced_generalist_json(self, pipeline, temp_rac_file):
         with patch("autorac.harness.validator_pipeline.run_claude_code") as mock_claude:

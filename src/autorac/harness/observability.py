@@ -419,12 +419,8 @@ def _base_llm_attributes(
         attrs["gen_ai.usage.input_tokens"] = usage.input_tokens
         attrs["gen_ai.usage.output_tokens"] = usage.output_tokens
         attrs["gen_ai.usage.cache_read.input_tokens"] = usage.cache_read_tokens
-        attrs["gen_ai.usage.cache_creation.input_tokens"] = (
-            usage.cache_creation_tokens
-        )
-        attrs["autorac.usage.reasoning_output_tokens"] = (
-            usage.reasoning_output_tokens
-        )
+        attrs["gen_ai.usage.cache_creation.input_tokens"] = usage.cache_creation_tokens
+        attrs["autorac.usage.reasoning_output_tokens"] = usage.reasoning_output_tokens
 
     if cost_usd is not None:
         attrs["autorac.cost.total_usd"] = cost_usd
@@ -663,7 +659,9 @@ def _reasoning_span_events(
 ) -> list[tuple[str, Mapping[str, Any]]]:
     """Convert extracted reasoning entries into compact OTLP events."""
     events: list[tuple[str, Mapping[str, Any]]] = []
-    for index, entry in enumerate(extract_reasoning_entries(trace_payload)[:10], start=1):
+    for index, entry in enumerate(
+        extract_reasoning_entries(trace_payload)[:10], start=1
+    ):
         events.append(
             (
                 "autorac.reasoning",

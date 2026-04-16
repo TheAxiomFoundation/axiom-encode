@@ -483,7 +483,6 @@ class CodexCLIBackend(EncoderBackend):
         }
 
 
-
 class AgentSDKBackend(EncoderBackend):
     """
     Backend using Claude API (anthropic SDK).

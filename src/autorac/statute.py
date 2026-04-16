@@ -39,32 +39,50 @@ def parse_usc_citation(citation: str) -> CitationParts:
 
     title = pieces[0]
     remainder = pieces[1].replace(" ", "")
-    match = re.match(r"^(?P<section>[0-9A-Za-z.-]+)(?P<tail>(?:\([^)]+\))*)$", remainder)
+    match = re.match(
+        r"^(?P<section>[0-9A-Za-z.-]+)(?P<tail>(?:\([^)]+\))*)$", remainder
+    )
     if not match:
         raise ValueError(f"Could not parse citation: {citation}")
 
     fragments = tuple(re.findall(r"\(([^)]+)\)", match.group("tail")))
-    return CitationParts(title=title, section=match.group("section"), fragments=fragments)
+    return CitationParts(
+        title=title, section=match.group("section"), fragments=fragments
+    )
 
 
 def citation_to_source_path(citation: str | CitationParts) -> str:
     """Convert a citation into the XML subsection source path format."""
-    parts = citation if isinstance(citation, CitationParts) else parse_usc_citation(citation)
+    parts = (
+        citation
+        if isinstance(citation, CitationParts)
+        else parse_usc_citation(citation)
+    )
     path_parts = [parts.title, parts.section, *parts.fragments]
     return "usc/" + "/".join(path_parts)
 
 
 def citation_to_relative_rac_path(citation: str | CitationParts) -> Path:
     """Convert a citation into the repo-relative RAC output path."""
-    parts = citation if isinstance(citation, CitationParts) else parse_usc_citation(citation)
+    parts = (
+        citation
+        if isinstance(citation, CitationParts)
+        else parse_usc_citation(citation)
+    )
     if not parts.fragments:
         return Path(parts.title) / parts.section / f"{parts.section}.rac"
-    return Path(parts.title) / parts.section / Path(*parts.fragments).with_suffix(".rac")
+    return (
+        Path(parts.title) / parts.section / Path(*parts.fragments).with_suffix(".rac")
+    )
 
 
 def uscode_xml_path(xml_root: Path, citation: str | CitationParts) -> Path:
     """Resolve the USC XML file for a citation."""
-    parts = citation if isinstance(citation, CitationParts) else parse_usc_citation(citation)
+    parts = (
+        citation
+        if isinstance(citation, CitationParts)
+        else parse_usc_citation(citation)
+    )
     return Path(xml_root) / f"usc{parts.title}.xml"
 
 

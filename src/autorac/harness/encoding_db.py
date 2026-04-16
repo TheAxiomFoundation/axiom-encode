@@ -474,7 +474,9 @@ class EncodingDB:
         ]:
             try:
                 col_type = (
-                    "TEXT DEFAULT ''" if col == "autorac_version" else "INTEGER DEFAULT 0"
+                    "TEXT DEFAULT ''"
+                    if col == "autorac_version"
+                    else "INTEGER DEFAULT 0"
                 )
                 cursor.execute(f"ALTER TABLE sessions ADD COLUMN {col} {col_type}")
             except sqlite3.OperationalError:

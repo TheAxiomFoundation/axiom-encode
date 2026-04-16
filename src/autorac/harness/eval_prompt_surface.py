@@ -6,9 +6,7 @@ pipeline. The AutoAgent pilot should edit this file, not the corpus repos,
 promotion scripts, or Atlas integration.
 """
 
-AUTOAGENT_PILOT_EDITABLE_FILES = (
-    "src/autorac/harness/eval_prompt_surface.py",
-)
+AUTOAGENT_PILOT_EDITABLE_FILES = ("src/autorac/harness/eval_prompt_surface.py",)
 
 
 def render_uk_legislation_guidance() -> str:

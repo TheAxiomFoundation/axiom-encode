@@ -630,7 +630,8 @@ def _fetch_legislation_gov_uk_document(
     source_id, content_url = _normalize_legislation_gov_uk_source_ref(source_ref)
     source_base_dir = (
         Path(fetch_cache_root) / "_legislation_gov_uk_cache"
-        if fetch_cache_root is not None and Path(fetch_cache_root).resolve() != Path(output_root).resolve()
+        if fetch_cache_root is not None
+        and Path(fetch_cache_root).resolve() != Path(output_root).resolve()
         else Path(output_root) / "_legislation_gov_uk"
     )
     source_dir = source_base_dir / _slugify(source_id)
@@ -694,12 +695,19 @@ def _fetch_legislation_gov_uk_text(
 
 def _akn_title(element: ET.Element) -> str:
     return " ".join(
-        item for item in (_akn_child_text(element, "num"), _akn_child_text(element, "heading")) if item
+        item
+        for item in (
+            _akn_child_text(element, "num"),
+            _akn_child_text(element, "heading"),
+        )
+        if item
     ).strip()
 
 
 def _akn_ancestor_titles(root: ET.Element, section: ET.Element) -> list[str]:
-    parent_by_child = {child: parent for parent in root.iter() for child in list(parent)}
+    parent_by_child = {
+        child: parent for parent in root.iter() for child in list(parent)
+    }
     titles: list[str] = []
     current = parent_by_child.get(section)
     while current is not None:
@@ -802,13 +810,17 @@ def _append_akn_content_block_text(
                 _table_rows_from_element(table),
                 table_row_query=table_row_query,
             )
-            formatted_rows = [" | ".join(cell for cell in row if cell) for row in selected_rows]
+            formatted_rows = [
+                " | ".join(cell for cell in row if cell) for row in selected_rows
+            ]
             if formatted_rows:
                 parts.append("Structured table:\n" + "\n".join(formatted_rows))
 
 
 def _akn_ancestor_intro_text(root: ET.Element, section: ET.Element) -> list[str]:
-    parent_by_child = {child: parent for parent in root.iter() for child in list(parent)}
+    parent_by_child = {
+        child: parent for parent in root.iter() for child in list(parent)
+    }
     intros: list[str] = []
     current = parent_by_child.get(section)
     lineage: list[ET.Element] = []
@@ -854,7 +866,10 @@ def _resolve_akn_section_eid(
         child_eid = child.get("eId", "<unknown>")
         label = " ".join(
             item
-            for item in (_akn_child_text(child, "num"), _akn_child_text(child, "heading"))
+            for item in (
+                _akn_child_text(child, "num"),
+                _akn_child_text(child, "heading"),
+            )
             if item
         ).strip()
         child_summaries.append(f"{child_eid} ({label or 'child'})")
@@ -1054,9 +1069,7 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
     gates = EvalReadinessGates(
         min_cases=int(gates_raw.get("min_cases", 1)),
         min_success_rate=_optional_float(gates_raw.get("min_success_rate")),
-        min_compile_pass_rate=_optional_float(
-            gates_raw.get("min_compile_pass_rate")
-        ),
+        min_compile_pass_rate=_optional_float(gates_raw.get("min_compile_pass_rate")),
         min_ci_pass_rate=_optional_float(gates_raw.get("min_ci_pass_rate")),
         min_zero_ungrounded_rate=_optional_float(
             gates_raw.get("min_zero_ungrounded_rate")
@@ -1085,15 +1098,12 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
             raise ValueError(f"Unsupported eval suite case kind '{kind}'")
 
         case_mode = _coerce_eval_mode(item.get("mode", default_mode))
-        name = (
-            str(item.get("name", "")).strip()
-            or str(
-                item.get("citation")
-                or item.get("source_id")
-                or item.get("source_ref")
-                or item.get("section_eid")
-                or f"case-{index}"
-            )
+        name = str(item.get("name", "")).strip() or str(
+            item.get("citation")
+            or item.get("source_id")
+            or item.get("source_ref")
+            or item.get("section_eid")
+            or f"case-{index}"
         )
 
         case = EvalSuiteCase(
@@ -1270,7 +1280,10 @@ def run_eval_suite(
                     elif case.kind == "akn_section":
                         policy_repo_root = (
                             find_policy_repo_root(case.metadata_file or case.akn_file)
-                            if (case.metadata_file is not None or case.akn_file is not None)
+                            if (
+                                case.metadata_file is not None
+                                or case.akn_file is not None
+                            )
                             else None
                         ) or rac_path
                         case_results = run_akn_section_eval(
@@ -1310,7 +1323,9 @@ def run_eval_suite(
                             ),
                         )
                 except Exception as exc:
-                    case_results = _suite_case_failure_results(case, parsed_runners, exc)
+                    case_results = _suite_case_failure_results(
+                        case, parsed_runners, exc
+                    )
 
                 if (
                     attempt_index >= attempts - 1
@@ -1705,7 +1720,9 @@ def summarize_readiness(
 ) -> EvalReadinessSummary:
     """Summarize suite readiness for one runner."""
     total_cases = len(results)
-    success_rate = _fraction(sum(1 for result in results if result.success), total_cases)
+    success_rate = _fraction(
+        sum(1 for result in results if result.success), total_cases
+    )
     compile_pass_rate = _fraction(
         sum(
             1
@@ -1726,7 +1743,8 @@ def summarize_readiness(
         sum(
             1
             for result in results
-            if result.metrics is not None and result.metrics.ungrounded_numeric_count == 0
+            if result.metrics is not None
+            and result.metrics.ungrounded_numeric_count == 0
         ),
         total_cases,
     )
@@ -1895,7 +1913,11 @@ def _validate_eval_suite_case(case: EvalSuiteCase, index: int) -> None:
             raise ValueError(
                 f"Eval suite case #{index} is missing 'akn_file' or 'metadata_file'"
             )
-        if not case.section_eid and not case.section_eids and case.metadata_file is None:
+        if (
+            not case.section_eid
+            and not case.section_eids
+            and case.metadata_file is None
+        ):
             raise ValueError(
                 f"Eval suite case #{index} is missing 'section_eid' or 'section_eids'"
             )
@@ -1946,7 +1968,11 @@ def select_context_files(
     max_files: int = 6,
 ) -> list[Path]:
     """Select canonical implementation precedent files for repo-augmented evals."""
-    parts = citation if isinstance(citation, CitationParts) else parse_usc_citation(citation)
+    parts = (
+        citation
+        if isinstance(citation, CitationParts)
+        else parse_usc_citation(citation)
+    )
     section_root = Path(rac_us_root) / parts.title / parts.section
     target_rel = citation_to_relative_rac_path(parts)
     target_path = Path(rac_us_root) / target_rel
@@ -2021,7 +2047,9 @@ def prepare_eval_workspace(
             )
         source_metadata = payload
     else:
-        source_metadata_path, source_metadata = _load_source_metadata_for_path(source_path)
+        source_metadata_path, source_metadata = _load_source_metadata_for_path(
+            source_path
+        )
     source_metadata_file: Path | None = None
     if source_metadata is not None:
         source_metadata_file = workspace_root / "source-metadata.json"
@@ -2561,10 +2589,7 @@ def _run_single_eval(
         _hydrate_eval_root(output_file.parents[1], workspace)
 
     trace_file = (
-        Path(output_root)
-        / "traces"
-        / runner.name
-        / f"{_slugify(citation)}.json"
+        Path(output_root) / "traces" / runner.name / f"{_slugify(citation)}.json"
     )
     trace_file.parent.mkdir(parents=True, exist_ok=True)
     trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
@@ -2663,10 +2688,7 @@ def _run_single_source_eval(
         _hydrate_eval_root(output_file.parents[1], workspace)
 
     trace_file = (
-        Path(output_root)
-        / "traces"
-        / runner.name
-        / f"{_slugify(source_id)}.json"
+        Path(output_root) / "traces" / runner.name / f"{_slugify(source_id)}.json"
     )
     trace_file.parent.mkdir(parents=True, exist_ok=True)
     trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
@@ -3273,7 +3295,10 @@ def _expand_context_files(
         resolved = source_path.resolve()
         if resolved in seen:
             continue
-        if target_rel is not None and _relative_to_root(source_path, rac_us_root) == target_rel:
+        if (
+            target_rel is not None
+            and _relative_to_root(source_path, rac_us_root) == target_rel
+        ):
             continue
         seen.add(resolved)
         expanded.append((source_path, kind))
@@ -3449,9 +3474,7 @@ def _run_claude_prompt_eval(
             input_tokens=int(usage.get("input_tokens", 0) or 0),
             output_tokens=int(usage.get("output_tokens", 0) or 0),
             cache_read_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
-            cache_creation_tokens=int(
-                usage.get("cache_creation_input_tokens", 0) or 0
-            ),
+            cache_creation_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
         )
         actual_cost = payload.get("total_cost_usd")
         text = payload.get("result", "") or ""
@@ -3513,9 +3536,10 @@ def _run_codex_prompt_eval(
     start = time.time()
     terminated_after_output = False
     timed_out = False
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file, tempfile.NamedTemporaryFile(
-        mode="w+", delete=False
-    ) as stderr_file:
+    with (
+        tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
+        tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
+    ):
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
         process = subprocess.Popen(
@@ -3596,8 +3620,10 @@ def _run_codex_prompt_eval(
     if timed_out and not error and not final_text:
         error = "Codex eval timed out"
 
-    if process.returncode != 0 and not error and not (
-        (terminated_after_output and final_text) or (timed_out and final_text)
+    if (
+        process.returncode != 0
+        and not error
+        and not ((terminated_after_output and final_text) or (timed_out and final_text))
     ):
         error = (stdout_text + stderr_text).strip() or "Codex eval failed"
 
@@ -3939,8 +3965,10 @@ def _extract_generated_file_bundle(llm_response: str) -> dict[str, str]:
     files: dict[str, str] = {}
     for index, match in enumerate(matches):
         start = match.end()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(
-            llm_response
+        end = (
+            matches[index + 1].start()
+            if index + 1 < len(matches)
+            else len(llm_response)
         )
         content = llm_response[start:end].strip()
         if content:
@@ -3982,11 +4010,8 @@ def _normalize_rac_code_numeric_literals(content: str) -> str:
         closing_index = content.find('"""', 3)
         if closing_index != -1:
             code_start = closing_index + 3
-            return (
-                content[:code_start]
-                + _normalize_direct_scalar_numeric_expressions(
-                    _normalize_comma_numeric_literals(content[code_start:])
-                )
+            return content[:code_start] + _normalize_direct_scalar_numeric_expressions(
+                _normalize_comma_numeric_literals(content[code_start:])
             )
     return _normalize_direct_scalar_numeric_expressions(
         _normalize_comma_numeric_literals(content)
@@ -4005,7 +4030,9 @@ def _normalize_direct_scalar_numeric_expressions(content: str) -> str:
         if inline_match:
             expression = inline_match.group(2).strip()
             if _PURE_NUMERIC_EXPRESSION_PATTERN.fullmatch(expression):
-                if (formatted := _format_safe_numeric_expression(expression)) is not None:
+                if (
+                    formatted := _format_safe_numeric_expression(expression)
+                ) is not None:
                     rewritten.append(f"{inline_match.group(1)}{formatted}")
                     index += 1
                     continue
@@ -4022,7 +4049,9 @@ def _normalize_direct_scalar_numeric_expressions(content: str) -> str:
                     > len(line) - len(line.lstrip())
                 )
             ):
-                if (formatted := _format_safe_numeric_expression(expression)) is not None:
+                if (
+                    formatted := _format_safe_numeric_expression(expression)
+                ) is not None:
                     rewritten.append(f"{block_match.group(1)} {formatted}")
                     index += 2
                     continue
@@ -4050,7 +4079,10 @@ def _normalize_source_text_wrapper_rac_content(content: str) -> str:
     if not match:
         return content
 
-    doc_lines = [line[8:] if line.startswith("        ") else line for line in match.group("doc").splitlines()]
+    doc_lines = [
+        line[8:] if line.startswith("        ") else line
+        for line in match.group("doc").splitlines()
+    ]
     docstring = '"""\n' + "\n".join(doc_lines).strip("\n") + '\n"""\n'
     remainder = content[match.end() :].lstrip("\n")
     if remainder:
@@ -4065,7 +4097,8 @@ def _normalize_single_amount_row_rac_content(content: str) -> str:
         r"(^\s*from\s+\d{4}-\d{2}-\d{2}:\s*)if\b.+?:\s*(.+?)\s*(?:else:\s*0(?:\.0+)?)?\s*$",
         lambda match: (
             f"{match.group(1)}{formatted}"
-            if (formatted := _format_safe_numeric_expression(match.group(2))) is not None
+            if (formatted := _format_safe_numeric_expression(match.group(2)))
+            is not None
             else match.group(0)
         ),
         normalized,
@@ -4118,7 +4151,9 @@ def _evaluate_safe_numeric_expression(expression: str) -> float:
     def visit(current: ast.AST) -> float:
         if isinstance(current, ast.Expression):
             return visit(current.body)
-        if isinstance(current, ast.Constant) and isinstance(current.value, (int, float)):
+        if isinstance(current, ast.Constant) and isinstance(
+            current.value, (int, float)
+        ):
             return float(current.value)
         if isinstance(current, ast.UnaryOp) and isinstance(
             current.op, (ast.UAdd, ast.USub)
@@ -4158,7 +4193,8 @@ def _normalize_single_amount_row_test_content(
         return normalized
 
     annual_period = bool(
-        rac_content and re.search(r"^\s*period:\s*Year\s*$", rac_content, flags=re.MULTILINE)
+        rac_content
+        and re.search(r"^\s*period:\s*Year\s*$", rac_content, flags=re.MULTILINE)
     )
     effective_date = _extract_effective_date_for_tests(
         rac_content=rac_content,
@@ -4195,7 +4231,8 @@ def _normalize_single_amount_row_test_content(
             numeric_output = {
                 key: value
                 for key, value in output.items()
-                if value is None or (isinstance(value, (int, float)) and not isinstance(value, bool))
+                if value is None
+                or (isinstance(value, (int, float)) and not isinstance(value, bool))
             }
             if numeric_output:
                 normalized_case["output"] = numeric_output
@@ -4431,7 +4468,15 @@ def _normalize_test_case_value(value: object) -> object:
         key: _normalize_test_case_value(inner) for key, inner in value.items()
     }
     lowered_keys = {str(key).lower() for key in normalized.keys()}
-    metadata_keys = {"entity", "period", "dtype", "unit", "label", "description", "default"}
+    metadata_keys = {
+        "entity",
+        "period",
+        "dtype",
+        "unit",
+        "label",
+        "description",
+        "default",
+    }
 
     values_entries = [
         inner for key, inner in normalized.items() if str(key).lower() == "values"
@@ -4447,7 +4492,14 @@ def _normalize_test_case_value(value: object) -> object:
         for key, inner in normalized.items()
         if str(key).lower().startswith("from ")
     ]
-    if from_entries and lowered_keys.issubset(metadata_keys | {str(key).lower() for key in normalized.keys() if str(key).lower().startswith("from ")}):
+    if from_entries and lowered_keys.issubset(
+        metadata_keys
+        | {
+            str(key).lower()
+            for key in normalized.keys()
+            if str(key).lower().startswith("from ")
+        }
+    ):
         if len(from_entries) == 1:
             return _normalize_test_case_value(from_entries[0])
 
@@ -4539,9 +4591,7 @@ def _normalize_test_periods_to_effective_dates(
             if not isinstance(output, dict):
                 continue
             if any(
-                (
-                    isinstance(value, bool) and value
-                )
+                (isinstance(value, bool) and value)
                 or (
                     isinstance(value, (int, float))
                     and not isinstance(value, bool)
@@ -4568,8 +4618,10 @@ def _normalize_test_periods_to_effective_dates(
                 granularity=granularity,
             )
         elif granularity == "Month":
-            normalized_case["period"] = _normalize_placeholder_monthly_test_period_value(
-                normalized_case.get("period")
+            normalized_case["period"] = (
+                _normalize_placeholder_monthly_test_period_value(
+                    normalized_case.get("period")
+                )
             )
 
         for key in ("input", "inputs", "output"):
@@ -4579,9 +4631,9 @@ def _normalize_test_periods_to_effective_dates(
                     for child_key, child_value in normalized_case[key].items()
                 }
         if "expect" in normalized_case:
-                normalized_case["expect"] = _normalize_test_case_value(
-                    normalized_case["expect"]
-                )
+            normalized_case["expect"] = _normalize_test_case_value(
+                normalized_case["expect"]
+            )
         return normalized_case
 
     if cases is not None:
@@ -4598,10 +4650,13 @@ def _normalize_test_periods_to_effective_dates(
             ):
                 continue
             filtered_cases.append(case)
-        return yaml.safe_dump(
-            [normalize_case(case) for case in filtered_cases],
-            sort_keys=False,
-        ).strip() + "\n"
+        return (
+            yaml.safe_dump(
+                [normalize_case(case) for case in filtered_cases],
+                sort_keys=False,
+            ).strip()
+            + "\n"
+        )
 
     return normalized
 

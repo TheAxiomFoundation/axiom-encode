@@ -2,7 +2,22 @@
 RAC Encoder prompt -- embedded from rules-foundation-claude/agents/encoder.md.
 
 Encodes tax/benefit rules into RAC format.
+
+Versioning policy
+-----------------
+``__version__`` is a simple integer that identifies the currently shipped
+encoder prompt. Bump it whenever the prompt text below changes in a way that
+could materially affect encoder behaviour (new instructions, removed rules,
+changed output contract, etc.). Pure typo fixes do not require a bump.
+
+The encoding DB stores the prompt hash on each run, so this integer is an
+intentional, human-readable signal on top of that hash that makes diffs in
+the prompt registry easy to reason about.
+
+See ``docs/prompt-versioning.md`` for the full policy.
 """
+
+__version__ = 1
 
 ENCODER_PROMPT = """# RAC Encoder
 

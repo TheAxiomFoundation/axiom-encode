@@ -458,7 +458,9 @@ class Orchestrator:
             )
             run.agent_runs.append(analysis)
             self._log_agent_run(run.session_id, analysis)
-            self._log_analysis_provenance(run.session_id, citation, analysis.result or "")
+            self._log_analysis_provenance(
+                run.session_id, citation, analysis.result or ""
+            )
 
             # Phase 2: Encoding
             if analysis.result:
@@ -730,9 +732,7 @@ class Orchestrator:
                 },
             }
         except FileNotFoundError:
-            not_found_text = (
-                "Claude CLI not found - install with: npm install -g @anthropic-ai/claude-code"
-            )
+            not_found_text = "Claude CLI not found - install with: npm install -g @anthropic-ai/claude-code"
             return {
                 "text": not_found_text,
                 "trace": {
@@ -876,10 +876,7 @@ class Orchestrator:
             cache_read_tokens=int(input_details.get("cached_tokens", 0) or 0),
         )
         tokens.reasoning_output_tokens = int(
-            (
-                (usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0)
-                or 0
-            )
+            ((usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0)
         )
 
         text = self._extract_openai_response_text(payload)
@@ -1060,9 +1057,7 @@ class Orchestrator:
             ),
             (
                 "parameter_reviewer",
-                get_parameter_reviewer_prompt(
-                    citation, oracle_summary, review_context
-                ),
+                get_parameter_reviewer_prompt(citation, oracle_summary, review_context),
             ),
             (
                 "integration_reviewer",
@@ -1357,7 +1352,9 @@ Output path: {output_path}
             )
             wave_failures: list[str] = []
 
-            async def encode_one(task: SubsectionTask) -> tuple[SubsectionTask, AgentRun]:
+            async def encode_one(
+                task: SubsectionTask,
+            ) -> tuple[SubsectionTask, AgentRun]:
                 async with semaphore:
                     prompt = self._build_subsection_prompt(
                         task, citation, output_path, statute_text
@@ -1425,7 +1422,8 @@ Output path: {output_path}
                     self._log_provenance_decision(
                         session_id,
                         f"Compile repair attempt {repair_attempts} for subsection ({task.subsection_id})",
-                        compile_result.issues or [compile_result.error or "compile failed"],
+                        compile_result.issues
+                        or [compile_result.error or "compile failed"],
                         Phase.ENCODING,
                         metadata={
                             "subsection_id": task.subsection_id,
@@ -1635,14 +1633,16 @@ Output path: {output_path}
             return citation
 
         base_fragments = list(parts.fragments)
-        if base_fragments and subsection_fragments[: len(base_fragments)] == base_fragments:
+        if (
+            base_fragments
+            and subsection_fragments[: len(base_fragments)] == base_fragments
+        ):
             all_fragments = subsection_fragments
         else:
             all_fragments = base_fragments + subsection_fragments
 
-        return (
-            f"{parts.title} USC {parts.section}"
-            + "".join(f"({fragment})" for fragment in all_fragments)
+        return f"{parts.title} USC {parts.section}" + "".join(
+            f"({fragment})" for fragment in all_fragments
         )
 
     def _lookup_precise_subsection_text(
@@ -1724,7 +1724,9 @@ Output path: {output_path}
                 ]
             )
         elif statute_text:
-            prompt_parts.extend(["", "## Full statute text (excerpt)", statute_text[:5000]])
+            prompt_parts.extend(
+                ["", "## Full statute text (excerpt)", statute_text[:5000]]
+            )
 
         prompt_parts.extend(
             [
@@ -2017,7 +2019,8 @@ Read any .rac file for reference on style and patterns."""
             )
             if not result.passed:
                 failures.extend(
-                    f"{rac_file}: {issue}" for issue in (result.issues or [result.error or "compile failed"])
+                    f"{rac_file}: {issue}"
+                    for issue in (result.issues or [result.error or "compile failed"])
                 )
 
         if failures:
@@ -2271,7 +2274,9 @@ Read any .rac file for reference on style and patterns."""
 
             if registered_specs:
                 expected_path.parent.mkdir(parents=True, exist_ok=True)
-                expected_path.write_text(build_registered_stub_content(registered_specs))
+                expected_path.write_text(
+                    build_registered_stub_content(registered_specs)
+                )
                 created.append(expected_path)
                 print(f"    Wrote registered stub: {expected_path}", flush=True)
                 if session_id:
@@ -2462,9 +2467,7 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
         if not llm_response or "=== FILE:" not in llm_response:
             return {}
 
-        pattern = re.compile(
-            r"^=== FILE:\s*(?P<name>.+?)\s*===\s*$", re.MULTILINE
-        )
+        pattern = re.compile(r"^=== FILE:\s*(?P<name>.+?)\s*===\s*$", re.MULTILINE)
         matches = list(pattern.finditer(llm_response))
         if not matches:
             return {}
@@ -2472,8 +2475,10 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
         files: dict[str, str] = {}
         for index, match in enumerate(matches):
             start = match.end()
-            end = matches[index + 1].start() if index + 1 < len(matches) else len(
-                llm_response
+            end = (
+                matches[index + 1].start()
+                if index + 1 < len(matches)
+                else len(llm_response)
             )
             content = llm_response[start:end].strip()
             if content:
@@ -2859,7 +2864,9 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
 
         embedded_source_text = extract_embedded_source_text(content)
         source_text = embedded_source_text or fallback_source_text or ""
-        source_numbers = extract_numbers_from_text(source_text) if source_text else set()
+        source_numbers = (
+            extract_numbers_from_text(source_text) if source_text else set()
+        )
         numeric_values = extract_grounding_values(content)
         grounded = []
         ungrounded = []
@@ -2900,7 +2907,11 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
             )
         if embedded_source_text:
             excerpt = embedded_source_text.strip().replace("\n", " ")
-            lines.append("Source excerpt: " + excerpt[:400] + ("..." if len(excerpt) > 400 else ""))
+            lines.append(
+                "Source excerpt: "
+                + excerpt[:400]
+                + ("..." if len(excerpt) > 400 else "")
+            )
 
         return (
             "\n".join(lines),
@@ -3068,7 +3079,8 @@ Return ONLY the .rac file content. No markdown fences, no explanation. The file 
             f"Review result for {review_run.agent_type}",
             f"Passed: {passed}",
             f"Score: {score}",
-            "Issues: " + (", ".join(str(issue) for issue in issues) if issues else "none"),
+            "Issues: "
+            + (", ".join(str(issue) for issue in issues) if issues else "none"),
         ]
 
         self._log_session_event(

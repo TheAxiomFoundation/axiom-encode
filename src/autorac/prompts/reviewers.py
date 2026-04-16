@@ -6,7 +6,20 @@ Four specialized reviewers:
 - Formula Reviewer: logic correctness, statutory fidelity
 - Parameter Reviewer: values, effective dates, units
 - Integration Reviewer: imports, dependencies, file connections
+
+Versioning policy
+-----------------
+``__version__`` identifies the currently shipped bundle of reviewer prompts.
+Bump it whenever ANY reviewer prompt below changes in a way that could affect
+reviewer verdicts (new/removed rules, changed JSON contract, changed rubric).
+
+The encoding DB records prompt hashes per reviewer run, so this integer is an
+additional human-readable signal; it is not an authoritative cache key.
+
+See ``docs/prompt-versioning.md`` for the full policy.
 """
+
+__version__ = 1
 
 RAC_REVIEWER_PROMPT = """# RAC Reviewer Agent
 

@@ -486,7 +486,7 @@ test:
             result = harness._encode("26 USC 32", "EITC statute", output_path)
 
             assert '"""' in result
-            assert "TODO: Implement formula" in result
+            assert "TODO(#issue-needed): Implement formula" in result
             assert output_path.exists()
 
 

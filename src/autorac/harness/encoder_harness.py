@@ -256,7 +256,10 @@ class EncoderHarness:
   label: "{citation}"
   description: "Auto-generated placeholder - encoding failed"
   formula: |
-    # TODO: Implement formula
+    # TODO(#issue-needed): Implement formula for {citation}.
+    # This fallback was emitted after the encoder failed. A human (or a
+    # retry with a stronger model) needs to author the real formula. See
+    # CHANGELOG.md for the tracked list of open encoder TODOs.
     return 0
   default: 0
 '''

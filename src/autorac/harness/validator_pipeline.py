@@ -17,6 +17,7 @@ Uses Claude Code CLI (subprocess) for reviewer agents - cheaper than direct API.
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -43,6 +44,8 @@ from .dependency_stubs import (
     resolve_defined_terms_from_text,
 )
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
+
+logger = logging.getLogger(__name__)
 
 
 def run_claude_code(
@@ -216,9 +219,7 @@ _PE_US_VAR_ADAPTERS = (
         pe_var="snap_earned_income_deduction",
         monthly=True,
         spm=True,
-        direct_spm_overrides=(
-            ("snap_earned_income", "snap_earned_income"),
-        ),
+        direct_spm_overrides=(("snap_earned_income", "snap_earned_income"),),
         derived_spm_overrides=(
             (
                 "snap_earned_income",
@@ -250,7 +251,11 @@ _PE_US_VAR_ADAPTERS = (
         monthly=True,
         spm=True,
         derived_spm_overrides=(
-            ("snap_net_income", "difference", ("snap_household_income", "snap_deductions")),
+            (
+                "snap_net_income",
+                "difference",
+                ("snap_household_income", "snap_deductions"),
+            ),
         ),
     ),
     _PolicyEngineUSVarAdapter(
@@ -388,8 +393,7 @@ _PE_US_VAR_ADAPTERS = (
         rac_vars=("snap_homeless_shelter_deduction_available",),
         pe_var="snap_homeless_shelter_deduction_available",
         parameter_path=(
-            "gov.usda.snap.income.deductions.excess_shelter_expense."
-            "homeless.available"
+            "gov.usda.snap.income.deductions.excess_shelter_expense.homeless.available"
         ),
     ),
     _PolicyEngineUSVarAdapter(
@@ -566,9 +570,10 @@ def _run_subprocess_with_idle_timeout(
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file, tempfile.NamedTemporaryFile(
-        mode="w+", delete=False
-    ) as stderr_file:
+    with (
+        tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
+        tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
+    ):
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
         process = subprocess.Popen(
@@ -796,9 +801,7 @@ GROUNDING_MONTH_PERIOD_PATTERN = re.compile(r"\b\d{4}-\d{2}\b")
 GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
     r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
 )
-SOURCE_TEXT_NUMBER_PATTERN = re.compile(
-    r"(?:^|(?<=[\s$£€(\[,]))(-?[\d,]+(?:\.\d+)?)\b"
-)
+SOURCE_TEXT_NUMBER_PATTERN = re.compile(r"(?:^|(?<=[\s$£€(\[,]))(-?[\d,]+(?:\.\d+)?)\b")
 GROUNDING_METADATA_KEYS = {
     "entity",
     "period",
@@ -815,9 +818,7 @@ GROUNDING_METADATA_KEYS = {
 }
 
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
-IMPORT_MAPPING_PATTERN = re.compile(
-    r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$"
-)
+IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_BLOCK_HEADER = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*$")
 _EMBEDDED_SCALAR_TEMPORAL_LINE = re.compile(
     r"^(\s*)from\s+\d{4}-\d{2}-\d{2}:\s*(.*?)\s*$"
@@ -906,9 +907,7 @@ _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN = re.compile(
     r"^\s*For\s+[A-Za-z][A-Za-z .'-]*,\s+the\s+allowance\s+is\s+statewide\s+at\s+\$?\d+(?:\.\d+)?\.?\s*$",
     re.IGNORECASE,
 )
-_SOURCE_REFERENCE_TARGET_PATTERN = (
-    r"(?:\([^)]+\)|\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])|[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
-)
+_SOURCE_REFERENCE_TARGET_PATTERN = r"(?:\([^)]+\)|\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])|[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
 _SOURCE_REFERENCE_SEQUENCE_PATTERN = (
     rf"{_SOURCE_REFERENCE_TARGET_PATTERN}"
     rf"(?:\s*(?:,|or|and)\s*{_SOURCE_REFERENCE_TARGET_PATTERN})*"
@@ -957,7 +956,9 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
     r"\b\d{1,2}(?:st|nd|rd|th)\s+day\s+of\s+(?:a|the)\s+month\b",
     re.IGNORECASE,
 )
-_TABLE_HEADING_PATTERN = re.compile(r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE)
+_TABLE_HEADING_PATTERN = re.compile(
+    r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
+)
 _ORDINAL_NUMBER_PATTERN = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.IGNORECASE)
 _SCHEDULE_BLOCK_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9_ ]+:\s*$")
 _SCHEDULE_SIZE_ROW_PATTERN = re.compile(
@@ -1163,7 +1164,9 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
         if indent == 0 and symbol_match:
             candidate = symbol_match.group(1)
             current_symbol_name = (
-                None if candidate.lower() in _DEFINED_SYMBOL_METADATA_KEYS else candidate
+                None
+                if candidate.lower() in _DEFINED_SYMBOL_METADATA_KEYS
+                else candidate
             )
 
         if '"""' in stripped:
@@ -1314,7 +1317,9 @@ def _is_structural_schedule_index_literal(expression: str, literal: str) -> bool
     delta_pattern = re.compile(
         rf"(?:\(\s*)?{_SCHEDULE_INDEX_NAME_PATTERN}\s*-\s*{re.escape(literal)}(?:\s*\))?"
     )
-    return bool(comparison_pattern.search(normalized) or delta_pattern.search(normalized))
+    return bool(
+        comparison_pattern.search(normalized) or delta_pattern.search(normalized)
+    )
 
 
 def _is_structural_schedule_index_helper(name: str, value: float) -> bool:
@@ -1338,13 +1343,13 @@ def _is_structural_schedule_index_helper(name: str, value: float) -> bool:
         re.search(rf"(?:^|_)size_{index}(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_)household_size_{index}(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_)unit_size_{index}(?:_|$)", normalized_name)
-        or re.search(rf"(?:^|_){word}_person_(?:household_)?size(?:_|$)", normalized_name)
+        or re.search(
+            rf"(?:^|_){word}_person_(?:household_)?size(?:_|$)", normalized_name
+        )
         or re.search(rf"(?:^|_){word}_person_unit_size(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_){word}_person_spm_unit_size(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_)size_row_{index}(?:_|$)", normalized_name)
-        or re.search(
-            rf"(?:^|_)household_size_row_{index}(?:_|$)", normalized_name
-        )
+        or re.search(rf"(?:^|_)household_size_row_{index}(?:_|$)", normalized_name)
         or re.search(rf"(?:^|_)unit_size_row_{index}(?:_|$)", normalized_name)
         or (
             word is not None
@@ -1352,9 +1357,7 @@ def _is_structural_schedule_index_helper(name: str, value: float) -> bool:
         )
         or (
             word is not None
-            and re.search(
-                rf"(?:^|_)household_size_{word}(?:_|$)", normalized_name
-            )
+            and re.search(rf"(?:^|_)household_size_{word}(?:_|$)", normalized_name)
         )
         or (
             word is not None
@@ -1414,9 +1417,7 @@ def extract_numbers_from_text(text: str) -> set[float]:
         numbers.add(value)
         occupied_spans.append(span)
 
-    for match in re.finditer(
-        r"(?:^|(?<=[\s$£€(\[,]))(-?[\d,]+(?:\.\d+)?)\b", text
-    ):
+    for match in re.finditer(r"(?:^|(?<=[\s$£€(\[,]))(-?[\d,]+(?:\.\d+)?)\b", text):
         if _span_overlaps(match.span(1), occupied_spans):
             continue
         raw = match.group(1).replace(",", "")
@@ -1470,7 +1471,9 @@ def _iter_normalized_special_numeric_matches(
     ):
         for match in pattern.finditer(text):
             with contextlib.suppress(ValueError):
-                matches.append((match.span(), float(match.group(1).replace(",", "")) / 100))
+                matches.append(
+                    (match.span(), float(match.group(1).replace(",", "")) / 100)
+                )
 
     for match in _SUBPOUND_MONEY_PATTERN.finditer(text):
         with contextlib.suppress(ValueError):
@@ -1483,8 +1486,12 @@ def _iter_normalized_special_numeric_matches(
     return matches
 
 
-def _span_overlaps(span: tuple[int, int], occupied_spans: list[tuple[int, int]]) -> bool:
-    return any(not (span[1] <= start or span[0] >= end) for start, end in occupied_spans)
+def _span_overlaps(
+    span: tuple[int, int], occupied_spans: list[tuple[int, int]]
+) -> bool:
+    return any(
+        not (span[1] <= start or span[0] >= end) for start, end in occupied_spans
+    )
 
 
 def _clean_source_text_for_numeric_extraction(text: str) -> str:
@@ -1503,7 +1510,9 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
             continue
         if _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped):
             continue
-        if _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(structural_stripped):
+        if _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
+            structural_stripped
+        ):
             continue
 
         normalized_line = line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
@@ -1605,8 +1614,8 @@ def _extract_collapsed_schedule_row_occurrences(
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
     cleaned = _clean_source_text_for_numeric_extraction(text)
-    collapsed_schedule_occurrences, cleaned = _extract_collapsed_schedule_row_occurrences(
-        cleaned
+    collapsed_schedule_occurrences, cleaned = (
+        _extract_collapsed_schedule_row_occurrences(cleaned)
     )
 
     occurrences: list[float] = list(collapsed_schedule_occurrences)
@@ -2011,7 +2020,9 @@ class ValidatorPipeline:
                 "LLM reviewers complete",
                 {
                     "scores": {
-                        k: results[k].score for k in llm_validators.keys() if k in results
+                        k: results[k].score
+                        for k in llm_validators.keys()
+                        if k in results
                     },
                     "duration_ms": int((time.time() - llm_start) * 1000),
                 },
@@ -2205,7 +2216,10 @@ class ValidatorPipeline:
     def _is_nonassertable_status_only_artifact(self, rac_file: Path) -> bool:
         """Return true when every declared variable is a non-assertable status-only stub."""
         content = rac_file.read_text()
-        if "status: deferred" not in content and "status: entity_not_supported" not in content:
+        if (
+            "status: deferred" not in content
+            and "status: entity_not_supported" not in content
+        ):
             return False
 
         variable_blocks = re.findall(
@@ -2221,7 +2235,9 @@ class ValidatorPipeline:
                     content,
                 )
             }
-            return bool(top_level_statuses) and top_level_statuses.issubset(allowed_statuses)
+            return bool(top_level_statuses) and top_level_statuses.issubset(
+                allowed_statuses
+            )
 
         for _, body in variable_blocks:
             statuses = {
@@ -2413,7 +2429,7 @@ class ValidatorPipeline:
                 continue
             issues.append(
                 "Defined term import missing: "
-                f'`{term.term}` resolves to {term.citation} but file does not import '
+                f"`{term.term}` resolves to {term.citation} but file does not import "
                 f"from {import_base}"
             )
         return issues
@@ -2441,7 +2457,7 @@ class ValidatorPipeline:
                 continue
             issues.append(
                 "Canonical concept import missing: "
-                f'`{concept.term}` resolves to {concept.citation} via '
+                f"`{concept.term}` resolves to {concept.citation} via "
                 f"{concept.import_target} but file does not import from {import_base}"
             )
         return issues
@@ -2456,7 +2472,9 @@ class ValidatorPipeline:
 
         if not rac_content_has_stub_status(rac_file.read_text()):
             return []
-        if not has_ingested_source_for_import_target(relative.with_suffix("").as_posix(), source_root):
+        if not has_ingested_source_for_import_target(
+            relative.with_suffix("").as_posix(), source_root
+        ):
             return []
 
         return [
@@ -2520,14 +2538,20 @@ class ValidatorPipeline:
         source_text = extract_embedded_source_text(content)
         if not source_text:
             return []
-        if not re.search(r"\bexcept where\b.+\bapplies\b", source_text, flags=re.IGNORECASE | re.DOTALL):
+        if not re.search(
+            r"\bexcept where\b.+\bapplies\b",
+            source_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        ):
             return []
 
         issues: list[str] = []
         for block in self._extract_definition_blocks(content):
             if block["dtype"] != "Boolean":
                 continue
-            for line_number, expression in self._iter_true_on_applies_patterns(block["body_lines"]):
+            for line_number, expression in self._iter_true_on_applies_patterns(
+                block["body_lines"]
+            ):
                 issues.append(
                     "Carve-out logic inverted: "
                     f"{block['name']} line {line_number} treats `{expression}` as automatically satisfied "
@@ -2538,9 +2562,12 @@ class ValidatorPipeline:
     def _check_embedded_scalar_literals(self, rac_file: Path) -> list[str]:
         """Flag substantive scalar literals embedded inside formulas."""
         issues: list[str] = []
-        for line_number, name, literal, expression in self._collect_embedded_scalar_literals(
-            rac_file.read_text()
-        ):
+        for (
+            line_number,
+            name,
+            literal,
+            expression,
+        ) in self._collect_embedded_scalar_literals(rac_file.read_text()):
             issues.append(
                 "Embedded scalar literal: "
                 f"{name} line {line_number} embeds {literal} in `{expression}`; "
@@ -2565,21 +2592,33 @@ class ValidatorPipeline:
             tokens = set(occurrence.name.lower().split("_"))
             if not (_DATE_DECOMPOSITION_CUE_TOKENS & tokens):
                 continue
-            if "year" in tokens and occurrence.value.is_integer() and 1900 <= occurrence.value <= 2100:
+            if (
+                "year" in tokens
+                and occurrence.value.is_integer()
+                and 1900 <= occurrence.value <= 2100
+            ):
                 issues.append(
                     "Decomposed date scalar: "
                     f"{occurrence.name} line {occurrence.line} encodes calendar year "
                     f"{int(occurrence.value)} as a numeric scalar; keep legal date references "
                     "semantic instead of splitting them into year/month/day variables"
                 )
-            elif "month" in tokens and occurrence.value.is_integer() and 1 <= occurrence.value <= 12:
+            elif (
+                "month" in tokens
+                and occurrence.value.is_integer()
+                and 1 <= occurrence.value <= 12
+            ):
                 issues.append(
                     "Decomposed date scalar: "
                     f"{occurrence.name} line {occurrence.line} encodes calendar month "
                     f"{int(occurrence.value)} as a numeric scalar; keep legal date references "
                     "semantic instead of splitting them into year/month/day variables"
                 )
-            elif "day" in tokens and occurrence.value.is_integer() and 1 <= occurrence.value <= 31:
+            elif (
+                "day" in tokens
+                and occurrence.value.is_integer()
+                and 1 <= occurrence.value <= 31
+            ):
                 issues.append(
                     "Decomposed date scalar: "
                     f"{occurrence.name} line {occurrence.line} encodes calendar day "
@@ -2838,8 +2877,10 @@ class ValidatorPipeline:
                 formula_indent = len(formula_match.group(1))
                 continue
 
-            if (temporal_block or formula_block) and stripped and not self._is_direct_scalar_expression(
-                stripped
+            if (
+                (temporal_block or formula_block)
+                and stripped
+                and not self._is_direct_scalar_expression(stripped)
             ):
                 issues.extend(
                     (
@@ -2876,9 +2917,7 @@ class ValidatorPipeline:
                 continue
             if literal == "0.5" and half_up_rounding_expression:
                 continue
-            if _is_structural_schedule_index_literal(
-                scrubbed_expression, literal
-            ):
+            if _is_structural_schedule_index_literal(scrubbed_expression, literal):
                 continue
             literals.append(literal)
         return sorted(set(literals))
@@ -2975,9 +3014,11 @@ class ValidatorPipeline:
         resolved_file = rac_file.resolve()
         with contextlib.suppress(ValueError):
             relative = resolved_file.relative_to(resolved_root)
-            if relative.parts and re.fullmatch(
-                r"[0-9A-Za-z.-]+", relative.parts[0]
-            ) and any(ch.isdigit() for ch in relative.parts[0]):
+            if (
+                relative.parts
+                and re.fullmatch(r"[0-9A-Za-z.-]+", relative.parts[0])
+                and any(ch.isdigit() for ch in relative.parts[0])
+            ):
                 return relative.parts[0]
             return None
 
@@ -3112,8 +3153,37 @@ Output ONLY valid JSON:
                     f"Reviewer CLI exited {returncode}: {output_excerpt}"
                 )
 
-            # Parse JSON from output
-            data = _extract_json_object(output)
+            # Parse JSON from output. If parsing fails, return a
+            # structured "reviewer_parse_failed" result instead of
+            # letting the generic except below swallow the detail.
+            try:
+                data = _extract_json_object(output)
+            except (ValueError, json.JSONDecodeError) as parse_err:
+                duration = int((time.time() - start) * 1000)
+                raw_snippet = (output or "").strip()
+                truncated = raw_snippet[:500]
+                if len(raw_snippet) > 500:
+                    truncated += "... [truncated]"
+                logger.warning(
+                    "Reviewer %s output failed to parse as JSON: %s. "
+                    "Raw output (first 500 chars): %s",
+                    reviewer_type,
+                    parse_err,
+                    truncated,
+                )
+                return ValidationResult(
+                    validator_name=reviewer_type,
+                    passed=False,
+                    score=None,
+                    issues=[
+                        "reviewer_parse_failed",
+                        f"Could not parse reviewer JSON output: {parse_err}",
+                    ],
+                    duration_ms=duration,
+                    raw_output=output,
+                    error=f"reviewer_parse_failed: {parse_err}",
+                    prompt_sha256=prompt_sha256,
+                )
 
             score = float(data.get("score", 5.0))
             if reviewer_type == "generalist-reviewer":
@@ -3215,21 +3285,16 @@ Output ONLY valid JSON:
                 return env_python
 
         pe_venv_paths = [
-            Path.home() / "worktrees" / f"{repo_name}-main-view" / ".venv" / "bin" / "python",
+            Path.home()
+            / "worktrees"
+            / f"{repo_name}-main-view"
+            / ".venv"
+            / "bin"
+            / "python",
             Path.home() / "worktrees" / repo_name / ".venv" / "bin" / "python",
             Path.home() / repo_name / ".venv" / "bin" / "python",
-            Path.home()
-            / "RulesFoundation"
-            / repo_name
-            / ".venv"
-            / "bin"
-            / "python",
-            Path.home()
-            / "PolicyEngine"
-            / repo_name
-            / ".venv"
-            / "bin"
-            / "python",
+            Path.home() / "RulesFoundation" / repo_name / ".venv" / "bin" / "python",
+            Path.home() / "PolicyEngine" / repo_name / ".venv" / "bin" / "python",
         ]
         for pe_python in pe_venv_paths:
             if pe_python.exists() and _python_imports_policyengine(str(pe_python)):
@@ -3310,7 +3375,9 @@ Output ONLY valid JSON:
         """Return True when PE cannot evaluate the cited period or variable."""
         if not error_text:
             return False
-        return any(pattern.search(error_text) for pattern in _PE_UNSUPPORTED_ERROR_PATTERNS)
+        return any(
+            pattern.search(error_text) for pattern in _PE_UNSUPPORTED_ERROR_PATTERNS
+        )
 
     def _summarize_oracle_error(self, error_text: str) -> str:
         """Collapse multi-line stderr into a short human-readable issue."""
@@ -3405,16 +3472,8 @@ Output ONLY valid JSON:
             period = (
                 test.get("period")
                 or test.get("date")
-                or (
-                    inputs.get("period")
-                    if isinstance(inputs, dict)
-                    else None
-                )
-                or (
-                    inputs.get("date")
-                    if isinstance(inputs, dict)
-                    else None
-                )
+                or (inputs.get("period") if isinstance(inputs, dict) else None)
+                or (inputs.get("date") if isinstance(inputs, dict) else None)
                 or "2024-01"
             )
             period_str = str(period)
@@ -3466,7 +3525,9 @@ Output ONLY valid JSON:
                     )
                     inputs_with_period.setdefault(
                         "snap_utility_region_str",
-                        _default_snap_utility_region_for_jurisdiction(source_jurisdiction),
+                        _default_snap_utility_region_for_jurisdiction(
+                            source_jurisdiction
+                        ),
                     )
             scenario_script = self._build_pe_scenario_script(
                 pe_var,
@@ -3522,7 +3583,9 @@ Output ONLY valid JSON:
         if total == 0:
             duration = int((time.time() - start) * 1000)
             if unsupported_count:
-                issues.append("PolicyEngine could not evaluate any oracle-comparable tests")
+                issues.append(
+                    "PolicyEngine could not evaluate any oracle-comparable tests"
+                )
             return ValidationResult(
                 validator_name="policyengine",
                 passed=True,
@@ -3645,7 +3708,9 @@ Output ONLY valid JSON:
             if total == 0:
                 duration = int((time.time() - start) * 1000)
                 if unmappable:
-                    issues.append("TAXSIM could not evaluate any oracle-comparable tests")
+                    issues.append(
+                        "TAXSIM could not evaluate any oracle-comparable tests"
+                    )
                 return ValidationResult(
                     validator_name="taxsim",
                     passed=True,
@@ -4006,7 +4071,10 @@ print("BENCHMARK:" + json.dumps(result))
                 }
                 if "value" in lowered_keys:
                     other_keys = lowered_keys - {"value"}
-                    if len(other_keys) == 1 and next(iter(other_keys)) in singleton_entity_value_keys:
+                    if (
+                        len(other_keys) == 1
+                        and next(iter(other_keys)) in singleton_entity_value_keys
+                    ):
                         for key, inner in value.items():
                             if str(key).lower() == "value":
                                 return normalize_test_value(inner)
@@ -4154,9 +4222,11 @@ print("BENCHMARK:" + json.dumps(result))
                     #   period: ...
                     #   input: ...
                     #   output/expect: ...
-                    elif isinstance(value, dict) and any(
-                        io_key in value for io_key in ("input", "inputs")
-                    ) and any(io_key in value for io_key in ("output", "expect")):
+                    elif (
+                        isinstance(value, dict)
+                        and any(io_key in value for io_key in ("input", "inputs"))
+                        and any(io_key in value for io_key in ("output", "expect"))
+                    ):
                         outputs = value.get("output", value.get("expect"))
                         if isinstance(outputs, dict):
                             inputs = value.get("input", value.get("inputs", {}))
@@ -4432,8 +4502,9 @@ print("BENCHMARK:" + json.dumps(result))
     @staticmethod
     def _is_uk_pc_severe_disability_addition_var(rac_var: str) -> bool:
         rac_var_lower = rac_var.lower()
-        return "pc_severe_disability_addition" in rac_var_lower and not rac_var_lower.endswith(
-            "_applies"
+        return (
+            "pc_severe_disability_addition" in rac_var_lower
+            and not rac_var_lower.endswith("_applies")
         )
 
     @staticmethod
@@ -4464,8 +4535,9 @@ print("BENCHMARK:" + json.dumps(result))
     @staticmethod
     def _is_uk_pc_severely_disabled_child_addition_var(rac_var: str) -> bool:
         rac_var_lower = rac_var.lower()
-        return "pc_severely_disabled_child_addition" in rac_var_lower and not rac_var_lower.endswith(
-            "_applies"
+        return (
+            "pc_severely_disabled_child_addition" in rac_var_lower
+            and not rac_var_lower.endswith("_applies")
         )
 
     @staticmethod
@@ -4551,7 +4623,10 @@ print("BENCHMARK:" + json.dumps(result))
         rac_var_lower = rac_var.lower()
         return any(
             marker in rac_var_lower
-            for marker in ("uc_lcwra_element", "uc_limited_capability_for_work_related_activity")
+            for marker in (
+                "uc_lcwra_element",
+                "uc_limited_capability_for_work_related_activity",
+            )
         ) and not rac_var_lower.endswith("_applies")
 
     @staticmethod
@@ -4624,12 +4699,18 @@ print("BENCHMARK:" + json.dumps(result))
     @staticmethod
     def _is_uk_wtc_basic_element_var(rac_var: str) -> bool:
         rac_var_lower = rac_var.lower()
-        return "wtc_basic" in rac_var_lower or "working_tax_credit_basic_element" in rac_var_lower
+        return (
+            "wtc_basic" in rac_var_lower
+            or "working_tax_credit_basic_element" in rac_var_lower
+        )
 
     @staticmethod
     def _is_uk_wtc_lone_parent_element_var(rac_var: str) -> bool:
         rac_var_lower = rac_var.lower()
-        return "wtc_lone_parent" in rac_var_lower or "working_tax_credit_lone_parent_element" in rac_var_lower
+        return (
+            "wtc_lone_parent" in rac_var_lower
+            or "working_tax_credit_lone_parent_element" in rac_var_lower
+        )
 
     @staticmethod
     def _is_uk_wtc_couple_element_var(rac_var: str) -> bool:
@@ -4718,7 +4799,9 @@ print("BENCHMARK:" + json.dumps(result))
             ):
                 lowered_input_keys = {str(key).lower() for key in inputs}
                 unsupported_keys = {
-                    key for key in adapter.unsupported_input_keys if key.lower() in lowered_input_keys
+                    key
+                    for key in adapter.unsupported_input_keys
+                    if key.lower() in lowered_input_keys
                 }
                 for input_key in lowered_input_keys:
                     if any(
@@ -4767,26 +4850,26 @@ print("BENCHMARK:" + json.dumps(result))
                 for key, value in inputs.items()
                 if value is not None and not bool(value)
             }
-            if (
-                "is_child_or_qualifying_young_person" in explicit_false_keys
-                or (
-                    any("is_child" in key for key in explicit_false_keys)
-                    and any("qualifying_young_person" in key for key in explicit_false_keys)
-                )
+            if "is_child_or_qualifying_young_person" in explicit_false_keys or (
+                any("is_child" in key for key in explicit_false_keys)
+                and any("qualifying_young_person" in key for key in explicit_false_keys)
             ):
                 return (
                     False,
                     "RAC test negates child-or-qualifying-young-person subject status that PolicyEngine UK's statutory child benefit rate does not expose as a separate comparable branch",
                 )
-        if country == "uk" and self._is_uk_child_benefit_rate_var(
-            rac_var_lower
-        ) and rac_var_lower.endswith("_applies"):
+        if (
+            country == "uk"
+            and self._is_uk_child_benefit_rate_var(rac_var_lower)
+            and rac_var_lower.endswith("_applies")
+        ):
             return (
                 False,
                 "RAC helper boolean does not have a direct PolicyEngine UK analogue",
             )
-        if country == "uk" and self._is_uk_pension_credit_standard_minimum_guarantee_var(
-            rac_var_lower
+        if (
+            country == "uk"
+            and self._is_uk_pension_credit_standard_minimum_guarantee_var(rac_var_lower)
         ):
             if (
                 rac_var_lower.endswith("_applies")
@@ -4869,8 +4952,9 @@ print("BENCHMARK:" + json.dumps(result))
         rac_var_lower = rac_var.lower()
         if country == "uk" and self._is_uk_child_benefit_rate_var(rac_var_lower):
             return "child_benefit_respective_amount"
-        if country == "uk" and self._is_uk_pension_credit_standard_minimum_guarantee_var(
-            rac_var_lower
+        if (
+            country == "uk"
+            and self._is_uk_pension_credit_standard_minimum_guarantee_var(rac_var_lower)
         ):
             return "standard_minimum_guarantee"
         if country == "uk" and self._is_uk_pc_severe_disability_addition_var(
@@ -4989,6 +5073,7 @@ print("BENCHMARK:" + json.dumps(result))
 
     def _build_pe_us_scenario_script(self, pe_var: str, inputs: dict, year: str) -> str:
         """Build a Python script to run a US PolicyEngine scenario."""
+
         def derive_override_value(
             operation: str, source_values: list[float]
         ) -> float | None:
@@ -4997,7 +5082,10 @@ print("BENCHMARK:" + json.dumps(result))
                 derived_value = source_values[0] - sum(source_values[1:])
             elif operation == "difference_floor_zero" and len(source_values) >= 2:
                 derived_value = max(0.0, source_values[0] - sum(source_values[1:]))
-            elif operation == "difference_floor_zero_annualized" and len(source_values) >= 2:
+            elif (
+                operation == "difference_floor_zero_annualized"
+                and len(source_values) >= 2
+            ):
                 derived_value = (
                     max(0.0, source_values[0] - sum(source_values[1:])) * 12.0
                 )
@@ -5056,7 +5144,9 @@ print("BENCHMARK:" + json.dumps(result))
                 household_children = max(0, int(household_size) - num_adults)
 
         num_children = (
-            explicit_child_count if explicit_child_count is not None else household_children
+            explicit_child_count
+            if explicit_child_count is not None
+            else household_children
         )
         dependent_care_keys = (
             "snap_dependent_care_actual_costs",
@@ -5073,9 +5163,7 @@ print("BENCHMARK:" + json.dumps(result))
         # Determine period for calculation
         is_monthly = pe_var in self._PE_MONTHLY_VARS
         if is_monthly:
-            period = self._normalize_monthly_pe_period(
-                inputs.get("period"), year, "01"
-            )
+            period = self._normalize_monthly_pe_period(inputs.get("period"), year, "01")
             calc_period = f"'{period}'"
         else:
             calc_period = f"int('{year}')"
@@ -5099,20 +5187,16 @@ print("BENCHMARK:" + json.dumps(result))
                     continue
                 with contextlib.suppress(TypeError, ValueError):
                     annual_value = float(value) * 12
-                    adult_attrs.append(
-                        f"'{pe_attr}': {{'{year}': {annual_value}}}"
-                    )
+                    adult_attrs.append(f"'{pe_attr}': {{'{year}': {annual_value}}}")
             for rac_key, pe_attr in adapter.boolean_person_inputs:
                 if rac_key in inputs:
                     adult_attrs.append(
-                        f"'{pe_attr}': "
-                        f"{{'{year}': {bool(inputs[rac_key])}}}"
+                        f"'{pe_attr}': {{'{year}': {bool(inputs[rac_key])}}}"
                     )
             for rac_key, pe_attr in adapter.monthly_boolean_person_inputs:
                 if rac_key in inputs:
                     adult_attrs.append(
-                        f"'{pe_attr}': "
-                        f"{{'{period}': {bool(inputs[rac_key])}}}"
+                        f"'{pe_attr}': {{'{period}': {bool(inputs[rac_key])}}}"
                     )
 
         snap_eligible_member_proxy = None
@@ -5134,8 +5218,7 @@ print("BENCHMARK:" + json.dumps(result))
         ):
             has_eligible_member = snap_eligible_member_proxy
             adult_attrs.append(
-                f"'is_snap_ineligible_student': "
-                f"{{'{year}': {not has_eligible_member}}}"
+                f"'is_snap_ineligible_student': {{'{year}': {not has_eligible_member}}}"
             )
             adult_attrs.append(
                 f"'is_snap_immigration_status_eligible': "
@@ -5152,8 +5235,7 @@ print("BENCHMARK:" + json.dumps(result))
                 float(inputs["snap_number_of_members_eligible_to_participate"]) > 0
             )
             adult_attrs.append(
-                f"'is_snap_ineligible_student': "
-                f"{{'{year}': {not has_eligible_member}}}"
+                f"'is_snap_ineligible_student': {{'{year}': {not has_eligible_member}}}"
             )
             adult_attrs.append(
                 f"'is_snap_immigration_status_eligible': "
@@ -5205,13 +5287,17 @@ print("BENCHMARK:" + json.dumps(result))
                 if not all(source_key in inputs for source_key in source_keys):
                     continue
                 try:
-                    source_values = [float(inputs[source_key]) for source_key in source_keys]
+                    source_values = [
+                        float(inputs[source_key]) for source_key in source_keys
+                    ]
                 except (TypeError, ValueError):
                     continue
                 derived_value = derive_override_value(operation, source_values)
                 if derived_value is None:
                     continue
-                override_values[target_key] = int(derived_value) if derived_value.is_integer() else derived_value
+                override_values[target_key] = (
+                    int(derived_value) if derived_value.is_integer() else derived_value
+                )
         annual_override_values: dict[str, Any] = {}
         if adapter is not None:
             for rac_key, pe_key in adapter.annual_direct_spm_overrides:
@@ -5234,9 +5320,7 @@ print("BENCHMARK:" + json.dumps(result))
                 )
                 try:
                     source_values = [
-                        float(inputs[source_key])
-                        if source_key in inputs
-                        else 0.0
+                        float(inputs[source_key]) if source_key in inputs else 0.0
                         for source_key in source_keys
                         if source_key in inputs or missing_as_zero
                     ]
@@ -5254,17 +5338,11 @@ print("BENCHMARK:" + json.dumps(result))
         override_parts = []
         for pe_key, val in override_values.items():
             if is_monthly:
-                override_parts.append(
-                    f"'{pe_key}': {{'{period}': {pe_literal(val)}}}"
-                )
+                override_parts.append(f"'{pe_key}': {{'{period}': {pe_literal(val)}}}")
             else:
-                override_parts.append(
-                    f"'{pe_key}': {{'{year}': {pe_literal(val)}}}"
-                )
+                override_parts.append(f"'{pe_key}': {{'{year}': {pe_literal(val)}}}")
         for pe_key, val in annual_override_values.items():
-            override_parts.append(
-                f"'{pe_key}': {{'{year}': {pe_literal(val)}}}"
-            )
+            override_parts.append(f"'{pe_key}': {{'{year}': {pe_literal(val)}}}")
 
         spm_extra = ""
         if override_parts:
@@ -5273,15 +5351,10 @@ print("BENCHMARK:" + json.dumps(result))
         household_state = "CA"
         if adapter is not None and adapter.default_state_code is not None:
             household_state = adapter.default_state_code
-        if (
-            adapter is not None
-            and adapter.state_code_from_boolean_input is not None
-        ):
+        if adapter is not None and adapter.state_code_from_boolean_input is not None:
             input_key, true_state, false_state = adapter.state_code_from_boolean_input
             if input_key in inputs:
-                household_state = (
-                    true_state if bool(inputs[input_key]) else false_state
-                )
+                household_state = true_state if bool(inputs[input_key]) else false_state
         utility_region = None
         if "snap_utility_region" in inputs:
             utility_region = str(inputs["snap_utility_region"])
@@ -5304,9 +5377,7 @@ print("BENCHMARK:" + json.dumps(result))
         elif "state_name" in inputs:
             household_state = str(inputs["state_name"])
         elif utility_region is not None:
-            household_state = _normalize_state_code_from_utility_region(
-                utility_region
-            )
+            household_state = _normalize_state_code_from_utility_region(utility_region)
 
         household_extra_parts = [
             f"'state_name': {{'{year}': {repr(household_state)}}}",
@@ -5314,8 +5385,7 @@ print("BENCHMARK:" + json.dumps(result))
         ]
         if utility_region is not None:
             household_extra_parts.append(
-                f"'snap_utility_region_str': "
-                f"{{'{year}': {repr(utility_region)}}}"
+                f"'snap_utility_region_str': {{'{year}': {repr(utility_region)}}}"
             )
         if "state_group_str" in inputs:
             household_extra_parts.append(
@@ -5359,7 +5429,7 @@ situation = {{
     'spm_units': {{'spm': {{'members': {members_str}{spm_extra}}}}},
     'households': {{'hh': {{'members': {members_str}, {household_extra}}}}},
     'families': {{'fam': {{'members': {members_str}}}}},
-    'marital_units': {{'mu': {{'members': {['adult', 'spouse'] if joint_filing else ['adult']}}}}},
+    'marital_units': {{'mu': {{'members': {["adult", "spouse"] if joint_filing else ["adult"]}}}}},
 }}
 
 sim = Simulation(situation=situation)
@@ -5395,10 +5465,14 @@ print(f'RESULT:{{val}}')
                     for key, value in lowered.items()
                     if ("couple" in key or "joint" in key) and value is not None
                 )
-            under_25 = any(
-                marker in rac_var_lower
-                for marker in ("under_25", "aged_under_25", "young")
-            ) and "over_25" not in rac_var_lower and "25_or_over" not in rac_var_lower
+            under_25 = (
+                any(
+                    marker in rac_var_lower
+                    for marker in ("under_25", "aged_under_25", "young")
+                )
+                and "over_25" not in rac_var_lower
+                and "25_or_over" not in rac_var_lower
+            )
             if any(
                 ("25_or_over" in key or "over_25" in key) and value is not None
                 for key, value in lowered.items()
@@ -5487,9 +5561,7 @@ print(f'RESULT:{{val}}')
             )
 
             if target_is_first_higher:
-                people = (
-                    f"{{'child': {{'age': {{{year_key}: 10}}, 'birth_year': {{{year_key}: 2015}}}}}}"
-                )
+                people = f"{{'child': {{'age': {{{year_key}: 10}}, 'birth_year': {{{year_key}: 2015}}}}}}"
                 benunit_members = "['child']"
                 household_members = "['child']"
                 target_index = 0
@@ -5502,9 +5574,7 @@ print(f'RESULT:{{val}}')
                 household_members = "['older', 'child']"
                 target_index = 1
             else:
-                people = (
-                    f"{{'child': {{'age': {{{year_key}: 7}}, 'birth_year': {{{year_key}: 2018}}}}}}"
-                )
+                people = f"{{'child': {{'age': {{{year_key}: 7}}, 'birth_year': {{{year_key}: 2018}}}}}}"
                 benunit_members = "['child']"
                 household_members = "['child']"
                 target_index = 0
@@ -5525,8 +5595,9 @@ val = float(annual[target_index]) / 12
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "uc_individual_disabled_child_element" and self._is_uk_uc_disabled_child_element_var(
-            rac_var_lower
+        if (
+            pe_var == "uc_individual_disabled_child_element"
+            and self._is_uk_uc_disabled_child_element_var(rac_var_lower)
         ):
             return f"""
 from policyengine_uk import Simulation
@@ -5543,8 +5614,9 @@ val = float(annual[0]) / 12
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "uc_individual_severely_disabled_child_element" and self._is_uk_uc_severely_disabled_child_element_var(
-            rac_var_lower
+        if (
+            pe_var == "uc_individual_severely_disabled_child_element"
+            and self._is_uk_uc_severely_disabled_child_element_var(rac_var_lower)
         ):
             return f"""
 from policyengine_uk import Simulation
@@ -5608,8 +5680,9 @@ val = float(annual[0]) / 12
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "uc_maximum_childcare_element_amount" and self._is_uk_uc_maximum_childcare_element_var(
-            rac_var_lower
+        if (
+            pe_var == "uc_maximum_childcare_element_amount"
+            and self._is_uk_uc_maximum_childcare_element_var(rac_var_lower)
         ):
             explicit_children = next(
                 (
@@ -5625,7 +5698,10 @@ print(f'RESULT:{{val}}')
             )
             if explicit_children is not None:
                 eligible_children = explicit_children
-            elif "two_or_more" in rac_var_lower or "two_or_more_children" in rac_var_lower:
+            elif (
+                "two_or_more" in rac_var_lower
+                or "two_or_more_children" in rac_var_lower
+            ):
                 eligible_children = 2
             else:
                 eligible_children = 1
@@ -5645,8 +5721,9 @@ val = float(annual[0]) / 12
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "uc_individual_non_dep_deduction" and self._is_uk_uc_non_dep_deduction_amount_var(
-            rac_var_lower
+        if (
+            pe_var == "uc_individual_non_dep_deduction"
+            and self._is_uk_uc_non_dep_deduction_amount_var(rac_var_lower)
         ):
             explicit_exempt = next(
                 (
@@ -5711,21 +5788,15 @@ print(f'RESULT:{{val}}')
                 benunit_members = "['adult', 'spouse']"
                 household_members = "['adult', 'spouse']"
             elif pe_var == "WTC_disabled_element":
-                people = (
-                    f"{{'adult': {{'age': {{{year_key}: 30}}, 'weekly_hours': {{{year_key}: 30}}, 'working_tax_credit_reported': {{{year_key}: 1}}, 'is_disabled_for_benefits': {{{year_key}: True}}}}}}"
-                )
+                people = f"{{'adult': {{'age': {{{year_key}: 30}}, 'weekly_hours': {{{year_key}: 30}}, 'working_tax_credit_reported': {{{year_key}: 1}}, 'is_disabled_for_benefits': {{{year_key}: True}}}}}}"
                 benunit_members = "['adult']"
                 household_members = "['adult']"
             elif pe_var == "WTC_severely_disabled_element":
-                people = (
-                    f"{{'adult': {{'age': {{{year_key}: 30}}, 'weekly_hours': {{{year_key}: 30}}, 'working_tax_credit_reported': {{{year_key}: 1}}, 'is_disabled_for_benefits': {{{year_key}: True}}, 'is_severely_disabled_for_benefits': {{{year_key}: True}}}}}}"
-                )
+                people = f"{{'adult': {{'age': {{{year_key}: 30}}, 'weekly_hours': {{{year_key}: 30}}, 'working_tax_credit_reported': {{{year_key}: 1}}, 'is_disabled_for_benefits': {{{year_key}: True}}, 'is_severely_disabled_for_benefits': {{{year_key}: True}}}}}}"
                 benunit_members = "['adult']"
                 household_members = "['adult']"
             else:
-                people = (
-                    f"{{'adult': {{'age': {{{year_key}: 30}}, 'weekly_hours': {{{year_key}: 30}}, 'working_tax_credit_reported': {{{year_key}: 1}}}}}}"
-                )
+                people = f"{{'adult': {{'age': {{{year_key}: 30}}, 'weekly_hours': {{{year_key}: 30}}, 'working_tax_credit_reported': {{{year_key}: 1}}}}}}"
                 benunit_members = "['adult']"
                 household_members = "['adult']"
 
@@ -5744,8 +5815,9 @@ val = float(annual[0])
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "standard_minimum_guarantee" and self._is_uk_pension_credit_standard_minimum_guarantee_var(
-            rac_var_lower
+        if (
+            pe_var == "standard_minimum_guarantee"
+            and self._is_uk_pension_credit_standard_minimum_guarantee_var(rac_var_lower)
         ):
             explicit_has_partner = next(
                 (
@@ -5771,7 +5843,9 @@ print(f'RESULT:{{val}}')
                 scenario_is_couple = explicit_has_partner
             elif relation_type is not None:
                 scenario_is_couple = "couple" in relation_type
-            elif any("no_partner" in key and bool(value) for key, value in lowered.items()):
+            elif any(
+                "no_partner" in key and bool(value) for key, value in lowered.items()
+            ):
                 scenario_is_couple = False
             elif any(
                 (
@@ -5792,9 +5866,7 @@ print(f'RESULT:{{val}}')
             benunit_members = "['adult']"
             household_members = "['adult']"
             if scenario_is_couple:
-                people = (
-                    f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'spouse': {{'age': {{{year_key}: 70}}}}}}"
-                )
+                people = f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'spouse': {{'age': {{{year_key}: 70}}}}}}"
                 benunit_members = "['adult', 'spouse']"
                 household_members = "['adult', 'spouse']"
 
@@ -5832,8 +5904,9 @@ scenario_is_couple = {scenario_is_couple}
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "severe_disability_minimum_guarantee_addition" and self._is_uk_pc_severe_disability_addition_var(
-            rac_var_lower
+        if (
+            pe_var == "severe_disability_minimum_guarantee_addition"
+            and self._is_uk_pc_severe_disability_addition_var(rac_var_lower)
         ):
             explicit_eligible_adults = next(
                 (
@@ -5884,9 +5957,7 @@ print(f'RESULT:{{val}}')
                 )
                 members = "['adult', 'spouse']"
             elif eligible_adults == 1:
-                people = (
-                    f"{{'adult': {{'age': {{{year_key}: 70}}, 'attendance_allowance': {{{year_key}: 1}}}}}}"
-                )
+                people = f"{{'adult': {{'age': {{{year_key}: 70}}, 'attendance_allowance': {{{year_key}: 1}}}}}}"
                 members = "['adult']"
             else:
                 people = f"{{'adult': {{'age': {{{year_key}: 70}}}}}}"
@@ -5907,8 +5978,9 @@ val = float(annual[0]) / 52
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "carer_minimum_guarantee_addition" and self._is_uk_pc_carer_addition_var(
-            rac_var_lower
+        if (
+            pe_var == "carer_minimum_guarantee_addition"
+            and self._is_uk_pc_carer_addition_var(rac_var_lower)
         ):
             explicit_eligible_carers = next(
                 (
@@ -5942,9 +6014,7 @@ print(f'RESULT:{{val}}')
                 )
                 members = "['adult', 'spouse']"
             elif eligible_carers == 1:
-                people = (
-                    f"{{'adult': {{'age': {{{year_key}: 70}}, 'carers_allowance': {{{year_key}: 1}}}}}}"
-                )
+                people = f"{{'adult': {{'age': {{{year_key}: 70}}, 'carers_allowance': {{{year_key}: 1}}}}}}"
                 members = "['adult']"
             else:
                 people = f"{{'adult': {{'age': {{{year_key}: 70}}}}}}"
@@ -5995,17 +6065,11 @@ print(f'RESULT:{{val}}')
                 target_mode = "disabled"
 
             if has_child:
-                base_people = (
-                    f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}}}}}"
-                )
+                base_people = f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}}}}}"
                 if target_mode == "disabled":
-                    target_people = (
-                        f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}, 'dla': {{{year_key}: 1}}}}}}"
-                    )
+                    target_people = f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}, 'dla': {{{year_key}: 1}}}}}}"
                 elif target_mode == "severe":
-                    target_people = (
-                        f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}, 'dla': {{{year_key}: 1}}, 'receives_highest_dla_sc': {{{year_key}: True}}}}}}"
-                    )
+                    target_people = f"{{'adult': {{'age': {{{year_key}: 70}}}}, 'child': {{'age': {{{year_key}: 10}}, 'dla': {{{year_key}: 1}}, 'receives_highest_dla_sc': {{{year_key}: True}}}}}}"
                 else:
                     target_people = base_people
                 members = "['adult', 'child']"
@@ -6017,7 +6081,9 @@ print(f'RESULT:{{val}}')
             if target_mode == "base":
                 result_logic = "val = float(target_annual[0]) / 52"
             else:
-                result_logic = "val = (float(target_annual[0]) - float(base_annual[0])) / 52"
+                result_logic = (
+                    "val = (float(target_annual[0]) - float(base_annual[0])) / 52"
+                )
 
             return f"""
 from policyengine_uk import Simulation
@@ -6041,8 +6107,9 @@ target_annual = target_sim.calculate('child_minimum_guarantee_addition', int('{y
 print(f'RESULT:{{val}}')
 """
 
-        if pe_var == "scottish_child_payment" and self._is_uk_scottish_child_payment_rate_var(
-            rac_var_lower
+        if (
+            pe_var == "scottish_child_payment"
+            and self._is_uk_scottish_child_payment_rate_var(rac_var_lower)
         ):
             in_scotland = next(
                 (
@@ -6132,21 +6199,26 @@ print(f'RESULT:{{val}}')
             elif "80a_2_d" in rac_var_lower:
                 branch_category = ("other", "outside_london", "mixed")
 
-            leaf_in_london = any(
-                marker in rac_var_lower
-                for marker in ("greater_london", "in_london", "london")
-            ) and "outside_london" not in rac_var_lower
-            leaf_is_single = (
-                any(marker in rac_var_lower for marker in ("single_claimant", "single"))
-                and not any(
+            leaf_in_london = (
+                any(
                     marker in rac_var_lower
-                    for marker in ("joint_claimant", "couple", "family")
+                    for marker in ("greater_london", "in_london", "london")
                 )
+                and "outside_london" not in rac_var_lower
             )
-            leaf_has_child = any(
+            leaf_is_single = any(
+                marker in rac_var_lower for marker in ("single_claimant", "single")
+            ) and not any(
                 marker in rac_var_lower
-                for marker in ("child", "young_person", "family")
-            ) and "no_child" not in rac_var_lower
+                for marker in ("joint_claimant", "couple", "family")
+            )
+            leaf_has_child = (
+                any(
+                    marker in rac_var_lower
+                    for marker in ("child", "young_person", "family")
+                )
+                and "no_child" not in rac_var_lower
+            )
             has_leaf_location_hint = any(
                 marker in rac_var_lower
                 for marker in (
@@ -6191,8 +6263,7 @@ print(f'RESULT:{{val}}')
                     if any("outside_london" in key for key in lowered_keys):
                         leaf_in_london = False
                     elif any(
-                        "not_resident_in_greater_london" in key
-                        for key in lowered_keys
+                        "not_resident_in_greater_london" in key for key in lowered_keys
                     ):
                         leaf_in_london = False
                     elif any("greater_london" in key for key in lowered_keys):
@@ -6244,7 +6315,8 @@ print(f'RESULT:{{val}}')
             if explicit_greater_london_keys:
                 in_london = any(explicit_greater_london_keys)
             elif any(
-                "not_resident_in_greater_london" in str(key).lower() and value is not None
+                "not_resident_in_greater_london" in str(key).lower()
+                and value is not None
                 for key, value in lowered.items()
             ):
                 in_london = not any(
@@ -6325,10 +6397,7 @@ print(f'RESULT:{{val}}')
             if explicit_responsible is not None:
                 has_child = explicit_responsible
             if any(
-                (
-                    "no_child" in str(key).lower()
-                    or "without_child" in str(key).lower()
-                )
+                ("no_child" in str(key).lower() or "without_child" in str(key).lower())
                 and bool(value)
                 for key, value in lowered.items()
             ):
@@ -6337,12 +6406,9 @@ print(f'RESULT:{{val}}')
                 explicit_not_responsible is None
                 and explicit_responsible is None
                 and any(
-                (
-                    "child" in str(key).lower()
-                    or "young_person" in str(key).lower()
-                )
-                and value is not None
-                for key, value in lowered.items()
+                    ("child" in str(key).lower() or "young_person" in str(key).lower())
+                    and value is not None
+                    for key, value in lowered.items()
                 )
             ):
                 has_child = any(
@@ -6448,10 +6514,7 @@ print(f'RESULT:{{val}}')
             (
                 bool(value)
                 for key, value in lowered.items()
-                if (
-                    "child_or_qualifying_young_person" in key
-                    or "child_or_qyp" in key
-                )
+                if ("child_or_qualifying_young_person" in key or "child_or_qyp" in key)
                 and value is not None
             ),
             True,
@@ -6468,7 +6531,8 @@ print(f'RESULT:{{val}}')
             (
                 bool(value)
                 for key, value in lowered.items()
-                if str(key).lower() == "is_qualifying_young_person" and value is not None
+                if str(key).lower() == "is_qualifying_young_person"
+                and value is not None
             ),
             None,
         )
@@ -6518,9 +6582,7 @@ print(f'RESULT:{{val}}')
         value_expr = "float(monthly[target_index]) * 12 / 52"
         use_other_child_branch = self._is_uk_child_benefit_other_child_rate_var(
             rac_var_lower
-        ) or (
-            rac_var_lower == "child_benefit_weekly_rate" and other_case is not None
-        )
+        ) or (rac_var_lower == "child_benefit_weekly_rate" and other_case is not None)
         if use_other_child_branch:
             result_logic = f"""
 if bool(eldest[target_index]):

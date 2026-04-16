@@ -37,7 +37,9 @@ class ResolvedCanonicalConcept:
     source_file: Path
 
 
-_REGISTERED_DEFINED_TERM_PATTERNS: tuple[tuple[re.Pattern[str], ResolvedDefinedTerm], ...] = (
+_REGISTERED_DEFINED_TERM_PATTERNS: tuple[
+    tuple[re.Pattern[str], ResolvedDefinedTerm], ...
+] = (
     (
         re.compile(r"\bmixed-age couple\b", re.IGNORECASE),
         ResolvedDefinedTerm(
@@ -92,7 +94,10 @@ def resolve_canonical_concepts_from_text(
     index: dict[str, list[ResolvedCanonicalConcept]] = {}
 
     for candidate_file in sorted(corpus_root.rglob("*.rac")):
-        if current_file is not None and candidate_file.resolve() == current_file.resolve():
+        if (
+            current_file is not None
+            and candidate_file.resolve() == current_file.resolve()
+        ):
             continue
 
         candidate = _build_canonical_concept_candidate(candidate_file, corpus_root)
@@ -155,7 +160,9 @@ def build_registered_stub_content(specs: Sequence[ResolvedDefinedTerm]) -> str:
         spec.import_target.split("#", 1)[0].removesuffix(".rac") for spec in specs
     }
     if len(base_paths) != 1:
-        raise ValueError("All registered stub specs must belong to the same target file")
+        raise ValueError(
+            "All registered stub specs must belong to the same target file"
+        )
 
     if len(specs) == 1:
         header = (
@@ -165,11 +172,7 @@ def build_registered_stub_content(specs: Sequence[ResolvedDefinedTerm]) -> str:
         )
     else:
         citations = ", ".join(sorted({spec.citation for spec in specs}))
-        header = (
-            '"""\nCanonical definition stubs.\n'
-            f"Resolved to {citations}.\n"
-            '"""\n\n'
-        )
+        header = f'"""\nCanonical definition stubs.\nResolved to {citations}.\n"""\n\n'
 
     blocks = []
     for spec in specs:
@@ -199,7 +202,9 @@ def materialize_registered_stub(
         raise ValueError("At least one stub spec is required")
 
     relative_path = import_target_to_relative_rac_path(specs[0].import_target)
-    target = root / prefix / relative_path if prefix is not None else root / relative_path
+    target = (
+        root / prefix / relative_path if prefix is not None else root / relative_path
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(build_registered_stub_content(specs))
     return target
@@ -218,7 +223,9 @@ def rac_file_has_stub_status(rac_file: Path) -> bool:
         return False
 
 
-def has_ingested_source_for_import_target(import_target: str, corpus_root: Path) -> bool:
+def has_ingested_source_for_import_target(
+    import_target: str, corpus_root: Path
+) -> bool:
     """Return whether the import target's official source is present locally."""
     return bool(find_ingested_source_artifacts(import_target, corpus_root))
 
@@ -325,7 +332,9 @@ def _source_text_mentions_term(source_text: str, term: str) -> bool:
         rf"\b(?:a|an|the|this|that|these|those|such|any|each|every)\s+{escaped}(?=$|[\s),.;:])",
         rf"\b(?:of|for|to|by|in|from|with|under|on|into)\s+(?:(?:a|an|the|this|that|these|those)\s+)?{escaped}(?=$|[\s),.;:])",
     )
-    return any(re.search(pattern, source_text, flags=re.IGNORECASE) for pattern in patterns)
+    return any(
+        re.search(pattern, source_text, flags=re.IGNORECASE) for pattern in patterns
+    )
 
 
 def _build_canonical_concept_candidate(
@@ -443,8 +452,7 @@ def _with_concept_term(
         period=candidate.period,
         dtype=candidate.dtype,
         label=(
-            f"`{term}` -> import `{candidate.import_target}` "
-            f"({candidate.citation})"
+            f"`{term}` -> import `{candidate.import_target}` ({candidate.citation})"
         ),
         source_file=candidate.source_file,
     )
