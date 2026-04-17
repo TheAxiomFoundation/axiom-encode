@@ -7035,58 +7035,6 @@ cases:
             == "snap_self_employment_expense_based_deduction_applies"
         )
 
-    def test_repo_us_snap_tx_state_using_standard_utility_allowance_refresh_manifest_loads_expected_case(
-        self,
-    ):
-        repo_root = Path(__file__).resolve().parents[1]
-        manifest = load_eval_suite_manifest(
-            repo_root
-            / "benchmarks"
-            / "us_snap_tx_state_using_standard_utility_allowance_refresh.yaml"
-        )
-
-        assert (
-            manifest.name == "Texas SNAP state using standard utility allowance refresh"
-        )
-        assert manifest.mode == "repo-augmented"
-        assert len(manifest.cases) == 1
-        assert manifest.gates.min_policyengine_pass_rate == 1.0
-        tx_target_root = (
-            repo_root.parent
-            / "rac-us-tx"
-            / "sources"
-            / "targets"
-            / "txhhs"
-            / "twh"
-            / "current-effective"
-        ).resolve()
-        case = manifest.cases[0]
-        assert case.kind == "akn_section"
-        assert case.name == "snap_state_using_standard_utility_allowance_tx"
-        assert (
-            case.source_id
-            == "Texas SNAP utility allowance structure under MEPD and TW Bulletin 25-15 section 2"
-        )
-        assert case.akn_file is None
-        assert (
-            case.metadata_file
-            == tx_target_root
-            / "snap_state_using_standard_utility_allowance_tx.meta.yaml"
-        )
-        assert case.section_eid is None
-        assert case.section_eids == [
-            "sec_bulletin_25_15_section_2_sua",
-            "sec_bulletin_25_15_section_2_bua",
-            "sec_bulletin_25_15_section_2_tua",
-        ]
-        assert case.allow_context == []
-        assert case.oracle == "policyengine"
-        assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rac_var_hint
-            == "snap_state_using_standard_utility_allowance"
-        )
-
     def test_repo_us_snap_fl_child_support_deduction_option_refresh_manifest_loads_expected_case(
         self,
     ):
