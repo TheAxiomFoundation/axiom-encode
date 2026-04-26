@@ -4,7 +4,7 @@ AutoRAC CLI - Command line interface for statute encoding.
 Primary workflow:
   1. autorac encode "26 USC 21" runs the full pipeline
   2. Orchestrator encodes, validates, reviews, and logs
-  3. autorac validate <file.rac> runs standalone validation
+  3. autorac validate <file.yaml> runs standalone validation
   4. autorac log records encoding runs
   5. autorac stats shows patterns for improvement
 
@@ -18,7 +18,9 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
@@ -66,21 +68,28 @@ def _resolve_repo_checkout(name: str) -> Path:
     return candidates[-1]
 
 
-def _resolve_runtime_rac_checkout(policy_repo_root: Path | None = None) -> Path:
-    """Resolve the core rac runtime checkout, preferring a sibling of the policy repo."""
+def _resolve_runtime_axiom_rules_checkout(
+    policy_repo_root: Path | None = None,
+) -> Path:
+    """Resolve the Axiom Rules runtime checkout, preferring a sibling repo."""
     if policy_repo_root is not None:
-        sibling = Path(policy_repo_root).resolve().parent / "rac"
+        sibling = Path(policy_repo_root).resolve().parent / "axiom-rules"
         if sibling.exists():
             return sibling.resolve()
-    return _resolve_repo_checkout("rac")
+    return _resolve_repo_checkout("axiom-rules")
+
+
+def _resolve_runtime_rac_checkout(policy_repo_root: Path | None = None) -> Path:
+    """Deprecated compatibility alias for the Axiom Rules runtime checkout."""
+    return _resolve_runtime_axiom_rules_checkout(policy_repo_root)
 
 
 def _resolve_validation_repo_roots(rac_file: Path) -> tuple[Path, Path]:
-    """Resolve the policy repo root plus the core rac runtime for validation."""
+    """Resolve the policy repo root plus the Axiom Rules runtime for validation."""
     policy_repo_root = find_policy_repo_root(rac_file) or _resolve_repo_checkout(
         "rac-us"
     )
-    return policy_repo_root, _resolve_runtime_rac_checkout(policy_repo_root)
+    return policy_repo_root, _resolve_runtime_axiom_rules_checkout(policy_repo_root)
 
 
 def _reviewer_score_map(scores) -> dict[str, float | None]:
@@ -176,9 +185,9 @@ def main():
 
     # validate command
     validate_parser = subparsers.add_parser(
-        "validate", help="Validate a .rac file (CI + reviewer agents)"
+        "validate", help="Validate a RuleSpec YAML file (CI + reviewer agents)"
     )
-    validate_parser.add_argument("file", type=Path, help="Path to .rac file")
+    validate_parser.add_argument("file", type=Path, help="Path to RuleSpec YAML file")
     validate_parser.add_argument("--json", action="store_true", help="Output as JSON")
     validate_parser.add_argument("--skip-reviewers", action="store_true")
     validate_parser.add_argument(
@@ -197,7 +206,7 @@ def main():
     log_parser = subparsers.add_parser("log", help="Log an encoding run to encoding DB")
     log_parser.add_argument("--citation", required=True, help="Legal citation")
     log_parser.add_argument(
-        "--file", type=Path, required=True, help="Path to .rac file"
+        "--file", type=Path, required=True, help="Path to RuleSpec YAML file"
     )
     log_parser.add_argument(
         "--iterations", type=int, default=1, help="Number of iterations"
@@ -284,9 +293,9 @@ def main():
 
     # compile command
     compile_parser = subparsers.add_parser(
-        "compile", help="Compile a .rac file to engine IR"
+        "compile", help="Compile a RuleSpec YAML file with Axiom Rules"
     )
-    compile_parser.add_argument("file", type=Path, help="Path to .rac file")
+    compile_parser.add_argument("file", type=Path, help="Path to RuleSpec YAML file")
     compile_parser.add_argument(
         "--as-of",
         default=None,
@@ -296,7 +305,13 @@ def main():
     compile_parser.add_argument(
         "--execute",
         action="store_true",
-        help="Execute the compiled IR after compilation",
+        help="Deprecated; execution is not part of RuleSpec compile",
+    )
+    compile_parser.add_argument(
+        "--axiom-rules-path",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules repo (defaults to sibling checkout)",
     )
 
     # benchmark command
@@ -383,10 +398,12 @@ def main():
         help="Path to atlas repo (defaults to sibling repo checkout)",
     )
     eval_parser.add_argument(
+        "--axiom-rules-path",
         "--rac-path",
+        dest="rac_path",
         type=Path,
         default=None,
-        help="Path to rac repo (defaults to sibling repo checkout)",
+        help="Path to axiom-rules repo (defaults to sibling checkout)",
     )
     eval_parser.add_argument(
         "--mode",
@@ -432,10 +449,12 @@ def main():
         help="Directory for eval artifacts and traces",
     )
     eval_source_parser.add_argument(
+        "--axiom-rules-path",
         "--rac-path",
+        dest="rac_path",
         type=Path,
         default=None,
-        help="Path to rac repo (defaults to sibling repo checkout)",
+        help="Path to axiom-rules repo (defaults to sibling checkout)",
     )
     eval_source_parser.add_argument(
         "--mode",
@@ -455,9 +474,11 @@ def main():
         help="Emit machine-readable JSON summary",
     )
     eval_source_parser.add_argument(
+        "--policyengine-rule-hint",
         "--policyengine-rac-var-hint",
+        dest="policyengine_rac_var_hint",
         default=None,
-        help="Canonical RAC variable name to use as the PolicyEngine oracle target for this source slice",
+        help="Canonical rule name to use as the PolicyEngine oracle target for this source slice",
     )
 
     eval_akn_section_parser = subparsers.add_parser(
@@ -515,10 +536,12 @@ def main():
         help="Directory for eval artifacts and traces",
     )
     eval_akn_section_parser.add_argument(
+        "--axiom-rules-path",
         "--rac-path",
+        dest="rac_path",
         type=Path,
         default=None,
-        help="Path to rac repo (defaults to sibling repo checkout)",
+        help="Path to axiom-rules repo (defaults to sibling checkout)",
     )
     eval_akn_section_parser.add_argument(
         "--mode",
@@ -538,9 +561,11 @@ def main():
         help="Emit machine-readable JSON summary",
     )
     eval_akn_section_parser.add_argument(
+        "--policyengine-rule-hint",
         "--policyengine-rac-var-hint",
+        dest="policyengine_rac_var_hint",
         default=None,
-        help="Canonical RAC variable name to use as the PolicyEngine oracle target for this section",
+        help="Canonical rule name to use as the PolicyEngine oracle target for this section",
     )
 
     eval_uk_legislation_parser = subparsers.add_parser(
@@ -580,10 +605,12 @@ def main():
         help="Directory for fetched sources, eval artifacts, and traces",
     )
     eval_uk_legislation_parser.add_argument(
+        "--axiom-rules-path",
         "--rac-path",
+        dest="rac_path",
         type=Path,
         default=None,
-        help="Path to rac repo (defaults to sibling repo checkout)",
+        help="Path to axiom-rules repo (defaults to sibling checkout)",
     )
     eval_uk_legislation_parser.add_argument(
         "--mode",
@@ -603,9 +630,11 @@ def main():
         help="Emit machine-readable JSON summary",
     )
     eval_uk_legislation_parser.add_argument(
+        "--policyengine-rule-hint",
         "--policyengine-rac-var-hint",
+        dest="policyengine_rac_var_hint",
         default=None,
-        help="Canonical RAC variable name to use as the PolicyEngine oracle target for this section",
+        help="Canonical rule name to use as the PolicyEngine oracle target for this section",
     )
 
     eval_suite_parser = subparsers.add_parser(
@@ -654,10 +683,12 @@ def main():
         help="Path to atlas repo (needed for citation cases; defaults to sibling repo checkout)",
     )
     eval_suite_parser.add_argument(
+        "--axiom-rules-path",
         "--rac-path",
+        dest="rac_path",
         type=Path,
         default=None,
-        help="Path to rac repo (defaults to sibling repo checkout)",
+        help="Path to axiom-rules repo (defaults to sibling checkout)",
     )
     eval_suite_parser.add_argument(
         "--json",
@@ -681,10 +712,12 @@ def main():
         help="Optional manifest override (defaults to the manifest path recorded in suite-run.json)",
     )
     eval_suite_revalidate_parser.add_argument(
+        "--axiom-rules-path",
         "--rac-path",
+        dest="rac_path",
         type=Path,
         default=None,
-        help="Path to rac repo (defaults to sibling repo checkout)",
+        help="Path to axiom-rules repo (defaults to sibling checkout)",
     )
     eval_suite_revalidate_parser.add_argument(
         "--json",
@@ -900,7 +933,7 @@ def main():
 
 
 def cmd_validate(args):
-    """Validate a .rac file."""
+    """Validate a RuleSpec YAML file."""
     if not args.file.exists():
         print(f"File not found: {args.file}")
         sys.exit(1)
@@ -1012,59 +1045,67 @@ def cmd_validate(args):
 
 
 def cmd_compile(args):
-    """Compile a .rac file to engine IR."""
-    from datetime import date as date_type
-
+    """Compile a RuleSpec YAML file with Axiom Rules."""
     if not args.file.exists():
         print(f"File not found: {args.file}")
         sys.exit(1)
 
-    # Parse as_of date
-    if args.as_of:
-        as_of = date_type.fromisoformat(args.as_of)
-    else:
-        as_of = date_type.today()
-
     try:
-        from rac import compile as rac_compile
-        from rac import execute as rac_execute
-        from rac import parse
+        axiom_rules_path = getattr(args, "axiom_rules_path", None) or (
+            getattr(args, "rac_path", None)
+        ) or _resolve_runtime_axiom_rules_checkout(find_policy_repo_root(args.file))
+        pipeline = ValidatorPipeline(
+            rac_us_path=find_policy_repo_root(args.file) or args.file.parent,
+            rac_path=axiom_rules_path,
+            enable_oracles=False,
+        )
+        binary = pipeline._axiom_rules_binary()
 
-        # Step 1: Parse
-        rac_content = args.file.read_text()
-        module = parse(rac_content, path=str(args.file))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "compiled.json"
+            result = subprocess.run(
+                [
+                    str(binary),
+                    "compile",
+                    "--program",
+                    str(args.file),
+                    "--output",
+                    str(output_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=str(axiom_rules_path) if Path(axiom_rules_path).exists() else None,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+            compiled = json.loads(output_path.read_text())
 
-        # Step 2: Compile
-        ir = rac_compile([module], as_of=as_of)
-
-        var_names = list(ir.variables.keys())
-
-        if args.execute:
-            # Execute with empty data
-            result = rac_execute(ir, {})
-            scalars = dict(result.scalars) if hasattr(result, "scalars") else {}
+        program = compiled.get("program") if isinstance(compiled, dict) else {}
+        if not isinstance(program, dict):
+            program = {}
+        rule_names = [
+            item.get("name")
+            for key in ("parameters", "derived", "relations")
+            for item in (program.get(key) or [])
+            if isinstance(item, dict) and item.get("name")
+        ]
 
         if args.json:
             output = {
                 "success": True,
                 "file": str(args.file),
-                "as_of": str(as_of),
-                "variables": var_names,
-                "variable_count": len(var_names),
+                "axiom_rules_path": str(axiom_rules_path),
+                "rules": rule_names,
+                "rule_count": len(rule_names),
             }
-            if args.execute:
-                output["scalars"] = scalars
             print(json.dumps(output, indent=2, default=str))
         else:
             print(f"Compiled: {args.file}")
-            print(f"Date: {as_of}")
-            print(f"Variables: {len(var_names)}")
-            for name in var_names:
+            print(f"Axiom Rules: {axiom_rules_path}")
+            print(f"Rules: {len(rule_names)}")
+            for name in rule_names:
                 print(f"  - {name}")
-            if args.execute:
-                print("\nExecution results:")
-                for k, v in scalars.items():
-                    print(f"  {k} = {v}")
             print("\nResult: compiled successfully")
 
         sys.exit(0)
@@ -2024,13 +2065,13 @@ def cmd_eval(args):
         args.runner or ["claude:opus", "codex:gpt-5.4"], args
     )
     atlas_path = args.atlas_path or _default_repo_checkout("atlas")
-    rac_path = args.rac_path or _default_repo_checkout("rac")
+    rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
 
     if not atlas_path.exists():
         print(f"Atlas repo not found: {atlas_path}")
         sys.exit(1)
     if not rac_path.exists():
-        print(f"rac repo not found: {rac_path}")
+        print(f"axiom-rules repo not found: {rac_path}")
         sys.exit(1)
 
     results = run_model_eval(
@@ -2049,7 +2090,7 @@ def cmd_eval(args):
 
     print(f"Output root: {args.output}")
     print(f"Atlas: {atlas_path}")
-    print(f"rac: {rac_path}")
+    print(f"Axiom Rules: {rac_path}")
     print(f"Mode: {args.mode}")
     print()
 
@@ -2078,7 +2119,7 @@ def cmd_eval_source(args):
     runners = _effective_runner_specs(
         args.runner or ["claude:opus", "codex:gpt-5.4"], args
     )
-    runtime_rac_path = _default_repo_checkout("rac")
+    runtime_rac_path = _default_repo_checkout("axiom-rules")
     policy_repo_path = None
     if args.rac_path:
         if is_policy_repo_root(args.rac_path):
@@ -2091,7 +2132,7 @@ def cmd_eval_source(args):
     policy_repo_path = policy_repo_path or _default_repo_checkout("rac-us")
 
     if not runtime_rac_path.exists():
-        print(f"rac repo not found: {runtime_rac_path}")
+        print(f"axiom-rules repo not found: {runtime_rac_path}")
         sys.exit(1)
     if not args.source_file.exists():
         print(f"Source file not found: {args.source_file}")
@@ -2116,10 +2157,10 @@ def cmd_eval_source(args):
 
     print(f"Output root: {args.output}")
     print(f"Policy repo: {policy_repo_path}")
-    print(f"rac: {runtime_rac_path}")
+    print(f"Axiom Rules: {runtime_rac_path}")
     print(f"Source: {args.source_file}")
     if args.policyengine_rac_var_hint:
-        print(f"PolicyEngine RAC var hint: {args.policyengine_rac_var_hint}")
+        print(f"PolicyEngine rule hint: {args.policyengine_rac_var_hint}")
     print(f"Mode: {args.mode}")
     print()
 
@@ -2148,10 +2189,10 @@ def cmd_eval_akn_section(args):
     runners = _effective_runner_specs(
         args.runner or ["claude:opus", "codex:gpt-5.4"], args
     )
-    rac_path = args.rac_path or _default_repo_checkout("rac")
+    rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
 
     if not rac_path.exists():
-        print(f"rac repo not found: {rac_path}")
+        print(f"axiom-rules repo not found: {rac_path}")
         sys.exit(1)
     if not args.akn_file.exists():
         print(f"AKN file not found: {args.akn_file}")
@@ -2184,7 +2225,7 @@ def cmd_eval_akn_section(args):
         return
 
     print(f"Output root: {args.output}")
-    print(f"rac: {rac_path}")
+    print(f"Axiom Rules: {rac_path}")
     print(f"AKN file: {args.akn_file}")
     section_labels = [
         value for value in [args.section_eid, *args.section_eids] if value
@@ -2195,7 +2236,7 @@ def cmd_eval_akn_section(args):
     if args.table_row_query:
         print(f"Table row query: {args.table_row_query}")
     if args.policyengine_rac_var_hint:
-        print(f"PolicyEngine RAC var hint: {args.policyengine_rac_var_hint}")
+        print(f"PolicyEngine rule hint: {args.policyengine_rac_var_hint}")
     print(f"Mode: {args.mode}")
     print()
 
@@ -2224,10 +2265,10 @@ def cmd_eval_uk_legislation_section(args):
     runners = _effective_runner_specs(
         args.runner or ["claude:opus", "codex:gpt-5.4"], args
     )
-    rac_path = args.rac_path or _default_repo_checkout("rac")
+    rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
 
     if not rac_path.exists():
-        print(f"rac repo not found: {rac_path}")
+        print(f"axiom-rules repo not found: {rac_path}")
         sys.exit(1)
 
     results = run_legislation_gov_uk_section_eval(
@@ -2248,14 +2289,14 @@ def cmd_eval_uk_legislation_section(args):
         return
 
     print(f"Output root: {args.output}")
-    print(f"rac: {rac_path}")
+    print(f"Axiom Rules: {rac_path}")
     print(f"Source: {args.source_ref}")
     if args.section_eid:
         print(f"Section: {args.section_eid}")
     if args.table_row_query:
         print(f"Table row query: {args.table_row_query}")
     if args.policyengine_rac_var_hint:
-        print(f"PolicyEngine RAC var hint: {args.policyengine_rac_var_hint}")
+        print(f"PolicyEngine rule hint: {args.policyengine_rac_var_hint}")
     print(f"Mode: {args.mode}")
     print()
 
@@ -2414,11 +2455,11 @@ def cmd_eval_suite(args):
     """Run a manifest-driven benchmark suite and evaluate readiness gates."""
     manifest = load_eval_suite_manifest(args.manifest)
     effective_runners = _effective_runner_specs(args.runner or manifest.runners, args)
-    rac_path = args.rac_path or _default_repo_checkout("rac")
+    rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
     atlas_path = args.atlas_path or _default_repo_checkout("atlas")
 
     if not rac_path.exists():
-        print(f"rac repo not found: {rac_path}")
+        print(f"axiom-rules repo not found: {rac_path}")
         sys.exit(1)
 
     has_citation_case = any(case.kind == "citation" for case in manifest.cases)
@@ -2515,7 +2556,7 @@ def cmd_eval_suite(args):
     print(f"Suite: {manifest.name}")
     print(f"Output root: {args.output}")
     print(f"Runners: {', '.join(effective_runners)}")
-    print(f"rac: {rac_path}")
+    print(f"Axiom Rules: {rac_path}")
     if has_citation_case:
         print(f"Atlas: {atlas_path}")
     print()
@@ -2593,9 +2634,9 @@ def cmd_eval_suite_revalidate(args):
         sys.exit(1)
 
     manifest = load_eval_suite_manifest(manifest_path)
-    rac_path = args.rac_path or _default_repo_checkout("rac")
+    rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
     if not rac_path.exists():
-        print(f"rac repo not found: {rac_path}")
+        print(f"axiom-rules repo not found: {rac_path}")
         sys.exit(1)
 
     ledger_path = source_output / "suite-results.jsonl"

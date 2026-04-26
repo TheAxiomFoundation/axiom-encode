@@ -1148,7 +1148,31 @@ def _default_snap_utility_region_for_jurisdiction(
 
 
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
-    """Extract grounded numeric values from RAC definitions, excluding formulas/tests."""
+    """Extract grounded numeric values from RuleSpec/RAC definitions."""
+    with contextlib.suppress(yaml.YAMLError, TypeError):
+        payload = yaml.safe_load(content)
+        if isinstance(payload, dict) and isinstance(payload.get("rules"), list):
+            values: list[tuple[int, str, float]] = []
+            for rule in payload["rules"]:
+                if not isinstance(rule, dict):
+                    continue
+                versions = rule.get("versions")
+                if not isinstance(versions, list):
+                    continue
+                for version in versions:
+                    if not isinstance(version, dict):
+                        continue
+                    formula = version.get("formula")
+                    if isinstance(formula, (int, float)) and not isinstance(
+                        formula, bool
+                    ):
+                        value = float(formula)
+                        if value not in GROUNDING_ALLOWED_VALUES:
+                            values.append((1, str(formula), value))
+                    elif isinstance(formula, str):
+                        values.extend(_extract_formula_grounding_values(1, formula))
+            return values
+
     values = []
     in_formula = False
     in_tests = False
@@ -1655,7 +1679,45 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
 
 
 def extract_named_scalar_occurrences(content: str) -> list[NamedScalarOccurrence]:
-    """Extract direct named scalar definitions from a RAC file, preserving repeats."""
+    """Extract direct named scalar definitions from a RuleSpec/RAC file."""
+    with contextlib.suppress(yaml.YAMLError, TypeError):
+        payload = yaml.safe_load(content)
+        if isinstance(payload, dict) and isinstance(payload.get("rules"), list):
+            occurrences: list[NamedScalarOccurrence] = []
+            for rule in payload["rules"]:
+                if not isinstance(rule, dict):
+                    continue
+                name = str(rule.get("name") or "").strip()
+                if not name:
+                    continue
+                versions = rule.get("versions")
+                if not isinstance(versions, list):
+                    continue
+                for version in versions:
+                    if not isinstance(version, dict):
+                        continue
+                    formula = version.get("formula")
+                    raw: str | None = None
+                    if isinstance(formula, (int, float)) and not isinstance(
+                        formula, bool
+                    ):
+                        raw = str(formula)
+                    elif isinstance(formula, str):
+                        stripped = formula.strip()
+                        if _DIRECT_SCALAR_VALUE_PATTERN.fullmatch(stripped):
+                            raw = stripped
+                    if raw is None:
+                        continue
+                    with contextlib.suppress(ValueError):
+                        occurrences.append(
+                            NamedScalarOccurrence(
+                                line=1,
+                                name=name,
+                                value=float(raw.replace(",", "")),
+                            )
+                        )
+            return occurrences
+
     occurrences: list[NamedScalarOccurrence] = []
     current_variable: str | None = None
     temporal_block = False
@@ -1721,7 +1783,16 @@ def extract_named_scalar_occurrences(content: str) -> list[NamedScalarOccurrence
 
 
 def extract_embedded_source_text(content: str) -> str:
-    """Extract the leading source-text docstring from a RAC file."""
+    """Extract embedded source text from RuleSpec YAML or legacy docstrings."""
+    with contextlib.suppress(yaml.YAMLError, TypeError):
+        payload = yaml.safe_load(content)
+        if isinstance(payload, dict):
+            module = payload.get("module")
+            if isinstance(module, dict):
+                summary = module.get("summary")
+                if isinstance(summary, str) and summary.strip():
+                    return summary.strip()
+
     status_index = content.find("\nstatus:")
     header = content[:status_index] if status_index != -1 else content
     blocks = re.findall(r'"""(.*?)"""', header, re.DOTALL)
@@ -2038,8 +2109,105 @@ class ValidatorPipeline:
             oracle_context=oracle_context,
         )
 
+    def _is_rulespec_file(self, rules_file: Path) -> bool:
+        """Return true for current RuleSpec programme files."""
+        return rules_file.suffix in {".yaml", ".yml"} and not rules_file.name.endswith(
+            ".test.yaml"
+        )
+
+    def _rulespec_test_path(self, rules_file: Path) -> Path:
+        """Return the companion RuleSpec test file path."""
+        return rules_file.with_name(f"{rules_file.stem}.test.yaml")
+
+    def _axiom_rules_binary(self) -> Path:
+        """Resolve the local Axiom Rules CLI binary."""
+        candidates = [
+            self.rac_path / "target" / "debug" / "axiom-rules",
+            self.rac_path / "target" / "release" / "axiom-rules",
+            self.rac_path / "axiom-rules",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        if resolved := shutil.which("axiom-rules"):
+            return Path(resolved)
+        raise FileNotFoundError(
+            f"axiom-rules binary not found under {self.rac_path} or on PATH"
+        )
+
+    def _run_rulespec_compile_check(self, rules_file: Path) -> ValidationResult:
+        """Compile RuleSpec YAML through the Axiom Rules engine."""
+        start = time.time()
+        issues: list[str] = []
+        try:
+            binary = self._axiom_rules_binary()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                output_path = Path(tmpdir) / "compiled.json"
+                result = subprocess.run(
+                    [
+                        str(binary),
+                        "compile",
+                        "--program",
+                        str(rules_file),
+                        "--output",
+                        str(output_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    cwd=str(self.rac_path) if self.rac_path.exists() else None,
+                )
+                if result.returncode != 0:
+                    detail = result.stderr.strip() or result.stdout.strip()
+                    issues.append(f"Axiom Rules compile failed: {detail}")
+                    return ValidationResult(
+                        validator_name="compile",
+                        passed=False,
+                        issues=issues,
+                        duration_ms=int((time.time() - start) * 1000),
+                        error=issues[0],
+                        raw_output=result.stdout + result.stderr,
+                    )
+                payload = json.loads(output_path.read_text())
+            program = payload.get("program") if isinstance(payload, dict) else {}
+            if not isinstance(program, dict):
+                program = {}
+            rule_count = sum(
+                len(program.get(key) or ())
+                for key in ("parameters", "derived", "relations")
+            )
+            return ValidationResult(
+                validator_name="compile",
+                passed=True,
+                issues=[],
+                duration_ms=int((time.time() - start) * 1000),
+                raw_output=f"Successfully compiled {rule_count} RuleSpec rule(s) with Axiom Rules",
+            )
+        except Exception as exc:
+            issues.append(f"Axiom Rules compile failed: {exc}")
+            return ValidationResult(
+                validator_name="compile",
+                passed=False,
+                issues=issues,
+                duration_ms=int((time.time() - start) * 1000),
+                error=str(exc),
+            )
+
     def _run_compile_check(self, rac_file: Path) -> ValidationResult:
-        """Tier 0: Compile check against the current public rac engine APIs."""
+        """Tier 0: Compile check against Axiom Rules RuleSpec."""
+        if self._is_rulespec_file(rac_file):
+            return self._run_rulespec_compile_check(rac_file)
+
+        if rac_file.suffix == ".rac":
+            return ValidationResult(
+                validator_name="compile",
+                passed=False,
+                issues=[
+                    "Legacy .rac artifacts are no longer supported; emit RuleSpec YAML instead."
+                ],
+                error="Legacy .rac artifacts are no longer supported",
+            )
+
         start = time.time()
         issues = []
         rac_src = self.rac_path / "src"
@@ -2085,8 +2253,90 @@ class ValidatorPipeline:
                 with contextlib.suppress(ValueError):
                     sys.path.remove(str(rac_src))
 
+    def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
+        """Run lightweight RuleSpec CI checks until the engine test runner lands."""
+        start = time.time()
+        issues: list[str] = []
+
+        compile_result = self._run_rulespec_compile_check(rules_file)
+        if not compile_result.passed:
+            issues.extend(compile_result.issues)
+
+        test_path = self._rulespec_test_path(rules_file)
+        if test_path.exists():
+            try:
+                payload = yaml.safe_load(test_path.read_text())
+            except yaml.YAMLError as exc:
+                issues.append(f"Test YAML parse failed: {exc}")
+            else:
+                if payload in (None, ""):
+                    if not self._is_nonassertable_rulespec_artifact(rules_file):
+                        issues.append("No tests found.")
+                elif not isinstance(payload, list):
+                    issues.append("RuleSpec tests must be a YAML list of cases.")
+                else:
+                    for index, case in enumerate(payload, 1):
+                        if not isinstance(case, dict):
+                            issues.append(f"Test case #{index} must be a mapping.")
+                            continue
+                        if "name" not in case:
+                            issues.append(f"Test case #{index} is missing name.")
+                        if "output" not in case:
+                            issues.append(f"Test case #{index} is missing output.")
+                        if (
+                            self.policyengine_rac_var_hint
+                            and isinstance(case.get("output"), dict)
+                            and self.policyengine_rac_var_hint not in case["output"]
+                        ):
+                            issues.append(
+                                f"Test case #{index} output must assert "
+                                f"{self.policyengine_rac_var_hint}."
+                            )
+        elif not self._is_nonassertable_rulespec_artifact(rules_file):
+            issues.append("No tests found.")
+
+        duration = int((time.time() - start) * 1000)
+        return ValidationResult(
+            validator_name="ci",
+            passed=len(issues) == 0,
+            issues=issues,
+            duration_ms=duration,
+            error=issues[0] if issues else None,
+            raw_output=compile_result.raw_output,
+        )
+
+    def _is_nonassertable_rulespec_artifact(self, rules_file: Path) -> bool:
+        """Return true when a RuleSpec artifact intentionally has no assertions."""
+        try:
+            payload = yaml.safe_load(rules_file.read_text())
+        except yaml.YAMLError:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        module = payload.get("module")
+        status = (
+            str(module.get("status", "")).strip()
+            if isinstance(module, dict)
+            else str(payload.get("status", "")).strip()
+        )
+        return status in {"deferred", "entity_not_supported"} and not payload.get(
+            "rules"
+        )
+
     def _run_ci(self, rac_file: Path) -> ValidationResult:
-        """Run CI checks with the current rac CLI entry points."""
+        """Run CI checks for RuleSpec artifacts."""
+        if self._is_rulespec_file(rac_file):
+            return self._run_rulespec_ci(rac_file)
+        if rac_file.suffix == ".rac":
+            return ValidationResult(
+                validator_name="ci",
+                passed=False,
+                issues=[
+                    "Legacy .rac artifacts are no longer supported; emit RuleSpec YAML instead."
+                ],
+                error="Legacy .rac artifacts are no longer supported",
+            )
+
         start = time.time()
         issues = []
         env = self._pythonpath_env()
@@ -2283,9 +2533,17 @@ class ValidatorPipeline:
             shutil.copy2(current, target)
 
             if include_root_companion_test and resolved == root_resolved:
-                companion_test = current.with_suffix(".rac.test")
+                companion_test = (
+                    self._rulespec_test_path(current)
+                    if self._is_rulespec_file(current)
+                    else current.with_suffix(".rac.test")
+                )
                 if companion_test.exists():
-                    companion_target = target.with_suffix(".rac.test")
+                    companion_target = (
+                        self._rulespec_test_path(target)
+                        if self._is_rulespec_file(target)
+                        else target.with_suffix(".rac.test")
+                    )
                     companion_target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(companion_test, companion_target)
 
@@ -2361,11 +2619,11 @@ class ValidatorPipeline:
         return paths
 
     def _import_to_relative_rac_path(self, import_target: str) -> Path:
-        """Convert an import target like 26/24/c#name into 26/24/c.rac."""
+        """Convert an import target like 26/24/c#name into 26/24/c.yaml."""
         normalized = import_target.strip().strip('"').strip("'")
-        if normalized.endswith(".rac"):
+        if normalized.endswith((".yaml", ".yml")):
             return Path(normalized)
-        return Path(f"{normalized}.rac")
+        return Path(f"{normalized}.yaml")
 
     def _extract_defined_symbols(self, content: str) -> list[str]:
         """Extract top-level RAC definition names."""
@@ -3052,7 +3310,11 @@ class ValidatorPipeline:
         try:
             rac_content = Path(rac_file).read_text()
             test_content = None
-            companion_test = rac_file.with_suffix(".rac.test")
+            companion_test = (
+                self._rulespec_test_path(rac_file)
+                if self._is_rulespec_file(rac_file)
+                else rac_file.with_suffix(".rac.test")
+            )
             if companion_test.exists():
                 test_content = companion_test.read_text()
         except Exception as e:
@@ -3607,15 +3869,19 @@ Output ONLY valid JSON:
         )
 
     def _read_test_content(self, rac_file: Path) -> str:
-        """Read test content from .rac.test companion file or inline tests.
+        """Read test content from companion test file or inline tests.
 
-        Checks for companion .rac.test file first, falls back to inline.
+        Checks for RuleSpec `.test.yaml` or legacy `.rac.test` first, then falls
+        back to inline tests.
         """
-        # Check for companion .rac.test file
-        test_file = Path(str(rac_file) + ".test")
-        if test_file.exists():
-            return test_file.read_text()
-        # Fall back to inline tests in the .rac file itself
+        candidates = (
+            [self._rulespec_test_path(rac_file), Path(str(rac_file) + ".test")]
+            if self._is_rulespec_file(rac_file)
+            else [Path(str(rac_file) + ".test")]
+        )
+        for test_file in candidates:
+            if test_file.exists():
+                return test_file.read_text()
         return rac_file.read_text()
 
     def _run_taxsim(self, rac_file: Path) -> ValidationResult:

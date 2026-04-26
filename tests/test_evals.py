@@ -122,6 +122,70 @@ class TestCodexPromptEval:
         assert process.terminated is True
 
 
+def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
+    runner = parse_runner_spec("codex:gpt-5.4")
+    workspace = prepare_eval_workspace(
+        citation="tn_snap_standard_utility_allowance",
+        runner=runner,
+        output_root=tmp_path / "out",
+        source_text="The standard utility allowance is $451.",
+        rac_path=tmp_path / "us-tn",
+        mode="cold",
+    )
+
+    prompt = _build_eval_prompt(
+        "tn_snap_standard_utility_allowance",
+        "cold",
+        workspace,
+        [],
+        target_file_name="tn-snap-standard-utility-allowance.yaml",
+        include_tests=True,
+        policyengine_rac_var_hint="snap_standard_utility_allowance",
+    )
+
+    assert "format: rulespec/v1" in prompt
+    assert "RuleSpec YAML" in prompt
+    assert "=== FILE: tn-snap-standard-utility-allowance.yaml ===" in prompt
+    assert "=== FILE: tn-snap-standard-utility-allowance.test.yaml ===" in prompt
+    assert "snap_standard_utility_allowance" in prompt
+
+
+def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
+    output_file = tmp_path / "runner" / "source" / "tn-snap.yaml"
+    llm_response = """=== FILE: tn-snap.yaml ===
+format: rulespec/v1
+module:
+  summary: |-
+    The standard utility allowance is $451.
+rules:
+  - name: snap_standard_utility_allowance_value
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          451
+=== FILE: tn-snap.test.yaml ===
+- name: base
+  period: 2024-01
+  input: {}
+  output:
+    snap_standard_utility_allowance: 451
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="The standard utility allowance is $451.",
+    )
+
+    assert wrote is True
+    assert output_file.exists()
+    assert output_file.with_name("tn-snap.test.yaml").exists()
+    assert output_file.read_text().startswith("format: rulespec/v1")
+
+
 def test_eval_result_payload_round_trips_prompt_digests():
     result = EvalResult(
         citation="snap_test",

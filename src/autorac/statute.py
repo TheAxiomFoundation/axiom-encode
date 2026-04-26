@@ -62,18 +62,23 @@ def citation_to_source_path(citation: str | CitationParts) -> str:
     return "usc/" + "/".join(path_parts)
 
 
-def citation_to_relative_rac_path(citation: str | CitationParts) -> Path:
-    """Convert a citation into the repo-relative RAC output path."""
+def citation_to_relative_rulespec_path(citation: str | CitationParts) -> Path:
+    """Convert a citation into the repo-relative RuleSpec output path."""
     parts = (
         citation
         if isinstance(citation, CitationParts)
         else parse_usc_citation(citation)
     )
     if not parts.fragments:
-        return Path(parts.title) / parts.section / f"{parts.section}.rac"
+        return Path(parts.title) / parts.section / f"{parts.section}.yaml"
     return (
-        Path(parts.title) / parts.section / Path(*parts.fragments).with_suffix(".rac")
+        Path(parts.title) / parts.section / Path(*parts.fragments).with_suffix(".yaml")
     )
+
+
+def citation_to_relative_rac_path(citation: str | CitationParts) -> Path:
+    """Deprecated compatibility alias for RuleSpec output paths."""
+    return citation_to_relative_rulespec_path(citation)
 
 
 def uscode_xml_path(xml_root: Path, citation: str | CitationParts) -> Path:

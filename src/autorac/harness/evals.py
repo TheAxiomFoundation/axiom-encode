@@ -27,7 +27,7 @@ import yaml
 from autorac.repo_routing import find_policy_repo_root
 from autorac.statute import (
     CitationParts,
-    citation_to_relative_rac_path,
+    citation_to_relative_rulespec_path,
     find_citation_text,
     parse_usc_citation,
 )
@@ -1974,7 +1974,7 @@ def select_context_files(
         else parse_usc_citation(citation)
     )
     section_root = Path(rac_us_root) / parts.title / parts.section
-    target_rel = citation_to_relative_rac_path(parts)
+    target_rel = citation_to_relative_rulespec_path(parts)
     target_path = Path(rac_us_root) / target_rel
 
     candidates: list[Path] = []
@@ -1982,15 +1982,20 @@ def select_context_files(
         candidates.extend(
             sorted(
                 path
-                for path in section_root.rglob("*.rac")
+                for path in section_root.rglob("*.yaml")
                 if path.resolve() != target_path.resolve()
+                and not path.name.endswith(".test.yaml")
             )
         )
 
     if not candidates:
         title_root = Path(rac_us_root) / parts.title
         candidates.extend(
-            sorted(path for path in title_root.rglob("*.rac") if path != target_path)
+            sorted(
+                path
+                for path in title_root.rglob("*.yaml")
+                if path != target_path and not path.name.endswith(".test.yaml")
+            )
         )
 
     # Bias toward nearby files first, then shallower paths for readability.
@@ -2366,15 +2371,15 @@ def _context_import_relative_target(source_path: Path, rac_path: Path) -> Path:
 
 
 def _relative_rac_path_to_import_target(path: Path) -> str:
-    """Convert a relative RAC file path into a bare import target."""
-    normalized = path.with_suffix("") if path.suffix == ".rac" else path
+    """Convert a relative RuleSpec file path into a bare import target."""
+    normalized = path.with_suffix("") if path.suffix in {".yaml", ".yml"} else path
     return normalized.as_posix()
 
 
 def _target_rel_for_eval_identifier(citation: str) -> Path | None:
-    """Return the canonical RAC target path for USC citations when parseable."""
+    """Return the canonical RuleSpec target path for USC citations when parseable."""
     try:
-        return citation_to_relative_rac_path(citation)
+        return citation_to_relative_rulespec_path(citation)
     except Exception:
         return None
 
@@ -2565,7 +2570,7 @@ def _run_single_eval(
         extra_context_paths=extra_context_paths,
     )
 
-    relative_output = citation_to_relative_rac_path(citation)
+    relative_output = citation_to_relative_rulespec_path(citation)
     prompt = _build_eval_prompt(
         citation,
         mode,
@@ -2736,7 +2741,150 @@ def _run_single_source_eval(
 
 def _source_identifier_to_relative_rac_path(source_id: str) -> Path:
     """Map an arbitrary source identifier to a stable eval artifact path."""
-    return Path("source") / f"{_slugify(source_id)}.rac"
+    return Path("source") / f"{_slugify(source_id)}.yaml"
+
+
+def _rulespec_test_path(path: Path) -> Path:
+    """Return the companion RuleSpec test path for a programme file."""
+    return path.with_name(f"{path.stem}.test.yaml")
+
+
+def _build_rulespec_eval_prompt(
+    citation: str,
+    mode: EvalMode,
+    workspace: EvalWorkspace,
+    context_files: list[EvalContextFile],
+    target_file_name: str,
+    include_tests: bool,
+    runner_backend: str,
+    policyengine_rac_var_hint: str | None,
+) -> str:
+    """Build the RuleSpec authoring prompt used by current evals."""
+    source_text = workspace.source_file.read_text().strip()
+    source_metadata_section = ""
+    if workspace.source_metadata is not None:
+        source_metadata_section = f"""
+Structured source metadata is available in `./source-metadata.json` and copied below.
+If a metadata relation says this source `sets` a canonical target, model the source as setting that delegated slot and record the absolute target path under `metadata.sets`. This is not an `amends` relationship unless the source itself amends another source.
+
+=== BEGIN SOURCE-METADATA.JSON ===
+{json.dumps(workspace.source_metadata, indent=2, sort_keys=True)}
+=== END SOURCE-METADATA.JSON ===
+"""
+
+    context_section = ""
+    if context_files:
+        listings = "\n".join(_format_context_file_listing(item) for item in context_files)
+        inline_context = ""
+        if runner_backend == "openai":
+            inline_context = f"""
+
+Inline context copies:
+{_format_inline_context_snippets(workspace, context_files)}
+"""
+        context_section = f"""
+Context mode: `{mode}`.
+Context files are precedent and dependency context, not independent legal authority for new values:
+{listings}
+{inline_context}
+"""
+
+    test_file_name = _rulespec_test_path(Path(target_file_name)).name
+    if include_tests:
+        oracle_rule = ""
+        if policyengine_rac_var_hint:
+            oracle_rule = (
+                f"- Every non-empty test `output:` mapping must assert "
+                f"`{policyengine_rac_var_hint}` directly.\n"
+            )
+        output_rules = f"""
+Return exactly this two-file bundle and nothing else:
+=== FILE: {target_file_name} ===
+<RuleSpec YAML>
+=== FILE: {test_file_name} ===
+<YAML list of test cases>
+
+Test file rules:
+- `{test_file_name}` must be a YAML list beginning with `- name:` entries.
+- Use `period`, `input`, and `output` keys. Use concrete scalar values, not formula strings.
+- Emit 1-4 cases unless `module.status` is `deferred` or `entity_not_supported`, in which case the test file may be empty.
+{oracle_rule.rstrip()}
+"""
+    else:
+        output_rules = f"""
+Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or explanation.
+"""
+
+    target_hint = ""
+    if policyengine_rac_var_hint:
+        target_hint = f"""
+Preferred principal output:
+- Name the main derived rule `{policyengine_rac_var_hint}` unless the source clearly defines a different canonical concept.
+- Keep oracle-comparable tests at that named semantic level; do not assert only helper parameters or documentary scalars.
+"""
+
+    inline_source = f"""
+=== BEGIN SOURCE.TXT ===
+{source_text}
+=== END SOURCE.TXT ===
+"""
+
+    return f"""You are participating in an encoding eval for {citation}.
+
+Author the output in Axiom RuleSpec, not the legacy RAC DSL.
+
+Primary legal authority:
+- `./source.txt` contains the complete source text for this target source unit.
+- Treat that source text as the only source of legal truth for this artifact.
+{inline_source}
+{source_metadata_section}{context_section}
+
+RuleSpec requirements:
+- The programme file must begin with `format: rulespec/v1`.
+- Include `module.summary: |-` containing the exact operative source text or an exact compact excerpt sufficient to audit all encoded rules.
+- Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
+- Rule kinds are `parameter`, `derived`, or `relation`. Use `parameter` for named source scalars and `derived` for entity-scoped outputs.
+- Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
+- Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
+- Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
+- Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
+- Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
+- Any substantive numeric literal in a formula must either appear in `./source.txt` or be one of -1, 0, 1, 2, or 3.
+- Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
+- If the source cannot be faithfully represented with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
+- If metadata or context names an absolute canonical target that this source `sets`, store that absolute path in the relevant rule's `metadata.sets` list.
+{target_hint}
+Minimal RuleSpec shape:
+```yaml
+format: rulespec/v1
+module:
+  summary: |-
+    <exact source text>
+rules:
+  - name: example_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          451
+  - name: example_output
+    kind: derived
+    entity: SnapUnit
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if example_condition: example_amount else: 0
+```
+
+{output_rules}
+Do not respond with summaries, markdown prose, or file-write confirmations.
+"""
 
 
 def _build_eval_prompt(
@@ -2750,450 +2898,16 @@ def _build_eval_prompt(
     policyengine_rac_var_hint: str | None = None,
 ) -> str:
     """Build a prompt-only eval request with explicit provenance rules."""
-    source_text = workspace.source_file.read_text().strip()
-    single_amount_table_slice = _is_single_amount_table_slice(source_text)
-    definition_context_files = [
-        item for item in context_files if item.kind == "definition_stub"
-    ]
-    canonical_concept_context_files = [
-        item for item in context_files if item.kind == "canonical_concept"
-    ]
-    precedent_context_files = [
-        item
-        for item in context_files
-        if item.kind not in {"definition_stub", "canonical_concept"}
-    ]
-
-    inline_source_section = ""
-    if runner_backend == "openai":
-        inline_source_section = f"""
-You do not have filesystem tool access in this eval. The exact contents of `./source.txt`
-are copied inline below and must be treated as the contents of that file.
-
-=== BEGIN SOURCE.TXT ===
-{source_text}
-=== END SOURCE.TXT ===
-"""
-
-    source_metadata_section = ""
-    if workspace.source_metadata is not None:
-        source_metadata_json = json.dumps(
-            workspace.source_metadata, indent=2, sort_keys=True
-        )
-        source_metadata_section = f"""
-Structured source metadata is available in `./source-metadata.json`.
-It is not independent legal authority; it records how this source text relates to canonical legal slots already anchored elsewhere in the corpus.
-If this metadata says the source `sets` a canonical target, treat the slice as setting the effective jurisdiction-specific value for that delegated slot rather than amending an upstream federal numeric baseline.
-If this metadata says the source `sets` a canonical target but the copied workspace context does not actually contain that target file, do not add a top-level `imports:` entry to the bare canonical `cfr/...#...` or `usc/...#...` path just because the metadata names it. Keep the canonical target identity in the local output or dated `amend` block instead of guessing a broken import.
-If this metadata says the source `uses` or `imports` a canonical target, prefer importing or reusing that canonical target instead of redefining it locally.
-If this metadata includes `source_backing`, then `./source.txt` is a derived extraction from the listed authoritative AKN section or sections. Preserve that section-level scope; do not widen the rule beyond what those backed sections say.
-
-=== BEGIN SOURCE-METADATA.JSON ===
-{source_metadata_json}
-=== END SOURCE-METADATA.JSON ===
-"""
-
-    definition_section = ""
-    if definition_context_files:
-        listed_definitions = "\n".join(
-            _format_context_file_listing(item, include_label=True)
-            for item in definition_context_files
-        )
-        inline_definition_copies = ""
-        if runner_backend == "openai":
-            inline_definition_copies = f"""
-
-Inline resolved definition file copies:
-{_format_inline_context_snippets(workspace, definition_context_files)}
-"""
-        definition_section = f"""
-Resolved definition files are available below.
-If `./source.txt` uses one of these defined terms, import the listed canonical definition instead of inventing a local helper:
-{listed_definitions}
-
-Inspect the copied file at the listed `./context/...` path when needed, but emit any RAC `imports:` entry using the listed import target rather than the `./context/` inspection path.
-
-Exact RAC import syntax for a resolved definition:
-resolved_term_local_name:
-    imports:
-        - legislation/ukpga/2002/16/section/3ZA/3#is_member_of_mixed_age_couple
-    entity: Person
-    period: Day
-    dtype: Boolean
-    from 2025-03-21:
-        is_member_of_mixed_age_couple
-
-Do not replace that import with a local deferred stub or a path-mangled variable name like
-`legislation_ukpga_2002_16_section_3ZA_3_is_member_of_mixed_age_couple`.
-{inline_definition_copies}
-"""
-
-    canonical_concept_section = ""
-    if canonical_concept_context_files:
-        listed_concepts = "\n".join(
-            _format_context_file_listing(item, include_label=True)
-            for item in canonical_concept_context_files
-        )
-        inline_concept_copies = ""
-        if runner_backend == "openai":
-            inline_concept_copies = f"""
-
-Inline canonical concept file copies:
-{_format_inline_context_snippets(workspace, canonical_concept_context_files)}
-"""
-        canonical_concept_section = f"""
-Resolved canonical concept files from this corpus are available below.
-If `./source.txt` uses one of these legal concepts, import the listed canonical definition instead of restating that concept locally:
-{listed_concepts}
-
-Inspect the copied file at the listed `./context/...` path when needed, but emit any RAC `imports:` entry using the listed import target rather than the `./context/` inspection path.
-
-Exact RAC import syntax for a copied canonical concept:
-local_fact_name:
-    imports:
-        - statute/crs/26-2-703/12#is_individual_responsibility_contract
-    entity: Person
-    period: Month
-    dtype: Boolean
-    from 2026-04-03:
-        is_individual_responsibility_contract
-
-Because the canonical concept file already exists in this workspace, do not keep that concept as a leaf-local helper when the listed import target matches the source text.
-{inline_concept_copies}
-"""
-
-    context_section = ""
-    if precedent_context_files:
-        listed = "\n".join(
-            _format_context_file_listing(item) for item in precedent_context_files
-        )
-        scaffold_dates = _collect_scaffold_dates(workspace, precedent_context_files)
-        scaffold_date_lines = ""
-        if scaffold_dates:
-            dates = ", ".join(f"`{date}`" for date in scaffold_dates)
-            scaffold_date_lines = f"""
-Allowed temporal scaffold dates copied from precedent:
-- {dates}
-
-If the source text is silent on effective dates but RAC syntax requires a `from YYYY-MM-DD:` clause,
-you may use one scaffold date from the copied precedent files.
-Prefer the earliest scaffold date unless a matching copied concept clearly uses a later one.
-Numeric grounding rules do not apply to the YYYY-MM-DD tokens inside that temporal clause.
-"""
-        if runner_backend == "openai":
-            context_section = f"""
-Implementation precedent files are available below as inline copies.
-You may use ONLY the copied files below for syntax, naming, entity, import, re-export, and style conventions.
-They are not legal authority and may not justify new substantive numeric values.
-Prefer importing or re-exporting a copied concept instead of inventing a fresh stub input when a matching concept already exists.
-When you emit a RAC `imports:` entry based on one of these copied files, use the listed import target rather than the `./context/...` inspection path.
-{scaffold_date_lines}
-
-Available precedent files:
-{listed}
-
-Inline precedent file copies:
-{_format_inline_context_snippets(workspace, context_files)}
-"""
-        else:
-            context_section = f"""
-Implementation precedent files are available under `./context/`.
-You may use ONLY the copied files below for syntax, naming, entity, import, re-export, and style conventions.
-They are not legal authority and may not justify new substantive numeric values.
-Prefer importing or re-exporting a copied concept instead of inventing a fresh stub input when a matching concept already exists.
-When you emit a RAC `imports:` entry based on one of these copied files, use the listed import target rather than the `./context/...` inspection path.
-You may inspect `./source.txt`, `./context-manifest.json`, and the listed copied files only when needed.
-{scaffold_date_lines}
-
-Available precedent files:
-{listed}
-"""
-
-    file_output_rules = f"""
-- Return ONLY raw `.rac` file content for `{target_file_name}`.
-- Do not include markdown fences or explanation.
-"""
-    if include_tests:
-        test_file_name = Path(target_file_name).with_suffix(".rac.test").name
-        oracle_test_output_rule = ""
-        if policyengine_rac_var_hint:
-            oracle_test_output_rule = (
-                f"- Hard oracle rule: every non-empty `.rac.test` `output:` mapping "
-                f"must include `{policyengine_rac_var_hint}` directly. Do not replace "
-                f"it with a local helper, amount, threshold, or documentary value.\n"
-            )
-        file_output_rules = f"""
-- Return exactly this two-file bundle and nothing else:
-=== FILE: {target_file_name} ===
-<raw .rac content>
-=== FILE: {test_file_name} ===
-<raw .rac.test YAML>
-- The `.rac.test` file must contain 1-4 cases, unless the `.rac` file is fully `status: deferred` or `status: entity_not_supported` with no assertable outputs.
-{oracle_test_output_rule.rstrip()}
-- For a fully deferred or `entity_not_supported` fallback file with no assertable outputs, leave `.rac.test` empty instead of emitting `output: {{}}` or assertions against deferred symbols.
-- If `./source.txt` is omitted/repealed text shown only by ellipses or otherwise contains no operative rule content for the target slice, emit only a top-level `status: deferred` (or `status: entity_not_supported` when appropriate), keep the embedded source/docstring showing that omission, and emit no local rule blocks.
-- For ordinary source units, the `.rac.test` file should usually contain 3-4 cases covering true/applicable, false/inapplicable, and boundary or alternate factual branches.
-- Only a single fixed-amount source unit, or a delegated jurisdiction-specific boolean option unit that only states the effective yes/no setting, may use 1-2 cases.
-- When the rule includes a thresholded positive branch such as `max(0, amount - threshold)` or an `if eligible: computed_amount else: 0` structure, include at least one `.rac.test` case that exercises the positive non-zero path whenever the source permits it.
-- Do not write only zero-output tests for a thresholded deduction, allowance, or offset when the source plainly permits a positive result above the threshold.
-- The `.rac.test` file must be a YAML list of cases beginning with `- name:` entries, not a top-level mapping keyed by case names.
-- For a single fixed-amount source unit, a base case is sufficient.
-- Add an effective-date boundary only when the period supports a meaningful point-in-time boundary.
-- Add an alternate branch only when `./source.txt` states another grounded branch condition or amount.
-- Test inputs must contain factual predicates or quantities, not the output variable being asserted.
-- In `.rac.test`, input and output values must be plain scalars or simple mappings, not inline variable declarations with keys like `entity`, `period`, `dtype`, `values`, or `from ...`.
-- In `.rac.test`, use concrete numeric literals in inputs and outputs, not arithmetic expressions like `35 + 3`, `12 * 4`, or `1 / 10`.
-- Use `output:` mappings in `.rac.test` cases, not `expect:` blocks.
-- Use concrete ISO calendar dates like `2025-03-21` in `.rac.test` `period:` fields; do not use ISO week strings like `2025-W13`.
-- The `.rac.test` file must contain YAML only, with no trailing notes or prose.
-- Do not include markdown fences or explanation.
-"""
-
-    schema_rules = f"""
-- Do not invent new entities, periods, or dtypes.
-- Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
-- Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
-- Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
-- If the source cannot be represented faithfully with the supported schema, prefer a compileable fallback with `status: entity_not_supported` or `status: deferred` instead of inventing a new ontology.
-"""
-
-    uk_guidance = ""
-    if re.match(r"^(?:ukpga|uksi|asp|ssi|wsi|nisi|anaw|asc)/", citation):
-        uk_guidance = render_uk_legislation_guidance()
-    single_amount_row_guidance = ""
-    if single_amount_table_slice:
-        single_amount_row_guidance = render_single_amount_row_guidance()
-    date_silent_scaffold_guidance = render_date_silent_scaffold_guidance()
-    target_hint_guidance = ""
-    if policyengine_rac_var_hint:
-        target_hint_guidance = f"""
-- Prefer `{policyengine_rac_var_hint}` as the principal output variable name for this encoding unless the source text clearly requires a materially different concept.
-- When `.rac.test` cases are present for an oracle-backed slice with hint `{policyengine_rac_var_hint}`, each case must assert `{policyengine_rac_var_hint}` directly in `output:`. Do not test only an auxiliary helper or documentary helper amount while leaving the hinted oracle variable unasserted.
-- This direct assertion requirement is a hard gate for boolean availability hints too: if the hint is an availability/option boolean, include a test output for that boolean itself even when the same source row also states a dollar amount.
-- Keep the hinted variable at its named semantic level. If the hint ends in `_rate`, encode the rate scalar itself (for example `0.40`) and do not attach applicability/election logic that returns `0`; put that logic only in a separately named applicability or amount variable when the source actually asks for it.
-- For phrases like `$170 (minus $35)` or `amount (minus threshold)`, encode a hinted deduction as the net amount after subtraction (`170 - 35`), with separate gross/threshold helpers only if useful. Do not test the gross amount as the deduction.
-- For oracle-backed threshold or eligibility outputs, keep `.rac.test` inputs oracle-comparable. Prefer raw program facts and copied canonical limits/thresholds over synthetic local abstractions like `*_statutory_limit`, `*_countable_*`, or other restated intermediate inputs that the oracle would not expose directly.
-- For oracle-backed composite eligibility outputs, if copied context already exports component tests that the oracle exposes separately, prefer importing those component tests over collapsing them into a single aggregate helper like `meets_*_financial_tests`; this keeps `.rac.test` cases aligned with the oracle's scenario inputs.
-- For oracle-backed composite eligibility outputs, prefer the oracle's direct component facts over inverted household proxy inputs. For example, use facts like `meets_snap_categorical_eligibility`, `meets_snap_work_requirements`, `is_snap_ineligible_student`, or `is_snap_immigration_status_eligible` instead of inventing booleans such as `no_household_member_is_disqualified_*` or `each_household_member_receives_*`.
-- When the source disqualifies an individual person or household member, preserve that as a person-level fact instead of turning it into a whole-household bar. Only fail the whole unit when the source actually says the household is ineligible; otherwise model the household consequence through member participation facts like whether an eligible member remains present.
-- For SNAP-style oracle-backed eligibility comparisons, prefer the direct component surface `meets_snap_gross_income_test`, `meets_snap_net_income_test`, `meets_snap_asset_test`, `meets_snap_categorical_eligibility`, `meets_snap_work_requirements`, `is_snap_ineligible_student`, and `is_snap_immigration_status_eligible` over aggregate helpers such as `meets_snap_income_tests` or household proxies like `snap_has_at_least_one_person_eligible_to_participate`.
-- For SNAP-style oracle-backed eligibility comparisons, do not introduce household proxy inputs like `snap_household_has_eligible_participating_member`, renamed variants like `snap_household_has_member_individually_eligible_to_participate`, or count proxies like `snap_number_of_members_eligible_to_participate`; instead express the member-level participation facts directly and let the household consequence be computed from those person facts.
-- When copied context includes a current-effective annual publication module that already exports the exact threshold or component test the oracle expects, import that copied current-effective symbol rather than jumping past it to an older base-statute symbol.
-- In repo-augmented workspaces, every import path must point to a file that is actually copied into the workspace. If the copied context file is `usda/snap/fy-2026-cola/2.rac`, import `usda/snap/fy-2026-cola/2#...` rather than an uncopied `statute/...` path unless that statute file is also copied explicitly.
-- For evergreen monthly rules whose source text does not itself hinge on a dated annual table, prefer a contemporary monthly `.rac.test` period like `2022-01` or `2024-01` rather than the earliest statutory effective date, unless the source text itself makes a specific historical period legally necessary.
-- For current-effective state option slices, do not use `0001`, `0001-01`, or other ancient sentinel periods in `from` clauses or tests unless the source explicitly gives such a period. Use the source effective date if stated, otherwise a contemporary oracle-backed period such as `2024-01`.
-- For monthly rules with an effective date on the first day of a month, treat that same `YYYY-MM` period as already effective. If you want a negative pre-effective test, use the previous month (for example `2025-09` for a rule that starts `from 2025-10-01`), not the effective month itself.
-- Wrong: a rule with `from 2025-10-01: 451` should not have a test like `period: 2025-10` expecting `0`.
-- Right: either test `period: 2025-09` expecting `0`, or test `period: 2025-10` expecting `451`.
-- For current-effective or annual-update parameter slices, do not invent a `pre_effective_*` zero-output test unless `./source.txt` itself says the earlier period value was zero or unavailable. If the source only tells you the new effective value, prefer testing the effective period and an inapplicable branch instead of guessing the prior month's amount.
-- When the source is an annual publication or current-effective table that updates copied canonical thresholds or limits, it is acceptable for `.rac.test` cases to assert a copied downstream output named by the oracle hint after your amendments apply, rather than testing only the amended parameter values in isolation.
-- For oracle-backed base statutes that state a CPI, COLA, or inflation adjustment but do not provide the adjusted numeric values, do not fabricate CPI data. Encode the statutory base values and adjustment hooks from `./source.txt`, and keep `.rac.test` periods/value choices within the oracle's supported coverage. For `meets_snap_asset_test`, avoid pre-2015 historical periods that PolicyEngine US cannot evaluate and avoid boundary tests at unadjusted 2008 base amounts for later periods unless a copied current-effective module supplies those adjusted limits.
-- For the base-statute `meets_snap_asset_test` slice, keep oracle-comparable tests threshold-invariant unless copied current-effective limits are available: use facts like `snap_assets` or `snap_total_resources_before_exclusions` plus `snap_household_has_elderly_or_disabled_member`, with clearly-low resources expected true and clearly-high resources expected false. Do not put local threshold helpers such as `snap_asset_limit`, `snap_asset_limit_with_elderly_or_disabled_member`, `snap_applicable_asset_limit`, or `snap_statutory_asset_limit` in `.rac.test` inputs, because PolicyEngine US does not expose those as scenario inputs.
-- When a base-statute adjustment paragraph repeats the same literal duration in distinct clauses, such as the two separate `12-month` phrases in 7 USC 2014(g)(1)(B), give each legal occurrence its own named scalar or helper so numeric-occurrence CI can verify both references are intentionally covered.
-- For state- or jurisdiction-specific source units that feed a nationwide oracle-backed variable, do not assume a different jurisdiction implies zero unless the source text expressly says so. Keep the cited jurisdiction fixed in negative tests and vary the local applicability condition instead.
-- For a delegated `sets` slice whose canonical target is itself a jurisdiction-specific boolean option such as `...#*_applies` or `...#*_uses_*`, do not invent local inputs like `*_is_in_state` or `*_is_in_jurisdiction` just to manufacture an out-of-jurisdiction false branch.
-- If that kind of delegated boolean slice does not state a separate in-jurisdiction negative condition, keep `.rac.test` cases within the cited jurisdiction and use only positive/continuity cases rather than a fabricated out-of-jurisdiction false case.
-- If that kind of delegated boolean slice simply says the cited jurisdiction allows or uses the option, encode the canonical boolean slot as a direct dated constant `true` or `false` rather than wrapping it in a synthetic applicability helper like `tennessee_*_applies_to_snap_unit`.
-- For that kind of delegated boolean slice, omit an inapplicable false test unless `./source.txt` itself states a narrower in-jurisdiction condition that turns the option off.
-- When a schedule or table row uses a terminal bucket like `5 or more`, preserve that threshold as a named scalar such as `*_five_or_more_threshold: 5` and branch explicitly on `>= threshold` rather than hiding the legal cutoff inside a final `else`.
-- For example, a North Carolina SNAP utility-allowance slice should prefer an inapplicable North Carolina case such as a non-SUA allowance type, rather than asserting that `snap_standard_utility_allowance` is zero in South Carolina just because the cited NC table does not govern SC.
-- For state SNAP utility-allowance slices, model applicability with SNAP allowance-category facts like `snap_utility_allowance_type` plus the cited state or utility region, rather than importing unrelated ontology from a surrounding Medicaid or long-term-care manual such as `community_spouse_*` facts.
-- For example, a Tennessee utility-allowance slice drawn from a TennCare manual should still encode the SNAP category gate directly as `snap_utility_allowance_type == "SUA"` or `"BUA"` with `snap_utility_region_str == "TN"`, instead of inventing a `community_spouse_is_responsible_for_heating_or_cooling_costs` input or collapsing the allowance to an unconditional state amount.
-- For oracle-backed enum or category inputs, do not invent placeholder literals like `OTHER`, `NONE`, or `UNKNOWN` unless the copied canonical context or oracle actually defines them. Use a real in-domain alternate value for the negative test branch.
-- For example, a SNAP telephone utility-allowance slice should use a valid non-telephone category like `SUA` or `BUA` for an inapplicable branch test, not `OTHER`.
-"""
-
-    return f"""You are participating in an encoding eval for {citation}.
-
-Primary legal authority:
-- `./source.txt` contains the complete source text for this target source unit.
-{inline_source_section}
-
-Context mode: `{mode}`
-{source_metadata_section}{definition_section}{canonical_concept_section}{context_section}
-
-Rules:
-- Do not inspect or rely on any path outside this workspace.
-- Treat `./source.txt` as the only legal source.
-- Any numeric literal in your output must appear in `./source.txt`, unless it is -1, 0, 1, 2, or 3.
-- Every substantive numeric occurrence in `./source.txt` must be represented by a named scalar definition in RAC, even when the same numeric value repeats.
-- If the same numeric value appears twice in materially different legal roles, declare separate named scalar variables for those separate occurrences instead of reusing a single scalar everywhere.
-- If a legal scalar amount, threshold, cap, or limit appears in a formula or conditional branch, first declare it as its own named variable and then reference that variable from the formula.
-- Once you declare a substantive numeric scalar, reuse that named scalar everywhere the rule compares against or computes with that number; do not restate the raw literal inline in formulas, comparisons, or tests.
-- If `./source.txt` says someone is "aged 18 or over", "under 25", or gives another numeric eligibility threshold, model that threshold as a named scalar variable rather than only burying the number inside a helper name.
-- Do not create scalar variables for citation numbers that only appear inside section, paragraph, regulation, schedule, or similar legal cross-references.
-- Do not invent `dtype: String` variables just to restate the effective date or to hold quoted date text from `./source.txt`.
-- Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables; keep date references semantic inside boolean/fact-shaped helpers instead.
-- For phrases like `1st September following the person's 19th birthday`, keep the calendar-date portion semantic inside a boolean/fact helper; do not invent numeric `1`/`September` scalars, but do preserve the substantive `19` age threshold as a named scalar if your logic uses it.
-- Include the source text in a triple-quoted docstring.
-- Use RAC DSL conventions.
-- If `./source-metadata.json` says this slice `sets` a canonical target, align the output to that canonical target under the cited jurisdiction instead of modeling it as a federal amendment unless the metadata or source text explicitly says `amends`.
-- When a `sets` relation points to a canonical CFR or USC slot such as `cfr/...#snap_standard_utility_allowance`, treat that absolute legal path as the delegated upstream anchor for the parameter identity.
-- A `sets` relation should usually produce the jurisdiction-specific effective value for that canonical output; a downstream rule that only consumes that value should `import` or `use` it instead of duplicating it.
-- If a `sets` relation names a canonical boolean slot like `...#*_applies` or `...#*_uses_*`, encode that jurisdiction-specific boolean option itself instead of replacing it with a downstream formula that merely consumes the option.
-- If a `sets` relation names a canonical target but the copied workspace context above does not include that exact target file, do not add a top-level `imports:` entry to the bare canonical path solely because the metadata mentions it. Keep the target identity local and only import paths that are actually listed in copied workspace context.
-- If `./source.txt` explicitly cites another section or source for a definition, emit the upstream import instead of restating the concept locally.
-- When `./source.txt` says a value is determined `in accordance with section X`, `under section X`, or another cited upstream computation, and a copied precedent file from that cited section exports the matching computed concept, import that exported concept instead of inventing a fresh local `*_under_section_X` input or helper.
-- For example, if the source says an allotment is reduced by household income `as determined in accordance with section 2014(d) and (e)` and a copied precedent file exports `statute/7/2014/e#snap_net_income`, import `snap_net_income` rather than inventing a local input like `snap_household_income_under_2014_d_and_e`.
-- If `./source.txt` uses a catch-all phrase like `after all other applicable deductions have been allowed`, `sum of allowed deductions`, or similar, do not truncate the logic to only the deduction categories exercised by the example tests. Model the full deduction set that the surrounding section or copied precedent context makes applicable, with zero-valued defaults where needed.
-- For example, a SNAP `pre-shelter net income` slice should not stop at `snap_standard_deduction + snap_earned_income_deduction` if the surrounding subsection or copied precedent context also includes dependent-care, child-support, and excess-medical deductions as part of the non-shelter deduction set.
-- If copied precedent context already defines the exact sibling deduction symbols or an equivalent aggregate helper for that catch-all phrase, import those exact symbols instead of inventing renamed locals that overlap with the copied file.
-- If copied context already exports the exact aggregate helper for the cited phrase, import that helper and alias the requested target to it instead of rebuilding the same arithmetic locally.
-- For SNAP pre-shelter income, if copied SNAP context exports `snap_non_shelter_deductions` and `snap_income_after_non_shelter_deductions`, reuse those exact helpers or alias `snap_net_income_pre_shelter` to `snap_income_after_non_shelter_deductions`; do not recreate the sum locally and accidentally drop the existing `max(0, ...)` clamp.
-- For example, if copied SNAP context already exports `snap_child_support_deduction`, `snap_excess_medical_expense_deduction`, or a synonymous helper like `snap_income_after_non_shelter_deductions`, reuse those exact symbols and alias the benchmark target to them if needed instead of creating near-duplicate locals such as `snap_excess_medical_deduction` or recomputing a looser variant.
-- When you alias to an imported copied helper, preserve that helper's nearest input surface in tests unless the source text expressly requires deeper upstream facts. Do not back up to more distant raw inputs from another cited section just because the imported helper ultimately depends on them.
-- For example, if copied SNAP context exports `snap_income_after_non_shelter_deductions`, prefer test inputs like `snap_gross_income` plus the applicable deduction symbols over stepping back to deeper upstream raw inputs like `snap_non_self_employment_income`.
-- Do not fabricate an `imports:` target from a cited section unless that exact `path#symbol` import target is listed in the copied workspace context above. If the cited section is not actually present there, keep the value as a local input/helper instead of guessing a broken import like `statute/...#symbol`.
-- If `./source.txt` uses a legally-defined term for which a resolved canonical definition file is provided above, import that canonical definition instead of inventing a leaf-local helper.
-- If `./source.txt` uses a legal concept for which a copied canonical concept file is provided above, import or re-export that exact canonical concept instead of duplicating it locally.
-- If `./source.txt` is an annual publication, table, or schedule that updates values for canonical concepts already defined in copied context, author it as an amendment layer targeting those canonical symbols rather than redefining the canonical outputs locally.
-- For example, if copied context already defines `snap_one_person_thrifty_food_plan_cost`, `snap_minimum_allotment`, or `snap_maximum_allotment`, emit dated `amend` blocks for those canonical symbols instead of a second full local definition of the same output.
-- Do not import a canonical output like `snap_one_person_thrifty_food_plan_cost` or `snap_maximum_allotment` and then redeclare that same variable locally in the same file. That creates duplicate-variable failures once the import closure is compiled.
-- Wrong for annual parameter tables: importing `statute/...#snap_maximum_allotment` and then defining a new local `snap_maximum_allotment:` rule body. Right: keep the canonical symbol in context and emit `amend snap_maximum_allotment:` entries that update its values for the publication period.
-- When a publication table keys values by household size, region, filing status, bracket row, or another schedule index, do not create documentary scalar constants like `snap_household_size_four: 4` just to restate the row labels. Compare directly against the canonical input or derive one helper like `additional_household_members_above_eight` only when the source actually requires that arithmetic.
-- Right pattern for the USDA SNAP FY2026 table:
-```rac
-imports:
-  - statute/7/2017/a#snap_household_size
-  - statute/7/2017/a#snap_region
-  - statute/7/2017/a#snap_one_person_thrifty_food_plan_cost
-  - statute/7/2017/a#snap_minimum_allotment
-  - statute/7/2017/a#snap_maximum_allotment
-
-amend snap_one_person_thrifty_food_plan_cost:
-    from 2025-10-01:
-        match snap_region:
-            "CONTIGUOUS_US" => 298
-            ...
-
-amend snap_minimum_allotment:
-    from 2025-10-01:
-        if snap_household_size <= 0: 0
-        elif snap_household_size == 1 or snap_household_size == 2:
-            match snap_region:
-                "CONTIGUOUS_US" => 24
-                ...
-        else: 0
-
-amend snap_maximum_allotment:
-    from 2025-10-01:
-        match snap_region:
-            "CONTIGUOUS_US" =>
-                if snap_household_size == 1: 298
-                elif snap_household_size == 2: 546
-                ...
-                else: 1789 + ((snap_household_size - 8) * 218)
-```
-- Wrong pattern for that same table:
-```rac
-imports:
-  - statute/7/2017/a#snap_maximum_allotment
-
-snap_household_size_four:
-    from 2025-10-01: 4
-
-snap_maximum_allotment:
-    from 2025-10-01:
-        ...
-```
-- For publication tables that update canonical statute outputs, prefer one `amend` per canonical output and direct comparisons like `snap_household_size == 4`; do not introduce helper constants solely for row labels.
-- For resolved definition files listed above, the required syntax is an `imports:` block that references the exact `path#symbol` target.
-- For copied canonical concept files listed above, the required syntax is an `imports:` block that references the exact `path#symbol` target.
-- In any `imports:` block, emit bare import targets like `- regulation/9-CCR-2503-6/3.606.1/F#need_standard_for_assistance_unit`; do not wrap import targets in quotes.
-- Do not replace a resolved canonical import with a local deferred symbol whose name is just a mangled version of the import target.
-- If that cited upstream file is absent from this workspace, still emit the unresolved import path; the external-stub workflow is expected to fill it in later.
-- If the source text only implies a shared concept, import an existing canonical concept only when one is actually present in the workspace; otherwise keep the helper local to this leaf.
-- For isolated amount/rate leaves that cite same-instrument conditions or exceptions, do not fabricate sibling-file imports just because the text mentions another paragraph or schedule test. Model those cited conditions as local booleans or fact-shaped inputs unless the exact canonical import file is already present in this workspace.
-- If no resolved definition file or copied precedent file shows you the import syntax, do not guess. Keep cited same-instrument conditions local instead of inventing `import` statements or `imports:` blocks.
-- When the source states factual predicates that this leaf depends on, expose those predicates as plain fact-shaped inputs (`entity`, `period`, `dtype`) unless they are imported from a canonical definition.
-- Do not encode such local factual predicates as placeholder constants like `true` or `false`.
-- Do not encode such local factual predicates as `status: deferred`; if they are not imported, leave them as plain input stubs instead.
-- When the source text says an amount is tested only after cited disregards, deductions, or other adjustments from an unavailable provision, preserve that post-adjustment quantity directly as an input/helper instead of silently switching to the raw pre-adjustment amount.
-- For example, if the source says gross income must not exceed a need standard `after disregards have been applied`, prefer an input like `countable_gross_earned_income_after_disregards` over raw `gross_earned_income`, unless the cited disregard rule is actually present in the workspace and can be modeled.
-- When the source text uses a month-day cutoff like `after the 15th day of a month`, keep that cutoff semantic in a fact-shaped input or comparison helper; do not decompose it into separate numeric `*_day`, `*_month`, or `*_year` scalar definitions.
-- Do not add a documentary scalar like `*_cutoff_day: 15` just to restate that month-day cutoff. If the source only uses the date to define applicability, keep the cutoff inside the boolean/fact-shaped helper and omit the dead numeric constant entirely.
-- If `./source.txt` states that a fixed supplement, allowance, or addition is payable only while an eligibility condition holds, do not leave that money output unconditional; make the amount depend on that eligibility condition, usually with `else: 0` when the source states no alternate amount.
-- If `./source.txt` itself states the concrete facts that make someone eligible, do not collapse those facts into an opaque local input like `*_eligible_for_*` or `*_qualifies_for_*`. Expose the source-stated facts directly and derive eligibility from them only if needed.
-- For example, if the source says `pregnant parents are eligible ... through the month in which the pregnancy ends`, prefer direct facts like `client_is_pregnant_parent` and a month-end boundary fact/helper over a black-box `person_is_eligible_for_pregnancy_allowance`.
-- For textual instructions like `drop the cents`, `drop any cents`, or `truncate`, model truncation toward zero rather than toward negative infinity.
-- For instructions like `rounded to the nearest whole dollar` or `nearest whole dollar increment`, do not rely on Python-style `round(...)` if the .5 behavior matters. Model explicit half-up rounding instead.
-- When the source rounds, floors, or truncates a downstream combined amount after a subtraction or other composition, keep that rounding on the downstream output. Do not push it upstream into an intermediate component unless the source expressly rounds that component itself.
-- Wrong for a clause like `allotment equals the thrifty food plan reduced by 30 per centum of income, rounded to the nearest lower whole dollar`: `snap_expected_contribution = floor(snap_net_income * 0.3)`.
-- Right for that clause: keep `snap_expected_contribution = snap_net_income * 0.3` and let the downstream allotment variable apply the `floor(...)` or other rounding instruction.
-- When you write `.rac.test` cases for nearest-dollar or half-up rounding, compute the pre-rounding amount exactly and choose test inputs that truly cross the rounding threshold. For example, `251 * 0.08 = 20.08`, which still rounds to `20`, not `21`; do not claim a round-up unless the fractional part is at least `.5`.
-- A safe RAC pattern is `floor(amount + 0.5)` when the amount is non-negative; if negative values are possible, use a sign-aware half-up equivalent rather than banker’s rounding.
-- If negative values are possible, use a sign-aware RAC expression such as `if amount >= 0: floor(amount) else: ceil(amount)` instead of bare `floor(amount)`.
-- Reserve bare `floor(...)` for instructions that explicitly say `round down` or for complete-band/counting rules, and do not use unsupported operators such as `%`.
-- When a rule drops cents or truncates and the computed amount may be negative, include a `.rac.test` case with a negative fractional amount so `floor(-1.25)` versus truncation-to-`-1` is actually exercised.
-- Avoid `match ...:` in generated RAC unless you are copying a precedent that already compiles in this repo. The RAC parser does not use indentation to terminate match arms, so a following top-level definition can be misread as another arm. Use chained `if ...: value else:` expressions for region/type dispatch instead.
-- When a copied precedent file supplies chart values, thresholds, or standard amounts that your artifact imports, do not guess contradictory `.rac.test` expectations for those imported values. Choose test rows that match explicit imported chart values, or assert only relationships that do not require guessing the imported amount.
-- If you import variables like `need_standard_for_assistance_unit` or `grant_standard_for_assistance_unit` from a copied chart/standard file, keep `.rac.test` inputs and expected outputs consistent with the rows visible in that imported file rather than inventing zero or placeholder standards.
-- If an imported chart file keys those values by household composition, pick `.rac.test` households from explicit chart rows that visibly exist in the copied file. Do not invent degenerate placeholder rows like `number_of_children_in_assistance_unit: 0` plus `number_of_caretakers_in_assistance_unit: 0` unless the imported chart explicitly defines that exact row for the imported symbol.
-- Do not assert an exact zero imported standard, grant, or threshold unless that exact imported row is visible in the copied chart file. When the chart row is not visible, prefer relational assertions over guessed exact imported outputs.
-- Do not use a `0 children / 0 caretakers` household as the primary threshold test for imported `need_standard_for_assistance_unit` or `grant_standard_for_assistance_unit`; instead choose a non-degenerate row that is visibly grounded in the copied chart.
-- Wrong (`.rac.test` guesses a degenerate chart row):
-  - name: zero_need_standard_exceeded
-    input:
-      number_of_children_in_assistance_unit: 0
-      number_of_caretakers_in_assistance_unit: 0
-    output:
-      gross_income_is_within_need_standard_for_basic_cash_assistance: false
-- Right (`.rac.test` uses a visible chart row like one child / no caretaker):
-  - name: one_child_income_within_need_standard
-    input:
-      number_of_children_in_assistance_unit: 1
-      number_of_caretakers_in_assistance_unit: 0
-    output:
-      gross_income_is_within_need_standard_for_basic_cash_assistance: true
-- Wrong:
-  some_paragraph_applies:
-      entity: Person
-      period: Day
-      dtype: Boolean
-      from 2025-03-21:
-          false
-- Right:
-  some_paragraph_applies:
-      entity: Person
-      period: Day
-      dtype: Boolean
-- Wrong:
-  current_day_is_first_day_of_next_benefit_week:
-      entity: Person
-      period: Day
-      dtype: Boolean
-      from 2025-03-21:
-          false
-- Right:
-  current_day_is_first_day_of_next_benefit_week:
-      entity: Person
-      period: Day
-      dtype: Boolean
-- Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
-{schema_rules}{uk_guidance}{single_amount_row_guidance}{date_silent_scaffold_guidance}{target_hint_guidance}
-- Prefer standard RAC blocks shaped like:
-  example_name:
-      entity: TaxUnit
-      period: Month
-      dtype: Money
-      unit: USD
-      from 2024-07-01:
-          165
-- For conditionals, RAC uses inline conditional expressions like `if condition: value else: other_value`.
-- Use `==` for equality comparisons inside RAC expressions; never use bare `=` as an expression operator.
-- Do not append a multiline conditional directly onto another expression like `base_amount + if condition: ...`; factor the conditional into its own helper variable or make the whole formula a single conditional expression.
-- For derived values, keep using normal RAC blocks with `entity`, `period`, `dtype`, and `from YYYY-MM-DD:` formulas.
-- For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals.
-- If you introduce a helper whose name, label, or description says `percent`, `share`, or `rate`, make it a real rate-valued helper: use `dtype: Rate` when applicable, encode `50 percent` as `0.5` and `130 percent` as `1.3`, and make downstream formulas reference that helper instead of hardcoding `/ 2`, `/ 100`, `50`, or `130` separately.
-- For source phrases like `165 percent of the federal poverty guidelines`, define a named `dtype: Rate` scalar with value `1.65`. Do not decompose it into numerator/denominator helpers like `165` and `100` unless the source itself separately states those numbers.
-- Do not use Python inline ternaries like `x if cond else y`; use RAC conditional expressions instead.
-- Do not use YAML-style `if:` / `then:` / `else:` blocks.
-{file_output_rules}
-- Do not respond with summaries like `Both files written`, `Done`, or bullet recaps in place of the requested files.
-- For bundled file output, the `.rac` body must begin with RAC content, not prose.
-- Do not use inline assignment syntax like `:=` inside `from` blocks or formulas.
-- If a helper value is needed, declare it as its own top-level RAC variable block instead of assigning it inline.
-"""
+    return _build_rulespec_eval_prompt(
+        citation=citation,
+        mode=mode,
+        workspace=workspace,
+        context_files=context_files,
+        target_file_name=target_file_name,
+        include_tests=include_tests,
+        runner_backend=runner_backend,
+        policyengine_rac_var_hint=policyengine_rac_var_hint,
+    )
 
 
 def _is_single_amount_table_slice(source_text: str) -> bool:
@@ -3369,11 +3083,11 @@ def _extract_import_targets(content: str) -> list[str]:
 
 
 def _import_target_to_path(import_target: str) -> Path:
-    """Convert an import target like 26/24/c#name into 26/24/c.rac."""
+    """Convert an import target like 26/24/c#name into 26/24/c.yaml."""
     normalized = import_target.strip().strip('"').strip("'")
-    if normalized.endswith(".rac"):
+    if normalized.endswith((".yaml", ".yml")):
         return Path(normalized)
-    return Path(f"{normalized}.rac")
+    return Path(f"{normalized}.yaml")
 
 
 def _is_under_root(path: Path, root: Path) -> bool:
@@ -3920,7 +3634,7 @@ def _command_looks_out_of_bounds(command: str, workspace_root: Path) -> bool:
 
 
 def _extract_rac_content(llm_response: str) -> str | None:
-    """Extract raw RAC content from a model response."""
+    """Extract raw RuleSpec content from a model response."""
     if not llm_response or not llm_response.strip():
         return None
 
@@ -3933,10 +3647,17 @@ def _extract_rac_content(llm_response: str) -> str | None:
             return content + "\n"
 
     stripped = cleaned.strip()
-    if stripped.startswith("#") or stripped.startswith('"""'):
+    if re.match(r"^(format:\s*rulespec/v1|schema:\s*axiom\.rules\.)", stripped):
         return stripped + ("\n" if not stripped.endswith("\n") else "")
 
     lines = stripped.split("\n")
+    for i, line in enumerate(lines):
+        if re.match(r"^(format:\s*rulespec/v1|schema:\s*axiom\.rules\.)", line):
+            return "\n".join(lines[i:]).strip() + "\n"
+
+    if stripped.startswith("#") or stripped.startswith('"""'):
+        return stripped + ("\n" if not stripped.endswith("\n") else "")
+
     for i, line in enumerate(lines):
         if line.startswith("#") or line.startswith('"""') or line.startswith("status:"):
             return "\n".join(lines[i:]).strip() + "\n"
@@ -3948,6 +3669,26 @@ def _extract_rac_content(llm_response: str) -> str | None:
             return "\n".join(lines[i:]).strip() + "\n"
 
     return None
+
+
+def _normalize_rulespec_content(content: str) -> str:
+    """Normalize generated RuleSpec without rewriting embedded source prose."""
+    stripped = content.strip()
+    return stripped + ("\n" if stripped else "")
+
+
+def _normalize_main_eval_content(
+    content: str,
+    *,
+    target_path: Path,
+    single_amount_table_slice: bool,
+) -> str:
+    """Normalize generated main artifacts according to their format."""
+    if target_path.suffix in {".yaml", ".yml"}:
+        return _normalize_rulespec_content(content)
+    if single_amount_table_slice:
+        return _normalize_single_amount_row_rac_content(content)
+    return _normalize_rac_code_numeric_literals(content)
 
 
 def _extract_generated_file_bundle(llm_response: str) -> dict[str, str]:
@@ -4253,12 +3994,15 @@ def _extract_effective_date_for_tests(
     source_text: str | None,
 ) -> date | None:
     """Return the earliest explicit effective date available for test normalization."""
-    if rac_content and (
-        from_match := re.search(r"\bfrom\s+(\d{4}-\d{2}-\d{2}):", rac_content)
-    ):
-        parsed = date.fromisoformat(from_match.group(1))
-        if parsed != date(1, 1, 1):
-            return parsed
+    if rac_content:
+        for pattern in (
+            r"\beffective_from:\s*['\"]?(\d{4}-\d{2}-\d{2})['\"]?",
+            r"\bfrom\s+(\d{4}-\d{2}-\d{2}):",
+        ):
+            if from_match := re.search(pattern, rac_content):
+                parsed = date.fromisoformat(from_match.group(1))
+                if parsed != date(1, 1, 1):
+                    return parsed
     if source_text and (
         source_match := re.search(
             r"\b(?:text|current text)\s+valid\s+from\s+(\d{4}-\d{2}-\d{2})\b",
@@ -4676,6 +4420,25 @@ def _extract_simple_rac_constant(
 ) -> object | None:
     if not rac_content or not var_name:
         return None
+    with contextlib.suppress(yaml.YAMLError, TypeError):
+        payload = yaml.safe_load(rac_content)
+        if isinstance(payload, dict) and isinstance(payload.get("rules"), list):
+            for rule in payload["rules"]:
+                if not isinstance(rule, dict) or rule.get("name") != var_name:
+                    continue
+                versions = rule.get("versions")
+                if not isinstance(versions, list):
+                    continue
+                for version in versions:
+                    if not isinstance(version, dict):
+                        continue
+                    formula = version.get("formula")
+                    if isinstance(formula, (int, float, bool)):
+                        return formula
+                    if isinstance(formula, str):
+                        literal = _parse_simple_rac_literal(formula)
+                        if literal is not None:
+                            return literal
     lines = rac_content.splitlines()
     for index, line in enumerate(lines):
         if not re.match(rf"^{re.escape(var_name)}:\s*$", line):
@@ -4748,7 +4511,7 @@ def _materialize_eval_artifact(
     single_amount_table_slice = bool(
         source_text and _is_single_amount_table_slice(source_text)
     )
-    expected_test_path = expected_path.with_suffix(".rac.test")
+    expected_test_path = _rulespec_test_path(expected_path)
 
     if workspace_root is not None:
         wrote_from_workspace = _materialize_workspace_artifacts(
@@ -4776,28 +4539,30 @@ def _materialize_eval_artifact(
                 target_path = expected_test_path
             else:
                 continue
-            if single_amount_table_slice:
-                if target_path == expected_path:
-                    content = _normalize_single_amount_row_rac_content(content)
-                elif target_path == expected_test_path:
+            if target_path == expected_path:
+                content = _normalize_main_eval_content(
+                    content,
+                    target_path=target_path,
+                    single_amount_table_slice=single_amount_table_slice,
+                )
+            elif target_path == expected_test_path:
+                if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
                         content,
                         rac_content=bundle_by_candidate_name.get(expected_path.name),
                         source_text=source_text,
                     )
-            elif target_path == expected_path:
-                content = _normalize_rac_code_numeric_literals(content)
-            elif target_path == expected_test_path:
-                content = _normalize_test_periods_to_effective_dates(
-                    content,
-                    rac_content=bundle_by_candidate_name.get(expected_path.name),
-                    source_text=source_text,
-                )
-                content = _complete_oracle_hint_test_outputs(
-                    content,
-                    rac_content=bundle_by_candidate_name.get(expected_path.name),
-                    policyengine_rac_var_hint=policyengine_rac_var_hint,
-                )
+                else:
+                    content = _normalize_test_periods_to_effective_dates(
+                        content,
+                        rac_content=bundle_by_candidate_name.get(expected_path.name),
+                        source_text=source_text,
+                    )
+                    content = _complete_oracle_hint_test_outputs(
+                        content,
+                        rac_content=bundle_by_candidate_name.get(expected_path.name),
+                        policyengine_rac_var_hint=policyengine_rac_var_hint,
+                    )
             target_path.parent.mkdir(parents=True, exist_ok=True)
             target_path.write_text(content)
             if target_path == expected_path:
@@ -4808,10 +4573,11 @@ def _materialize_eval_artifact(
     rac_content = _extract_rac_content(llm_response)
     if not rac_content:
         return False
-    if single_amount_table_slice:
-        rac_content = _normalize_single_amount_row_rac_content(rac_content)
-    else:
-        rac_content = _normalize_rac_code_numeric_literals(rac_content)
+    rac_content = _normalize_main_eval_content(
+        rac_content,
+        target_path=expected_path,
+        single_amount_table_slice=single_amount_table_slice,
+    )
 
     expected_path.parent.mkdir(parents=True, exist_ok=True)
     expected_path.write_text(rac_content)
@@ -4833,10 +4599,11 @@ def _materialize_workspace_artifacts(
         return False
 
     main_content = workspace_main.read_text()
-    if single_amount_table_slice:
-        main_content = _normalize_single_amount_row_rac_content(main_content)
-    else:
-        main_content = _normalize_rac_code_numeric_literals(main_content)
+    main_content = _normalize_main_eval_content(
+        main_content,
+        target_path=expected_path,
+        single_amount_table_slice=single_amount_table_slice,
+    )
 
     expected_path.parent.mkdir(parents=True, exist_ok=True)
     expected_path.write_text(main_content)
