@@ -25,9 +25,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from calendar import monthrange
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
 
@@ -2160,27 +2163,51 @@ class ValidatorPipeline:
             f"axiom-rules binary not found under {self.rac_path} or on PATH"
         )
 
+    def _compile_rulespec_to_artifact(
+        self,
+        rules_file: Path,
+        output_path: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
+        """Compile RuleSpec YAML to an Axiom Rules artifact JSON file."""
+        binary = self._axiom_rules_binary()
+        result = subprocess.run(
+            [
+                str(binary),
+                "compile",
+                "--program",
+                str(rules_file),
+                "--output",
+                str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(self.rac_path) if self.rac_path.exists() else None,
+        )
+        if result.returncode != 0:
+            return result, None
+        return result, json.loads(output_path.read_text())
+
+    def _rulespec_compile_success_output(self, payload: Any) -> str:
+        """Return a concise successful compile summary for validator output."""
+        program = payload.get("program") if isinstance(payload, dict) else {}
+        if not isinstance(program, dict):
+            program = {}
+        rule_count = sum(
+            len(program.get(key) or ())
+            for key in ("parameters", "derived", "relations")
+        )
+        return f"Successfully compiled {rule_count} RuleSpec rule(s) with Axiom Rules"
+
     def _run_rulespec_compile_check(self, rules_file: Path) -> ValidationResult:
         """Compile RuleSpec YAML through the Axiom Rules engine."""
         start = time.time()
         issues: list[str] = []
         try:
-            binary = self._axiom_rules_binary()
             with tempfile.TemporaryDirectory() as tmpdir:
                 output_path = Path(tmpdir) / "compiled.json"
-                result = subprocess.run(
-                    [
-                        str(binary),
-                        "compile",
-                        "--program",
-                        str(rules_file),
-                        "--output",
-                        str(output_path),
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    cwd=str(self.rac_path) if self.rac_path.exists() else None,
+                result, payload = self._compile_rulespec_to_artifact(
+                    rules_file, output_path
                 )
                 if result.returncode != 0:
                     detail = result.stderr.strip() or result.stdout.strip()
@@ -2193,20 +2220,12 @@ class ValidatorPipeline:
                         error=issues[0],
                         raw_output=result.stdout + result.stderr,
                     )
-                payload = json.loads(output_path.read_text())
-            program = payload.get("program") if isinstance(payload, dict) else {}
-            if not isinstance(program, dict):
-                program = {}
-            rule_count = sum(
-                len(program.get(key) or ())
-                for key in ("parameters", "derived", "relations")
-            )
             return ValidationResult(
                 validator_name="compile",
                 passed=True,
                 issues=[],
                 duration_ms=int((time.time() - start) * 1000),
-                raw_output=f"Successfully compiled {rule_count} RuleSpec rule(s) with Axiom Rules",
+                raw_output=self._rulespec_compile_success_output(payload),
             )
         except Exception as exc:
             issues.append(f"Axiom Rules compile failed: {exc}")
@@ -2278,15 +2297,486 @@ class ValidatorPipeline:
                 with contextlib.suppress(ValueError):
                     sys.path.remove(str(rac_src))
 
+    def _coerce_rulespec_period(self, value: Any) -> dict[str, Any]:
+        """Coerce compact `.test.yaml` period shorthands to engine JSON."""
+        if isinstance(value, dict):
+            period = {
+                key: (item.isoformat() if isinstance(item, date) else item)
+                for key, item in value.items()
+            }
+            if period.get("period_kind") == "year":
+                period["period_kind"] = "tax_year"
+            return period
+        if isinstance(value, int):
+            return self._rulespec_tax_year_period(value)
+        if isinstance(value, date):
+            day = value.isoformat()
+            return {
+                "period_kind": "custom",
+                "name": "day",
+                "start": day,
+                "end": day,
+            }
+        if isinstance(value, str):
+            stripped = value.strip()
+            if re.fullmatch(r"\d{4}", stripped):
+                return self._rulespec_tax_year_period(int(stripped))
+            if re.fullmatch(r"\d{4}-\d{2}", stripped):
+                year = int(stripped[:4])
+                month = int(stripped[5:])
+                return {
+                    "period_kind": "month",
+                    "start": date(year, month, 1).isoformat(),
+                    "end": date(year, month, monthrange(year, month)[1]).isoformat(),
+                }
+        raise ValueError(f"unsupported period shorthand: {value!r}")
+
+    def _rulespec_tax_year_period(self, year: int) -> dict[str, Any]:
+        """Return the Axiom Rules tax-year period used by compact year tests."""
+        return {
+            "period_kind": "tax_year",
+            "start": date(year, 4, 6).isoformat(),
+            "end": date(year + 1, 4, 5).isoformat(),
+        }
+
+    def _rulespec_case_query_entity_id(
+        self,
+        case: dict[str, Any],
+        query_entity: str,
+        index: int,
+    ) -> str:
+        """Pick a stable entity id for a compact RuleSpec test case."""
+        entity_key = f"{self._snake_case(query_entity)}_id"
+        for key in ("entity_id", "id", entity_key):
+            if key in case:
+                return str(case[key])
+        for key, value in case.items():
+            if key.endswith("_id") and not isinstance(value, (dict, list)):
+                return str(value)
+        return f"case-{index}"
+
+    def _snake_case(self, value: str) -> str:
+        """Convert a PascalCase/CamelCase label to snake_case."""
+        value = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", value)
+        value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+        return value.replace("-", "_").lower()
+
+    def _related_entity_from_relation(self, relation_name: str) -> str:
+        """Infer a readable related-entity label for relation test inputs."""
+        head = relation_name.split("_of_", 1)[0]
+        return "".join(part.capitalize() for part in head.split("_") if part) or "Related"
+
+    def _rulespec_scalar_value(self, value: Any) -> dict[str, Any]:
+        """Coerce Python/YAML scalar values to Axiom Rules ScalarValueSpec JSON."""
+        if isinstance(value, bool):
+            return {"kind": "bool", "value": value}
+        if isinstance(value, int):
+            return {"kind": "integer", "value": value}
+        if isinstance(value, float):
+            return {"kind": "decimal", "value": str(value)}
+        if isinstance(value, Decimal):
+            return {"kind": "decimal", "value": str(value)}
+        if isinstance(value, date):
+            return {"kind": "date", "value": value.isoformat()}
+        if isinstance(value, str):
+            stripped = value.strip()
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stripped):
+                return {"kind": "date", "value": stripped}
+            if re.fullmatch(r"-?\d+", stripped):
+                return {"kind": "integer", "value": int(stripped)}
+            if re.fullmatch(r"-?(?:\d+\.\d*|\d*\.\d+)", stripped):
+                return {"kind": "decimal", "value": stripped}
+            return {"kind": "text", "value": value}
+        raise ValueError(f"unsupported scalar test value {value!r}")
+
+    def _build_rulespec_dataset(
+        self,
+        case_input: Any,
+        *,
+        period: dict[str, Any],
+        query_entity: str,
+        query_entity_id: str,
+    ) -> dict[str, Any]:
+        """Build an Axiom Rules dataset from compact RuleSpec test inputs."""
+        if case_input in (None, ""):
+            case_input = {}
+        if not isinstance(case_input, dict):
+            raise ValueError("input must be a mapping")
+
+        interval = {"start": period["start"], "end": period["end"]}
+        inputs: list[dict[str, Any]] = []
+        relations: list[dict[str, Any]] = []
+
+        for name, value in case_input.items():
+            if isinstance(value, list):
+                related_entity = self._related_entity_from_relation(str(name))
+                for item_index, item in enumerate(value, 1):
+                    if not isinstance(item, dict):
+                        raise ValueError(
+                            f"relation `{name}` item #{item_index} must be a mapping"
+                        )
+                    related_id = str(
+                        item.get("id")
+                        or item.get("entity_id")
+                        or f"{query_entity_id}-{name}-{item_index}"
+                    )
+                    relations.append(
+                        {
+                            "name": str(name),
+                            "tuple": [related_id, query_entity_id],
+                            "interval": interval,
+                        }
+                    )
+                    for child_name, child_value in item.items():
+                        if child_name in {"id", "entity_id"}:
+                            continue
+                        if isinstance(child_value, (dict, list)):
+                            raise ValueError(
+                                f"relation `{name}` input `{child_name}` must be scalar"
+                            )
+                        inputs.append(
+                            {
+                                "name": str(child_name),
+                                "entity": related_entity,
+                                "entity_id": related_id,
+                                "interval": interval,
+                                "value": self._rulespec_scalar_value(child_value),
+                            }
+                        )
+                continue
+
+            if isinstance(value, dict):
+                raise ValueError(f"input `{name}` must be scalar or relation list")
+
+            inputs.append(
+                {
+                    "name": str(name),
+                    "entity": query_entity,
+                    "entity_id": query_entity_id,
+                    "interval": interval,
+                    "value": self._rulespec_scalar_value(value),
+                }
+            )
+
+        return {"inputs": inputs, "relations": relations}
+
+    def _rulespec_program_maps(
+        self, compiled_payload: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return compiled derived-output and scalar-parameter maps by name."""
+        program = compiled_payload.get("program") if isinstance(compiled_payload, dict) else {}
+        if not isinstance(program, dict):
+            program = {}
+        derived = {
+            str(item.get("name")): item
+            for item in program.get("derived", [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        parameters = {
+            str(item.get("name")): item
+            for item in program.get("parameters", [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        return derived, parameters
+
+    def _rulespec_compiled_parameter_value(
+        self,
+        parameter: dict[str, Any],
+        period: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Return the live key-0 scalar value for a compiled scalar parameter."""
+        period_start = date.fromisoformat(str(period["start"]))
+        versions = parameter.get("versions") or []
+        live_versions = [
+            version
+            for version in versions
+            if isinstance(version, dict)
+            and date.fromisoformat(str(version["effective_from"])) <= period_start
+        ]
+        if not live_versions:
+            raise ValueError(
+                f"parameter `{parameter.get('name')}` has no version at {period['start']}"
+            )
+        version = max(
+            live_versions,
+            key=lambda item: date.fromisoformat(str(item["effective_from"])),
+        )
+        values = version.get("values") or {}
+        value = values.get("0", values.get(0))
+        if not isinstance(value, dict):
+            raise ValueError(f"parameter `{parameter.get('name')}` has no key 0 value")
+        return value
+
+    def _rulespec_decimal(self, value: Any) -> Decimal:
+        """Coerce a scalar value to Decimal for numeric equality checks."""
+        try:
+            return Decimal(str(value))
+        except InvalidOperation as exc:
+            raise ValueError(f"{value!r} is not numeric") from exc
+
+    def _rulespec_scalar_values_equal(
+        self,
+        actual: dict[str, Any],
+        expected: dict[str, Any],
+    ) -> bool:
+        """Compare Axiom Rules scalar value specs, allowing int/decimal equality."""
+        actual_kind = actual.get("kind")
+        expected_kind = expected.get("kind")
+        numeric = {"integer", "decimal"}
+        if actual_kind in numeric and expected_kind in numeric:
+            return self._rulespec_decimal(actual.get("value")) == self._rulespec_decimal(
+                expected.get("value")
+            )
+        if actual_kind == "bool" and expected_kind == "bool":
+            return bool(actual.get("value")) == bool(expected.get("value"))
+        return str(actual.get("value")) == str(expected.get("value"))
+
+    def _format_rulespec_actual_value(self, output: dict[str, Any]) -> str:
+        """Format a response/parameter output value for failure messages."""
+        if output.get("kind") == "judgment":
+            return str(output.get("outcome"))
+        value = output.get("value") if output.get("kind") == "scalar" else output
+        if isinstance(value, dict):
+            return str(value.get("value"))
+        return str(value)
+
+    def _compare_rulespec_output(
+        self,
+        *,
+        case_name: str,
+        output_name: str,
+        expected_value: Any,
+        actual_output: dict[str, Any],
+    ) -> str | None:
+        """Compare a single expected output; return an issue string on mismatch."""
+        if actual_output.get("kind") == "judgment":
+            expected = str(expected_value).strip().lower().replace("-", "_")
+            if expected not in {"holds", "not_holds", "undetermined"}:
+                return (
+                    f"Test case `{case_name}` output `{output_name}` expected "
+                    f"{expected_value!r}, but actual output is a judgment."
+                )
+            actual = str(actual_output.get("outcome"))
+            if actual != expected:
+                return (
+                    f"Test case `{case_name}` output `{output_name}` expected "
+                    f"{expected}, got {actual}."
+                )
+            return None
+
+        actual_scalar = actual_output.get("value")
+        if actual_output.get("kind") != "scalar":
+            actual_scalar = actual_output
+        if not isinstance(actual_scalar, dict):
+            return (
+                f"Test case `{case_name}` output `{output_name}` returned "
+                "an unrecognised value shape."
+            )
+        expected_scalar = self._rulespec_scalar_value(expected_value)
+        if not self._rulespec_scalar_values_equal(actual_scalar, expected_scalar):
+            return (
+                f"Test case `{case_name}` output `{output_name}` expected "
+                f"{expected_value}, got {self._format_rulespec_actual_value(actual_output)}."
+            )
+        return None
+
+    def _run_rulespec_derived_test_case(
+        self,
+        *,
+        binary: Path,
+        compiled_path: Path,
+        case: dict[str, Any],
+        case_name: str,
+        case_index: int,
+        period: dict[str, Any],
+        output_names: list[str],
+        derived_by_name: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        """Execute one compact RuleSpec test case through `run-compiled`."""
+        query_entity = str(derived_by_name[output_names[0]].get("entity") or "Case")
+        query_entity_id = self._rulespec_case_query_entity_id(
+            case, query_entity, case_index
+        )
+        try:
+            dataset = self._build_rulespec_dataset(
+                case.get("input", {}),
+                period=period,
+                query_entity=query_entity,
+                query_entity_id=query_entity_id,
+            )
+        except ValueError as exc:
+            return None, [f"Test case `{case_name}` input invalid: {exc}"]
+
+        request = {
+            "mode": "explain",
+            "dataset": dataset,
+            "queries": [
+                {
+                    "entity_id": query_entity_id,
+                    "period": period,
+                    "outputs": output_names,
+                }
+            ],
+        }
+        result = subprocess.run(
+            [str(binary), "run-compiled", "--artifact", str(compiled_path)],
+            input=json.dumps(request),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(self.rac_path) if self.rac_path.exists() else None,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            return None, [f"Test case `{case_name}` execution failed: {detail}"]
+        try:
+            response = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            return None, [f"Test case `{case_name}` response JSON parse failed: {exc}"]
+        results = response.get("results") if isinstance(response, dict) else None
+        if not isinstance(results, list) or not results:
+            return None, [f"Test case `{case_name}` returned no results."]
+        outputs = results[0].get("outputs")
+        if not isinstance(outputs, dict):
+            return None, [f"Test case `{case_name}` returned no output map."]
+        return outputs, []
+
+    def _run_rulespec_test_cases(
+        self,
+        *,
+        rules_file: Path,
+        compiled_path: Path,
+        compiled_payload: dict[str, Any],
+        cases: list[Any],
+    ) -> list[str]:
+        """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
+        issues: list[str] = []
+        binary = self._axiom_rules_binary()
+        derived_by_name, parameter_by_name = self._rulespec_program_maps(compiled_payload)
+
+        for index, case in enumerate(cases, 1):
+            if not isinstance(case, dict):
+                issues.append(f"Test case #{index} must be a mapping.")
+                continue
+            case_name = str(case.get("name") or f"#{index}")
+            if "name" not in case:
+                issues.append(f"Test case #{index} is missing name.")
+            if "period" not in case:
+                issues.append(f"Test case `{case_name}` is missing period.")
+                continue
+            try:
+                period = self._coerce_rulespec_period(case["period"])
+            except ValueError as exc:
+                issues.append(f"Test case `{case_name}` period invalid: {exc}")
+                continue
+
+            output_map = case.get("output")
+            if "output" not in case:
+                issues.append(f"Test case #{index} is missing output.")
+                continue
+            if not isinstance(output_map, dict) or not output_map:
+                issues.append(f"Test case `{case_name}` output must be a mapping.")
+                continue
+            if (
+                self.policyengine_rac_var_hint
+                and self.policyengine_rac_var_hint not in output_map
+            ):
+                issues.append(
+                    f"Test case #{index} output must assert "
+                    f"{self.policyengine_rac_var_hint}."
+                )
+
+            derived_outputs: list[str] = []
+            parameter_outputs: list[str] = []
+            for output_name in output_map:
+                output_key = str(output_name)
+                if output_key in derived_by_name:
+                    derived_outputs.append(output_key)
+                elif output_key in parameter_by_name:
+                    parameter_outputs.append(output_key)
+                else:
+                    issues.append(
+                        f"Test case `{case_name}` output `{output_key}` is not "
+                        f"a compiled derived output or scalar parameter in {rules_file.name}."
+                    )
+
+            actual_outputs: dict[str, Any] = {}
+            if derived_outputs:
+                response_outputs, execution_issues = self._run_rulespec_derived_test_case(
+                    binary=binary,
+                    compiled_path=compiled_path,
+                    case=case,
+                    case_name=case_name,
+                    case_index=index,
+                    period=period,
+                    output_names=derived_outputs,
+                    derived_by_name=derived_by_name,
+                )
+                issues.extend(execution_issues)
+                if response_outputs is not None:
+                    actual_outputs.update(response_outputs)
+
+            for output_name in parameter_outputs:
+                try:
+                    parameter_value = self._rulespec_compiled_parameter_value(
+                        parameter_by_name[output_name], period
+                    )
+                except ValueError as exc:
+                    issues.append(f"Test case `{case_name}` parameter failed: {exc}")
+                    continue
+                actual_outputs[output_name] = {
+                    "kind": "scalar",
+                    "value": parameter_value,
+                }
+
+            for output_name, expected_value in output_map.items():
+                output_key = str(output_name)
+                actual_output = actual_outputs.get(output_key)
+                if actual_output is None:
+                    if output_key in derived_outputs or output_key in parameter_outputs:
+                        issues.append(
+                            f"Test case `{case_name}` output `{output_key}` missing "
+                            "from execution response."
+                        )
+                    continue
+                mismatch = self._compare_rulespec_output(
+                    case_name=case_name,
+                    output_name=output_key,
+                    expected_value=expected_value,
+                    actual_output=actual_output,
+                )
+                if mismatch:
+                    issues.append(mismatch)
+
+        return issues
+
     def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
-        """Run lightweight RuleSpec CI checks until the engine test runner lands."""
+        """Run RuleSpec compile, executable tests, and source-grounding checks."""
         start = time.time()
         issues: list[str] = []
         content = rules_file.read_text()
+        raw_output: str | None = None
+        compiled_payload: dict[str, Any] | None = None
+        compiled_path: Path | None = None
 
-        compile_result = self._run_rulespec_compile_check(rules_file)
-        if not compile_result.passed:
-            issues.extend(compile_result.issues)
+        tmpdir_cm = tempfile.TemporaryDirectory()
+        tmpdir = Path(tmpdir_cm.name)
+        try:
+            compiled_path = tmpdir / "compiled.json"
+            compile_result, payload = self._compile_rulespec_to_artifact(
+                rules_file, compiled_path
+            )
+            raw_output = compile_result.stdout + compile_result.stderr
+            if compile_result.returncode != 0:
+                detail = compile_result.stderr.strip() or compile_result.stdout.strip()
+                issues.append(f"Axiom Rules compile failed: {detail}")
+            elif isinstance(payload, dict):
+                compiled_payload = payload
+                raw_output = self._rulespec_compile_success_output(payload)
+            else:
+                issues.append("Axiom Rules compile did not return an artifact payload.")
+        except Exception as exc:
+            issues.append(f"Axiom Rules compile failed: {exc}")
 
         test_path = self._rulespec_test_path(rules_file)
         if test_path.exists():
@@ -2299,39 +2789,37 @@ class ValidatorPipeline:
                     if not self._is_nonassertable_rulespec_artifact(rules_file):
                         issues.append("No tests found.")
                 elif not isinstance(payload, list):
-                    issues.append("RuleSpec tests must be a YAML list of cases.")
-                else:
-                    for index, case in enumerate(payload, 1):
-                        if not isinstance(case, dict):
-                            issues.append(f"Test case #{index} must be a mapping.")
-                            continue
-                        if "name" not in case:
-                            issues.append(f"Test case #{index} is missing name.")
-                        if "output" not in case:
-                            issues.append(f"Test case #{index} is missing output.")
-                        if (
-                            self.policyengine_rac_var_hint
-                            and isinstance(case.get("output"), dict)
-                            and self.policyengine_rac_var_hint not in case["output"]
-                        ):
-                            issues.append(
-                                f"Test case #{index} output must assert "
-                                f"{self.policyengine_rac_var_hint}."
-                            )
+                    if isinstance(payload, dict) and isinstance(payload.get("cases"), list):
+                        payload = payload["cases"]
+                    else:
+                        issues.append("RuleSpec tests must be a YAML list of cases.")
+                        payload = None
+                if isinstance(payload, list) and compiled_payload and compiled_path:
+                    issues.extend(
+                        self._run_rulespec_test_cases(
+                            rules_file=rules_file,
+                            compiled_path=compiled_path,
+                            compiled_payload=compiled_payload,
+                            cases=payload,
+                        )
+                    )
         elif not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
 
         issues.extend(find_ungrounded_numeric_issues(content))
 
         duration = int((time.time() - start) * 1000)
-        return ValidationResult(
-            validator_name="ci",
-            passed=len(issues) == 0,
-            issues=issues,
-            duration_ms=duration,
-            error=issues[0] if issues else None,
-            raw_output=compile_result.raw_output,
-        )
+        try:
+            return ValidationResult(
+                validator_name="ci",
+                passed=len(issues) == 0,
+                issues=issues,
+                duration_ms=duration,
+                error=issues[0] if issues else None,
+                raw_output=raw_output,
+            )
+        finally:
+            tmpdir_cm.cleanup()
 
     def _is_nonassertable_rulespec_artifact(self, rules_file: Path) -> bool:
         """Return true when a RuleSpec artifact intentionally has no assertions."""
