@@ -321,7 +321,7 @@ class Orchestrator:
         Args:
             model: Model to use. For CLI backend, short names like "opus".
                    For Anthropic API backend, full model IDs like "claude-opus-4-6".
-                   For OpenAI backend, use Responses-compatible models like "gpt-5.4".
+                   For OpenAI backend, use Responses-compatible models like "gpt-5.5".
             db_path: Path to encoding database. None to skip logging.
             backend: "cli" for Claude Code CLI, "api" for Anthropic API,
                      "openai" for OpenAI Responses API.

@@ -26,6 +26,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .constants import DEFAULT_OPENAI_MODEL
 from .harness.encoding_db import (
     EncodingDB,
     EncodingRun,
@@ -52,6 +53,7 @@ from .statute import parse_usc_citation
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "RulesFoundation" / "autorac" / "encodings.db"
+DEFAULT_GPT_RUNNER = f"codex:{DEFAULT_OPENAI_MODEL}"
 
 
 def _resolve_repo_checkout(name: str) -> Path:
@@ -382,7 +384,7 @@ def main():
         "--runner",
         action="append",
         default=[],
-        help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
+        help=f"Runner spec [name=]backend:model. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}",
     )
     _add_gpt_backend_argument(eval_parser)
     eval_parser.add_argument(
@@ -439,7 +441,7 @@ def main():
         "--runner",
         action="append",
         default=[],
-        help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
+        help=f"Runner spec [name=]backend:model. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}",
     )
     _add_gpt_backend_argument(eval_source_parser)
     eval_source_parser.add_argument(
@@ -526,7 +528,7 @@ def main():
         "--runner",
         action="append",
         default=[],
-        help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
+        help=f"Runner spec [name=]backend:model. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}",
     )
     _add_gpt_backend_argument(eval_akn_section_parser)
     eval_akn_section_parser.add_argument(
@@ -595,7 +597,7 @@ def main():
         "--runner",
         action="append",
         default=[],
-        help="Runner spec [name=]backend:model. Defaults to claude:opus and codex:gpt-5.4",
+        help=f"Runner spec [name=]backend:model. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}",
     )
     _add_gpt_backend_argument(eval_uk_legislation_parser)
     eval_uk_legislation_parser.add_argument(
@@ -2062,7 +2064,7 @@ def _print_eval_metrics(result) -> None:
 def cmd_eval(args):
     """Run deterministic model comparisons on one or more citations."""
     runners = _effective_runner_specs(
-        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+        args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
     atlas_path = args.atlas_path or _default_repo_checkout("atlas")
     rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
@@ -2117,7 +2119,7 @@ def cmd_eval(args):
 def cmd_eval_source(args):
     """Run deterministic model comparisons on one arbitrary source slice."""
     runners = _effective_runner_specs(
-        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+        args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
     runtime_rac_path = _default_repo_checkout("axiom-rules")
     policy_repo_path = None
@@ -2187,7 +2189,7 @@ def cmd_eval_source(args):
 def cmd_eval_akn_section(args):
     """Run deterministic model comparisons on one AKN section."""
     runners = _effective_runner_specs(
-        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+        args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
     rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
 
@@ -2263,7 +2265,7 @@ def cmd_eval_akn_section(args):
 def cmd_eval_uk_legislation_section(args):
     """Run deterministic model comparisons on official UK legislation XML."""
     runners = _effective_runner_specs(
-        args.runner or ["claude:opus", "codex:gpt-5.4"], args
+        args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
     rac_path = args.rac_path or _default_repo_checkout("axiom-rules")
 

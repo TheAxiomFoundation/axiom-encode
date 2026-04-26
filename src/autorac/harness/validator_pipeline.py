@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 import yaml
 
+from autorac.codex_cli import resolve_codex_cli
 from autorac.constants import DEFAULT_OPENAI_MODEL, REVIEWER_CLI_MODEL
 from autorac.repo_routing import find_policy_repo_root
 
@@ -97,7 +98,7 @@ def _run_codex_reviewer_cli(
 ) -> tuple[str, int]:
     """Run reviewer prompts through Codex CLI and return assistant text."""
     cmd = [
-        "codex",
+        resolve_codex_cli(),
         "exec",
         "--json",
         "--skip-git-repo-check",

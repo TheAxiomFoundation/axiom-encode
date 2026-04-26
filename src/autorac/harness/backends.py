@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
+from autorac.codex_cli import resolve_codex_cli
 from autorac.constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL
 from autorac.prompts.encoder import get_encoder_prompt
 
@@ -390,7 +391,7 @@ class CodexCLIBackend(EncoderBackend):
     ) -> tuple[str, int]:
         """Run codex exec as subprocess."""
         cmd = [
-            "codex",
+            resolve_codex_cli(),
             "exec",
             "--json",
             "--model",

@@ -1499,9 +1499,45 @@ class TestCmdValidate:
 
 
 class TestCmdCompile:
+    def _require_axiom_rules_path(self) -> Path:
+        axiom_rules_path = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
+        binary = axiom_rules_path / "target" / "debug" / "axiom-rules"
+        if not binary.exists():
+            pytest.skip("local axiom-rules binary is not built")
+        return axiom_rules_path
+
+    def _rulespec_file(self, tmp_path: Path, content: str | None = None) -> Path:
+        rules_file = tmp_path / "test.yaml"
+        rules_file.write_text(
+            content
+            or """format: rulespec/v1
+module:
+  summary: Test programme.
+rules:
+  - name: test_rule
+    kind: parameter
+    dtype: Number
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          1
+"""
+        )
+        return rules_file
+
+    def _compile_args(self, rules_file: Path, *, json_output: bool, execute: bool):
+        args = MagicMock()
+        args.file = rules_file
+        args.json = json_output
+        args.as_of = None
+        args.execute = execute
+        args.axiom_rules_path = self._require_axiom_rules_path()
+        args.rac_path = None
+        return args
+
     def test_file_not_found(self, capsys):
         args = MagicMock()
-        args.file = Path("/nonexistent/file.rac")
+        args.file = Path("/nonexistent/file.yaml")
         args.json = False
         args.as_of = None
         args.execute = False
@@ -1510,158 +1546,79 @@ class TestCmdCompile:
         assert exc_info.value.code == 1
 
     def test_compile_success_text(self, capsys, tmp_path):
-        rac_file = tmp_path / "test.rac"
-        rac_file.write_text("# test content")
-        args = MagicMock()
-        args.file = rac_file
-        args.json = False
-        args.as_of = None
-        args.execute = False
+        args = self._compile_args(
+            self._rulespec_file(tmp_path), json_output=False, execute=False
+        )
 
-        mock_ir = MagicMock()
-        mock_ir.variables = {"var1": MagicMock(), "var2": MagicMock()}
-
-        mock_parse = MagicMock()
-
-        mock_compile = MagicMock(return_value=mock_ir)
-        mock_execute = MagicMock()
-
-        mock_rac = MagicMock()
-        mock_rac.parse = mock_parse
-        mock_rac.compile = mock_compile
-        mock_rac.execute = mock_execute
-        with patch.dict("sys.modules", {"rac": mock_rac}):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_compile(args)
-            assert exc_info.value.code == 0
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_compile(args)
+        assert exc_info.value.code == 0
         captured = capsys.readouterr()
         assert "Compiled" in captured.out
-        assert "var1" in captured.out
+        assert "test_rule" in captured.out
 
     def test_compile_success_json(self, capsys, tmp_path):
-        rac_file = tmp_path / "test.rac"
-        rac_file.write_text("# test content")
-        args = MagicMock()
-        args.file = rac_file
-        args.json = True
+        args = self._compile_args(
+            self._rulespec_file(tmp_path), json_output=True, execute=False
+        )
         args.as_of = "2024-01-01"
-        args.execute = False
 
-        mock_ir = MagicMock()
-        mock_ir.variables = {"var1": MagicMock()}
-
-        mock_parse = MagicMock()
-
-        mock_compile = MagicMock(return_value=mock_ir)
-        mock_execute = MagicMock()
-
-        mock_rac = MagicMock()
-        mock_rac.parse = mock_parse
-        mock_rac.compile = mock_compile
-        mock_rac.execute = mock_execute
-        with patch.dict("sys.modules", {"rac": mock_rac}):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_compile(args)
-            assert exc_info.value.code == 0
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_compile(args)
+        assert exc_info.value.code == 0
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["success"] is True
-        assert output["as_of"] == "2024-01-01"
+        assert output["rule_count"] == 1
+        assert output["rules"] == ["test_rule"]
 
     def test_compile_with_execute_text(self, capsys, tmp_path):
-        rac_file = tmp_path / "test.rac"
-        rac_file.write_text("# test")
-        args = MagicMock()
-        args.file = rac_file
-        args.json = False
-        args.as_of = None
-        args.execute = True
+        args = self._compile_args(
+            self._rulespec_file(tmp_path), json_output=False, execute=True
+        )
 
-        mock_ir = MagicMock()
-        mock_ir.variables = {"var1": MagicMock()}
-        mock_result = MagicMock()
-        mock_result.scalars = {"var1": 100}
-
-        mock_parse = MagicMock()
-
-        mock_compile = MagicMock(return_value=mock_ir)
-        mock_execute = MagicMock(return_value=mock_result)
-
-        mock_rac = MagicMock()
-        mock_rac.parse = mock_parse
-        mock_rac.compile = mock_compile
-        mock_rac.execute = mock_execute
-        with patch.dict("sys.modules", {"rac": mock_rac}):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_compile(args)
-            assert exc_info.value.code == 0
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_compile(args)
+        assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "Execution results" in captured.out
+        assert "compiled successfully" in captured.out
 
     def test_compile_with_execute_json(self, capsys, tmp_path):
-        rac_file = tmp_path / "test.rac"
-        rac_file.write_text("# test")
-        args = MagicMock()
-        args.file = rac_file
-        args.json = True
-        args.as_of = None
-        args.execute = True
+        args = self._compile_args(
+            self._rulespec_file(tmp_path), json_output=True, execute=True
+        )
 
-        mock_ir = MagicMock()
-        mock_ir.variables = {"var1": MagicMock()}
-        mock_result = MagicMock()
-        mock_result.scalars = {"var1": 100}
-
-        mock_parse = MagicMock()
-
-        mock_compile = MagicMock(return_value=mock_ir)
-        mock_execute = MagicMock(return_value=mock_result)
-
-        mock_rac = MagicMock()
-        mock_rac.parse = mock_parse
-        mock_rac.compile = mock_compile
-        mock_rac.execute = mock_execute
-        with patch.dict("sys.modules", {"rac": mock_rac}):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_compile(args)
-            assert exc_info.value.code == 0
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_compile(args)
+        assert exc_info.value.code == 0
         captured = capsys.readouterr()
         output = json.loads(captured.out)
-        assert "scalars" in output
+        assert output["success"] is True
+        assert output["rules"] == ["test_rule"]
 
     def test_compile_failure_text(self, capsys, tmp_path):
-        rac_file = tmp_path / "test.rac"
-        rac_file.write_text("# test")
-        args = MagicMock()
-        args.file = rac_file
-        args.json = False
-        args.as_of = None
-        args.execute = False
+        args = self._compile_args(
+            self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
+            json_output=False,
+            execute=False,
+        )
 
-        mock_rac = MagicMock()
-        mock_rac.parse = MagicMock(side_effect=Exception("Parse error"))
-        with patch.dict("sys.modules", {"rac": mock_rac}):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_compile(args)
-            assert exc_info.value.code == 1
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_compile(args)
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "Compilation failed" in captured.out
 
     def test_compile_failure_json(self, capsys, tmp_path):
-        rac_file = tmp_path / "test.rac"
-        rac_file.write_text("# test")
-        args = MagicMock()
-        args.file = rac_file
-        args.json = True
-        args.as_of = None
-        args.execute = False
+        args = self._compile_args(
+            self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
+            json_output=True,
+            execute=False,
+        )
 
-        mock_rac = MagicMock()
-        mock_rac.parse = MagicMock(side_effect=Exception("Parse error"))
-        with patch.dict("sys.modules", {"rac": mock_rac}):
-            with pytest.raises(SystemExit) as exc_info:
-                cmd_compile(args)
-            assert exc_info.value.code == 1
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_compile(args)
+        assert exc_info.value.code == 1
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["success"] is False
@@ -2915,9 +2872,9 @@ class TestCmdValidateEdgeCases:
     def test_validate_uses_enclosing_non_federal_policy_repo(self, tmp_path):
         policy_repo = tmp_path / "rac-us-tn" / "sources"
         policy_repo.mkdir(parents=True)
-        rac_file = policy_repo / "test.rac"
-        rac_file.write_text("# test")
-        (tmp_path / "rac").mkdir()
+        rac_file = policy_repo / "test.yaml"
+        rac_file.write_text("format: rulespec/v1\n")
+        (tmp_path / "axiom-rules").mkdir()
 
         args = MagicMock()
         args.file = rac_file
@@ -2947,7 +2904,7 @@ class TestCmdValidateEdgeCases:
 
         call_kwargs = mock_pipeline_cls.call_args[1]
         assert call_kwargs["rac_us_path"] == tmp_path / "rac-us-tn"
-        assert call_kwargs["rac_path"] == tmp_path / "rac"
+        assert call_kwargs["rac_path"] == tmp_path / "axiom-rules"
 
     def test_eval_source_prefers_akn_backed_slice_text(self, tmp_path, monkeypatch):
         arch_root = tmp_path / "arch"
@@ -3059,7 +3016,7 @@ class TestCmdValidateEdgeCases:
             "/Users/maxghenis/TheAxiomFoundation/rac-us"
         )
         assert call_kwargs["rac_path"] == Path(
-            "/Users/maxghenis/TheAxiomFoundation/rac"
+            "/Users/maxghenis/TheAxiomFoundation/axiom-rules"
         )
 
 

@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import importlib.util
 
-HAS_RAC_ENGINE = importlib.util.find_spec("rac.engine") is not None
+HAS_RAC_ENGINE = importlib.util.find_spec("rac") is not None and (
+    importlib.util.find_spec("rac.engine") is not None
+)
 
 pytestmark = pytest.mark.skipif(not HAS_RAC_ENGINE, reason="rac.engine not installed")
 

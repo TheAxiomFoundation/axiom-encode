@@ -24,6 +24,8 @@ from xml.etree import ElementTree as ET
 import requests
 import yaml
 
+from autorac.codex_cli import resolve_codex_cli
+from autorac.constants import DEFAULT_OPENAI_MODEL
 from autorac.repo_routing import find_policy_repo_root
 from autorac.statute import (
     CitationParts,
@@ -1063,7 +1065,10 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
         _resolve_manifest_path(base_dir, entry)
         for entry in raw.get("allow_context", []) or []
     ]
-    runners = [str(item) for item in (raw.get("runners") or ["codex:gpt-5.4"])]
+    runners = [
+        str(item)
+        for item in (raw.get("runners") or [f"codex:{DEFAULT_OPENAI_MODEL}"])
+    ]
 
     gates_raw = raw.get("gates") or {}
     gates = EvalReadinessGates(
@@ -3228,7 +3233,7 @@ def _run_codex_prompt_eval(
         last_message_file.unlink()
 
     cmd = [
-        "codex",
+        resolve_codex_cli(),
         "exec",
         "--json",
         "--skip-git-repo-check",

@@ -529,7 +529,8 @@ class TestCodexCLIBackend:
             )
 
             cmd = mock_run.call_args[0][0]
-            assert cmd[:3] == ["codex", "exec", "--json"]
+            assert Path(cmd[0]).name == "codex"
+            assert cmd[1:3] == ["exec", "--json"]
             assert "--model" in cmd
             assert "gpt-5.4" in cmd
 
