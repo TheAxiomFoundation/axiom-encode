@@ -148,6 +148,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "=== FILE: tn-snap-standard-utility-allowance.yaml ===" in prompt
     assert "=== FILE: tn-snap-standard-utility-allowance.test.yaml ===" in prompt
     assert "snap_standard_utility_allowance" in prompt
+    assert "Do not create named `parameter` rules for structural table row labels" in prompt
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
@@ -532,14 +533,21 @@ class TestEvaluateArtifact:
                 rac_file=rac_file,
                 rac_root=tmp_path,
                 rac_path=Path("/tmp/rac"),
-                source_text="(a) Allowance of credit There shall be allowed a credit of $1,000.",
+                source_text=(
+                    "(a) Allowance of credit There shall be allowed a credit of "
+                    "$1,000."
+                ),
             )
 
         assert metrics.compile_pass
-        assert metrics.ci_pass
+        assert not metrics.ci_pass
         assert metrics.grounded_numeric_count == 1
         assert metrics.ungrounded_numeric_count == 1
         assert [item.raw for item in metrics.grounding if not item.grounded] == ["2200"]
+        assert any(
+            "Ungrounded generated numeric literal" in issue and "2200" in issue
+            for issue in metrics.ci_issues
+        )
 
     def test_fails_ci_when_repeated_source_scalar_has_only_one_named_definition(
         self, tmp_path

@@ -72,6 +72,51 @@ rules:
     ] == [("snap_standard_utility_allowance_value", 451.0)]
 
 
+def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(tmp_path):
+    if not AXIOM_RULES_BINARY.exists():
+        pytest.skip("local axiom-rules binary is not built")
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The standard utility allowance is $451.
+rules:
+  - name: snap_standard_utility_allowance_value
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          452
+"""
+    )
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: base
+  period: 2024-01
+  input: {}
+  output:
+    snap_standard_utility_allowance_value: 452
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        rac_us_path=tmp_path,
+        rac_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is False
+    assert any(
+        "Ungrounded generated numeric literal" in issue and "452" in issue
+        for issue in result.issues
+    )
+
+
 def test_legacy_rac_artifact_is_rejected(tmp_path):
     rac_file = tmp_path / "legacy.rac"
     rac_file.write_text("legacy_amount:\n    from 2024-01-01: 451\n")

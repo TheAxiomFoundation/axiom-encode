@@ -892,7 +892,7 @@ For North Carolina, the allowance varies by spm_unit_size:
         assert 2.0 not in occurrences
         assert 3.0 not in occurrences
         assert 4.0 not in occurrences
-        assert occurrences.count(5.0) == 1
+        assert 5.0 not in occurrences
         assert occurrences.count(620.0) == 1
         assert occurrences.count(681.0) == 1
         assert occurrences.count(748.0) == 1
@@ -2605,6 +2605,24 @@ north_carolina_snap_tua_five_or_more_threshold:
 
         assert not any(raw == "4" and value == 4.0 for _, raw, value in values)
         assert any(raw == "5" and value == 5.0 for _, raw, value in values)
+
+    def test_extract_grounding_values_ignores_inline_schedule_index_comparisons(self):
+        values = extract_grounding_values(
+            """format: rulespec/v1
+module:
+  summary: Schedule row example.
+rules:
+  - name: snap_standard_utility_allowance
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: |-
+          if snap_utility_allowance_type == "SUA" and spm_unit_size == 4: 815 else: 0
+"""
+        )
+
+        assert not any(raw == "4" and value == 4.0 for _, raw, value in values)
+        assert any(raw == "815" and value == 815.0 for _, raw, value in values)
 
     def test_ci_rejects_decomposed_date_scalars(self, pipeline):
         """CI should fail when calendar dates are split into numeric day/year scalars."""

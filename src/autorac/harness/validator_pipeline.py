@@ -1337,7 +1337,7 @@ def _is_structural_schedule_index_literal(expression: str, literal: str) -> bool
 
     normalized = re.sub(r"\s+", " ", expression)
     comparison_pattern = re.compile(
-        rf"\b(?:if|elif)\s+{_SCHEDULE_INDEX_NAME_PATTERN}\s*(?:==|>=|>|<=|<)\s*{re.escape(literal)}\b"
+        rf"\b{_SCHEDULE_INDEX_NAME_PATTERN}\s*(?:==|>=|>|<=|<)\s*{re.escape(literal)}\b"
     )
     delta_pattern = re.compile(
         rf"(?:\(\s*)?{_SCHEDULE_INDEX_NAME_PATTERN}\s*-\s*{re.escape(literal)}(?:\s*\))?"
@@ -1545,7 +1545,13 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
             "", normalized_line, count=1
         )
         value_row_match = _VALUE_BEARING_TABLE_ROW_PATTERN.match(normalized_line)
-        if value_row_match:
+        schedule_row_match = (
+            _SCHEDULE_SIZE_ROW_PATTERN.fullmatch(normalized_line)
+            or _SCHEDULE_PIPE_ROW_PATTERN.fullmatch(normalized_line)
+            or _SCHEDULE_ARROW_ROW_PATTERN.fullmatch(normalized_line)
+            or _SCHEDULE_BARE_ARROW_ROW_PATTERN.fullmatch(normalized_line)
+        )
+        if value_row_match and not schedule_row_match:
             normalized_line = value_row_match.group(1)
         normalized_line = _TABLE_ROW_LABEL_PATTERN.sub("size", normalized_line)
         cleaned_lines.append(_STRUCTURAL_SOURCE_PREFIX_PATTERN.sub("", normalized_line))
@@ -1620,12 +1626,6 @@ def _extract_collapsed_schedule_row_occurrences(
                     occurrences.append(value)
                     last_value_by_block[block_key] = value
                     seen_values.add(value)
-                cap_match = re.search(r"\b(\d+)\s+or\s+more\b", stripped, re.IGNORECASE)
-                if cap_match:
-                    cap_value = float(cap_match.group(1))
-                    if cap_value not in seen_values:
-                        occurrences.append(cap_value)
-                        seen_values.add(cap_value)
             continue
 
         if stripped:
@@ -1802,6 +1802,30 @@ def extract_embedded_source_text(content: str) -> str:
 
     fallback_blocks = re.findall(r'"""(.*?)"""', content, re.DOTALL)
     return "\n".join(block.strip() for block in fallback_blocks if block.strip())
+
+
+def find_ungrounded_numeric_issues(
+    content: str,
+    source_text: str | None = None,
+) -> list[str]:
+    """Return issues for generated numeric literals absent from source text."""
+    source = (
+        source_text if source_text is not None else extract_embedded_source_text(content)
+    ).strip()
+    if not source:
+        return []
+
+    source_numbers = extract_numbers_from_text(source)
+    issues: list[str] = []
+    for _, raw, value in extract_grounding_values(content):
+        if value in source_numbers:
+            continue
+        display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        issues.append(
+            "Ungrounded generated numeric literal: "
+            f"{display} does not appear as a substantive numeric value in the source text."
+        )
+    return issues
 
 
 @dataclass
@@ -2258,6 +2282,7 @@ class ValidatorPipeline:
         """Run lightweight RuleSpec CI checks until the engine test runner lands."""
         start = time.time()
         issues: list[str] = []
+        content = rules_file.read_text()
 
         compile_result = self._run_rulespec_compile_check(rules_file)
         if not compile_result.passed:
@@ -2295,6 +2320,8 @@ class ValidatorPipeline:
                             )
         elif not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
+
+        issues.extend(find_ungrounded_numeric_issues(content))
 
         duration = int((time.time() - start) * 1000)
         return ValidationResult(

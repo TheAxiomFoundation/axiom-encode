@@ -58,6 +58,7 @@ from .validator_pipeline import (
     extract_named_scalar_occurrences,
     extract_numbers_from_text,
     extract_numeric_occurrences_from_text,
+    find_ungrounded_numeric_issues,
 )
 
 EvalMode = Literal["cold", "repo-augmented"]
@@ -2515,8 +2516,24 @@ def evaluate_artifact(
                 f"but only {covered_count} named scalar definition(s) with that value were found."
             )
 
-    ci_issues = list(ci_result.issues) + numeric_occurrence_issues
-    ci_pass = ci_result.passed and not numeric_occurrence_issues
+    ungrounded_numeric_issues = find_ungrounded_numeric_issues(
+        content,
+        embedded_source or source_text,
+    )
+    ci_issues = []
+    seen_ci_issues: set[str] = set()
+    for issue in (
+        list(ci_result.issues) + ungrounded_numeric_issues + numeric_occurrence_issues
+    ):
+        if issue in seen_ci_issues:
+            continue
+        ci_issues.append(issue)
+        seen_ci_issues.add(issue)
+    ci_pass = (
+        ci_result.passed
+        and not ungrounded_numeric_issues
+        and not numeric_occurrence_issues
+    )
 
     return EvalArtifactMetrics(
         compile_pass=compile_result.passed,
@@ -2857,6 +2874,7 @@ RuleSpec requirements:
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Any substantive numeric literal in a formula must either appear in `./source.txt` or be one of -1, 0, 1, 2, or 3.
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
+- Do not create named `parameter` rules for structural table row labels, household-size row indexes, or branch numbers unless the source actually sets that value as a legal amount, rate, threshold, cap, or limit; use those structural comparisons inline instead.
 - If the source cannot be faithfully represented with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
 - If metadata or context names an absolute canonical target that this source `sets`, store that absolute path in the relevant rule's `metadata.sets` list.
 {target_hint}
