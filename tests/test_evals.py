@@ -150,7 +150,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "snap_standard_utility_allowance" in prompt
     assert "Do not use bare year periods like `2024`" in prompt
     assert "period_kind: custom" in prompt
-    assert "Do not create named `parameter` rules for structural table row labels" in prompt
+    assert (
+        "Do not create named `parameter` rules for structural table row labels"
+        in prompt
+    )
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
@@ -542,8 +545,7 @@ class TestEvaluateArtifact:
                 policy_repo_root=tmp_path,
                 axiom_rules_path=Path("/tmp/axiom-rules"),
                 source_text=(
-                    "(a) Allowance of credit There shall be allowed a credit of "
-                    "$1,000."
+                    "(a) Allowance of credit There shall be allowed a credit of $1,000."
                 ),
             )
 
@@ -1433,7 +1435,9 @@ class TestGeneratedBundleCleaning:
 
     def test_materialize_eval_artifact_rejects_non_rulespec_bundle(self, tmp_path):
         output_file = tmp_path / "source" / "example.yaml"
-        response = "=== FILE: example.yaml ===\nrules:\n  - name: missing_format_header\n"
+        response = (
+            "=== FILE: example.yaml ===\nrules:\n  - name: missing_format_header\n"
+        )
 
         wrote = _materialize_eval_artifact(response, output_file)
 
@@ -2129,7 +2133,9 @@ class TestAknSectionEval:
             """.strip()
         )
 
-        with patch("axiom_encode.harness.evals.run_source_eval") as mock_run_source_eval:
+        with patch(
+            "axiom_encode.harness.evals.run_source_eval"
+        ) as mock_run_source_eval:
             try:
                 run_akn_section_eval(
                     source_id="9 CCR 2503-6 3.606.1",
@@ -2520,7 +2526,9 @@ class TestEvalPrompt:
         assert "dtype:" in prompt
         assert "RuleSpec requirements:" in prompt
         assert "The programme file must begin with `format: rulespec/v1`" in prompt
-        assert "Use chained `if condition: value else: other_value` expressions" in prompt
+        assert (
+            "Use chained `if condition: value else: other_value` expressions" in prompt
+        )
         assert "Do not use bare year periods like `2024`" in prompt
 
     def test_build_eval_prompt_includes_supported_schema_enums(self, tmp_path):
@@ -2692,7 +2700,10 @@ class TestEvalPrompt:
             "For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals."
             in prompt
         )
-        assert "Do not respond with summaries, markdown prose, or file-write confirmations" in prompt
+        assert (
+            "Do not respond with summaries, markdown prose, or file-write confirmations"
+            in prompt
+        )
         assert (
             "do not use inline assignment syntax like `:=` inside formula blocks"
             in prompt
@@ -3401,9 +3412,7 @@ class TestEvalPrompt:
         assert "Do not invent sample ages like `2`, `3`, `24`, or `25`" in prompt
         assert "keep `.test.yaml` outputs scalar" in prompt
         assert "keep the row-defining conditions satisfied" in prompt
-        assert (
-            "principal amount rule should usually be a grounded constant" in prompt
-        )
+        assert "principal amount rule should usually be a grounded constant" in prompt
         assert "Do not include `alternate_branch_*` tests" in prompt
         assert "write `2500`, not `2,500`" in prompt
 
@@ -3996,9 +4005,7 @@ cases:
 
         assert manifest.cases[0].table_row_query == "single claimant aged under 25"
 
-    def test_load_eval_suite_manifest_supports_policyengine_rule_hint(
-        self, tmp_path
-    ):
+    def test_load_eval_suite_manifest_supports_policyengine_rule_hint(self, tmp_path):
         manifest_file = tmp_path / "uk-expanded.yaml"
         manifest_file.write_text(
             """
@@ -4478,7 +4485,10 @@ cases:
 
         assert mock_run_source_eval.call_args.kwargs["policy_path"] == policy_repo
         assert mock_run_source_eval.call_args.kwargs["source_path"] == source_file
-        assert mock_run_source_eval.call_args.kwargs["runtime_axiom_rules_path"] == runtime_axiom_rules
+        assert (
+            mock_run_source_eval.call_args.kwargs["runtime_axiom_rules_path"]
+            == runtime_axiom_rules
+        )
 
     def test_run_eval_suite_uses_akn_backed_source_text(self, tmp_path, monkeypatch):
         arch_root = tmp_path / "arch"
@@ -5188,22 +5198,38 @@ cases:
                 repo_root.parent / "rules-us" / "statute" / "7" / "2014" / "e.yaml"
             ).resolve(),
             (
-                repo_root.parent / "rules-us" / "statute" / "7" / "2014" / "g" / "1.yaml"
+                repo_root.parent
+                / "rules-us"
+                / "statute"
+                / "7"
+                / "2014"
+                / "g"
+                / "1.yaml"
             ).resolve(),
         ]
         assert manifest.cases[1].allow_context == [
-            (repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml").resolve()
+            (
+                repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml"
+            ).resolve()
         ]
         assert manifest.cases[2].allow_context == [
             (
                 repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml"
             ).resolve(),
             (
-                repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "c" / "1.yaml"
+                repo_root.parent
+                / "rules-us"
+                / "statute"
+                / "7"
+                / "2017"
+                / "c"
+                / "1.yaml"
             ).resolve(),
         ]
         assert manifest.cases[3].allow_context == [
-            (repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml").resolve()
+            (
+                repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml"
+            ).resolve()
         ]
 
     def test_repo_us_snap_federal_c3_repair_manifest_loads_expected_case(
@@ -5246,7 +5272,13 @@ cases:
                 repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml"
             ).resolve(),
             (
-                repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "c" / "1.yaml"
+                repo_root.parent
+                / "rules-us"
+                / "statute"
+                / "7"
+                / "2017"
+                / "c"
+                / "1.yaml"
             ).resolve(),
         ]
 
@@ -5286,7 +5318,9 @@ cases:
             ).resolve()
         )
         assert case.allow_context == [
-            (repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml").resolve()
+            (
+                repo_root.parent / "rules-us" / "statute" / "7" / "2017" / "a.yaml"
+            ).resolve()
         ]
 
     def test_repo_us_snap_asset_test_refresh_manifest_loads_expected_case(self):
@@ -5324,7 +5358,12 @@ cases:
         )
         assert case.allow_context == [
             (
-                repo_root.parent / "rules-us" / "usda" / "snap" / "fy-2026-cola" / "2.yaml"
+                repo_root.parent
+                / "rules-us"
+                / "usda"
+                / "snap"
+                / "fy-2026-cola"
+                / "2.yaml"
             ).resolve()
         ]
         assert case.oracle == "policyengine"
@@ -5370,7 +5409,13 @@ cases:
         )
         assert case.allow_context == [
             (
-                repo_root.parent / "rules-us" / "statute" / "7" / "2014" / "g" / "1.yaml"
+                repo_root.parent
+                / "rules-us"
+                / "statute"
+                / "7"
+                / "2014"
+                / "g"
+                / "1.yaml"
             ).resolve()
         ]
         assert case.oracle == "policyengine"
@@ -5415,7 +5460,13 @@ cases:
                 repo_root.parent / "rules-us" / "statute" / "7" / "2014" / "c.yaml"
             ).resolve(),
             (
-                repo_root.parent / "rules-us" / "statute" / "7" / "2014" / "g" / "1.yaml"
+                repo_root.parent
+                / "rules-us"
+                / "statute"
+                / "7"
+                / "2014"
+                / "g"
+                / "1.yaml"
             ).resolve(),
         ]
         assert case.oracle == "policyengine"
@@ -5768,9 +5819,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_tn_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -5893,9 +5942,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_co_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -5976,9 +6023,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_ny_individual_utility_allowance_refresh_manifest_loads_expected_case(
         self,
@@ -6056,9 +6101,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_nc_child_support_deduction_option_refresh_manifest_loads_expected_case(
         self,
@@ -6101,9 +6144,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_nc_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -6437,9 +6478,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_tx_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -6524,9 +6563,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_fl_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -6607,9 +6644,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_md_self_employment_simplified_deduction_rate_refresh_manifest_loads_expected_case(
         self,
@@ -6693,9 +6728,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_ga_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -6782,9 +6815,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_standard_medical_expense_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_standard_medical_expense_deduction"
 
     def test_repo_us_snap_tx_homeless_shelter_deduction_available_refresh_manifest_loads_expected_case(
         self,
@@ -6833,8 +6864,7 @@ cases:
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
         assert (
-            case.policyengine_rule_hint
-            == "snap_homeless_shelter_deduction_available"
+            case.policyengine_rule_hint == "snap_homeless_shelter_deduction_available"
         )
 
     def test_repo_us_snap_tx_tanf_non_cash_gross_income_limit_fpg_ratio_refresh_manifest_loads_expected_case(
@@ -7010,9 +7040,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_sc_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -7141,9 +7169,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_al_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -7269,9 +7295,7 @@ cases:
         assert case.allow_context == []
         assert case.oracle == "policyengine"
         assert case.policyengine_country == "auto"
-        assert (
-            case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
-        )
+        assert case.policyengine_rule_hint == "snap_state_uses_child_support_deduction"
 
     def test_repo_us_snap_ar_self_employment_expense_option_refresh_manifest_loads_expected_case(
         self,
@@ -7696,10 +7720,7 @@ class TestRepoAugmentedContext:
         statute_root.mkdir(parents=True)
         context_file = statute_root / "c.yaml"
         context_file.write_text(
-            "format: rulespec/v1\n"
-            "module:\n"
-            "  status: stub\n"
-            "rules: []\n"
+            "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n"
         )
 
         runner = parse_runner_spec("codex:gpt-5.4")
@@ -7720,13 +7741,8 @@ class TestRepoAugmentedContext:
         eval_root = tmp_path / "eval-root"
         _hydrate_eval_root(eval_root, workspace)
 
-        assert (
-            eval_root / "26" / "24" / "c.yaml"
-        ).read_text() == (
-            "format: rulespec/v1\n"
-            "module:\n"
-            "  status: stub\n"
-            "rules: []\n"
+        assert (eval_root / "26" / "24" / "c.yaml").read_text() == (
+            "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n"
         )
 
     def test_prepare_eval_workspace_expands_transitive_context_imports(self, tmp_path):

@@ -335,9 +335,7 @@ class TestCalibrationTrend:
             time.sleep(0.01)  # Ensure different timestamps
 
         # Get only last 3
-        trend = get_calibration_trend(
-            temp_db_path, "rulespec_reviewer", limit=3
-        )
+        trend = get_calibration_trend(temp_db_path, "rulespec_reviewer", limit=3)
         assert len(trend) == 3
 
     def test_get_calibration_trend_nonexistent_metric(

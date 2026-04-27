@@ -25,8 +25,6 @@ jobs:
       - name: Create venv and install dependencies
         run: |
           uv venv --python ${{ matrix.python-version }}
-          git clone https://github.com/RulesFoundation/rac.git /tmp/rac
-          uv pip install -e /tmp/rac
           uv pip install -e ".[dev]"
 
       - name: Run tests

@@ -273,7 +273,10 @@ def sync_transcripts_to_supabase(
             }
 
             result = (
-                client.schema("axiom_encode").table("agent_transcripts").upsert(data).execute()
+                client.schema("axiom_encode")
+                .table("agent_transcripts")
+                .upsert(data)
+                .execute()
             )
 
             if result.data:
@@ -381,12 +384,16 @@ def sync_agent_sessions_to_supabase(
             ]
 
             # Upsert session
-            client.schema("axiom_encode").table("sdk_sessions").upsert(session_data).execute()
+            client.schema("axiom_encode").table("sdk_sessions").upsert(
+                session_data
+            ).execute()
 
             # Upsert events (in batches of 100)
             for i in range(0, len(events_data), 100):
                 batch = events_data[i : i + 100]
-                client.schema("axiom_encode").table("sdk_session_events").upsert(batch).execute()
+                client.schema("axiom_encode").table("sdk_session_events").upsert(
+                    batch
+                ).execute()
 
             synced += 1
             print(f"  Synced session {session['id']} ({len(events)} events)")
@@ -454,7 +461,9 @@ if __name__ == "__main__":  # pragma: no cover
 
     if cmd == "runs":
         if len(sys.argv) < 4:
-            print("Usage: python -m axiom_encode.supabase_sync runs <db_path> <data_source>")
+            print(
+                "Usage: python -m axiom_encode.supabase_sync runs <db_path> <data_source>"
+            )
             sys.exit(1)
         db_path = Path(sys.argv[2])
         data_source = sys.argv[3]

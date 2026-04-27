@@ -370,7 +370,9 @@ def emit_agent_run(
             "axiom_encode.citation": citation,
             "axiom_encode.session_id": session_id,
             "axiom_encode.agent_type": getattr(agent_run, "agent_type", None),
-            "axiom_encode.phase": getattr(getattr(agent_run, "phase", None), "value", None),
+            "axiom_encode.phase": getattr(
+                getattr(agent_run, "phase", None), "value", None
+            ),
             "axiom_encode.message_count": len(getattr(agent_run, "messages", []) or []),
             "axiom_encode.reasoning_entry_count": len(
                 extract_reasoning_entries(getattr(agent_run, "provider_trace", None))
@@ -420,7 +422,9 @@ def _base_llm_attributes(
         attrs["gen_ai.usage.output_tokens"] = usage.output_tokens
         attrs["gen_ai.usage.cache_read.input_tokens"] = usage.cache_read_tokens
         attrs["gen_ai.usage.cache_creation.input_tokens"] = usage.cache_creation_tokens
-        attrs["axiom_encode.usage.reasoning_output_tokens"] = usage.reasoning_output_tokens
+        attrs["axiom_encode.usage.reasoning_output_tokens"] = (
+            usage.reasoning_output_tokens
+        )
 
     if cost_usd is not None:
         attrs["axiom_encode.cost.total_usd"] = cost_usd

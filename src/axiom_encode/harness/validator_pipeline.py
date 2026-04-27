@@ -75,7 +75,9 @@ def run_claude_code(
     cmd = ["claude", "--print", "--model", model, "-p", prompt]
 
     try:
-        idle_timeout_env = os.getenv("AXIOM_ENCODE_REVIEWER_CLAUDE_IDLE_TIMEOUT_SECONDS")
+        idle_timeout_env = os.getenv(
+            "AXIOM_ENCODE_REVIEWER_CLAUDE_IDLE_TIMEOUT_SECONDS"
+        )
         idle_timeout = timeout
         if idle_timeout_env is not None:
             idle_timeout = min(timeout, max(0, int(idle_timeout_env)))
@@ -1027,6 +1029,8 @@ _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
     r"section\s+([0-9A-Za-z.-]+(?:\([^)]+\))*)",
     re.IGNORECASE,
 )
+
+
 def _load_nearby_eval_source_metadata(rulespec_file: Path) -> dict[str, object] | None:
     """Load source-metadata from a nearby eval workspace when present."""
     for ancestor in rulespec_file.parents:
@@ -1605,7 +1609,9 @@ def find_ungrounded_numeric_issues(
 ) -> list[str]:
     """Return issues for generated numeric literals absent from source text."""
     source = (
-        source_text if source_text is not None else extract_embedded_source_text(content)
+        source_text
+        if source_text is not None
+        else extract_embedded_source_text(content)
     ).strip()
     if not source:
         return []
@@ -1741,7 +1747,9 @@ class ValidatorPipeline:
             )
         return env
 
-    def validate(self, rulespec_file: Path, skip_reviewers: bool = False) -> PipelineResult:
+    def validate(
+        self, rulespec_file: Path, skip_reviewers: bool = False
+    ) -> PipelineResult:
         """Run 4-tier validation on a RuleSpec file.
 
         Tiers run in order:
@@ -2056,8 +2064,7 @@ class ValidatorPipeline:
             missing = sorted(required - set(period))
             if missing:
                 raise ValueError(
-                    "period mapping missing required field(s): "
-                    + ", ".join(missing)
+                    "period mapping missing required field(s): " + ", ".join(missing)
                 )
             if period["period_kind"] not in {
                 "month",
@@ -2065,9 +2072,7 @@ class ValidatorPipeline:
                 "tax_year",
                 "custom",
             }:
-                raise ValueError(
-                    f"unsupported period_kind: {period['period_kind']!r}"
-                )
+                raise ValueError(f"unsupported period_kind: {period['period_kind']!r}")
             for key in ("start", "end"):
                 try:
                     date.fromisoformat(str(period[key]))
@@ -2133,7 +2138,9 @@ class ValidatorPipeline:
     def _related_entity_from_relation(self, relation_name: str) -> str:
         """Infer a readable related-entity label for relation test inputs."""
         head = relation_name.split("_of_", 1)[0]
-        return "".join(part.capitalize() for part in head.split("_") if part) or "Related"
+        return (
+            "".join(part.capitalize() for part in head.split("_") if part) or "Related"
+        )
 
     def _rulespec_scalar_value(self, value: Any) -> dict[str, Any]:
         """Coerce Python/YAML scalar values to Axiom Rules ScalarValueSpec JSON."""
@@ -2249,7 +2256,11 @@ class ValidatorPipeline:
         self, compiled_payload: dict[str, Any]
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Return compiled derived-output and scalar-parameter maps by name."""
-        program = compiled_payload.get("program") if isinstance(compiled_payload, dict) else {}
+        program = (
+            compiled_payload.get("program")
+            if isinstance(compiled_payload, dict)
+            else {}
+        )
         if not isinstance(program, dict):
             program = {}
         derived = {
@@ -2309,9 +2320,9 @@ class ValidatorPipeline:
         expected_kind = expected.get("kind")
         numeric = {"integer", "decimal"}
         if actual_kind in numeric and expected_kind in numeric:
-            return self._rulespec_decimal(actual.get("value")) == self._rulespec_decimal(
-                expected.get("value")
-            )
+            return self._rulespec_decimal(
+                actual.get("value")
+            ) == self._rulespec_decimal(expected.get("value"))
         if actual_kind == "bool" and expected_kind == "bool":
             return bool(actual.get("value")) == bool(expected.get("value"))
         if actual_kind != expected_kind:
@@ -2444,7 +2455,9 @@ class ValidatorPipeline:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
         issues: list[str] = []
         binary = self._axiom_rules_binary()
-        derived_by_name, parameter_by_name = self._rulespec_program_maps(compiled_payload)
+        derived_by_name, parameter_by_name = self._rulespec_program_maps(
+            compiled_payload
+        )
 
         for index, case in enumerate(cases, 1):
             if not isinstance(case, dict):
@@ -2494,15 +2507,17 @@ class ValidatorPipeline:
 
             actual_outputs: dict[str, Any] = {}
             if derived_outputs:
-                response_outputs, execution_issues = self._run_rulespec_derived_test_case(
-                    binary=binary,
-                    compiled_path=compiled_path,
-                    case=case,
-                    case_name=case_name,
-                    case_index=index,
-                    period=period,
-                    output_names=derived_outputs,
-                    derived_by_name=derived_by_name,
+                response_outputs, execution_issues = (
+                    self._run_rulespec_derived_test_case(
+                        binary=binary,
+                        compiled_path=compiled_path,
+                        case=case,
+                        case_name=case_name,
+                        case_index=index,
+                        period=period,
+                        output_names=derived_outputs,
+                        derived_by_name=derived_by_name,
+                    )
                 )
                 issues.extend(execution_issues)
                 if response_outputs is not None:
@@ -2581,7 +2596,9 @@ class ValidatorPipeline:
                     if not self._is_nonassertable_rulespec_artifact(rules_file):
                         issues.append("No tests found.")
                 elif not isinstance(payload, list):
-                    if isinstance(payload, dict) and isinstance(payload.get("cases"), list):
+                    if isinstance(payload, dict) and isinstance(
+                        payload.get("cases"), list
+                    ):
                         payload = payload["cases"]
                     else:
                         issues.append("RuleSpec tests must be a YAML list of cases.")
@@ -2823,7 +2840,9 @@ class ValidatorPipeline:
             )
         return issues
 
-    def _check_resolved_canonical_concept_imports(self, rulespec_file: Path) -> list[str]:
+    def _check_resolved_canonical_concept_imports(
+        self, rulespec_file: Path
+    ) -> list[str]:
         """Flag missing imports for uniquely resolved nearby canonical concepts."""
         content = rulespec_file.read_text()
         source_text = extract_embedded_source_text(content)
@@ -3309,7 +3328,9 @@ class ValidatorPipeline:
                 )
         return advisories
 
-    def _candidate_concept_search_root(self, rulespec_file: Path, source_root: Path) -> Path:
+    def _candidate_concept_search_root(
+        self, rulespec_file: Path, source_root: Path
+    ) -> Path:
         """Choose a nearby subtree for conservative shared-concept advisories."""
         with contextlib.suppress(ValueError):
             relative = rulespec_file.resolve().relative_to(source_root.resolve())
@@ -3487,7 +3508,9 @@ Output ONLY valid JSON:
         prompt_sha256 = _sha256_text(prompt)
 
         try:
-            reviewer_timeout = int(os.getenv("AXIOM_ENCODE_REVIEWER_TIMEOUT_SECONDS", "300"))
+            reviewer_timeout = int(
+                os.getenv("AXIOM_ENCODE_REVIEWER_TIMEOUT_SECONDS", "300")
+            )
             output, returncode = run_claude_code(
                 prompt,
                 model=REVIEWER_CLI_MODEL,
@@ -3586,7 +3609,9 @@ Output ONLY valid JSON:
                 prompt_sha256=prompt_sha256,
             )
 
-    def _detect_policyengine_country(self, rulespec_file: Path, rulespec_content: str) -> str:
+    def _detect_policyengine_country(
+        self, rulespec_file: Path, rulespec_content: str
+    ) -> str:
         """Infer which PolicyEngine country package to use."""
         if self.policyengine_country in {"us", "uk"}:
             return self.policyengine_country
@@ -3770,7 +3795,9 @@ Output ONLY valid JSON:
             rulespec_source_content = ""
         source_metadata = _load_nearby_eval_source_metadata(rulespec_file)
 
-        country = self._detect_policyengine_country(rulespec_file, rulespec_source_content)
+        country = self._detect_policyengine_country(
+            rulespec_file, rulespec_source_content
+        )
 
         # Extract RuleSpec test cases.
         tests = self._extract_rulespec_tests(rulespec_content)
@@ -4766,8 +4793,9 @@ print("BENCHMARK:" + json.dumps(result))
     @staticmethod
     def _is_uk_uc_standard_allowance_var(rule_name: str) -> bool:
         rule_name_lower = rule_name.lower()
-        return "uc_standard_allowance" in rule_name_lower and not rule_name_lower.endswith(
-            "_applies"
+        return (
+            "uc_standard_allowance" in rule_name_lower
+            and not rule_name_lower.endswith("_applies")
         )
 
     @staticmethod
@@ -5035,7 +5063,9 @@ print("BENCHMARK:" + json.dumps(result))
             )
         if (
             country == "uk"
-            and self._is_uk_pension_credit_standard_minimum_guarantee_var(rule_name_lower)
+            and self._is_uk_pension_credit_standard_minimum_guarantee_var(
+                rule_name_lower
+            )
         ):
             if (
                 rule_name_lower.endswith("_applies")
@@ -5120,7 +5150,9 @@ print("BENCHMARK:" + json.dumps(result))
             return "child_benefit_respective_amount"
         if (
             country == "uk"
-            and self._is_uk_pension_credit_standard_minimum_guarantee_var(rule_name_lower)
+            and self._is_uk_pension_credit_standard_minimum_guarantee_var(
+                rule_name_lower
+            )
         ):
             return "standard_minimum_guarantee"
         if country == "uk" and self._is_uk_pc_severe_disability_addition_var(
@@ -5143,7 +5175,9 @@ print("BENCHMARK:" + json.dumps(result))
             return "uc_individual_child_element"
         if country == "uk" and self._is_uk_uc_lcwra_element_var(rule_name_lower):
             return "uc_LCWRA_element"
-        if country == "uk" and self._is_uk_uc_disabled_child_element_var(rule_name_lower):
+        if country == "uk" and self._is_uk_uc_disabled_child_element_var(
+            rule_name_lower
+        ):
             return "uc_individual_disabled_child_element"
         if country == "uk" and self._is_uk_uc_severely_disabled_child_element_var(
             rule_name_lower
@@ -5983,7 +6017,9 @@ print(f'RESULT:{{val}}')
 
         if (
             pe_var == "standard_minimum_guarantee"
-            and self._is_uk_pension_credit_standard_minimum_guarantee_var(rule_name_lower)
+            and self._is_uk_pension_credit_standard_minimum_guarantee_var(
+                rule_name_lower
+            )
         ):
             explicit_has_partner = next(
                 (
@@ -6111,7 +6147,9 @@ print(f'RESULT:{{val}}')
                 eligible_adults = explicit_eligible_adults
             elif ineligible:
                 eligible_adults = 0
-            elif "two_eligible_adults" in rule_name_lower or "double" in rule_name_lower:
+            elif (
+                "two_eligible_adults" in rule_name_lower or "double" in rule_name_lower
+            ):
                 eligible_adults = 2
             else:
                 eligible_adults = 1

@@ -41,7 +41,9 @@ def test_sha256_paths_ignores_file_names(tmp_path):
     assert left_digest == right_digest
 
 
-def test_iter_manifest_queue_candidates_includes_federal_rules_us(tmp_path, monkeypatch):
+def test_iter_manifest_queue_candidates_includes_federal_rules_us(
+    tmp_path, monkeypatch
+):
     module = load_queue_runner_module()
     axiom_encode_root = tmp_path / "axiom_encode"
     benchmarks = axiom_encode_root / "benchmarks"

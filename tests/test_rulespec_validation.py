@@ -297,7 +297,9 @@ rules:
     result = pipeline._run_ci(rules_file)
 
     assert result.passed is False
-    assert any("period mapping missing required field(s)" in issue for issue in result.issues)
+    assert any(
+        "period mapping missing required field(s)" in issue for issue in result.issues
+    )
 
 
 def test_rulespec_ci_rejects_bare_year_periods(tmp_path):

@@ -375,7 +375,9 @@ class TestCmdEvalSuite:
 
         with (
             patch("axiom_encode.cli.load_eval_suite_manifest") as mock_load,
-            patch("axiom_encode.cli.run_eval_suite", return_value=[fake_result]) as mock_run,
+            patch(
+                "axiom_encode.cli.run_eval_suite", return_value=[fake_result]
+            ) as mock_run,
             patch("axiom_encode.cli.summarize_readiness", return_value=fake_summary),
         ):
             mock_load.return_value.name = "Readiness"
@@ -454,7 +456,9 @@ class TestCmdEvalSuite:
 
         with (
             patch("axiom_encode.cli.load_eval_suite_manifest") as mock_load,
-            patch("axiom_encode.cli.run_eval_suite", return_value=[fake_result]) as mock_run,
+            patch(
+                "axiom_encode.cli.run_eval_suite", return_value=[fake_result]
+            ) as mock_run,
             patch("axiom_encode.cli.summarize_readiness", return_value=fake_summary),
         ):
             mock_load.return_value.name = "Readiness"
@@ -2019,7 +2023,9 @@ class TestCmdEncode:
         return result
 
     def _run_encode(self, args, result):
-        with patch("axiom_encode.cli.run_model_eval", return_value=[result]) as mock_run:
+        with patch(
+            "axiom_encode.cli.run_model_eval", return_value=[result]
+        ) as mock_run:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_encode(args)
             return mock_run, exc_info.value.code

@@ -495,7 +495,8 @@ class TestSyncTranscriptsToSupabase:
         mock_client = MagicMock()
         with patch("axiom_encode.supabase_sync.TRANSCRIPT_DB", db_path):
             with patch(
-                "axiom_encode.supabase_sync.get_supabase_client", return_value=mock_client
+                "axiom_encode.supabase_sync.get_supabase_client",
+                return_value=mock_client,
             ):
                 result = sync_transcripts_to_supabase()
                 assert result["total"] == 0
@@ -508,7 +509,9 @@ class TestSyncTranscriptsToSupabase:
 
 class TestSyncAgentSessionsToSupabase:
     def test_no_experiments_db(self):
-        with patch("axiom_encode.supabase_sync.ENCODINGS_DB", Path("/nonexistent/path")):
+        with patch(
+            "axiom_encode.supabase_sync.ENCODINGS_DB", Path("/nonexistent/path")
+        ):
             result = sync_agent_sessions_to_supabase()
             assert result["total"] == 0
 
@@ -688,7 +691,8 @@ class TestSyncAgentSessionsToSupabase:
         mock_client = MagicMock()
         with patch("axiom_encode.supabase_sync.ENCODINGS_DB", db_path):
             with patch(
-                "axiom_encode.supabase_sync.get_supabase_client", return_value=mock_client
+                "axiom_encode.supabase_sync.get_supabase_client",
+                return_value=mock_client,
             ):
                 result = sync_agent_sessions_to_supabase()
                 assert result["total"] == 0
@@ -701,7 +705,9 @@ class TestSyncAgentSessionsToSupabase:
 
 class TestGetLocalTranscriptStats:
     def test_no_db(self):
-        with patch("axiom_encode.supabase_sync.TRANSCRIPT_DB", Path("/nonexistent/path")):
+        with patch(
+            "axiom_encode.supabase_sync.TRANSCRIPT_DB", Path("/nonexistent/path")
+        ):
             result = get_local_transcript_stats()
             assert result["exists"] is False
 

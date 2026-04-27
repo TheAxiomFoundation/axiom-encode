@@ -1067,8 +1067,7 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
         for entry in raw.get("allow_context", []) or []
     ]
     runners = [
-        str(item)
-        for item in (raw.get("runners") or [f"codex:{DEFAULT_OPENAI_MODEL}"])
+        str(item) for item in (raw.get("runners") or [f"codex:{DEFAULT_OPENAI_MODEL}"])
     ]
 
     gates_raw = raw.get("gates") or {}
@@ -2107,7 +2106,9 @@ def prepare_eval_workspace(
         )
 
         for source_path, kind in expanded_context:
-            relative_target = _context_import_relative_target(source_path, axiom_rules_path)
+            relative_target = _context_import_relative_target(
+                source_path, axiom_rules_path
+            )
 
             workspace_relative_path = Path("context") / relative_target
             workspace_path = workspace_root / workspace_relative_path
@@ -2823,7 +2824,9 @@ For a jurisdiction-specific setting slice, omit an inapplicable false test unles
 
     context_section = ""
     if context_files:
-        listings = "\n".join(_format_context_file_listing(item) for item in context_files)
+        listings = "\n".join(
+            _format_context_file_listing(item) for item in context_files
+        )
         inline_context = ""
         if runner_backend == "openai":
             inline_context = f"""
@@ -4520,18 +4523,24 @@ def _materialize_eval_artifact(
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
                         content,
-                        rulespec_content=bundle_by_candidate_name.get(expected_path.name),
+                        rulespec_content=bundle_by_candidate_name.get(
+                            expected_path.name
+                        ),
                         source_text=source_text,
                     )
                 else:
                     content = _normalize_test_periods_to_effective_dates(
                         content,
-                        rulespec_content=bundle_by_candidate_name.get(expected_path.name),
+                        rulespec_content=bundle_by_candidate_name.get(
+                            expected_path.name
+                        ),
                         source_text=source_text,
                     )
                     content = _complete_oracle_hint_test_outputs(
                         content,
-                        rulespec_content=bundle_by_candidate_name.get(expected_path.name),
+                        rulespec_content=bundle_by_candidate_name.get(
+                            expected_path.name
+                        ),
                         policyengine_rule_hint=policyengine_rule_hint,
                     )
             target_path.parent.mkdir(parents=True, exist_ok=True)

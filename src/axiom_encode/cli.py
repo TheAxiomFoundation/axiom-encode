@@ -1000,9 +1000,11 @@ def cmd_compile(args):
         sys.exit(1)
 
     try:
-        axiom_rules_path = getattr(args, "axiom_rules_path", None) or (
+        axiom_rules_path = (
             getattr(args, "axiom_rules_path", None)
-        ) or _resolve_runtime_axiom_rules_checkout(find_policy_repo_root(args.file))
+            or (getattr(args, "axiom_rules_path", None))
+            or _resolve_runtime_axiom_rules_checkout(find_policy_repo_root(args.file))
+        )
         pipeline = ValidatorPipeline(
             policy_repo_path=find_policy_repo_root(args.file) or args.file.parent,
             axiom_rules_path=axiom_rules_path,
