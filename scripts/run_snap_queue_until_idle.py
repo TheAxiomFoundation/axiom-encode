@@ -25,32 +25,45 @@ from typing import Any
 
 import yaml
 
-CODEX_HOME = Path(
-    os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))
-).expanduser().resolve()
-AXIOM_ENCODE_ROOT = Path(
-    os.environ.get("AXIOM_ENCODE_ROOT", str(Path(__file__).resolve().parents[1]))
-).expanduser().resolve()
-AUTOMATION_DIR = Path(
-    os.environ.get(
-        "AXIOM_ENCODE_SNAP_AUTOMATION_DIR",
-        str(CODEX_HOME / "automations" / "hourly-snap-encode"),
+CODEX_HOME = (
+    Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    .expanduser()
+    .resolve()
+)
+AXIOM_ENCODE_ROOT = (
+    Path(os.environ.get("AXIOM_ENCODE_ROOT", str(Path(__file__).resolve().parents[1])))
+    .expanduser()
+    .resolve()
+)
+AUTOMATION_DIR = (
+    Path(
+        os.environ.get(
+            "AXIOM_ENCODE_SNAP_AUTOMATION_DIR",
+            str(CODEX_HOME / "automations" / "hourly-snap-encode"),
+        )
     )
-).expanduser().resolve()
+    .expanduser()
+    .resolve()
+)
 QUEUE_PATH = AUTOMATION_DIR / "queue.json"
 MEMORY_PATH = AUTOMATION_DIR / "memory.md"
 RUN_LEDGER_PATH = AUTOMATION_DIR / "run_ledger.ndjson"
 LOCK_PATH = AUTOMATION_DIR / "runner.lock"
-TMP_ROOT = Path(
-    os.environ.get("AXIOM_ENCODE_TMP_ROOT", str(Path.home() / "tmp"))
-).expanduser().resolve()
-DEFAULT_ARCHIVE_ROOT = Path(
-    os.environ.get(
-        "AXIOM_ENCODE_EVAL_ARCHIVE_ROOT",
-        str(AXIOM_ENCODE_ROOT / "artifacts" / "eval-suites"),
+TMP_ROOT = (
+    Path(os.environ.get("AXIOM_ENCODE_TMP_ROOT", str(Path.home() / "tmp")))
+    .expanduser()
+    .resolve()
+)
+DEFAULT_ARCHIVE_ROOT = (
+    Path(
+        os.environ.get(
+            "AXIOM_ENCODE_EVAL_ARCHIVE_ROOT",
+            str(AXIOM_ENCODE_ROOT / "artifacts" / "eval-suites"),
+        )
     )
-).expanduser().resolve()
-DEFAULT_ATLAS_ARCH_ROOT = Path.home() / ".arch"
+    .expanduser()
+    .resolve()
+)
 BENCHMARK_GLOB = "us_snap_*_refresh.yaml"
 SOURCE_TRACKING_VERSION = 1
 POLICYENGINE_CANDIDATES = [
@@ -69,7 +82,12 @@ UV_CANDIDATES = [
     Path("/usr/local/bin/uv"),
 ]
 POLICYENGINE_US_PYTHON_CANDIDATES = [
-    Path.home() / "worktrees" / "policyengine-us-main-view" / ".venv" / "bin" / "python",
+    Path.home()
+    / "worktrees"
+    / "policyengine-us-main-view"
+    / ".venv"
+    / "bin"
+    / "python",
     Path.home() / "PolicyEngine" / "policyengine-us" / ".venv" / "bin" / "python",
 ]
 WORKSPACES = [
@@ -111,7 +129,12 @@ class ActiveState:
 
 
 def now_utc() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def now_local() -> str:
@@ -158,13 +181,6 @@ def sha256_paths(paths: list[Path | None]) -> str | None:
             digest.update(file_digest.encode("utf-8"))
         digest.update(b"\0")
     return digest.hexdigest()
-
-
-def atlas_archive_root() -> Path:
-    override = os.environ.get("AXIOM_ENCODE_EVAL_ARCHIVE_ROOT")
-    if override:
-        return Path(override).expanduser().resolve()
-    return DEFAULT_ATLAS_ARCH_ROOT.resolve()
 
 
 def git_head(repo: Path | None) -> str | None:
@@ -257,7 +273,9 @@ def infer_repo(source_file: str | None) -> str:
     return path.parents[0].name if path.exists() else "unknown"
 
 
-def resolve_manifest_source_file(manifest_path: Path, source_file: str | None) -> Path | None:
+def resolve_manifest_source_file(
+    manifest_path: Path, source_file: str | None
+) -> Path | None:
     if not source_file:
         return None
     candidate = Path(source_file)
@@ -278,65 +296,28 @@ def resolve_companion_metadata_file(source_file: Path | None) -> Path | None:
     return next((path for path in candidates if path.exists()), None)
 
 
-def resolve_metadata_akn_file(metadata_file: Path | None) -> Path | None:
-    if metadata_file is None or not metadata_file.exists():
-        return None
-    try:
-        payload = yaml.safe_load(metadata_file.read_text()) or {}
-    except yaml.YAMLError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    backing = payload.get("source_backing")
-    if not isinstance(backing, dict):
-        return None
-    arch_path = backing.get("arch_path")
-    if arch_path is not None:
-        path = Path(str(arch_path)).expanduser()
-        if not path.is_absolute():
-            path = atlas_archive_root() / path
-        return path.resolve()
-    akn_file = backing.get("akn_file")
-    if akn_file is None:
-        return None
-    path = Path(str(akn_file)).expanduser()
-    if not path.is_absolute():
-        path = metadata_file.parent / path
-    return path.resolve()
-
-
 def resolve_manifest_case_source_inputs(
     manifest_path: Path,
     case: dict[str, Any],
 ) -> tuple[Path | None, list[Path]]:
     kind = str(case.get("kind") or "")
     if kind == "source":
-        source_file = resolve_manifest_source_file(manifest_path, case.get("source_file"))
+        source_file = resolve_manifest_source_file(
+            manifest_path, case.get("source_file")
+        )
         metadata_file = resolve_companion_metadata_file(source_file)
-        archive_akn_file = resolve_metadata_akn_file(metadata_file)
         source_inputs = [
-            path for path in (source_file, metadata_file, archive_akn_file) if path is not None
+            path for path in (source_file, metadata_file) if path is not None
         ]
         return source_file, source_inputs
-    if kind == "akn_section":
-        metadata_file = resolve_manifest_source_file(
-            manifest_path, case.get("metadata_file")
-        )
-        akn_file = resolve_manifest_source_file(manifest_path, case.get("akn_file"))
-        archive_akn_file = resolve_metadata_akn_file(metadata_file)
-        primary = metadata_file or akn_file or archive_akn_file
-        source_inputs = [
-            path
-            for path in (metadata_file, akn_file, archive_akn_file)
-            if path is not None
-        ]
-        return primary, source_inputs
     return None, []
 
 
 def iter_manifest_queue_candidates() -> list[dict[str, str]]:
     candidates: list[dict[str, str]] = []
-    for manifest_path in sorted((AXIOM_ENCODE_ROOT / "benchmarks").glob(BENCHMARK_GLOB)):
+    for manifest_path in sorted(
+        (AXIOM_ENCODE_ROOT / "benchmarks").glob(BENCHMARK_GLOB)
+    ):
         try:
             manifest = yaml.safe_load(manifest_path.read_text()) or {}
         except yaml.YAMLError:
@@ -422,18 +403,13 @@ def sync_queue_with_manifests(
         if existing.get("source_tracking_version") != SOURCE_TRACKING_VERSION:
             existing["source_tracking_version"] = SOURCE_TRACKING_VERSION
             changed = True
-        source_tracking_migrated = (
-            previous_tracking_version != SOURCE_TRACKING_VERSION
-        )
+        source_tracking_migrated = previous_tracking_version != SOURCE_TRACKING_VERSION
         if (
             previous_manifest_sha is not None
             and previous_source_sha is not None
             and (
                 previous_manifest_sha != manifest_sha
-                or (
-                    previous_source_sha != source_sha
-                    and not source_tracking_migrated
-                )
+                or (previous_source_sha != source_sha and not source_tracking_migrated)
             )
             and existing.get("status") in {"done", "blocked", "retryable"}
         ):
@@ -459,7 +435,9 @@ def sync_queue_with_manifests(
             continue
         item["status"] = "retired"
         item["finished_at"] = now_utc()
-        item["note"] = "manifest removed from Axiom Encode benchmarks; retired from queue"
+        item["note"] = (
+            "manifest removed from Axiom Encode benchmarks; retired from queue"
+        )
         retired.append(str(name))
         changed = True
     return changed, added, retired, refreshed
@@ -478,7 +456,9 @@ def find_active_eval_processes() -> list[str]:
         if "run_queue_until_idle.py" in line:
             continue
         command = line.split(maxsplit=1)[1] if " " in line else ""
-        if re.search(r"(^|\\s)uv run axiom-encode eval-suite(\\s|$)", command) or re.search(
+        if re.search(
+            r"(^|\\s)uv run axiom-encode eval-suite(\\s|$)", command
+        ) or re.search(
             r"(^|\\s)\\S+/axiom-encode eval-suite(\\s|$)",
             command,
         ):
@@ -491,7 +471,9 @@ def build_output_dir(name: str) -> Path:
     return TMP_ROOT / f"axiom-encode-{slugify(name)}-{timestamp}"
 
 
-def classify_status(returncode: int, summary: dict[str, Any] | None, results: dict[str, Any] | None) -> tuple[str, str]:
+def classify_status(
+    returncode: int, summary: dict[str, Any] | None, results: dict[str, Any] | None
+) -> tuple[str, str]:
     if summary and summary.get("all_ready"):
         return "done", "closed fully ready"
 
@@ -510,11 +492,15 @@ def classify_status(returncode: int, summary: dict[str, Any] | None, results: di
             combined_parts.extend(metrics.get("policyengine_issues") or [])
     combined = " | ".join(part for part in combined_parts if part).lower()
     if any(pattern in combined for pattern in RETRYABLE_PATTERNS):
-        return "retryable", combined_parts[0] if combined_parts else "retryable infrastructure failure"
+        return "retryable", combined_parts[
+            0
+        ] if combined_parts else "retryable infrastructure failure"
     return "blocked", combined_parts[0] if combined_parts else "not ready"
 
 
-def run_eval_item(item: dict[str, Any], backend: str, reviewer_cli: str, output_dir: Path) -> int:
+def run_eval_item(
+    item: dict[str, Any], backend: str, reviewer_cli: str, output_dir: Path
+) -> int:
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     env = build_subprocess_env()
     env["AXIOM_ENCODE_REVIEWER_CLI"] = reviewer_cli
@@ -607,13 +593,14 @@ def classify_failure_class(
     if summary and summary.get("all_ready"):
         return "ready"
     lowered = " | ".join(
-        str(part).lower()
-        for part in [note, returncode]
-        if part not in (None, "")
+        str(part).lower() for part in [note, returncode] if part not in (None, "")
     )
     if "usage limit" in lowered or "rate limit" in lowered:
         return "retryable_quota"
-    if any(token in lowered for token in ("dns", "timeout", "temporarily unavailable", "connection")):
+    if any(
+        token in lowered
+        for token in ("dns", "timeout", "temporarily unavailable", "connection")
+    ):
         return "retryable_transport"
     for result in (results or {}).get("results", []):
         error = str(result.get("error") or "").lower()
@@ -649,7 +636,9 @@ def build_run_record(
     backfilled: bool = False,
 ) -> dict[str, Any]:
     manifest_path = Path(item["manifest"]).resolve() if item.get("manifest") else None
-    source_path = Path(item["source_file"]).resolve() if item.get("source_file") else None
+    source_path = (
+        Path(item["source_file"]).resolve() if item.get("source_file") else None
+    )
     source_inputs = [
         Path(path).resolve() for path in (item.get("source_inputs") or []) if path
     ]
@@ -659,7 +648,9 @@ def build_run_record(
     effective_runner = None
     readiness_block = None
     if summary:
-        effective_runners = (summary.get("manifest") or {}).get("effective_runners") or []
+        effective_runners = (summary.get("manifest") or {}).get(
+            "effective_runners"
+        ) or []
         effective_runner = effective_runners[0] if effective_runners else None
         readiness = summary.get("readiness") or {}
         if effective_runner and isinstance(readiness, dict):
@@ -695,10 +686,16 @@ def build_run_record(
             actual_cost_usd = (actual_cost_usd or 0.0) + float(row["actual_cost_usd"])
         duration_ms += int(row.get("duration_ms") or 0)
         row_metrics = row.get("metrics") or {}
-        issue_counts["compile_issue_count"] += len(row_metrics.get("compile_issues") or [])
+        issue_counts["compile_issue_count"] += len(
+            row_metrics.get("compile_issues") or []
+        )
         issue_counts["ci_issue_count"] += len(row_metrics.get("ci_issues") or [])
-        issue_counts["generalist_review_issue_count"] += len(row_metrics.get("generalist_review_issues") or [])
-        issue_counts["policyengine_issue_count"] += len(row_metrics.get("policyengine_issues") or [])
+        issue_counts["generalist_review_issue_count"] += len(
+            row_metrics.get("generalist_review_issues") or []
+        )
+        issue_counts["policyengine_issue_count"] += len(
+            row_metrics.get("policyengine_issues") or []
+        )
         if row.get("error"):
             errors.append(str(row["error"]))
 
@@ -708,7 +705,9 @@ def build_run_record(
         "run_id": compute_run_id(item),
         "target": item.get("name"),
         "status": status,
-        "failure_class": classify_failure_class(status, returncode, summary, results, note),
+        "failure_class": classify_failure_class(
+            status, returncode, summary, results, note
+        ),
         "backfilled_from_queue": backfilled,
         "backend": backend,
         "effective_runner": effective_runner,
@@ -729,7 +728,9 @@ def build_run_record(
         "returncode": returncode,
         "duration_ms": duration_ms or None,
         "output_dir": str(output_dir) if output_dir else None,
-        "archive_path": str(archive_path.resolve()) if archive_path else item.get("archive_path"),
+        "archive_path": str(archive_path.resolve())
+        if archive_path
+        else item.get("archive_path"),
         "note": note,
         "all_ready": bool(summary.get("all_ready")) if summary else False,
         "readiness": readiness_block,
@@ -745,7 +746,9 @@ def build_run_record(
             "generalist_review_pass": metrics.get("generalist_review_pass"),
             "policyengine_pass": metrics.get("policyengine_pass"),
             "success": first_result.get("success"),
-            "zero_ungrounded": (metrics.get("ungrounded_numeric_count") == 0) if "ungrounded_numeric_count" in metrics else None,
+            "zero_ungrounded": (metrics.get("ungrounded_numeric_count") == 0)
+            if "ungrounded_numeric_count" in metrics
+            else None,
             "generalist_review_score": metrics.get("generalist_review_score"),
             "policyengine_score": metrics.get("policyengine_score"),
             "estimated_cost_usd": estimated_cost_usd if result_rows else None,
@@ -772,8 +775,12 @@ def backfill_run_ledger(data: dict[str, Any], known_ids: set[str]) -> None:
             continue
         if not item.get("output_dir") and not item.get("archive_path"):
             continue
-        output_dir = Path(item["output_dir"]).resolve() if item.get("output_dir") else None
-        archive_path = Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        output_dir = (
+            Path(item["output_dir"]).resolve() if item.get("output_dir") else None
+        )
+        archive_path = (
+            Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        )
         summary = load_json(output_dir / "summary.json") if output_dir else None
         results = load_json(output_dir / "results.json") if output_dir else None
         if summary is None and archive_path:
@@ -798,7 +805,11 @@ def backfill_run_ledger(data: dict[str, Any], known_ids: set[str]) -> None:
 def render_memory(data: dict[str, Any], active: ActiveState) -> str:
     items = data.get("items", [])
     next_item = next(
-        (item["name"] for item in items if item.get("status") in {"queued", "retryable"}),
+        (
+            item["name"]
+            for item in items
+            if item.get("status") in {"queued", "retryable"}
+        ),
         "none queued or retryable",
     )
     lines = [
@@ -850,7 +861,9 @@ def write_memory(data: dict[str, Any], active: ActiveState) -> None:
     MEMORY_PATH.write_text(render_memory(data, active))
 
 
-def reconcile_stale_running_items(data: dict[str, Any], active_processes: list[str]) -> bool:
+def reconcile_stale_running_items(
+    data: dict[str, Any], active_processes: list[str]
+) -> bool:
     if active_processes:
         return False
 
@@ -858,8 +871,12 @@ def reconcile_stale_running_items(data: dict[str, Any], active_processes: list[s
     for item in data.get("items", []):
         if item.get("status") != "running":
             continue
-        output_dir = Path(item["output_dir"]).resolve() if item.get("output_dir") else None
-        archive_path = Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        output_dir = (
+            Path(item["output_dir"]).resolve() if item.get("output_dir") else None
+        )
+        archive_path = (
+            Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        )
         summary = load_json(output_dir / "summary.json") if output_dir else None
         if (not summary or not summary.get("all_ready")) and archive_path:
             summary = load_json(archive_path / "summary.json")
@@ -876,7 +893,9 @@ def reconcile_stale_running_items(data: dict[str, Any], active_processes: list[s
             continue
         item["status"] = "retryable"
         item["finished_at"] = now_utc()
-        item["note"] = "runner exited before this queued eval finished; marked retryable for relaunch"
+        item["note"] = (
+            "runner exited before this queued eval finished; marked retryable for relaunch"
+        )
         changed = True
         append_event(
             data,
@@ -891,8 +910,12 @@ def reconcile_ready_output_items(data: dict[str, Any]) -> tuple[bool, list[str]]
     for item in data.get("items", []):
         if item.get("status") not in {"blocked", "retryable"}:
             continue
-        output_dir = Path(item["output_dir"]).resolve() if item.get("output_dir") else None
-        archive_path = Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        output_dir = (
+            Path(item["output_dir"]).resolve() if item.get("output_dir") else None
+        )
+        archive_path = (
+            Path(item["archive_path"]).resolve() if item.get("archive_path") else None
+        )
         summary = load_json(output_dir / "summary.json") if output_dir else None
         if (not summary or not summary.get("all_ready")) and archive_path:
             summary = load_json(archive_path / "summary.json")
@@ -910,7 +933,9 @@ def reconcile_ready_output_items(data: dict[str, Any]) -> tuple[bool, list[str]]
 
 def process_queue(queue_path: Path) -> int:
     data = load_queue(queue_path)
-    sync_changed, added_items, retired_items, refreshed_items = sync_queue_with_manifests(data)
+    sync_changed, added_items, retired_items, refreshed_items = (
+        sync_queue_with_manifests(data)
+    )
     if sync_changed:
         save_queue(queue_path, data)
     if added_items:
@@ -922,13 +947,15 @@ def process_queue(queue_path: Path) -> int:
     if retired_items:
         append_event(
             data,
-            "Retired queue items whose manifests were removed: " + ", ".join(retired_items),
+            "Retired queue items whose manifests were removed: "
+            + ", ".join(retired_items),
         )
         save_queue(queue_path, data)
     if refreshed_items:
         append_event(
             data,
-            "Requeued queue items after manifest/source updates: " + ", ".join(refreshed_items),
+            "Requeued queue items after manifest/source updates: "
+            + ", ".join(refreshed_items),
         )
         save_queue(queue_path, data)
     backend = str(data.get("default_backend") or "codex")
@@ -956,28 +983,37 @@ def process_queue(queue_path: Path) -> int:
             write_memory(data, active)
             time.sleep(30)
             data = load_queue(queue_path)
-            sync_changed, added_items, retired_items, refreshed_items = sync_queue_with_manifests(data)
+            sync_changed, added_items, retired_items, refreshed_items = (
+                sync_queue_with_manifests(data)
+            )
             if sync_changed:
                 if added_items:
                     append_event(
                         data,
-                        "Queued newly discovered SNAP manifests: " + ", ".join(added_items),
+                        "Queued newly discovered SNAP manifests: "
+                        + ", ".join(added_items),
                     )
                 if retired_items:
                     append_event(
                         data,
-                        "Retired queue items whose manifests were removed: " + ", ".join(retired_items),
+                        "Retired queue items whose manifests were removed: "
+                        + ", ".join(retired_items),
                     )
                 if refreshed_items:
                     append_event(
                         data,
-                        "Requeued queue items after manifest/source updates: " + ", ".join(refreshed_items),
+                        "Requeued queue items after manifest/source updates: "
+                        + ", ".join(refreshed_items),
                     )
                 save_queue(queue_path, data)
             continue
 
         item = next(
-            (candidate for candidate in data.get("items", []) if candidate.get("status") in {"queued", "retryable"}),
+            (
+                candidate
+                for candidate in data.get("items", [])
+                if candidate.get("status") in {"queued", "retryable"}
+            ),
             None,
         )
         if item is None:
@@ -1010,14 +1046,22 @@ def process_queue(queue_path: Path) -> int:
         )
         write_memory(data, active)
 
-        returncode = run_eval_item(item, backend=backend, reviewer_cli=reviewer_cli, output_dir=output_dir)
+        returncode = run_eval_item(
+            item, backend=backend, reviewer_cli=reviewer_cli, output_dir=output_dir
+        )
         summary = load_json(output_dir / "summary.json")
         results = load_json(output_dir / "results.json")
-        archive_path = archive_eval(output_dir) if (output_dir / "suite-run.json").exists() else None
+        archive_path = (
+            archive_eval(output_dir)
+            if (output_dir / "suite-run.json").exists()
+            else None
+        )
         new_status, reason = classify_status(returncode, summary, results)
         item["status"] = new_status
         item["output_dir"] = str(output_dir)
-        item["archive_path"] = str(archive_path) if archive_path else item.get("archive_path")
+        item["archive_path"] = (
+            str(archive_path) if archive_path else item.get("archive_path")
+        )
         item["finished_at"] = now_utc()
         item["source_tracking_version"] = SOURCE_TRACKING_VERSION
         item["note"] = reason
@@ -1056,7 +1100,9 @@ def process_queue(queue_path: Path) -> int:
         write_memory(data, active)
 
         data = load_queue(queue_path)
-        sync_changed, added_items, retired_items, refreshed_items = sync_queue_with_manifests(data)
+        sync_changed, added_items, retired_items, refreshed_items = (
+            sync_queue_with_manifests(data)
+        )
         if sync_changed:
             if added_items:
                 append_event(
@@ -1066,12 +1112,14 @@ def process_queue(queue_path: Path) -> int:
             if retired_items:
                 append_event(
                     data,
-                    "Retired queue items whose manifests were removed: " + ", ".join(retired_items),
+                    "Retired queue items whose manifests were removed: "
+                    + ", ".join(retired_items),
                 )
             if refreshed_items:
                 append_event(
                     data,
-                    "Requeued queue items after manifest/source updates: " + ", ".join(refreshed_items),
+                    "Requeued queue items after manifest/source updates: "
+                    + ", ".join(refreshed_items),
                 )
             save_queue(queue_path, data)
 

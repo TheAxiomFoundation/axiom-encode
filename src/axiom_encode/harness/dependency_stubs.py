@@ -72,7 +72,7 @@ _QUOTED_DEFINITION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_ROOT_SEGMENTS = {"legislation", "statute", "regulation"}
-_SOURCE_SLICE_EXTENSIONS = (".txt", ".xml", ".akn", ".html", ".json", ".md")
+_SOURCE_SLICE_EXTENSIONS = (".txt", ".xml", ".html", ".json", ".md")
 
 
 def resolve_defined_terms_from_text(text: str) -> list[ResolvedDefinedTerm]:

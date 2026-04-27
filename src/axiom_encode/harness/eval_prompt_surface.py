@@ -1,12 +1,4 @@
-"""Narrow, editable prompt surfaces for eval-suite tuning experiments.
-
-This file intentionally isolates the highest-leverage wording that we want
-optimization loops to touch without granting write access to the rest of the
-pipeline. The autoresearch loop should edit this file, not the corpus repos,
-promotion scripts, or Atlas integration.
-"""
-
-AUTORESEARCH_EDITABLE_FILES = ("src/axiom_encode/harness/eval_prompt_surface.py",)
+"""Narrow, editable prompt surfaces for eval-suite tuning experiments."""
 
 
 def render_uk_legislation_guidance() -> str:

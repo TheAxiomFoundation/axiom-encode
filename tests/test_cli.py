@@ -20,7 +20,6 @@ from axiom_encode.cli import (
     cmd_calibration,
     cmd_compile,
     cmd_encode,
-    cmd_eval_source,
     cmd_eval_suite,
     cmd_eval_suite_archive,
     cmd_eval_suite_report,
@@ -171,52 +170,6 @@ class TestMain:
                 with patch("axiom_encode.cli.cmd_eval_source") as mock_cmd:
                     main()
                     mock_cmd.assert_called_once()
-
-    def test_eval_akn_section_command_dispatches(self):
-        with tempfile.NamedTemporaryFile(suffix=".xml") as f:
-            with patch(
-                "sys.argv",
-                [
-                    "axiom_encode",
-                    "eval-akn-section",
-                    "CO TANF 3.606.1",
-                    f.name,
-                    "sec_3_606_1",
-                ],
-            ):
-                with patch("axiom_encode.cli.cmd_eval_akn_section") as mock_cmd:
-                    main()
-                    mock_cmd.assert_called_once()
-
-    def test_eval_uk_legislation_section_command_dispatches(self):
-        with patch(
-            "sys.argv",
-            [
-                "axiom_encode",
-                "eval-uk-legislation-section",
-                "https://www.legislation.gov.uk/ukpga/2010/1/section/1",
-            ],
-        ):
-            with patch("axiom_encode.cli.cmd_eval_uk_legislation_section") as mock_cmd:
-                main()
-                mock_cmd.assert_called_once()
-
-    def test_eval_uk_legislation_section_accepts_table_row_query(self):
-        with patch(
-            "sys.argv",
-            [
-                "axiom_encode",
-                "eval-uk-legislation-section",
-                "/uksi/2013/376/regulation/36/2025-04-01",
-                "--section-eid",
-                "regulation-36-3",
-                "--table-row-query",
-                "single claimant aged under 25",
-            ],
-        ):
-            with patch("axiom_encode.cli.cmd_eval_uk_legislation_section") as mock_cmd:
-                main()
-                mock_cmd.assert_called_once()
 
     def test_eval_source_accepts_policyengine_rule_hint(self):
         with tempfile.NamedTemporaryFile() as f:
@@ -2444,79 +2397,6 @@ class TestCmdValidateEdgeCases:
         call_kwargs = mock_pipeline_cls.call_args[1]
         assert call_kwargs["policy_repo_path"] == tmp_path / "rules-us-tn"
         assert call_kwargs["axiom_rules_path"] == tmp_path / "axiom-rules"
-
-    def test_eval_source_prefers_akn_backed_slice_text(self, tmp_path, monkeypatch):
-        arch_root = tmp_path / "arch"
-        monkeypatch.setenv("AXIOM_ENCODE_EVAL_ARCHIVE_ROOT", str(arch_root))
-        policy_repo = tmp_path / "rules-us-tx"
-        source_file = (
-            policy_repo
-            / "sources"
-            / "slices"
-            / "txhhs"
-            / "twh"
-            / "current-effective"
-            / "snap_standard_utility_allowance_tx.txt"
-        )
-        source_file.parent.mkdir(parents=True, exist_ok=True)
-        source_file.write_text("stale slice text")
-        akn_file = (
-            arch_root
-            / "us-tx"
-            / "txhhs"
-            / "twh"
-            / "current-effective"
-            / "akn"
-            / "source.akn.xml"
-        )
-        akn_file.parent.mkdir(parents=True, exist_ok=True)
-        akn_file.write_text(
-            """
-<akomaNtoso xmlns="http://docs.oasis-open.org/legaldocml/ns/akn/3.0">
-  <doc name="doc">
-    <mainBody>
-      <hcontainer name="section" eId="sec_sua">
-        <heading>Utility allowances</heading>
-        <content><p>SUA - $445</p></content>
-      </hcontainer>
-    </mainBody>
-  </doc>
-</akomaNtoso>
-            """.strip()
-        )
-        source_file.with_name(
-            "snap_standard_utility_allowance_tx.meta.yaml"
-        ).write_text(
-            "version: 1\n"
-            "source_backing:\n"
-            "  kind: akn_section\n"
-            "  arch_path: us-tx/txhhs/twh/current-effective/akn/source.akn.xml\n"
-            "  section_eid: sec_sua\n"
-            "relations:\n"
-            "  - relation: sets\n"
-            "    target: cfr/7/273.9/d/6/iii#snap_standard_utility_allowance\n"
-            "    jurisdiction: TX\n"
-        )
-        (tmp_path / "axiom-rules").mkdir()
-
-        args = SimpleNamespace(
-            runner=[],
-            gpt_backend=None,
-            axiom_rules_path=None,
-            source_file=source_file,
-            source_id="snap_standard_utility_allowance_tx",
-            output=tmp_path / "out",
-            mode="cold",
-            allow_context=[],
-            policyengine_rule_hint="snap_standard_utility_allowance",
-            json=True,
-        )
-
-        with patch("axiom_encode.cli.run_source_eval", return_value=[]) as mock_run:
-            cmd_eval_source(args)
-
-        assert "SUA - $445" in mock_run.call_args.kwargs["source_text"]
-        assert "stale slice text" not in mock_run.call_args.kwargs["source_text"]
 
     def test_validate_fallback_prefers_workspace_repo_roots(self, tmp_path):
         rulespec_file = tmp_path / "generated" / "test.yaml"

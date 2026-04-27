@@ -1,9 +1,0 @@
-name: UK wave 21 residual case repair
-runners:
-  - openai:gpt-5.4
-cases:
-  - kind: uk_legislation
-    name: regulation-17-1-b-iv
-    source_ref: /uksi/2002/1792/2025-03-31
-    section_eid: regulation-17-1-b-iv
-    oracle: none

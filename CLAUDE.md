@@ -18,7 +18,7 @@ uv run axiom-encode eval-suite benchmarks/us_snap_eligibility_refresh.yaml
 - Rule runtime repo: `axiom-rules`
 - Jurisdiction repos: canonical policy repositories such as `rules-us`, `rules-us-tn`, and `rules-us-nc`
 
-The encoder emits RuleSpec YAML artifacts. Source documents are expected to live in jurisdiction repositories as registries and AKN metadata pointing to durable source storage.
+The encoder emits RuleSpec YAML artifacts. Source documents are expected to live outside Git, with jurisdiction repositories keeping source registries and manifests that point to durable storage.
 
 ## Main Components
 

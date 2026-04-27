@@ -108,25 +108,6 @@ As of 2026-04-10:
   - [cli.py](../src/axiom_encode/cli.py)
   - [evals.py](../src/axiom_encode/harness/evals.py)
 
-### 2026-04-05 to 2026-04-07: The outer loop became an autoresearch-style prompt-tuning system
-
-- Primary commits:
-  - `64cf608` `Add constrained harness-tuning pilot scaffold`
-  - `f9303a0` `Reshape harness tuning pilot into autoresearch loop`
-  - `702d7f6` `Add mutate-score autoresearch iteration runner`
-  - `dde4bd0` `Add autoresearch final-review holdout`
-  - `b438ee4` `Accept autoresearch disjunction prompt mutation`
-- Hypothesis:
-  - Prompt-surface changes should be evaluated on frozen manifests with a separate holdout, not accepted from intuition.
-- Effect:
-  - Axiom Encode acquired a mutate-score-keep outer loop over one editable prompt surface.
-  - A candidate mutation was accepted only when training improved without regressing the holdout.
-- Primary evidence paths:
-  - [program.md](../autoresearch/program.md)
-  - [run_autoresearch_pilot.py](../scripts/run_autoresearch_pilot.py)
-  - [run_autoresearch_iteration.py](../scripts/run_autoresearch_iteration.py)
-  - [uk_autoresearch_final_review.yaml](../benchmarks/uk_autoresearch_final_review.yaml)
-
 ### 2026-04-07 to 2026-04-08: UK bulk evaluation moved from repair slices to scale waves
 
 - Primary commits:
@@ -682,7 +663,6 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - Archived Texas AKN document: `~/.arch/us-tx/txhhs/twh/current-effective/akn/source.akn.xml`
   - [snap_state_uses_child_support_deduction_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_state_uses_child_support_deduction_tx.meta.yaml)
   - [snap_self_employment_expense_based_deduction_applies_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_self_employment_expense_based_deduction_applies_tx.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-tx-20260413t205409](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-tx-20260413t205409)
@@ -884,7 +864,6 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - Archived Texas AKN document: `~/.arch/us-tx/txhhs/twh/current-effective/akn/source.akn.xml`
   - [snap_standard_medical_expense_deduction_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_standard_medical_expense_deduction_tx.meta.yaml)
   - [snap_homeless_shelter_deduction_available_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_homeless_shelter_deduction_available_tx.meta.yaml)
   - [axiom_encode-snap-standard-medical-expense-deduction-tx-20260414t151911](../artifacts/eval-suites/axiom_encode-snap-standard-medical-expense-deduction-tx-20260414t151911)
@@ -905,29 +884,10 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - Archived Texas AKN document: `~/.arch/us-tx/txhhs/twh/current-effective/akn/source.akn.xml`
   - [snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml)
   - [snap_tanf_non_cash_asset_limit_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_tanf_non_cash_asset_limit_tx.meta.yaml)
   - [axiom_encode-snap-tanf-non-cash-asset-limit-tx-20260414t154707](../artifacts/eval-suites/axiom_encode-snap-tanf-non-cash-asset-limit-tx-20260414t154707)
   - [axiom_encode-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013](../artifacts/eval-suites/axiom_encode-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013)
-
-### 2026-04-14: Correct manual-source truth to AKN-backed documents before Axiom Encode
-
-- Hypothesis:
-  - The slice-first SNAP manual lane had drifted from the intended stack. The correct architecture is to keep full policy documents in the Atlas archive under `raw/` and `akn/`, then let Axiom Encode consume archive-backed AKN section extracts rather than treating loose `sources/slices/*.txt` files as primary legal authority.
-- Effect:
-  - Added `load_source_text_for_eval()` to Axiom Encode so both `eval-suite` source cases and direct `eval-source` calls prefer `source_backing` AKN metadata from slice sidecars over raw text-file reads.
-  - Extended prompt guidance so `source-metadata.json` explicitly tells the model that `source.txt` may be a derived extraction from authoritative AKN sections and should not be widened beyond that scope.
-  - Added targeted eval and CLI tests for single-section and multi-section AKN-backed slices.
-  - Added archive-backed `source_backing` metadata so Axiom Encode can resolve authoritative Texas manual content from `~/.arch/us-tx/.../akn/source.akn.xml`, while the repo only keeps target sidecars under `sources/targets/...`.
-- Primary evidence paths:
-  - [evals.py](../src/axiom_encode/harness/evals.py)
-  - [cli.py](../src/axiom_encode/cli.py)
-  - [test_evals.py](../tests/test_evals.py)
-  - [test_cli.py](../tests/test_cli.py)
-  - Archived Texas AKN document: `~/.arch/us-tx/txhhs/twh/current-effective/akn/source.akn.xml`
-  - [README.md](../../rules-us-tx/README.md)
-  - [CLAUDE.md](../../rules-us-tx/CLAUDE.md)
 
 ## Open Documentation Debt
 

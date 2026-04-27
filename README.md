@@ -23,15 +23,14 @@ Use manifest-driven benchmark suites when you want an explicit readiness answer 
 of ad hoc spot checks.
 
 ```bash
-axiom-encode eval-suite benchmarks/uk_starter.yaml
-axiom-encode eval-suite benchmarks/uk_readiness.yaml
-axiom-encode eval-suite benchmarks/uk_policyengine_readiness.yaml
-axiom-encode eval-suite-archive /tmp/axiom-encode-uk-wave21-bulk-codex-rerun16-20260410
+axiom-encode eval-suite benchmarks/us_snap_ny_standard_utility_allowance_refresh.yaml
+axiom-encode eval-suite benchmarks/us_snap_federal_reconstruction_seed.yaml
+axiom-encode eval-suite-archive /tmp/axiom-encode-suite-run
 ```
 
-- `benchmarks/uk_starter.yaml` is the core UK benchmark set and now explicitly exercises the PolicyEngine UK oracle on 11 mapped statutory rate/amount slices.
-- `benchmarks/uk_readiness.yaml` is the go/no-go target for that same core UK oracle lane.
-- `benchmarks/uk_policyengine_readiness.yaml` is the broader UK oracle regression lane across 33 mapped legislation and source slices.
+- `benchmarks/us_snap_*_refresh.yaml` manifests are source-file-backed SNAP refresh lanes.
+- `benchmarks/us_co_*` manifests exercise Colorado Works repair and seed cases.
+- `benchmarks/uk_pension_credit_wave*.yaml` manifests cover source-backed UK pension-credit slices.
 
 Each suite reports:
 - success rate
@@ -55,83 +54,3 @@ changes and current evidence.
 
 - `docs/axiom-encode-methods-log.md` tracks the last meaningful harness changes,
   their hypotheses, and the evidence path to justify them later.
-- `docs/paper-evidence-register.md` lists safe claims, claims to avoid, and
-  reproducible count commands for refreshing paper numbers.
-
-## Paper-ready model comparison
-
-Use a fixed multi-runner manifest plus the report exporter when you want a
-reproducible GPT-vs-Claude experiment you can cite in a paper.
-
-```bash
-axiom-encode eval-suite benchmarks/uk_paper_head_to_head.yaml \
-  --output /tmp/axiom-encode-uk-paper-head-to-head \
-  --json > /tmp/axiom-encode-uk-paper-head-to-head/results.json
-
-axiom-encode eval-suite-report /tmp/axiom-encode-uk-paper-head-to-head/results.json \
-  --markdown-out /tmp/axiom-encode-uk-paper-head-to-head/report.md \
-  --csv-out /tmp/axiom-encode-uk-paper-head-to-head/cases.csv
-```
-
-`benchmarks/uk_paper_head_to_head.yaml` freezes the case set and runner aliases,
-while `eval-suite-report` emits:
-- a Markdown summary table suitable for a paper appendix
-- a case-level CSV for downstream analysis
-- a JSON comparison object when run with `--json`
-
-## Autoresearch-style harness tuning
-
-There is now a deliberately narrow outer-loop tuning setup for prompt-search
-experiments. It is structured in an autoresearch style:
-
-- one editable prompt surface
-- one declarative program file
-- one frozen benchmark set
-- one scalar score
-
-The pilot is meant to optimize harness wording, not the corpus repos or
-promotion flow.
-
-- Frozen inner-loop repair manifests:
-  - `benchmarks/uk_wave18_remaining_repair.yaml`
-  - `benchmarks/uk_wave19_failure_repair.yaml`
-  - `benchmarks/uk_wave19_branch_conjunction_repair.yaml`
-  - `benchmarks/uk_autoresearch_partner_disjunction.yaml`
-  - `benchmarks/uk_autoresearch_semantic_margin.yaml`
-- Outer-loop final-review holdout:
-  - `benchmarks/uk_autoresearch_final_review.yaml`
-- Editable surface:
-  - `src/axiom_encode/harness/eval_prompt_surface.py`
-- Program:
-  - `autoresearch/program.md`
-- Pilot runner:
-  - `scripts/run_autoresearch_pilot.py`
-
-Run it with:
-
-```bash
-uv run python scripts/run_autoresearch_pilot.py
-```
-
-The script:
-- runs the frozen manifests through `axiom-encode eval-suite`
-- writes per-manifest outputs plus an aggregate report
-- prints a single `AUTORESEARCH_SCORE=...` scalar for outer-loop optimization
-
-To run one real mutate-score-keep iteration on the same frozen set:
-
-```bash
-uv run python scripts/run_autoresearch_iteration.py
-```
-
-That script:
-- computes or reuses a baseline pilot report
-- asks Codex to edit only `src/axiom_encode/harness/eval_prompt_surface.py`
-- re-runs the inner-loop frozen manifests on the candidate prompt surface
-- then runs the separate final-review holdout set
-- keeps the candidate only if training improves and final review does not regress
-
-The score heavily rewards readiness and deterministic/semantic pass rates, with
-cost used only as a small tiebreaker.
-
-The canonical path is the autoresearch runner above.

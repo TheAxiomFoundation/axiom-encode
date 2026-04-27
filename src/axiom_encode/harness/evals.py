@@ -18,8 +18,6 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Literal, Sequence
-from urllib.parse import urlparse
-from xml.etree import ElementTree as ET
 
 import requests
 import yaml
@@ -64,20 +62,6 @@ from .validator_pipeline import (
 EvalMode = Literal["cold", "repo-augmented"]
 EvalOracleMode = Literal["none", "policyengine", "all"]
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
-AKN_NS = {"akn": "http://docs.oasis-open.org/legaldocml/ns/akn/3.0"}
-AKN_CONTAINER_TAGS = {
-    "hcontainer",
-    "section",
-    "subsection",
-    "level",
-    "article",
-    "paragraph",
-    "subparagraph",
-    "point",
-    "subpoint",
-    "part",
-    "chapter",
-}
 SUPPORTED_EVAL_ENTITIES = (
     "Payment",
     "Person",
@@ -109,9 +93,6 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statute", "regulation"}
-_DEFAULT_SHARED_LEGISLATION_CACHE_ROOT = (
-    Path.home() / "tmp" / "axiom_encode-shared-legislation-cache"
-).resolve()
 
 
 @dataclass(frozen=True)
@@ -250,21 +231,15 @@ class EvalReadinessGates:
 class EvalSuiteCase:
     """One manifest entry in an eval suite."""
 
-    kind: Literal["citation", "source", "akn_section", "uk_legislation"]
+    kind: Literal["citation", "source"]
     name: str
     mode: EvalMode
     allow_context: list[Path] = field(default_factory=list)
-    allow_parent: bool = False
     citation: str | None = None
     source_id: str | None = None
     source_file: Path | None = None
     metadata_file: Path | None = None
-    akn_file: Path | None = None
-    section_eid: str | None = None
-    section_eids: list[str] = field(default_factory=list)
-    table_row_query: str | None = None
     policyengine_rule_hint: str | None = None
-    source_ref: str | None = None
     oracle: EvalOracleMode = "none"
     policyengine_country: str = "auto"
 
@@ -310,16 +285,6 @@ class EvalReadinessSummary:
     mean_estimated_cost_usd: float | None
     gate_results: list[EvalReadinessGateResult]
     ready: bool
-
-
-@dataclass(frozen=True)
-class FetchedLegislationGovUkDocument:
-    """Official legislation.gov.uk sources fetched for one content URL."""
-
-    source_id: str
-    content_url: str
-    akn_file: Path
-    clml_file: Path
 
 
 def parse_runner_spec(spec: str) -> EvalRunnerSpec:
@@ -417,641 +382,11 @@ def run_source_eval(
     return results
 
 
-def _collapse_whitespace(text: str) -> str:
-    """Normalize extracted XML text into one readable line."""
-    return " ".join(text.split())
-
-
 def _sha256_text(text: str | None) -> str | None:
     """Return a stable digest for a prompt or prompt-derived text blob."""
     if text is None:
         return None
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _akn_child_text(parent: ET.Element, child_tag: str) -> str:
-    """Return normalized text from a direct child tag."""
-    child = parent.find(f"akn:{child_tag}", AKN_NS)
-    if child is None:
-        return ""
-    return _collapse_whitespace("".join(child.itertext()))
-
-
-def _akn_local_tag(element: ET.Element) -> str:
-    return element.tag.rsplit("}", 1)[-1]
-
-
-def _is_akn_container(element: ET.Element) -> bool:
-    return _akn_local_tag(element) in AKN_CONTAINER_TAGS
-
-
-def _find_akn_section(root: ET.Element, section_eid: str) -> ET.Element:
-    for element in root.iter():
-        if element.get("eId") == section_eid and _is_akn_container(element):
-            return element
-    raise ValueError(f"Section eId not found: {section_eid}")
-
-
-def _direct_akn_child_sections(section: ET.Element) -> list[ET.Element]:
-    return [child for child in list(section) if _is_akn_container(child)]
-
-
-def _akn_parent_map(root: ET.Element) -> dict[ET.Element, ET.Element]:
-    return {child: parent for parent in root.iter() for child in list(parent)}
-
-
-def _akn_section_own_text(section: ET.Element) -> str:
-    parts: list[str] = []
-    title = _akn_title(section)
-    if title:
-        parts.append(title)
-    for tag in ("intro", "content", "wrapUp"):
-        node = section.find(f"akn:{tag}", AKN_NS)
-        if node is not None:
-            _append_akn_content_block_text(node, parts)
-    return "\n\n".join(part for part in parts if part).strip()
-
-
-def _shared_single_numeric_sibling_eids(akn_file: Path, section_eid: str) -> list[str]:
-    tree = ET.parse(akn_file)
-    root = tree.getroot()
-    section = _find_akn_section(root, section_eid)
-    target_children = _direct_akn_child_sections(section)
-    if target_children:
-        return []
-
-    parent = _akn_parent_map(root).get(section)
-    if parent is None or not _is_akn_container(parent):
-        return []
-
-    siblings = [
-        child
-        for child in _direct_akn_child_sections(parent)
-        if not _direct_akn_child_sections(child)
-    ]
-    if len(siblings) < 2:
-        return []
-
-    signatures: dict[str, list[str]] = {}
-    target_signature: str | None = None
-    for sibling in siblings:
-        numbers = {
-            round(value, 9)
-            for value in extract_numbers_from_text(_akn_section_own_text(sibling))
-        }
-        for value in sorted(numbers):
-            scaled = round(value * 100, 9)
-            if value <= 1 and scaled in numbers:
-                numbers.discard(scaled)
-        if len(numbers) != 1:
-            continue
-        signature = f"{next(iter(numbers)):.9f}"
-        sibling_eid = sibling.get("eId") or ""
-        signatures.setdefault(signature, []).append(sibling_eid)
-        if sibling is section:
-            target_signature = signature
-
-    if target_signature is None:
-        return []
-    matching = sorted(eid for eid in signatures.get(target_signature, []) if eid)
-    if len(matching) < 2:
-        return []
-    return matching
-
-
-def _validate_uk_shared_scalar_sibling_sets(
-    manifest: EvalSuiteManifest,
-    output_root: Path,
-) -> None:
-    cases_by_source: dict[str, list[EvalSuiteCase]] = {}
-    for case in manifest.cases:
-        if case.kind != "uk_legislation" or not case.source_ref or not case.section_eid:
-            continue
-        cases_by_source.setdefault(case.source_ref, []).append(case)
-
-    for source_ref, cases in cases_by_source.items():
-        fetched = _fetch_legislation_gov_uk_document(
-            source_ref,
-            output_root,
-            fetch_cache_root=_resolve_legislation_gov_uk_fetch_cache_root(output_root),
-        )
-        selected_eids = {case.section_eid for case in cases if case.section_eid}
-        for case in cases:
-            sibling_eids = _shared_single_numeric_sibling_eids(
-                fetched.akn_file,
-                case.section_eid or "",
-            )
-            if not sibling_eids:
-                continue
-            missing = [eid for eid in sibling_eids if eid not in selected_eids]
-            if not missing:
-                continue
-            raise ValueError(
-                f"UK legislation case '{case.name}' targets {case.section_eid}, which is part of "
-                f"a repeated-scalar sibling set under the same parent. Include the full sibling set: "
-                f"{', '.join(sibling_eids)}. Missing: {', '.join(missing)}."
-            )
-
-
-def _find_primary_akn_section_eid(akn_file: Path) -> str:
-    """Pick the sole top-level AKN content node from a document-level source."""
-    tree = ET.parse(akn_file)
-    root = tree.getroot()
-
-    for body_tag in ("mainBody", "body"):
-        body = root.find(f".//akn:{body_tag}", AKN_NS)
-        if body is None:
-            continue
-        children = _direct_akn_child_sections(body)
-        if len(children) == 1:
-            section_eid = children[0].get("eId")
-            if not section_eid:
-                raise ValueError("Primary AKN section is missing an eId")
-            return section_eid
-        if len(children) > 1:
-            labels = ", ".join(child.get("eId", "<unknown>") for child in children[:8])
-            raise ValueError(
-                "AKN document has multiple top-level sections. "
-                f"Pass --section-eid explicitly. Candidates: {labels}"
-            )
-
-    raise ValueError("Could not identify a primary AKN section in the document")
-
-
-def _normalize_legislation_gov_uk_source_ref(source_ref: str) -> tuple[str, str]:
-    """Normalize a legislation.gov.uk URL or path to a canonical content URL."""
-    raw = source_ref.strip()
-    if not raw:
-        raise ValueError("Empty legislation.gov.uk source reference")
-
-    if "://" not in raw:
-        raw = f"https://www.legislation.gov.uk/{raw.lstrip('/')}"
-
-    parsed = urlparse(raw)
-    if parsed.netloc not in {"www.legislation.gov.uk", "legislation.gov.uk"}:
-        raise ValueError(
-            f"Unsupported source host '{parsed.netloc}'. Expected legislation.gov.uk"
-        )
-
-    path = parsed.path.rstrip("/")
-    for suffix in (
-        "/data.akn",
-        "/data.xml",
-        "/data.html",
-        "/data.htm",
-        "/data.xht",
-        "/data.pdf",
-    ):
-        if path.endswith(suffix):
-            path = path[: -len(suffix)]
-            break
-
-    if not path or path == "/":
-        raise ValueError(f"Invalid legislation.gov.uk source reference: {source_ref}")
-
-    source_id = path.lstrip("/")
-    return source_id, f"https://www.legislation.gov.uk/{source_id}"
-
-
-def _resolve_legislation_gov_uk_fetch_cache_root(output_root: Path) -> Path:
-    """Prefer a persistent local fetch cache when one is configured or already exists."""
-    override = os.getenv("AXIOM_ENCODE_SHARED_LEGISLATION_CACHE")
-    if override:
-        return Path(override).expanduser().resolve()
-    if _DEFAULT_SHARED_LEGISLATION_CACHE_ROOT.exists():
-        return _DEFAULT_SHARED_LEGISLATION_CACHE_ROOT
-    return Path(output_root).resolve()
-
-
-def _fetch_legislation_gov_uk_document(
-    source_ref: str,
-    output_root: Path,
-    *,
-    fetch_cache_root: Path | None = None,
-) -> FetchedLegislationGovUkDocument:
-    """Fetch official AKN and CLML files from legislation.gov.uk."""
-    source_id, content_url = _normalize_legislation_gov_uk_source_ref(source_ref)
-    source_base_dir = (
-        Path(fetch_cache_root) / "_legislation_gov_uk_cache"
-        if fetch_cache_root is not None
-        and Path(fetch_cache_root).resolve() != Path(output_root).resolve()
-        else Path(output_root) / "_legislation_gov_uk"
-    )
-    source_dir = source_base_dir / _slugify(source_id)
-    source_dir.mkdir(parents=True, exist_ok=True)
-
-    akn_file = source_dir / "source.akn"
-    clml_file = source_dir / "source.xml"
-    if (
-        akn_file.exists()
-        and clml_file.exists()
-        and akn_file.stat().st_size > 0
-        and clml_file.stat().st_size > 0
-    ):
-        return FetchedLegislationGovUkDocument(
-            source_id=source_id,
-            content_url=content_url,
-            akn_file=akn_file,
-            clml_file=clml_file,
-        )
-
-    akn_file.write_text(_fetch_legislation_gov_uk_text(f"{content_url}/data.akn"))
-    try:
-        clml_file.write_text(_fetch_legislation_gov_uk_text(f"{content_url}/data.xml"))
-    except requests.RequestException as exc:
-        clml_file.write_text(f"<!-- source.xml unavailable: {exc} -->\n")
-
-    return FetchedLegislationGovUkDocument(
-        source_id=source_id,
-        content_url=content_url,
-        akn_file=akn_file,
-        clml_file=clml_file,
-    )
-
-
-def _fetch_legislation_gov_uk_text(
-    url: str,
-    *,
-    attempts: int = 6,
-    timeout: int = 30,
-) -> str:
-    """Fetch one legislation.gov.uk payload with retry for transient failures."""
-    last_error: Exception | None = None
-    for attempt in range(1, attempts + 1):
-        try:
-            response = requests.get(url, timeout=timeout)
-            response.raise_for_status()
-            return response.text
-        except requests.RequestException as exc:
-            last_error = exc
-            response = getattr(exc, "response", None)
-            status_code = getattr(response, "status_code", None)
-            retriable = status_code in {429, 500, 502, 503, 504} or status_code is None
-            if attempt >= attempts or not retriable:
-                raise
-            time.sleep(min(2 ** (attempt - 1), 10))
-
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError(f"Failed to fetch legislation.gov.uk resource: {url}")
-
-
-def _akn_title(element: ET.Element) -> str:
-    return " ".join(
-        item
-        for item in (
-            _akn_child_text(element, "num"),
-            _akn_child_text(element, "heading"),
-        )
-        if item
-    ).strip()
-
-
-def _akn_ancestor_titles(root: ET.Element, section: ET.Element) -> list[str]:
-    parent_by_child = {
-        child: parent for parent in root.iter() for child in list(parent)
-    }
-    titles: list[str] = []
-    current = parent_by_child.get(section)
-    while current is not None:
-        if _is_akn_container(current):
-            title = _akn_title(current)
-            if title:
-                titles.append(title)
-        current = parent_by_child.get(current)
-    titles.reverse()
-    return titles
-
-
-def _table_rows_from_element(table: ET.Element) -> list[list[str]]:
-    """Extract normalized cell text from an AKN or XHTML table."""
-    rows: list[list[str]] = []
-    for row in table.iter():
-        if _akn_local_tag(row) != "tr":
-            continue
-        cells = [
-            _collapse_whitespace("".join(cell.itertext()))
-            for cell in list(row)
-            if _akn_local_tag(cell) in {"td", "th"}
-        ]
-        if any(cells):
-            rows.append(cells)
-    return rows
-
-
-def _table_row_has_amount(row: list[str]) -> bool:
-    """Return True when a row looks like a value-bearing table row."""
-    if not row:
-        return False
-    return bool(re.search(r"\d", row[-1]))
-
-
-def _normalize_table_match_text(value: str) -> str:
-    """Normalize table text for resilient row-query matching."""
-    return re.sub(r"\W+", "", _collapse_whitespace(value).lower())
-
-
-def _select_table_rows(
-    rows: list[list[str]],
-    table_row_query: str | None = None,
-) -> list[list[str]]:
-    """Filter table rows to one matched row plus nearby grouping context."""
-    if not table_row_query:
-        return rows
-
-    query = _normalize_table_match_text(table_row_query)
-    if not query:
-        return rows
-
-    matched_indexes = [
-        index
-        for index, row in enumerate(rows)
-        if query in _normalize_table_match_text(" | ".join(row))
-    ]
-    if not matched_indexes:
-        return rows
-
-    selected_indexes: set[int] = {0} if rows else set()
-    for index in matched_indexes:
-        selected_indexes.add(index)
-        context_index = index - 1
-        while context_index > 0 and not _table_row_has_amount(rows[context_index]):
-            selected_indexes.add(context_index)
-            context_index -= 1
-
-    return [rows[index] for index in sorted(selected_indexes)]
-
-
-def _append_akn_content_block_text(
-    parent: ET.Element,
-    parts: list[str],
-    table_row_query: str | None = None,
-) -> None:
-    for child in list(parent):
-        local_tag = _akn_local_tag(child)
-        if local_tag == "p":
-            if table_row_query:
-                continue
-            paragraph = _collapse_whitespace("".join(child.itertext()))
-            if paragraph:
-                parts.append(paragraph)
-            continue
-
-        tables = [node for node in child.iter() if _akn_local_tag(node) == "table"]
-        if local_tag == "table" and child not in tables:
-            tables.insert(0, child)
-        if not tables:
-            _append_akn_content_block_text(
-                child,
-                parts,
-                table_row_query=table_row_query,
-            )
-            continue
-
-        for table in tables:
-            selected_rows = _select_table_rows(
-                _table_rows_from_element(table),
-                table_row_query=table_row_query,
-            )
-            formatted_rows = [
-                " | ".join(cell for cell in row if cell) for row in selected_rows
-            ]
-            if formatted_rows:
-                parts.append("Structured table:\n" + "\n".join(formatted_rows))
-
-
-def _akn_ancestor_intro_text(root: ET.Element, section: ET.Element) -> list[str]:
-    parent_by_child = {
-        child: parent for parent in root.iter() for child in list(parent)
-    }
-    intros: list[str] = []
-    current = parent_by_child.get(section)
-    lineage: list[ET.Element] = []
-    while current is not None:
-        if _is_akn_container(current):
-            lineage.append(current)
-        current = parent_by_child.get(current)
-    lineage.reverse()
-    for ancestor in lineage:
-        for tag in ("intro", "wrapUp"):
-            node = ancestor.find(f"akn:{tag}", AKN_NS)
-            if node is not None:
-                _append_akn_content_block_text(node, intros)
-    return intros
-
-
-def _akn_expression_valid_from(root: ET.Element) -> str:
-    """Return the AKN expression-level valid-from date when present."""
-    date_node = root.find(
-        ".//akn:FRBRExpression/akn:FRBRdate[@name='validFrom']",
-        AKN_NS,
-    )
-    if date_node is None:
-        return ""
-    return (date_node.get("date") or "").strip()
-
-
-def _resolve_akn_section_eid(
-    akn_file: Path,
-    section_eid: str,
-    allow_parent: bool = False,
-) -> str:
-    """Resolve an AKN section target, rejecting parent nodes by default."""
-    tree = ET.parse(akn_file)
-    root = tree.getroot()
-    section = _find_akn_section(root, section_eid)
-    child_sections = _direct_akn_child_sections(section)
-    if allow_parent or not child_sections:
-        return section_eid
-
-    child_summaries: list[str] = []
-    for child in child_sections[:8]:
-        child_eid = child.get("eId", "<unknown>")
-        label = " ".join(
-            item
-            for item in (
-                _akn_child_text(child, "num"),
-                _akn_child_text(child, "heading"),
-            )
-            if item
-        ).strip()
-        child_summaries.append(f"{child_eid} ({label or 'child'})")
-
-    suggestions = ", ".join(child_summaries)
-    raise ValueError(
-        f"Section {section_eid} has child sections. "
-        f"Choose an atomic child section instead: {suggestions}. "
-        "Pass allow_parent=True only when you intentionally need the parent layer."
-    )
-
-
-def extract_akn_section_text(
-    akn_file: Path,
-    section_eid: str,
-    table_row_query: str | None = None,
-) -> str:
-    """Extract one Akoma Ntoso section as plain source text for evals."""
-    tree = ET.parse(akn_file)
-    root = tree.getroot()
-    section = _find_akn_section(root, section_eid)
-
-    parts: list[str] = [title for title in _akn_ancestor_titles(root, section) if title]
-    valid_from = _akn_expression_valid_from(root)
-    if valid_from:
-        parts.append(f"Editorial note: current text valid from {valid_from}.")
-    parts.extend(_akn_ancestor_intro_text(root, section))
-    title = _akn_title(section)
-    if title:
-        parts.append(title)
-
-    for remark in section.findall("akn:remark", AKN_NS):
-        if remark.get("status") != "editorial":
-            continue
-        remark_text = _collapse_whitespace("".join(remark.itertext()))
-        if remark_text:
-            parts.append(remark_text)
-
-    for tag in ("intro", "content", "wrapUp"):
-        node = section.find(f"akn:{tag}", AKN_NS)
-        if node is not None:
-            _append_akn_content_block_text(
-                node,
-                parts,
-                table_row_query=table_row_query,
-            )
-
-    return "\n\n".join(parts).strip()
-
-
-def run_akn_section_eval(
-    source_id: str,
-    akn_file: Path | None,
-    section_eid: str | None,
-    runner_specs: list[str],
-    output_root: Path,
-    axiom_rules_path: Path,
-    runtime_axiom_rules_path: Path | None = None,
-    mode: EvalMode = "repo-augmented",
-    extra_context_paths: list[Path] | None = None,
-    allow_parent: bool = False,
-    table_row_query: str | None = None,
-    oracle: EvalOracleMode = "none",
-    policyengine_country: str = "auto",
-    policyengine_rule_hint: str | None = None,
-    section_eids: list[str] | None = None,
-    source_metadata_path: Path | None = None,
-) -> list[EvalResult]:
-    """Run a deterministic comparison on one section extracted from AKN XML."""
-    metadata_payload = None
-    resolved_akn_file = akn_file
-    resolved_table_row_query = table_row_query
-    metadata_section_eids: list[str] = []
-    if source_metadata_path is not None:
-        payload = yaml.safe_load(source_metadata_path.read_text())
-        if payload is not None and not isinstance(payload, dict):
-            raise ValueError(
-                f"AKN section metadata sidecar must decode to a mapping: {source_metadata_path}"
-            )
-        metadata_payload = payload
-        (
-            metadata_akn_file,
-            metadata_section_eids,
-            metadata_table_row_query,
-        ) = _resolve_source_akn_backing(source_metadata_path, metadata_payload)
-        if resolved_akn_file is None:
-            resolved_akn_file = metadata_akn_file
-        if resolved_table_row_query is None:
-            resolved_table_row_query = metadata_table_row_query
-
-    raw_section_eids = [item for item in (section_eids or []) if item]
-    if section_eid:
-        raw_section_eids = [section_eid, *raw_section_eids]
-    if not raw_section_eids:
-        raw_section_eids = metadata_section_eids
-    if not raw_section_eids:
-        raise ValueError("run_akn_section_eval requires at least one section eId")
-    if resolved_akn_file is None:
-        raise ValueError(
-            "run_akn_section_eval requires either akn_file or source metadata with source_backing"
-        )
-
-    resolved_section_eids = [
-        _resolve_akn_section_eid(
-            resolved_akn_file,
-            raw_section_eid,
-            allow_parent=allow_parent,
-        )
-        for raw_section_eid in raw_section_eids
-    ]
-    extracted_source_text = "\n\n".join(
-        extract_akn_section_text(
-            resolved_akn_file,
-            resolved_section_eid,
-            table_row_query=resolved_table_row_query,
-        ).strip()
-        for resolved_section_eid in resolved_section_eids
-    ).strip()
-    return run_source_eval(
-        source_id=source_id,
-        source_text=extracted_source_text,
-        runner_specs=runner_specs,
-        output_root=output_root,
-        policy_path=axiom_rules_path,
-        runtime_axiom_rules_path=runtime_axiom_rules_path or axiom_rules_path,
-        mode=mode,
-        extra_context_paths=extra_context_paths,
-        oracle=oracle,
-        policyengine_country=policyengine_country,
-        policyengine_rule_hint=policyengine_rule_hint,
-        source_metadata_path=source_metadata_path,
-        source_metadata_payload=metadata_payload,
-    )
-
-
-def run_legislation_gov_uk_section_eval(
-    source_ref: str,
-    runner_specs: list[str],
-    output_root: Path,
-    axiom_rules_path: Path,
-    runtime_axiom_rules_path: Path | None = None,
-    mode: EvalMode = "repo-augmented",
-    extra_context_paths: list[Path] | None = None,
-    section_eid: str | None = None,
-    allow_parent: bool = False,
-    table_row_query: str | None = None,
-    oracle: EvalOracleMode = "none",
-    policyengine_country: str = "auto",
-    policyengine_rule_hint: str | None = None,
-    fetch_cache_root: Path | None = None,
-) -> list[EvalResult]:
-    """Fetch official UK legislation XML and run an AKN section eval."""
-    resolved_fetch_cache_root = (
-        fetch_cache_root
-        if fetch_cache_root is not None
-        else _resolve_legislation_gov_uk_fetch_cache_root(output_root)
-    )
-    fetched = _fetch_legislation_gov_uk_document(
-        source_ref,
-        output_root,
-        fetch_cache_root=resolved_fetch_cache_root,
-    )
-    target_section_eid = section_eid or _find_primary_akn_section_eid(fetched.akn_file)
-    return run_akn_section_eval(
-        source_id=fetched.source_id,
-        akn_file=fetched.akn_file,
-        section_eid=target_section_eid,
-        runner_specs=runner_specs,
-        output_root=output_root,
-        axiom_rules_path=axiom_rules_path,
-        runtime_axiom_rules_path=runtime_axiom_rules_path or axiom_rules_path,
-        mode=mode,
-        extra_context_paths=extra_context_paths,
-        allow_parent=allow_parent,
-        table_row_query=table_row_query,
-        oracle=oracle,
-        policyengine_country=policyengine_country,
-        policyengine_rule_hint=policyengine_rule_hint,
-    )
 
 
 def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
@@ -1099,16 +434,12 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
         if not isinstance(item, dict):
             raise ValueError(f"Eval suite case #{index} must be a mapping")
         kind = str(item.get("kind", "")).strip()
-        if kind not in {"citation", "source", "akn_section", "uk_legislation"}:
+        if kind not in {"citation", "source"}:
             raise ValueError(f"Unsupported eval suite case kind '{kind}'")
 
         case_mode = _coerce_eval_mode(item.get("mode", default_mode))
         name = str(item.get("name", "")).strip() or str(
-            item.get("citation")
-            or item.get("source_id")
-            or item.get("source_ref")
-            or item.get("section_eid")
-            or f"case-{index}"
+            item.get("citation") or item.get("source_id") or f"case-{index}"
         )
 
         case = EvalSuiteCase(
@@ -1119,7 +450,6 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
                 _resolve_manifest_path(base_dir, entry)
                 for entry in item.get("allow_context", []) or []
             ],
-            allow_parent=bool(item.get("allow_parent", False)),
             citation=item.get("citation"),
             source_id=item.get("source_id"),
             source_file=(
@@ -1132,26 +462,11 @@ def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
                 if item.get("metadata_file")
                 else None
             ),
-            akn_file=(
-                _resolve_manifest_path(base_dir, item["akn_file"])
-                if item.get("akn_file")
-                else None
-            ),
-            section_eid=item.get("section_eid"),
-            section_eids=[
-                str(entry).strip() for entry in (item.get("section_eids") or [])
-            ],
-            table_row_query=(
-                str(item.get("table_row_query")).strip()
-                if item.get("table_row_query") is not None
-                else None
-            ),
             policyengine_rule_hint=(
                 str(item.get("policyengine_rule_hint")).strip()
                 if item.get("policyengine_rule_hint") is not None
                 else None
             ),
-            source_ref=item.get("source_ref"),
             oracle=str(item.get("oracle", "none")),
             policyengine_country=str(item.get("policyengine_country", "auto")),
         )
@@ -1218,7 +533,6 @@ def run_eval_suite(
         result_count=len(results),
         last_case_name=last_case_name,
     )
-    _validate_uk_shared_scalar_sibling_sets(manifest, Path(output_root))
     try:
         for index, case in enumerate(manifest.cases, start=1):
             if index in completed_case_indexes:
@@ -1282,50 +596,9 @@ def run_eval_suite(
                             policyengine_country=case.policyengine_country,
                             policyengine_rule_hint=case.policyengine_rule_hint,
                         )
-                    elif case.kind == "akn_section":
-                        policy_repo_root = (
-                            find_policy_repo_root(case.metadata_file or case.akn_file)
-                            if (
-                                case.metadata_file is not None
-                                or case.akn_file is not None
-                            )
-                            else None
-                        ) or axiom_rules_path
-                        case_results = run_akn_section_eval(
-                            source_id=case.source_id or case.name,
-                            akn_file=case.akn_file,
-                            section_eid=case.section_eid,
-                            runner_specs=resolved_runners,
-                            output_root=case_output_root,
-                            axiom_rules_path=policy_repo_root,
-                            runtime_axiom_rules_path=axiom_rules_path,
-                            mode=case.mode,
-                            extra_context_paths=extra_context,
-                            allow_parent=case.allow_parent,
-                            table_row_query=case.table_row_query,
-                            oracle=case.oracle,
-                            policyengine_country=case.policyengine_country,
-                            policyengine_rule_hint=case.policyengine_rule_hint,
-                            section_eids=case.section_eids,
-                            source_metadata_path=case.metadata_file,
-                        )
                     else:
-                        case_results = run_legislation_gov_uk_section_eval(
-                            source_ref=case.source_ref or "",
-                            section_eid=case.section_eid,
-                            runner_specs=resolved_runners,
-                            output_root=case_output_root,
-                            axiom_rules_path=axiom_rules_path,
-                            mode=case.mode,
-                            extra_context_paths=extra_context,
-                            allow_parent=case.allow_parent,
-                            table_row_query=case.table_row_query,
-                            oracle=case.oracle,
-                            policyengine_country=case.policyengine_country,
-                            policyengine_rule_hint=case.policyengine_rule_hint,
-                            fetch_cache_root=_resolve_legislation_gov_uk_fetch_cache_root(
-                                output_root
-                            ),
+                        raise ValueError(
+                            f"Unsupported eval suite case kind '{case.kind}'"
                         )
                 except Exception as exc:
                     case_results = _suite_case_failure_results(
@@ -1911,23 +1184,6 @@ def _validate_eval_suite_case(case: EvalSuiteCase, index: int) -> None:
             raise ValueError(f"Eval suite case #{index} is missing 'source_id'")
         if case.source_file is None:
             raise ValueError(f"Eval suite case #{index} is missing 'source_file'")
-    if case.kind == "akn_section":
-        if not case.source_id:
-            raise ValueError(f"Eval suite case #{index} is missing 'source_id'")
-        if case.akn_file is None and case.metadata_file is None:
-            raise ValueError(
-                f"Eval suite case #{index} is missing 'akn_file' or 'metadata_file'"
-            )
-        if (
-            not case.section_eid
-            and not case.section_eids
-            and case.metadata_file is None
-        ):
-            raise ValueError(
-                f"Eval suite case #{index} is missing 'section_eid' or 'section_eids'"
-            )
-    if case.kind == "uk_legislation" and not case.source_ref:
-        raise ValueError(f"Eval suite case #{index} is missing 'source_ref'")
 
 
 def _fraction(numerator: int, denominator: int) -> float:
@@ -2182,113 +1438,9 @@ def _load_source_metadata_for_path(
     return metadata_path, payload
 
 
-def _axiom_encode_archive_root() -> Path:
-    """Return the local Atlas archive root used for raw and normalized documents."""
-    override = os.environ.get("AXIOM_ENCODE_EVAL_ARCHIVE_ROOT")
-    if override:
-        return Path(override).expanduser().resolve()
-    return (Path.home() / ".arch").resolve()
-
-
-def _resolve_archive_relative_path(value: object) -> Path:
-    """Resolve an archive-relative or absolute path into a concrete local file path."""
-    path = Path(str(value)).expanduser()
-    if path.is_absolute():
-        return path.resolve()
-    return (_axiom_encode_archive_root() / path).resolve()
-
-
-def _resolve_source_akn_backing(
-    source_path: Path,
-    source_metadata: dict[str, object] | None,
-) -> tuple[Path | None, list[str], str | None]:
-    """Resolve optional AKN backing metadata for a source file or metadata sidecar."""
-    if source_metadata is None:
-        return None, [], None
-
-    backing = source_metadata.get("source_backing")
-    if not isinstance(backing, dict):
-        return None, [], None
-
-    kind = str(backing.get("kind", "")).strip()
-    if kind not in {"akn_section", "akn_sections"}:
-        return None, [], None
-
-    akn_value = backing.get("akn_file")
-    arch_value = backing.get("arch_path")
-    if akn_value is None and arch_value is None:
-        raise ValueError(
-            "AKN-backed source file is missing source_backing.akn_file "
-            f"or source_backing.arch_path: {source_path}"
-        )
-    if arch_value is not None:
-        akn_file = _resolve_archive_relative_path(arch_value)
-    else:
-        akn_file = Path(str(akn_value))
-        if not akn_file.is_absolute():
-            akn_file = (source_path.parent / akn_file).resolve()
-    if not akn_file.exists():
-        raise ValueError(f"AKN backing file not found for source file: {akn_file}")
-
-    section_eids: list[str] = []
-    if backing.get("section_eid") is not None:
-        section_eids = [str(backing.get("section_eid")).strip()]
-    else:
-        raw_eids = backing.get("section_eids")
-        if raw_eids is None:
-            raise ValueError(
-                "AKN-backed source file must declare source_backing.section_eid "
-                f"or source_backing.section_eids: {source_path}"
-            )
-        if not isinstance(raw_eids, list):
-            raise ValueError(
-                "AKN-backed source file source_backing.section_eids must be a list: "
-                f"{source_path}"
-            )
-        section_eids = [str(item).strip() for item in raw_eids]
-
-    if not section_eids or any(not eid for eid in section_eids):
-        raise ValueError(
-            f"AKN-backed source file has empty source_backing section eIds: {source_path}"
-        )
-
-    table_row_query = (
-        str(backing.get("table_row_query")).strip()
-        if backing.get("table_row_query") is not None
-        else None
-    )
-    return akn_file, section_eids, table_row_query
-
-
 def load_source_text_for_eval(source_path: Path) -> str:
-    """Load authoritative eval text for a source file, preferring AKN backing."""
-    source_path = Path(source_path)
-    metadata_path, source_metadata = _load_source_metadata_for_path(source_path)
-    del metadata_path
-    akn_file, section_eids, table_row_query = _resolve_source_akn_backing(
-        source_path,
-        source_metadata,
-    )
-    if akn_file is None:
-        return source_path.read_text()
-
-    extracted_sections: list[str] = []
-    for section_eid in section_eids:
-        resolved_section_eid = _resolve_akn_section_eid(akn_file, section_eid)
-        section_text = extract_akn_section_text(
-            akn_file,
-            resolved_section_eid,
-            table_row_query=table_row_query,
-        ).strip()
-        if section_text:
-            extracted_sections.append(section_text)
-
-    if not extracted_sections:
-        raise ValueError(
-            f"AKN-backed source file did not yield any extracted text: {source_path}"
-        )
-
-    return "\n\n".join(extracted_sections) + "\n"
+    """Load authoritative eval text directly from a source file."""
+    return Path(source_path).read_text()
 
 
 def _materialize_resolved_definition_stub(
@@ -2811,7 +1963,6 @@ Prefer the earliest scaffold date that is relevant to the copied precedent when 
         source_metadata_section = f"""
 Structured source metadata is available in `./source-metadata.json` and copied below.
 If a metadata relation says this source `sets` a canonical target, model this artifact as setting the effective jurisdiction-specific value for that delegated slot and record the absolute target path under `metadata.sets`. This is not an `amends` relationship unless the source itself amends another source.
-When source backing names AKN section ids, treat this as a derived extraction from the listed authoritative AKN section or sections, not as license to infer extra unstated target behavior.
 For state option/source-slice metadata, do not add a top-level `imports:` entry to the bare canonical `cfr/...#...` or `usc/...#...` path unless a copied context file actually provides that import target.
 If the canonical target is an option/applies/uses-style slot such as `...#*_applies` or `...#*_uses_*`, encode the canonical boolean slot as a direct dated constant `true` or `false` when the source text itself sets that option.
 Do not invent jurisdiction guards like `*_is_in_state` or `*_is_in_jurisdiction` unless `./source.txt` states them; for a jurisdiction-specific source slice, use only positive/continuity cases rather than a fabricated out-of-jurisdiction false case.
