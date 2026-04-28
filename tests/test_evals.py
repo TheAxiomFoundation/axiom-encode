@@ -3140,7 +3140,7 @@ cases:
                 manifest=manifest,
                 output_root=tmp_path / "out",
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert results == [source_result]
@@ -3183,7 +3183,7 @@ cases:
                 manifest=manifest,
                 output_root=output_root,
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert len(snapshots) == 1
@@ -3246,7 +3246,7 @@ cases:
                 manifest=manifest,
                 output_root=output_root,
                 axiom_rules_path=runtime_axiom_rules,
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert mock_run_source_eval.call_args.kwargs["policy_path"] == policy_repo
@@ -3282,7 +3282,7 @@ cases:
                 manifest=manifest,
                 output_root=tmp_path / "out",
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert results == [source_result]
@@ -3317,7 +3317,7 @@ cases:
                 manifest=manifest,
                 output_root=tmp_path / "out",
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert results == [source_result]
@@ -3353,7 +3353,7 @@ cases:
                 manifest=manifest,
                 output_root=tmp_path / "out",
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert results == [failed]
@@ -3399,7 +3399,7 @@ cases:
                 manifest=manifest,
                 output_root=output_root,
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert results == [usage_limited]
@@ -3446,7 +3446,7 @@ cases:
                 manifest=manifest,
                 output_root=tmp_path / "out",
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
             )
 
         assert results == [recovered]
@@ -3520,7 +3520,7 @@ cases:
                 manifest=manifest,
                 output_root=output_root,
                 axiom_rules_path=tmp_path / "axiom-rules",
-                atlas_path=None,
+                axiom_path=None,
                 resume_existing=True,
             )
 

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 # Default path to USC XML files
-USC_XML_PATH = Path.home() / "TheAxiomFoundation" / "atlas" / "data" / "uscode"
+USC_XML_PATH = Path.home() / "TheAxiomFoundation" / "axiom" / "data" / "uscode"
 
 
 def extract_section(title: int, section: str) -> str:

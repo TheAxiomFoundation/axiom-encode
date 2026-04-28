@@ -315,12 +315,12 @@ def run_model_eval(
     runner_specs: list[str],
     output_root: Path,
     axiom_rules_path: Path,
-    atlas_path: Path,
+    axiom_path: Path,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
-    xml_root = atlas_path / "data" / "uscode"
+    xml_root = axiom_path / "data" / "uscode"
     results: list[EvalResult] = []
 
     for runner in [parse_runner_spec(spec) for spec in runner_specs]:
@@ -488,7 +488,7 @@ def run_eval_suite(
     manifest: EvalSuiteManifest,
     output_root: Path,
     axiom_rules_path: Path,
-    atlas_path: Path | None = None,
+    axiom_path: Path | None = None,
     runner_specs: list[str] | None = None,
     suite_retry_attempts: int = 2,
     resume_existing: bool = False,
@@ -561,16 +561,16 @@ def run_eval_suite(
             for attempt_index in range(attempts):
                 try:
                     if case.kind == "citation":
-                        if atlas_path is None:
+                        if axiom_path is None:
                             raise ValueError(
-                                "atlas_path is required for citation eval suite cases"
+                                "axiom_path is required for citation eval suite cases"
                             )
                         case_results = run_model_eval(
                             citations=[case.citation or ""],
                             runner_specs=resolved_runners,
                             output_root=case_output_root,
                             axiom_rules_path=axiom_rules_path,
-                            atlas_path=atlas_path,
+                            axiom_path=axiom_path,
                             mode=case.mode,
                             extra_context_paths=extra_context,
                         )

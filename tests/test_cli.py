@@ -279,7 +279,7 @@ class TestCmdEvalSuite:
             manifest=manifest_file,
             runner=None,
             output=tmp_path / "out",
-            atlas_path=tmp_path / "atlas",
+            axiom_path=tmp_path / "axiom",
             axiom_rules_path=tmp_path / "axiom-rules",
             json=False,
             gpt_backend="codex",
@@ -360,7 +360,7 @@ class TestCmdEvalSuite:
             manifest=manifest_file,
             runner=None,
             output=tmp_path / "out",
-            atlas_path=tmp_path / "atlas",
+            axiom_path=tmp_path / "axiom",
             axiom_rules_path=tmp_path / "axiom-rules",
             json=False,
             gpt_backend="codex",
@@ -435,7 +435,7 @@ class TestCmdEvalSuite:
             manifest=manifest_file,
             runner=None,
             output=tmp_path / "out",
-            atlas_path=tmp_path / "atlas",
+            axiom_path=tmp_path / "axiom",
             axiom_rules_path=tmp_path / "axiom-rules",
             json=False,
             gpt_backend="codex",
@@ -516,7 +516,7 @@ class TestCmdEvalSuite:
             manifest=manifest_file,
             runner=None,
             output=tmp_path / "out",
-            atlas_path=tmp_path / "atlas",
+            axiom_path=tmp_path / "axiom",
             axiom_rules_path=tmp_path / "axiom-rules",
             json=False,
             gpt_backend="codex",
@@ -1940,16 +1940,16 @@ class TestCmdRuns:
 class TestCmdEncode:
     def _make_args(self, tmp_path, **overrides):
         """Helper to create args with sensible defaults."""
-        atlas_path = tmp_path / "atlas"
+        axiom_path = tmp_path / "axiom"
         axiom_rules_path = tmp_path / "axiom-rules"
-        atlas_path.mkdir(exist_ok=True)
+        axiom_path.mkdir(exist_ok=True)
         axiom_rules_path.mkdir(exist_ok=True)
         args = MagicMock()
         args.citation = overrides.get("citation", "26 USC 1(j)(2)")
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
         args.backend = overrides.get("backend", "codex")
-        args.atlas_path = overrides.get("atlas_path", atlas_path)
+        args.axiom_path = overrides.get("axiom_path", axiom_path)
         args.axiom_rules_path = overrides.get("axiom_rules_path", axiom_rules_path)
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
