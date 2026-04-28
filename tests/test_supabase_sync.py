@@ -14,7 +14,7 @@ import pytest
 
 from axiom_encode.supabase_sync import (
     ENCODINGS_SCHEMA,
-    LAB_SCHEMA,
+    TELEMETRY_SCHEMA,
     fetch_runs_from_supabase,
     get_local_transcript_stats,
     get_supabase_client,
@@ -373,7 +373,7 @@ class TestSyncTranscriptsToSupabase:
             result = sync_transcripts_to_supabase(client=mock_client)
             assert result["synced"] == 1
             assert result["total"] == 1
-            mock_client.schema.assert_called_once_with(LAB_SCHEMA)
+            mock_client.schema.assert_called_once_with(TELEMETRY_SCHEMA)
             mock_client.schema.return_value.table.assert_called_once_with(
                 "agent_transcripts"
             )
@@ -577,7 +577,7 @@ class TestSyncAgentSessionsToSupabase:
             result = sync_agent_sessions_to_supabase(client=mock_client)
             assert result["synced"] == 1
             assert result["total"] == 1
-            mock_client.schema.assert_any_call(LAB_SCHEMA)
+            mock_client.schema.assert_any_call(TELEMETRY_SCHEMA)
             mock_client.schema.return_value.table.assert_any_call("sdk_sessions")
             mock_client.schema.return_value.table.assert_any_call("sdk_session_events")
 

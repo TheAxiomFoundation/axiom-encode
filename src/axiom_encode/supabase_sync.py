@@ -13,7 +13,7 @@ from typing import Optional
 from supabase import Client, create_client
 
 ENCODINGS_SCHEMA = "encodings"
-LAB_SCHEMA = "lab"
+TELEMETRY_SCHEMA = "telemetry"
 
 
 def _review_results_to_scores(review_results) -> dict:
@@ -281,7 +281,7 @@ def sync_transcripts_to_supabase(
             }
 
             result = (
-                client.schema(LAB_SCHEMA)
+                client.schema(TELEMETRY_SCHEMA)
                 .table("agent_transcripts")
                 .upsert(data)
                 .execute()
@@ -392,14 +392,14 @@ def sync_agent_sessions_to_supabase(
             ]
 
             # Upsert session
-            client.schema(LAB_SCHEMA).table("sdk_sessions").upsert(
+            client.schema(TELEMETRY_SCHEMA).table("sdk_sessions").upsert(
                 session_data
             ).execute()
 
             # Upsert events (in batches of 100)
             for i in range(0, len(events_data), 100):
                 batch = events_data[i : i + 100]
-                client.schema(LAB_SCHEMA).table("sdk_session_events").upsert(
+                client.schema(TELEMETRY_SCHEMA).table("sdk_session_events").upsert(
                     batch
                 ).execute()
 
