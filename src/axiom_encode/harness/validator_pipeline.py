@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -1619,7 +1620,7 @@ def find_ungrounded_numeric_issues(
     source_numbers = extract_numbers_from_text(source)
     issues: list[str] = []
     for _, raw, value in extract_grounding_values(content):
-        if value in source_numbers:
+        if numeric_value_is_grounded(value, source_numbers):
             continue
         display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
         issues.append(
@@ -1627,6 +1628,14 @@ def find_ungrounded_numeric_issues(
             f"{display} does not appear as a substantive numeric value in the source text."
         )
     return issues
+
+
+def numeric_value_is_grounded(value: float, source_numbers: set[float]) -> bool:
+    """Return true when a generated number is present in extracted source numbers."""
+    return any(
+        math.isclose(value, source_value, rel_tol=0, abs_tol=1e-12)
+        for source_value in source_numbers
+    )
 
 
 @dataclass

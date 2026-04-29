@@ -57,6 +57,7 @@ from .validator_pipeline import (
     extract_numbers_from_text,
     extract_numeric_occurrences_from_text,
     find_ungrounded_numeric_issues,
+    numeric_value_is_grounded,
 )
 
 EvalMode = Literal["cold", "repo-augmented"]
@@ -93,6 +94,18 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statute", "regulation"}
+
+
+def _matching_numeric_occurrence_count(
+    occurrences: Counter[float],
+    value: float,
+) -> int:
+    """Count occurrences whose float value closely matches the source value."""
+    return sum(
+        count
+        for occurrence_value, count in occurrences.items()
+        if numeric_value_is_grounded(occurrence_value, {value})
+    )
 
 
 @dataclass(frozen=True)
@@ -1656,7 +1669,7 @@ def evaluate_artifact(
                 line=line,
                 raw=raw,
                 value=value,
-                grounded=value in source_numbers,
+                grounded=numeric_value_is_grounded(value, source_numbers),
             )
         )
 
@@ -1664,7 +1677,10 @@ def evaluate_artifact(
     covered_source_numeric_occurrence_count = 0
     missing_source_numeric_occurrence_count = 0
     for value, expected_count in sorted(source_numeric_occurrences.items()):
-        covered_count = min(expected_count, named_scalar_occurrences.get(value, 0))
+        covered_count = min(
+            expected_count,
+            _matching_numeric_occurrence_count(named_scalar_occurrences, value),
+        )
         covered_source_numeric_occurrence_count += covered_count
         if covered_count < expected_count:
             missing_count = expected_count - covered_count

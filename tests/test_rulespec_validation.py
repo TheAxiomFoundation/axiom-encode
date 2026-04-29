@@ -7,6 +7,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
+    find_ungrounded_numeric_issues,
 )
 
 AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
@@ -69,6 +70,22 @@ rules:
         (item.name, item.value)
         for item in extract_named_scalar_occurrences(rules_file.read_text())
     ] == [("snap_standard_utility_allowance_value", 451.0)]
+
+
+def test_rulespec_grounding_tolerates_decimal_percentage_float_noise():
+    content = """format: rulespec/v1
+module:
+  summary: The tax is 2.9 percent of self-employment income.
+rules:
+  - name: hospital_insurance_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.029'
+"""
+
+    assert find_ungrounded_numeric_issues(content) == []
 
 
 def test_rulespec_ci_executes_companion_test_outputs(tmp_path):
