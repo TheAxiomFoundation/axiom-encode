@@ -2071,7 +2071,9 @@ Test file rules:
 - Use `period`, `input`, and `output` keys. Use concrete scalar values, not formula strings.
 - Do not use bare year periods like `2024`; they are ambiguous across jurisdictions.
 - For monthly outputs, use `period: YYYY-MM`.
-- For annual or non-calendar periods, use an explicit mapping such as `period: {{period_kind: custom, name: calendar_year, start: '2024-01-01', end: '2024-12-31'}}` or `period: {{period_kind: tax_year, start: '2024-04-06', end: '2025-04-05'}}`.
+- Supported mapping `period_kind` values are `tax_year` and `custom`; never use `period_kind: calendar_year`.
+- For annual tax tests, use an explicit tax-year mapping such as `period: {{period_kind: tax_year, start: '2024-01-01', end: '2024-12-31'}}`.
+- For non-tax annual periods, use `period: {{period_kind: custom, name: calendar_year, start: '2024-01-01', end: '2024-12-31'}}`.
 - Emit 1-4 cases unless `module.status` is `deferred` or `entity_not_supported`, in which case the test file may be empty.
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
