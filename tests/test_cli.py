@@ -1989,6 +1989,7 @@ class TestCmdEncode:
         assert exit_code == 0
         mock_run.assert_called_once()
         assert mock_run.call_args.kwargs["runner_specs"] == ["codex:test-model"]
+        assert mock_run.call_args.kwargs["include_tests"] is True
 
     def test_encode_with_errors(self, capsys, tmp_path):
         args = self._make_args(tmp_path, citation="26 USC 1", model=None)

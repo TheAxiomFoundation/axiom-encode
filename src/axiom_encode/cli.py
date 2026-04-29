@@ -1429,6 +1429,7 @@ def cmd_encode(args):
         corpus_path=corpus_path,
         mode=args.mode,
         extra_context_paths=[Path(path) for path in args.allow_context],
+        include_tests=True,
     )
 
     result = results[0]

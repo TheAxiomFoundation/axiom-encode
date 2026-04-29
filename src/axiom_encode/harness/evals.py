@@ -331,6 +331,7 @@ def run_model_eval(
     corpus_path: Path,
     mode: EvalMode = "repo-augmented",
     extra_context_paths: list[Path] | None = None,
+    include_tests: bool = False,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     xml_root = corpus_path / "data" / "uscode"
@@ -347,6 +348,7 @@ def run_model_eval(
                     xml_root=xml_root,
                     mode=mode,
                     extra_context_paths=extra_context_paths or [],
+                    include_tests=include_tests,
                 )
             )
 
@@ -1751,6 +1753,7 @@ def _run_single_eval(
     xml_root: Path,
     mode: EvalMode,
     extra_context_paths: list[Path],
+    include_tests: bool = False,
 ) -> EvalResult:
     source_text = find_citation_text(citation, xml_root)
     if not source_text:
@@ -1773,7 +1776,7 @@ def _run_single_eval(
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
-        include_tests=False,
+        include_tests=include_tests,
         runner_backend=runner.backend,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
