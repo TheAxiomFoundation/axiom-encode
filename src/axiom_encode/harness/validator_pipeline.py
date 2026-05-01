@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import yaml
 
@@ -2034,6 +2034,11 @@ def _find_source_text_value_issues(
                     f"`{citation_path}` does not contain `{value_name}[{cell_key}]` = "
                     f"{_format_reiteration_value(expected_cell)}."
                 )
+        if issues and _source_text_contains_table_value_multiset(
+            normalized_text,
+            expected_value.values(),
+        ):
+            return []
         return issues
 
     if _source_text_contains_scalar_value(normalized_text, expected_value):
@@ -2105,6 +2110,28 @@ def _source_text_contains_scalar_value(text: str, value: Any) -> bool:
         return str(value).strip() in text
     value_pattern = re.escape(value_text)
     return bool(re.search(rf"(?:\$|\+)?{value_pattern}(?!\d)", text))
+
+
+def _source_text_contains_table_value_multiset(
+    text: str,
+    values: Iterable[Any],
+) -> bool:
+    expected_counts: Counter[str] = Counter()
+    for value in values:
+        value_text = _source_verification_numeric_text(value)
+        if value_text is None:
+            return False
+        expected_counts[value_text] += 1
+
+    return all(
+        _source_text_value_occurrence_count(text, value_text) >= expected_count
+        for value_text, expected_count in expected_counts.items()
+    )
+
+
+def _source_text_value_occurrence_count(text: str, value_text: str) -> int:
+    value_pattern = re.escape(value_text)
+    return len(re.findall(rf"(?:\$|\+)?{value_pattern}(?!\d)", text))
 
 
 def _source_verification_numeric_text(value: Any) -> str | None:

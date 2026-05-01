@@ -505,6 +505,50 @@ rules:
     assert issues == []
 
 
+def test_source_verification_accepts_transposed_table_values():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
+    values:
+      snap_standard_deduction_48_states_dc_table:
+        1: 209
+        2: 209
+        3: 209
+        4: 223
+        5: 261
+        6: 299
+rules:
+  - name: snap_standard_deduction_48_states_dc_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 209
+          2: 209
+          3: 209
+          4: 223
+          5: 261
+          6: 299
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/guidance/usda/fns/snap-fy2026-cola/page-2": (
+                "Deductions Household Size 1 2 3 4 5 6+ "
+                "48 States & District of Columbia "
+                "$209 $209 $209 $223 $261 $299"
+            )
+        },
+    )
+
+    assert issues == []
+
+
 def test_source_verification_rejects_source_value_mismatch():
     content = """format: rulespec/v1
 module:
