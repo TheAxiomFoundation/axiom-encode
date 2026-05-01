@@ -1878,6 +1878,222 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
     return issues
 
 
+def find_upstream_placement_issues(
+    content: str,
+    *,
+    rules_file: Path | None = None,
+) -> list[str]:
+    """Flag rules encoded downstream of their canonical legal authority."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    path = _normalized_rulespec_path(rules_file)
+    imports = {
+        str(item).strip() for item in payload.get("imports") or [] if str(item).strip()
+    }
+
+    issues: list[str] = []
+    issues.extend(
+        _find_snap_elderly_disabled_placement_issues(
+            rules=rules,
+            path=path,
+            imports=imports,
+        )
+    )
+    issues.extend(_find_federal_snap_cola_value_placement_issues(rules, path=path))
+    return issues
+
+
+def _normalized_rulespec_path(rules_file: Path | None) -> str:
+    if rules_file is None:
+        return ""
+    return rules_file.as_posix().lstrip("./").lower()
+
+
+def _rulespec_path_matches(path: str, suffix: str) -> bool:
+    suffix = suffix.lower().strip("/")
+    return path == suffix or path.endswith(f"/{suffix}")
+
+
+def _find_snap_elderly_disabled_placement_issues(
+    *,
+    rules: list[Any],
+    path: str,
+    imports: set[str],
+) -> list[str]:
+    """SNAP elderly/disabled member is a 7 USC 2012(j) definition."""
+    canonical_import = "us:statutes/7/2012/j"
+    if _rulespec_path_matches(path, "statutes/7/2012/j.yaml"):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").lower() == "reiteration":
+            continue
+        name = str(rule.get("name") or "<unknown>")
+        if _is_snap_elderly_disabled_definition_rule(rule):
+            issues.append(
+                "Upstream placement violation: "
+                f"`{name}` defines the SNAP elderly-or-disabled member category "
+                "outside 7 USC 2012(j). Import "
+                f"`{canonical_import}` and reference "
+                "`snap_household_has_elderly_or_disabled_member` instead of "
+                "redefining the category in a downstream policy/manual file."
+            )
+
+        if (
+            _rule_references_symbol(
+                rule,
+                "snap_household_has_elderly_or_disabled_member",
+            )
+            and canonical_import not in imports
+        ):
+            issues.append(
+                "Upstream import required: "
+                f"`{name}` references the SNAP elderly-or-disabled household "
+                f"definition but does not import `{canonical_import}`."
+            )
+
+    return issues
+
+
+def _is_snap_elderly_disabled_definition_rule(rule: dict[str, Any]) -> bool:
+    name = str(rule.get("name") or "").lower()
+    if name == "elderly_or_disabled_household":
+        return True
+    if re.fullmatch(r"snap_household_has_.*elderly.*disabled.*member", name):
+        return True
+    for formula in _iter_rulespec_formula_strings(rule):
+        if re.search(
+            r"count_where\s*\(\s*member_of_household\s*,\s*"
+            r"snap_member_is_[a-z0-9_]*elderly[a-z0-9_]*disabled[a-z0-9_]*\s*\)",
+            formula,
+            flags=re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
+def _find_federal_snap_cola_value_placement_issues(
+    rules: list[Any],
+    *,
+    path: str,
+) -> list[str]:
+    """SNAP annual federal dollar tables belong in the USDA COLA policy file."""
+    if _is_usda_snap_cola_path(path):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").lower() == "reiteration":
+            continue
+        name = str(rule.get("name") or "<unknown>")
+        target = _federal_snap_cola_value_target(name)
+        if target is None:
+            continue
+        issues.append(
+            "Upstream placement violation: "
+            f"`{name}` appears to encode a federal SNAP annual COLA value outside "
+            "the USDA COLA policy file. Move the value to "
+            f"`{target}` and use an import or a non-executable `reiteration` "
+            "marker in downstream state/manual files."
+        )
+    return issues
+
+
+def _is_usda_snap_cola_path(path: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:^|/)policies/usda/snap/fy-\d{4}-cola/",
+            path,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _federal_snap_cola_value_target(name: str) -> str | None:
+    normalized = name.lower()
+    direct_targets = {
+        "excess_shelter_deduction_cap": (
+            "us:policies/usda/snap/fy-<year>-cola/deductions"
+            "#snap_maximum_excess_shelter_deduction_48_states_dc"
+        ),
+        "snap_homeless_shelter_deduction_amount": (
+            "us:policies/usda/snap/fy-<year>-cola/deductions"
+            "#snap_homeless_shelter_deduction"
+        ),
+        "snap_resource_limit": (
+            "us:policies/usda/snap/fy-<year>-cola/deductions#snap_asset_limit"
+        ),
+        "snap_asset_limit": (
+            "us:policies/usda/snap/fy-<year>-cola/deductions#snap_asset_limit"
+        ),
+    }
+    if normalized in direct_targets:
+        return direct_targets[normalized]
+
+    patterns = (
+        (
+            r"^snap_maximum_allotment(?:$|_table$|_additional_member$|_alaska|_guam|_hawaii|_virgin_islands)",
+            "us:policies/usda/snap/fy-<year>-cola/maximum-allotments#snap_maximum_allotment",
+        ),
+        (
+            r"^snap_standard_deduction(?:$|_48_states_dc|_alaska|_guam|_hawaii|_virgin_islands)",
+            "us:policies/usda/snap/fy-<year>-cola/deductions#snap_standard_deduction_48_states_dc",
+        ),
+        (
+            r"^snap_asset_limit_(?:elderly_or_disabled_member|other_households)$",
+            "us:policies/usda/snap/fy-<year>-cola/deductions#snap_asset_limit",
+        ),
+        (
+            r"^snap_maximum_excess_shelter_deduction(?:$|_48_states_dc|_alaska|_guam|_hawaii|_virgin_islands)",
+            "us:policies/usda/snap/fy-<year>-cola/deductions#snap_maximum_excess_shelter_deduction_48_states_dc",
+        ),
+        (
+            r"^snap_homeless_shelter_deduction$",
+            "us:policies/usda/snap/fy-<year>-cola/deductions#snap_homeless_shelter_deduction",
+        ),
+    )
+    for pattern, target in patterns:
+        if re.search(pattern, normalized):
+            return target
+    return None
+
+
+def _is_federal_snap_cola_value_symbol(name: str) -> bool:
+    return _federal_snap_cola_value_target(name) is not None
+
+
+def _rule_references_symbol(rule: dict[str, Any], symbol: str) -> bool:
+    pattern = re.compile(rf"\b{re.escape(symbol)}\b")
+    return any(
+        pattern.search(formula) for formula in _iter_rulespec_formula_strings(rule)
+    )
+
+
+def _iter_rulespec_formula_strings(rule: dict[str, Any]) -> Iterable[str]:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            yield formula
+
+
 def find_source_verification_issues(
     content: str,
     *,
@@ -3494,6 +3710,7 @@ class ValidatorPipeline:
 
         issues.extend(find_ungrounded_numeric_issues(content))
         issues.extend(find_structured_scale_parameter_issues(content))
+        issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(
             find_reiteration_issues(content, policy_repo_path=self.policy_repo_path)

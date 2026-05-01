@@ -10,6 +10,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_named_scalar_occurrences,
     find_source_verification_issues,
     find_ungrounded_numeric_issues,
+    find_upstream_placement_issues,
 )
 
 AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
@@ -111,6 +112,204 @@ rules:
 """
 
     assert find_ungrounded_numeric_issues(content) == []
+
+
+def test_upstream_placement_flags_snap_elderly_disabled_definition_in_cola():
+    content = """format: rulespec/v1
+relations:
+  - name: member_of_household
+    arity: 2
+rules:
+  - name: snap_household_has_usda_elderly_or_disabled_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(member_of_household, snap_member_is_usda_elderly_or_disabled) > 0
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("policies/usda/snap/fy-2026-cola/deductions.yaml"),
+    )
+
+    assert len(issues) == 1
+    assert "7 USC 2012(j)" in issues[0]
+    assert "us:statutes/7/2012/j" in issues[0]
+
+
+def test_upstream_placement_allows_snap_elderly_disabled_import_in_cola():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: snap_asset_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if snap_household_has_elderly_or_disabled_member:
+              snap_asset_limit_elderly_or_disabled_member
+          else: snap_asset_limit_other_households
+"""
+
+    assert (
+        find_upstream_placement_issues(
+            content,
+            rules_file=Path("policies/usda/snap/fy-2026-cola/deductions.yaml"),
+        )
+        == []
+    )
+
+
+def test_upstream_placement_requires_snap_elderly_disabled_import():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_resource_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if snap_household_has_elderly_or_disabled_member:
+              snap_asset_limit_elderly_or_disabled_member
+          else: snap_asset_limit_other_households
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.408.yaml"),
+    )
+
+    assert any("Upstream import required" in issue for issue in issues)
+    assert any("us:statutes/7/2012/j" in issue for issue in issues)
+
+
+def test_upstream_placement_allows_canonical_snap_elderly_disabled_definition():
+    content = """format: rulespec/v1
+relations:
+  - name: member_of_household
+    arity: 2
+rules:
+  - name: snap_household_has_elderly_or_disabled_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: count_where(member_of_household, snap_member_is_elderly_or_disabled) > 0
+"""
+
+    assert (
+        find_upstream_placement_issues(
+            content,
+            rules_file=Path("statutes/7/2012/j.yaml"),
+        )
+        == []
+    )
+
+
+def test_upstream_placement_flags_state_manual_federal_cola_values():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_maximum_allotment_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 298
+          2: 546
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
+    )
+
+    assert len(issues) == 1
+    assert "federal SNAP annual COLA value" in issues[0]
+    assert "reiteration" in issues[0]
+
+
+def test_upstream_placement_flags_state_manual_federal_cola_aliases():
+    content = """format: rulespec/v1
+rules:
+  - name: excess_shelter_deduction_cap
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '744'
+  - name: snap_homeless_shelter_deduction_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '198.99'
+  - name: snap_resource_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if snap_household_has_elderly_or_disabled_member:
+              4500
+          else: 3000
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.407.3.yaml"),
+    )
+
+    assert len(issues) == 4
+    assert any("snap_maximum_excess_shelter_deduction" in issue for issue in issues)
+    assert any("snap_homeless_shelter_deduction" in issue for issue in issues)
+    assert any("snap_asset_limit" in issue for issue in issues)
+    assert any("us:statutes/7/2012/j" in issue for issue in issues)
+
+
+def test_upstream_placement_allows_state_manual_reiteration_of_federal_cola_values():
+    content = """format: rulespec/v1
+rules:
+  - name: co_snap_maximum_allotment_reiterates_usda_fy_2026
+    kind: reiteration
+    reiterates:
+      target: us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment
+      authority: federal
+      relationship: restates
+    verification:
+      values:
+        snap_maximum_allotment_table:
+          1: 298
+          2: 546
+"""
+
+    assert (
+        find_upstream_placement_issues(
+            content,
+            rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
+        )
+        == []
+    )
 
 
 def test_extract_json_object_accepts_literal_newline_in_reviewer_string():
@@ -325,7 +524,7 @@ module:
     The maximum monthly allotments are 298 and 546 for household sizes 1 and 2,
     plus 218 for each additional person.
 rules:
-  - name: snap_maximum_allotment_table
+  - name: benefit_amount_table
     kind: parameter
     dtype: Money
     unit: USD
@@ -335,7 +534,7 @@ rules:
         values:
           1: 298
           2: 546
-  - name: snap_maximum_allotment_additional_member
+  - name: benefit_additional_member
     kind: parameter
     dtype: Money
     unit: USD
@@ -352,8 +551,8 @@ rules:
       - effective_from: '2025-10-01'
         formula: |-
           if household_size > 2:
-              snap_maximum_allotment_table[2] + ((household_size - 2) * snap_maximum_allotment_additional_member)
-          else: snap_maximum_allotment_table[household_size]
+              benefit_amount_table[2] + ((household_size - 2) * benefit_additional_member)
+          else: benefit_amount_table[household_size]
 """
     )
     rules_file.with_name("rules.test.yaml").write_text(
