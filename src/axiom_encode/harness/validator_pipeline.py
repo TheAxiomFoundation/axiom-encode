@@ -26,6 +26,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from calendar import monthrange
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -51,6 +54,15 @@ from .dependency_stubs import (
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_AXIOM_SUPABASE_URL = "https://swocpijqqahhuwtuahwc.supabase.co"
+DEFAULT_AXIOM_SUPABASE_ANON_KEY = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3b2NwaWpxcWFoaHV3dHVhaHdjI"
+    "iwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMzU3NzcsImV4cCI6MjA5Mjkx"
+    "MTc3N30."
+    "spiF6Z6LLJmETL8eI0z_QbwgXce7J5CIqHTiXZ6K9Zk"
+)
 
 
 def run_claude_code(
@@ -1866,6 +1878,245 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
     return issues
 
 
+def find_source_verification_issues(
+    content: str,
+    *,
+    source_texts: dict[str, str] | None = None,
+) -> list[str]:
+    """Validate declared RuleSpec values against an ingested corpus source page."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+
+    source_verification = _source_verification_block(payload)
+    if source_verification is None:
+        return []
+
+    citation_path = str(source_verification.get("corpus_citation_path") or "").strip()
+    expected_values = source_verification.get("values")
+    if not citation_path:
+        return [
+            "Source verification corpus path required: missing `corpus_citation_path`."
+        ]
+    if not isinstance(expected_values, dict) or not expected_values:
+        return [
+            "Source verification values required: "
+            "`source_verification.values` must list RuleSpec values to verify."
+        ]
+
+    rulespec_values, _, load_issue = _extract_rulespec_parameter_values(payload)
+    if load_issue is not None:
+        return [f"Source verification RuleSpec invalid: {load_issue}"]
+
+    issues: list[str] = []
+    for value_name, expected_value in expected_values.items():
+        value_key = str(value_name)
+        if value_key not in rulespec_values:
+            issues.append(
+                "Source verification RuleSpec value missing: "
+                f"`{value_key}` is declared for source verification but is not "
+                "defined as a scalar/table parameter."
+            )
+            continue
+        issues.extend(
+            _compare_source_verification_expected_value(
+                value_name=value_key,
+                expected_value=expected_value,
+                rulespec_value=rulespec_values[value_key],
+            )
+        )
+
+    source_text = (
+        source_texts.get(citation_path)
+        if source_texts is not None
+        else _fetch_corpus_source_text(citation_path)
+    )
+    if source_text is None:
+        issues.append(
+            "Source verification corpus source missing: "
+            f"`{citation_path}` was not found in corpus.provisions."
+        )
+        return issues
+
+    for value_name, expected_value in expected_values.items():
+        value_key = str(value_name)
+        issues.extend(
+            _find_source_text_value_issues(
+                citation_path=citation_path,
+                source_text=source_text,
+                value_name=value_key,
+                expected_value=expected_value,
+            )
+        )
+
+    return issues
+
+
+def _source_verification_block(payload: dict[str, Any]) -> dict[str, Any] | None:
+    module = payload.get("module")
+    if isinstance(module, dict) and isinstance(module.get("source_verification"), dict):
+        return module["source_verification"]
+    source_verification = payload.get("source_verification")
+    if isinstance(source_verification, dict):
+        return source_verification
+    return None
+
+
+def _compare_source_verification_expected_value(
+    *,
+    value_name: str,
+    expected_value: Any,
+    rulespec_value: Any,
+) -> list[str]:
+    """Check the verification block agrees with the RuleSpec parameter values."""
+    if isinstance(expected_value, dict):
+        if not isinstance(rulespec_value, dict):
+            return [
+                "Source verification RuleSpec mismatch: "
+                f"`{value_name}` is declared as a table but the RuleSpec value is scalar."
+            ]
+        issues: list[str] = []
+        for raw_key, expected_cell in expected_value.items():
+            cell_key = str(raw_key)
+            if cell_key not in rulespec_value:
+                issues.append(
+                    "Source verification RuleSpec value missing: "
+                    f"`{value_name}[{cell_key}]` is declared but not defined."
+                )
+                continue
+            actual_cell = rulespec_value[cell_key]
+            if not _reiteration_values_equal(expected_cell, actual_cell):
+                issues.append(
+                    "Source verification RuleSpec mismatch: "
+                    f"`{value_name}[{cell_key}]` declares "
+                    f"{_format_reiteration_value(expected_cell)}, but RuleSpec has "
+                    f"{_format_reiteration_value(actual_cell)}."
+                )
+        return issues
+
+    if isinstance(rulespec_value, dict):
+        return [
+            "Source verification RuleSpec mismatch: "
+            f"`{value_name}` is declared as a scalar but the RuleSpec value is a table."
+        ]
+    if _reiteration_values_equal(expected_value, rulespec_value):
+        return []
+    return [
+        "Source verification RuleSpec mismatch: "
+        f"`{value_name}` declares {_format_reiteration_value(expected_value)}, "
+        f"but RuleSpec has {_format_reiteration_value(rulespec_value)}."
+    ]
+
+
+def _find_source_text_value_issues(
+    *,
+    citation_path: str,
+    source_text: str,
+    value_name: str,
+    expected_value: Any,
+) -> list[str]:
+    """Check expected values are present in the ingested source page text."""
+    normalized_text = _normalize_source_verification_text(source_text)
+    if isinstance(expected_value, dict):
+        issues: list[str] = []
+        for raw_key, expected_cell in expected_value.items():
+            cell_key = str(raw_key)
+            if not _source_text_contains_indexed_value(
+                normalized_text,
+                index=cell_key,
+                value=expected_cell,
+            ):
+                issues.append(
+                    "Source verification value missing: "
+                    f"`{citation_path}` does not contain `{value_name}[{cell_key}]` = "
+                    f"{_format_reiteration_value(expected_cell)}."
+                )
+        return issues
+
+    if _source_text_contains_scalar_value(normalized_text, expected_value):
+        return []
+    return [
+        "Source verification value missing: "
+        f"`{citation_path}` does not contain `{value_name}` = "
+        f"{_format_reiteration_value(expected_value)}."
+    ]
+
+
+def _fetch_corpus_source_text(citation_path: str) -> str | None:
+    """Fetch a corpus.provisions body by exact citation path from Supabase."""
+    supabase_url = os.environ.get(
+        "AXIOM_SUPABASE_URL", DEFAULT_AXIOM_SUPABASE_URL
+    ).rstrip("/")
+    anon_key = (
+        os.environ.get("SUPABASE_ANON_KEY")
+        or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+        or DEFAULT_AXIOM_SUPABASE_ANON_KEY
+    )
+    params = urllib.parse.urlencode(
+        {
+            "select": "body",
+            "citation_path": f"eq.{citation_path}",
+            "limit": "1",
+        }
+    )
+    request = urllib.request.Request(
+        f"{supabase_url}/rest/v1/provisions?{params}",
+        headers={
+            "apikey": anon_key,
+            "Authorization": f"Bearer {anon_key}",
+            "Accept-Profile": "corpus",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.loads(response.read())
+    except (
+        TimeoutError,
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+    ):
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    body = data[0].get("body") if isinstance(data[0], dict) else None
+    return str(body) if body is not None else None
+
+
+def _normalize_source_verification_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.replace(",", "")).strip()
+
+
+def _source_text_contains_indexed_value(text: str, *, index: str, value: Any) -> bool:
+    value_text = _source_verification_numeric_text(value)
+    if value_text is None:
+        return False
+    index_text = re.escape(str(index).replace(",", ""))
+    value_pattern = re.escape(value_text)
+    return bool(re.search(rf"(?<!\d){index_text}\s+\${value_pattern}(?!\d)", text))
+
+
+def _source_text_contains_scalar_value(text: str, value: Any) -> bool:
+    value_text = _source_verification_numeric_text(value)
+    if value_text is None:
+        return str(value).strip() in text
+    value_pattern = re.escape(value_text)
+    return bool(re.search(rf"(?:\$|\+)?{value_pattern}(?!\d)", text))
+
+
+def _source_verification_numeric_text(value: Any) -> str | None:
+    numeric = _numeric_rule_value(value)
+    if numeric is None:
+        return None
+    raw, number = numeric
+    if float(number).is_integer():
+        return str(int(number))
+    return raw.replace(",", "")
+
+
 @dataclass(frozen=True)
 class _ReiterationTargetRef:
     """Parsed canonical RuleSpec target for a reiteration marker."""
@@ -2103,9 +2354,18 @@ def _extract_reiteration_target_values(
         return {}, set(), f"{target_file} could not be read as RuleSpec YAML: {exc}"
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return {}, set(), f"{target_file} is not a RuleSpec v1 file"
+    return _extract_rulespec_parameter_values(payload, source_label=str(target_file))
+
+
+def _extract_rulespec_parameter_values(
+    payload: dict[str, Any],
+    *,
+    source_label: str = "RuleSpec payload",
+) -> tuple[dict[str, Any], set[str], str | None]:
+    """Extract scalar/table parameter values from a RuleSpec payload."""
     rules = payload.get("rules")
     if not isinstance(rules, list):
-        return {}, set(), f"{target_file} has no `rules` list"
+        return {}, set(), f"{source_label} has no `rules` list"
 
     values: dict[str, Any] = {}
     symbols: set[str] = set()
@@ -3207,6 +3467,7 @@ class ValidatorPipeline:
 
         issues.extend(find_ungrounded_numeric_issues(content))
         issues.extend(find_structured_scale_parameter_issues(content))
+        issues.extend(find_source_verification_issues(content))
         issues.extend(
             find_reiteration_issues(content, policy_repo_path=self.policy_repo_path)
         )

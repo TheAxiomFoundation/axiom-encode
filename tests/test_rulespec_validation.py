@@ -8,6 +8,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
+    find_source_verification_issues,
     find_ungrounded_numeric_issues,
 )
 
@@ -459,6 +460,119 @@ rules:
 
     assert result.passed is False
     assert any("does not declare `indexed_by`" in issue for issue in result.issues)
+
+
+def test_source_verification_accepts_values_in_ingested_source_text():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+    values:
+      snap_maximum_allotment_table:
+        1: 298
+        2: 546
+      snap_maximum_allotment_additional_member: 218
+rules:
+  - name: snap_maximum_allotment_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 298
+          2: 546
+  - name: snap_maximum_allotment_additional_member
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '218'
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/guidance/usda/fns/snap-fy2026-cola/page-1": (
+                "Household Size 48 States & District of Columbia "
+                "1 $298 2 $546 Each Additional Member $218"
+            )
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_verification_rejects_source_value_mismatch():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+    values:
+      snap_maximum_allotment_table:
+        1: 298
+        2: 546
+rules:
+  - name: snap_maximum_allotment_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 298
+          2: 546
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/guidance/usda/fns/snap-fy2026-cola/page-1": (
+                "Household Size 48 States & District of Columbia 1 $298 2 $545"
+            )
+        },
+    )
+
+    assert any("Source verification value missing" in issue for issue in issues)
+    assert any("snap_maximum_allotment_table[2]" in issue for issue in issues)
+
+
+def test_source_verification_rejects_rulespec_value_mismatch():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
+    values:
+      snap_maximum_allotment_table:
+        1: 298
+        2: 546
+rules:
+  - name: snap_maximum_allotment_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 298
+          2: 545
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/guidance/usda/fns/snap-fy2026-cola/page-1": (
+                "Household Size 48 States & District of Columbia 1 $298 2 $546"
+            )
+        },
+    )
+
+    assert any("Source verification RuleSpec mismatch" in issue for issue in issues)
+    assert any("snap_maximum_allotment_table[2]" in issue for issue in issues)
 
 
 def test_rulespec_ci_accepts_reiteration_without_tests(tmp_path):
