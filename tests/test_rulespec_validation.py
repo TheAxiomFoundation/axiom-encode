@@ -286,6 +286,167 @@ rules:
     assert "us:statutes/7/2017/a" in issues[0]
 
 
+def test_upstream_placement_flags_state_manual_snap_standard_deduction():
+    content = """format: rulespec/v1
+rules:
+  - name: standard_deduction_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 209
+          2: 209
+          3: 209
+  - name: standard_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: standard_deduction_table[household_size]
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.407.1.yaml"),
+    )
+
+    assert len(issues) == 2
+    assert all("USDA COLA policy file" in issue for issue in issues)
+    assert any("standard_deduction_table" in issue for issue in issues)
+    assert any("standard_deduction" in issue for issue in issues)
+
+
+def test_upstream_placement_does_not_flag_tax_standard_deduction():
+    content = """format: rulespec/v1
+rules:
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 63(c)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_standard_deduction_amount + additional_std_ded_amount
+"""
+
+    assert (
+        find_upstream_placement_issues(
+            content,
+            rules_file=Path("statutes/26/63/c.yaml"),
+        )
+        == []
+    )
+
+
+def test_upstream_placement_flags_state_manual_snap_earned_income_deduction():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_earned_income_deduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '0.20'
+  - name: earned_income_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_earned_income_subject_to_deduction * snap_earned_income_deduction_rate
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.407.2.yaml"),
+    )
+
+    assert len(issues) == 2
+    assert all("7 USC 2014(e)(2)" in issue for issue in issues)
+    assert any("snap_earned_income_deduction_rate" in issue for issue in issues)
+    assert any("snap_earned_income_deduction" in issue for issue in issues)
+
+
+def test_upstream_placement_flags_state_manual_snap_income_standards():
+    content = """format: rulespec/v1
+rules:
+  - name: gross_income_limit_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 1696
+          2: 2292
+  - name: net_income_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: net_income_limit_table[household_size]
+  - name: snap_gross_income_limit_165_percent_fpl
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_gross_income_limit_165_percent_fpl_table[household_size]
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.401.1.yaml"),
+    )
+
+    assert len(issues) == 3
+    assert all("USDA income eligibility standards" in issue for issue in issues)
+    assert any("gross_income_limit_table" in issue for issue in issues)
+    assert any("net_income_limit" in issue for issue in issues)
+    assert any("snap_gross_income_limit_165_percent_fpl" in issue for issue in issues)
+
+
+def test_upstream_placement_requires_snap_income_standards_import():
+    content = """format: rulespec/v1
+rules:
+  - name: passes_gross_income_test
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: gross_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.401.yaml"),
+    )
+
+    assert len(issues) == 1
+    assert "Upstream import required" in issues[0]
+    assert (
+        "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards" in issues[0]
+    )
+
+
 def test_upstream_placement_flags_legacy_snap_allotment_alias_references():
     content = """format: rulespec/v1
 rules:

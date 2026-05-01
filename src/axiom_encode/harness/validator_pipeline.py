@@ -1914,6 +1914,20 @@ def find_upstream_placement_issues(
             imports=imports,
         )
     )
+    issues.extend(
+        _find_federal_snap_earned_income_deduction_placement_issues(
+            rules=rules,
+            path=path,
+            imports=imports,
+        )
+    )
+    issues.extend(
+        _find_federal_snap_income_standard_placement_issues(
+            rules=rules,
+            path=path,
+            imports=imports,
+        )
+    )
     issues.extend(_find_federal_snap_cola_value_placement_issues(rules, path=path))
     return issues
 
@@ -2081,6 +2095,216 @@ def _referenced_federal_snap_allotment_formula_symbol(
     return None
 
 
+def _find_federal_snap_earned_income_deduction_placement_issues(
+    *,
+    rules: list[Any],
+    path: str,
+    imports: set[str],
+) -> list[str]:
+    """SNAP earned-income deduction mechanics are a 7 USC 2014(e)(2) formula."""
+    canonical_import = "us:statutes/7/2014/e/2"
+    if _rulespec_path_matches(path, "statutes/7/2014/e/2.yaml"):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").lower() == "reiteration":
+            continue
+        name = str(rule.get("name") or "<unknown>")
+        target = _federal_snap_earned_income_deduction_target(name)
+        if target is not None and not _is_snap_policy_context(path, rule):
+            continue
+        if target is not None:
+            issues.append(
+                "Upstream placement violation: "
+                f"`{name}` appears to encode the federal SNAP earned-income "
+                "deduction outside 7 USC 2014(e)(2). Move the rule to "
+                f"`{target}` and use an import or a non-executable "
+                "`reiteration` marker in downstream state/manual files."
+            )
+            continue
+
+        referenced_symbol = _referenced_federal_snap_earned_income_deduction_symbol(
+            rule
+        )
+        if referenced_symbol is not None and canonical_import not in imports:
+            issues.append(
+                "Upstream import required: "
+                f"`{name}` references federal SNAP earned-income deduction "
+                f"symbol `{referenced_symbol}` but does not import "
+                f"`{canonical_import}`."
+            )
+
+    return issues
+
+
+def _federal_snap_earned_income_deduction_target(name: str) -> str | None:
+    normalized = name.lower()
+    targets = {
+        "snap_earned_income_deduction_rate": (
+            "us:statutes/7/2014/e/2#snap_earned_income_deduction_rate"
+        ),
+        "snap_earned_income_subject_to_deduction": (
+            "us:statutes/7/2014/e/2#snap_earned_income_subject_to_deduction"
+        ),
+        "snap_earned_income_deduction": (
+            "us:statutes/7/2014/e/2#snap_earned_income_deduction"
+        ),
+        "earned_income_deduction": (
+            "us:statutes/7/2014/e/2#snap_earned_income_deduction"
+        ),
+    }
+    return targets.get(normalized)
+
+
+def _referenced_federal_snap_earned_income_deduction_symbol(
+    rule: dict[str, Any],
+) -> str | None:
+    symbols = (
+        "snap_earned_income_deduction_rate",
+        "snap_earned_income_subject_to_deduction",
+        "snap_earned_income_deduction",
+        "earned_income_deduction",
+    )
+    for formula in _iter_rulespec_formula_strings(rule):
+        for symbol in symbols:
+            if re.search(rf"\b{re.escape(symbol)}\b", formula):
+                return symbol
+    return None
+
+
+def _find_federal_snap_income_standard_placement_issues(
+    *,
+    rules: list[Any],
+    path: str,
+    imports: set[str],
+) -> list[str]:
+    """SNAP FY income standards belong in the USDA income standards file."""
+    canonical_import = "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards"
+    if _is_usda_snap_income_standards_path(path):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").lower() == "reiteration":
+            continue
+        name = str(rule.get("name") or "<unknown>")
+        target = _federal_snap_income_standard_target(name)
+        if target is not None and not _is_snap_policy_context(path, rule):
+            continue
+        if target is not None:
+            issues.append(
+                "Upstream placement violation: "
+                f"`{name}` appears to encode federal SNAP USDA income "
+                "eligibility standards outside the USDA income eligibility "
+                "standards file. Move the value to "
+                f"`{target}` and use an import or a non-executable "
+                "`reiteration` marker in downstream state/manual files."
+            )
+            continue
+
+        referenced_symbol = _referenced_federal_snap_income_standard_symbol(rule)
+        if referenced_symbol is not None and canonical_import not in imports:
+            issues.append(
+                "Upstream import required: "
+                f"`{name}` references federal SNAP USDA income eligibility "
+                f"standards symbol `{referenced_symbol}` but does not import "
+                f"`{canonical_import}`."
+            )
+
+    return issues
+
+
+def _is_usda_snap_income_standards_path(path: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:^|/)policies/usda/snap/fy-\d{4}-cola/"
+            r"income-eligibility-standards\.yaml$",
+            path,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_snap_policy_context(path: str, rule: dict[str, Any]) -> bool:
+    if re.search(
+        r"(?:^|/)(?:policies/[^/]+/snap|regulations/10-ccr-2506-1)(?:/|$)", path
+    ):
+        return True
+    name = str(rule.get("name") or "").lower()
+    if name.startswith("snap_") or "_snap_" in name:
+        return True
+    source = str(rule.get("source") or "").lower()
+    return "snap" in source
+
+
+def _federal_snap_income_standard_target(name: str) -> str | None:
+    normalized = name.lower()
+    target = "us:policies/usda/snap/fy-<year>-cola/income-eligibility-standards"
+    targets = {
+        "gross_income_limit_table": (
+            f"{target}#snap_gross_income_limit_130_percent_fpl_48_states_dc_table"
+        ),
+        "gross_income_limit_additional_member": (
+            f"{target}#snap_gross_income_limit_130_percent_fpl_48_states_dc_additional_member"
+        ),
+        "gross_income_limit": (
+            f"{target}#snap_gross_income_limit_130_percent_fpl_48_states_dc"
+        ),
+        "net_income_limit_table": (
+            f"{target}#snap_net_income_limit_100_percent_fpl_48_states_dc_table"
+        ),
+        "net_income_limit_additional_member": (
+            f"{target}#snap_net_income_limit_100_percent_fpl_48_states_dc_additional_member"
+        ),
+        "net_income_limit": (
+            f"{target}#snap_net_income_limit_100_percent_fpl_48_states_dc"
+        ),
+    }
+    if normalized in targets:
+        return targets[normalized]
+
+    patterns = (
+        (
+            r"^snap_net_income_limit_100_percent_fpl(?:$|_48_states_dc)",
+            f"{target}#snap_net_income_limit_100_percent_fpl_48_states_dc",
+        ),
+        (
+            r"^snap_gross_income_limit_130_percent_fpl(?:$|_48_states_dc)",
+            f"{target}#snap_gross_income_limit_130_percent_fpl_48_states_dc",
+        ),
+        (
+            r"^snap_gross_income_limit_165_percent_fpl(?:$|_48_states_dc)",
+            f"{target}#snap_gross_income_limit_165_percent_fpl_48_states_dc",
+        ),
+    )
+    for pattern, pattern_target in patterns:
+        if re.search(pattern, normalized):
+            return pattern_target
+    return None
+
+
+def _referenced_federal_snap_income_standard_symbol(
+    rule: dict[str, Any],
+) -> str | None:
+    symbols = (
+        "snap_net_income_limit_100_percent_fpl_48_states_dc",
+        "snap_gross_income_limit_130_percent_fpl_48_states_dc",
+        "snap_gross_income_limit_165_percent_fpl_48_states_dc",
+        "gross_income_limit",
+        "net_income_limit",
+    )
+    for formula in _iter_rulespec_formula_strings(rule):
+        for symbol in symbols:
+            if re.search(rf"\b{re.escape(symbol)}\b", formula):
+                return symbol
+    return None
+
+
 def _find_federal_snap_cola_value_placement_issues(
     rules: list[Any],
     *,
@@ -2098,6 +2322,8 @@ def _find_federal_snap_cola_value_placement_issues(
             continue
         name = str(rule.get("name") or "<unknown>")
         target = _federal_snap_cola_value_target(name)
+        if target is not None and not _is_snap_policy_context(path, rule):
+            continue
         if target is None:
             continue
         issues.append(
@@ -2123,6 +2349,13 @@ def _is_usda_snap_cola_path(path: str) -> bool:
 def _federal_snap_cola_value_target(name: str) -> str | None:
     normalized = name.lower()
     direct_targets = {
+        "standard_deduction_table": (
+            "us:policies/usda/snap/fy-<year>-cola/deductions"
+            "#snap_standard_deduction_48_states_dc_table"
+        ),
+        "standard_deduction": (
+            "us:policies/usda/snap/fy-<year>-cola/deductions#snap_standard_deduction"
+        ),
         "excess_shelter_deduction_cap": (
             "us:policies/usda/snap/fy-<year>-cola/deductions"
             "#snap_maximum_excess_shelter_deduction_48_states_dc"
