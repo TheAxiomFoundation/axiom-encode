@@ -219,6 +219,142 @@ rules:
     )
 
 
+def test_upstream_placement_flags_state_manual_snap_allotment_formula():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_household_food_contribution_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '0.30'
+  - name: household_food_contribution
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: net_income_for_benefit_formula * snap_household_food_contribution_rate
+  - name: snap_regular_month_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if snap_eligible:
+              max(snap_allotment_before_minimum, snap_minimum_monthly_allotment)
+          else: 0
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
+    )
+
+    assert len(issues) == 3
+    assert all("7 USC 2017(a)" in issue for issue in issues)
+    assert any("snap_household_food_contribution_rate" in issue for issue in issues)
+    assert any("snap_household_food_contribution" in issue for issue in issues)
+    assert any("snap_regular_month_allotment" in issue for issue in issues)
+
+
+def test_upstream_placement_requires_snap_allotment_formula_import():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_application_denied_for_zero_benefit
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_allotment_before_minimum == 0
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
+    )
+
+    assert len(issues) == 1
+    assert "Upstream import required" in issues[0]
+    assert "us:statutes/7/2017/a" in issues[0]
+
+
+def test_upstream_placement_flags_legacy_snap_allotment_alias_references():
+    content = """format: rulespec/v1
+rules:
+  - name: state_snap_uses_food_contribution
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_food_contribution > 0
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
+    )
+
+    assert len(issues) == 1
+    assert "household_food_contribution" in issues[0]
+    assert "us:statutes/7/2017/a" in issues[0]
+
+
+def test_upstream_placement_allows_canonical_snap_allotment_formula():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_regular_month_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2008-10-01'
+        formula: |-
+          if snap_eligible:
+              max(snap_allotment_before_minimum, snap_minimum_monthly_allotment)
+          else: 0
+"""
+
+    assert (
+        find_upstream_placement_issues(
+            content,
+            rules_file=Path("statutes/7/2017/a.yaml"),
+        )
+        == []
+    )
+
+
+def test_upstream_placement_allows_state_manual_reiteration_of_snap_allotment_formula():
+    content = """format: rulespec/v1
+rules:
+  - name: co_snap_regular_allotment_reiterates_7_usc_2017_a
+    kind: reiteration
+    reiterates:
+      target: us:statutes/7/2017/a#snap_regular_month_allotment
+      authority: federal
+      relationship: restates
+"""
+
+    assert (
+        find_upstream_placement_issues(
+            content,
+            rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
+        )
+        == []
+    )
+
+
 def test_upstream_placement_flags_state_manual_federal_cola_values():
     content = """format: rulespec/v1
 rules:

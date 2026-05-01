@@ -1907,6 +1907,13 @@ def find_upstream_placement_issues(
             imports=imports,
         )
     )
+    issues.extend(
+        _find_federal_snap_allotment_formula_placement_issues(
+            rules=rules,
+            path=path,
+            imports=imports,
+        )
+    )
     issues.extend(_find_federal_snap_cola_value_placement_issues(rules, path=path))
     return issues
 
@@ -1981,6 +1988,97 @@ def _is_snap_elderly_disabled_definition_rule(rule: dict[str, Any]) -> bool:
         ):
             return True
     return False
+
+
+def _find_federal_snap_allotment_formula_placement_issues(
+    *,
+    rules: list[Any],
+    path: str,
+    imports: set[str],
+) -> list[str]:
+    """SNAP regular allotment mechanics are a 7 USC 2017(a) formula."""
+    canonical_import = "us:statutes/7/2017/a"
+    if _rulespec_path_matches(path, "statutes/7/2017/a.yaml"):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").lower() == "reiteration":
+            continue
+        name = str(rule.get("name") or "<unknown>")
+        target = _federal_snap_allotment_formula_target(name)
+        if target is not None:
+            issues.append(
+                "Upstream placement violation: "
+                f"`{name}` appears to encode the federal SNAP regular allotment "
+                "formula outside 7 USC 2017(a). Move the rule to "
+                f"`{target}` and use an import or a non-executable "
+                "`reiteration` marker in downstream state/manual files."
+            )
+            continue
+
+        referenced_symbol = _referenced_federal_snap_allotment_formula_symbol(rule)
+        if referenced_symbol is not None and canonical_import not in imports:
+            issues.append(
+                "Upstream import required: "
+                f"`{name}` references federal SNAP allotment formula symbol "
+                f"`{referenced_symbol}` but does not import `{canonical_import}`."
+            )
+
+    return issues
+
+
+def _federal_snap_allotment_formula_target(name: str) -> str | None:
+    normalized = name.lower()
+    targets = {
+        "snap_household_food_contribution_rate": (
+            "us:statutes/7/2017/a#snap_household_food_contribution_rate"
+        ),
+        "snap_net_income_for_allotment": (
+            "us:statutes/7/2017/a#snap_net_income_for_allotment"
+        ),
+        "net_income_for_benefit_formula": (
+            "us:statutes/7/2017/a#snap_net_income_for_allotment"
+        ),
+        "snap_household_food_contribution": (
+            "us:statutes/7/2017/a#snap_household_food_contribution"
+        ),
+        "household_food_contribution": (
+            "us:statutes/7/2017/a#snap_household_food_contribution"
+        ),
+        "snap_allotment_before_minimum": (
+            "us:statutes/7/2017/a#snap_allotment_before_minimum"
+        ),
+        "snap_minimum_monthly_allotment": (
+            "us:statutes/7/2017/a#snap_minimum_monthly_allotment"
+        ),
+        "snap_regular_month_allotment": (
+            "us:statutes/7/2017/a#snap_regular_month_allotment"
+        ),
+    }
+    return targets.get(normalized)
+
+
+def _referenced_federal_snap_allotment_formula_symbol(
+    rule: dict[str, Any],
+) -> str | None:
+    symbols = (
+        "snap_household_food_contribution_rate",
+        "snap_net_income_for_allotment",
+        "net_income_for_benefit_formula",
+        "snap_household_food_contribution",
+        "household_food_contribution",
+        "snap_allotment_before_minimum",
+        "snap_minimum_monthly_allotment",
+        "snap_regular_month_allotment",
+    )
+    for formula in _iter_rulespec_formula_strings(rule):
+        for symbol in symbols:
+            if re.search(rf"\b{re.escape(symbol)}\b", formula):
+                return symbol
+    return None
 
 
 def _find_federal_snap_cola_value_placement_issues(
