@@ -862,9 +862,7 @@ def cmd_validate(args):
                 for issue in issues[:10]:
                     print(f"  - {name}: {issue}")
                 if len(issues) > 10:
-                    print(
-                        f"  - {name}: ... {len(issues) - 10} more oracle issue(s)"
-                    )
+                    print(f"  - {name}: ... {len(issues) - 10} more oracle issue(s)")
 
     sys.exit(0 if all_passed else 1)
 

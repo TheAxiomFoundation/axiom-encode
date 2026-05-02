@@ -179,8 +179,8 @@ def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
     pipeline._find_pe_python = lambda _country: Path("python")
     pipeline._should_compare_pe_test_output = lambda *_args, **_kwargs: True
     pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
-    pipeline._resolve_pe_variable = (
-        lambda _country, name: "pe_mapped_var" if name == "mapped_var" else None
+    pipeline._resolve_pe_variable = lambda _country, name: (
+        "pe_mapped_var" if name == "mapped_var" else None
     )
     pipeline._build_pe_scenario_script = lambda *_args, **_kwargs: ""
     pipeline._run_pe_subprocess_detailed = lambda *_args, **_kwargs: (
@@ -219,7 +219,9 @@ def test_reviewer_score_below_threshold_fails_even_if_declared_passed(
 
     assert result.score == 2.0
     assert result.passed is False
-    assert any("reviewer_score_below_pass_threshold" in issue for issue in result.issues)
+    assert any(
+        "reviewer_score_below_pass_threshold" in issue for issue in result.issues
+    )
 
 
 def test_rulespec_grounding_tolerates_decimal_percentage_float_noise():
