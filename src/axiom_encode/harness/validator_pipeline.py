@@ -3332,6 +3332,16 @@ def _rulespec_public_item_key(item: Any) -> str:
     return str(item.get("name") or "").strip()
 
 
+def _rulespec_item_friendly_name_and_legal_id(item: Any) -> tuple[str, str] | None:
+    if not isinstance(item, dict):
+        return None
+    name = str(item.get("name") or "").strip()
+    item_id = str(item.get("id") or "").strip()
+    if not name or not item_id or name == item_id:
+        return None
+    return name, item_id
+
+
 class ValidatorPipeline:
     """Runs validators in 3 tiers with session event logging."""
 
@@ -3906,6 +3916,28 @@ class ValidatorPipeline:
         }
         return derived, parameters
 
+    def _rulespec_legal_ids_by_friendly_output_name(
+        self, compiled_payload: dict[str, Any]
+    ) -> dict[str, list[str]]:
+        """Return legal output ids keyed by local friendly name for repo-backed rules."""
+        program = (
+            compiled_payload.get("program")
+            if isinstance(compiled_payload, dict)
+            else {}
+        )
+        if not isinstance(program, dict):
+            program = {}
+
+        legal_ids_by_name: dict[str, set[str]] = {}
+        for collection in ("derived", "parameters"):
+            for item in program.get(collection, []):
+                pair = _rulespec_item_friendly_name_and_legal_id(item)
+                if pair is None:
+                    continue
+                name, item_id = pair
+                legal_ids_by_name.setdefault(name, set()).add(item_id)
+        return {name: sorted(item_ids) for name, item_ids in legal_ids_by_name.items()}
+
     def _rulespec_compiled_parameter_value(
         self,
         parameter: dict[str, Any],
@@ -4114,6 +4146,9 @@ class ValidatorPipeline:
         issues: list[str] = []
         binary = self._axiom_rules_binary()
         derived_by_key, parameter_by_key = self._rulespec_program_maps(compiled_payload)
+        legal_ids_by_friendly_name = self._rulespec_legal_ids_by_friendly_output_name(
+            compiled_payload
+        )
 
         for index, case in enumerate(cases, 1):
             if not isinstance(case, dict):
@@ -4160,6 +4195,23 @@ class ValidatorPipeline:
                 elif output_key in parameter_by_key:
                     parameter_outputs.append(output_key)
                 else:
+                    legal_ids = legal_ids_by_friendly_name.get(output_key)
+                    if legal_ids:
+                        if len(legal_ids) == 1:
+                            issue = (
+                                f"Test case `{case_name}` output `{output_key}` "
+                                f"must use legal RuleSpec id `{legal_ids[0]}` "
+                                "instead of the friendly name."
+                            )
+                        else:
+                            legal_id_list = ", ".join(f"`{item}`" for item in legal_ids)
+                            issue = (
+                                f"Test case `{case_name}` output `{output_key}` "
+                                "must use a legal RuleSpec id instead of the "
+                                f"ambiguous friendly name; use one of {legal_id_list}."
+                            )
+                        issues.append(issue)
+                        continue
                     issues.append(
                         f"Test case `{case_name}` output `{output_key}` is not "
                         f"a compiled derived output or scalar parameter in {rules_file.name}."

@@ -75,6 +75,54 @@ rules:
     ] == [("snap_standard_utility_allowance_value", 451.0)]
 
 
+def test_rulespec_ci_rejects_repo_backed_friendly_output_keys(tmp_path):
+    if not AXIOM_RULES_BINARY.exists():
+        pytest.skip("local axiom-rules binary is not built")
+
+    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: 7 USC 2017(a) sets the regular SNAP allotment.
+rules:
+  - name: snap_regular_month_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_allotment_input
+"""
+    )
+    rules_file.with_name("a.test.yaml").write_text(
+        """- name: base
+  period: 2026-01
+  input:
+    household_allotment_input: 298
+  output:
+    snap_regular_month_allotment: 298
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rules-us",
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is False
+    assert any(
+        "must use legal RuleSpec id" in issue
+        and "us:statutes/7/2017/a#snap_regular_month_allotment" in issue
+        for issue in result.issues
+    )
+
+
 def test_rulespec_grounding_tolerates_decimal_percentage_float_noise():
     content = """format: rulespec/v1
 module:
