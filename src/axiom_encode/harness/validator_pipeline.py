@@ -1903,6 +1903,7 @@ def find_upstream_placement_issues(
         source_metadata = _load_nearby_eval_source_metadata(rules_file)
 
     issues: list[str] = []
+    issues.extend(_find_rule_metadata_schema_issues(rules))
     issues.extend(
         _find_source_metadata_upstream_issues(
             rules=rules,
@@ -1939,12 +1940,99 @@ _SOURCE_METADATA_REITERATION_RELATIONS = {
     "copied",
 }
 _SOURCE_METADATA_DECLARATIVE_RELATIONS = {
-    "sets": "metadata.sets",
-    "set": "metadata.sets",
-    "amends": "metadata.amends",
-    "amend": "metadata.amends",
-    "amended": "metadata.amends",
+    "sets": "sets",
+    "set": "sets",
+    "amends": "amends",
+    "amend": "amends",
+    "amended": "amends",
+    "implements": "implements",
+    "implement": "implements",
+    "implemented": "implements",
 }
+_RULE_METADATA_TARGET_KEYS = ("defines", "delegates", "implements", "sets", "amends")
+_RULE_METADATA_SOURCE_RELATIONS = (*_RULE_METADATA_TARGET_KEYS, "reiterates")
+_RULE_METADATA_SOURCE_RELATION_SET = frozenset(_RULE_METADATA_SOURCE_RELATIONS)
+
+
+def _find_rule_metadata_schema_issues(rules: list[Any]) -> list[str]:
+    """Validate generic source relation metadata on executable RuleSpec rules."""
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+
+        metadata = rule.get("metadata")
+        if metadata is None:
+            continue
+
+        rule_name = str(rule.get("name") or "<unnamed>").strip() or "<unnamed>"
+        if not isinstance(metadata, dict):
+            issues.append(
+                f"RuleSpec relation metadata malformed: rule `{rule_name}` metadata "
+                "must be a mapping."
+            )
+            continue
+
+        source_relation = _rule_metadata_source_relation(rule)
+        target_keys = [
+            key
+            for key in _RULE_METADATA_TARGET_KEYS
+            if list(_iter_relation_target_values(metadata.get(key)))
+        ]
+
+        if (
+            source_relation is not None
+            and source_relation not in _RULE_METADATA_SOURCE_RELATION_SET
+        ):
+            allowed = ", ".join(
+                f"`{relation}`" for relation in _RULE_METADATA_SOURCE_RELATIONS
+            )
+            issues.append(
+                f"RuleSpec relation metadata has unknown source relation: rule "
+                f"`{rule_name}` declares `metadata.source_relation: "
+                f"{source_relation}`, but allowed values are {allowed}."
+            )
+            continue
+
+        if target_keys and source_relation is None:
+            targets = ", ".join(f"`metadata.{key}`" for key in target_keys)
+            issues.append(
+                f"RuleSpec relation metadata is missing source relation: rule "
+                f"`{rule_name}` declares {targets} and must also declare "
+                "`metadata.source_relation`."
+            )
+            continue
+
+        if source_relation == "reiterates":
+            if str(rule.get("kind") or "").strip().lower() != "reiteration":
+                issues.append(
+                    f"RuleSpec relation metadata has executable reiteration: rule "
+                    f"`{rule_name}` declares `metadata.source_relation: reiterates`; "
+                    "use `kind: reiteration` with `reiterates.target` instead."
+                )
+            continue
+
+        if source_relation == "defines":
+            has_target = any(_iter_relation_target_values(metadata.get("defines")))
+            has_concept_id = bool(str(metadata.get("concept_id") or "").strip())
+            if not has_target and not has_concept_id:
+                issues.append(
+                    f"RuleSpec relation metadata is incomplete: rule `{rule_name}` "
+                    "declares `metadata.source_relation: defines` and must also "
+                    "declare `metadata.defines` or `metadata.concept_id`."
+                )
+            continue
+
+        if source_relation in _RULE_METADATA_TARGET_KEYS and not any(
+            _iter_relation_target_values(metadata.get(source_relation))
+        ):
+            issues.append(
+                f"RuleSpec relation metadata is incomplete: rule `{rule_name}` "
+                f"declares `metadata.source_relation: {source_relation}` and "
+                f"must also declare `metadata.{source_relation}`."
+            )
+
+    return issues
 
 
 def _find_source_metadata_upstream_issues(
@@ -1966,17 +2054,17 @@ def _find_source_metadata_upstream_issues(
             )
             continue
 
-        metadata_path = _SOURCE_METADATA_DECLARATIVE_RELATIONS.get(relation)
-        if metadata_path is None:
+        metadata_key = _SOURCE_METADATA_DECLARATIVE_RELATIONS.get(relation)
+        if metadata_key is None:
             continue
-        metadata_key = metadata_path.split(".", 1)[1]
-        if _rules_include_metadata_target(rules, metadata_key, target):
+        if _rules_include_metadata_relation_target(rules, metadata_key, target):
             continue
         issues.append(
             "Source metadata upstream relation not recorded: "
             f"source metadata says this source `{relation}` `{target}`, so "
-            f"the corresponding RuleSpec rule must declare `{metadata_path}: "
-            f"{target}`."
+            "the corresponding RuleSpec rule must declare "
+            f"`metadata.source_relation: {metadata_key}` and "
+            f"`metadata.{metadata_key}: {target}`."
         )
     return issues
 
@@ -2016,19 +2104,28 @@ def _rules_include_reiteration_target(rules: list[Any], target: str) -> bool:
     )
 
 
-def _rules_include_metadata_target(
+def _rules_include_metadata_relation_target(
     rules: list[Any],
     metadata_key: str,
     target: str,
 ) -> bool:
     return any(
         isinstance(rule, dict)
+        and _rule_metadata_source_relation(rule) == metadata_key
         and any(
             _target_matches(candidate, target)
             for candidate in _iter_rule_metadata_targets(rule, metadata_key)
         )
         for rule in rules
     )
+
+
+def _rule_metadata_source_relation(rule: dict[str, Any]) -> str | None:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    relation = str(metadata.get("source_relation") or "").strip().lower()
+    return relation or None
 
 
 def _iter_rule_metadata_targets(
@@ -3967,7 +4064,20 @@ class ValidatorPipeline:
         outputs = results[0].get("outputs")
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
-        return outputs, []
+        return self._rulespec_outputs_by_reference(outputs), []
+
+    def _rulespec_outputs_by_reference(self, outputs: dict[str, Any]) -> dict[str, Any]:
+        """Index runtime outputs by response key, durable id, and friendly name."""
+        outputs_by_reference: dict[str, Any] = {}
+        for output_key, output in outputs.items():
+            outputs_by_reference[str(output_key)] = output
+            if not isinstance(output, dict):
+                continue
+            for reference_key in ("id", "name"):
+                reference = str(output.get(reference_key) or "").strip()
+                if reference:
+                    outputs_by_reference[reference] = output
+        return outputs_by_reference
 
     def _run_rulespec_test_cases(
         self,

@@ -19,6 +19,10 @@ Hard requirements:
   canonical rule. It must include `reiterates.target` and must not include
   executable `versions`; optional `verification` may record matching source
   values for audit.
+- If context/source metadata says this source `sets`, `amends`, or
+  `implements` an upstream target, put the relationship on the rule as
+  `metadata.source_relation` plus the matching `metadata.sets`,
+  `metadata.amends`, or `metadata.implements` target.
 - Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.

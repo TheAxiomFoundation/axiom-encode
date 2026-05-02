@@ -105,6 +105,26 @@ Rule names are still useful for humans and imports, but duplicate detection
 should compare concept ids and declared relation targets. This is what prevents
 the harness from falling back into variable-name heuristics.
 
+## Rule Identity and Outputs
+
+Bare rule names are local symbols, not durable public identifiers. The durable
+identity of an executable rule should be the canonical RuleSpec target plus the
+rule name:
+
+```text
+rules-us:statutes/7/2017/a#snap_regular_month_allotment
+rules-us-co:regulations/10-ccr-2506-1/4.403.2#snap_countable_earned_income
+```
+
+Formula authors should still be able to reference local and imported symbols by
+bare name where the compiler can resolve them unambiguously. External surfaces
+should expose the canonical id alongside the friendly name. That includes API
+execution results, notebook demos, traces, registry rows, and verification
+artifacts. A notebook can display `snap_regular_month_allotment`, but the
+machine-readable output should also carry
+`rules-us:statutes/7/2017/a#snap_regular_month_allotment` so calculated values
+are keyed to the provision that defines them.
+
 ## Encoding Workflow
 
 For each source span:

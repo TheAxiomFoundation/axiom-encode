@@ -703,6 +703,7 @@ rules:
     dtype: Money
     unit: USD
     metadata:
+      source_relation: sets
       sets: us:regulation/7-cfr/273/9/d/6/iii#standard_allowance
     versions:
       - effective_from: '2026-01-01'
@@ -752,6 +753,159 @@ rules:
     assert len(issues) == 1
     assert "metadata.amends" in issues[0]
     assert "us:statutes/7/2014/c#income_threshold" in issues[0]
+
+
+def test_upstream_placement_requires_source_relation_for_metadata_target():
+    content = """format: rulespec/v1
+rules:
+  - name: local_standard_allowance
+    kind: parameter
+    dtype: Money
+    unit: USD
+    metadata:
+      sets: us:regulation/7-cfr/273/9/d/6/iii#standard_allowance
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '451'
+"""
+
+    issues = find_upstream_placement_issues(content)
+
+    assert len(issues) == 1
+    assert "metadata.source_relation" in issues[0]
+    assert "metadata.sets" in issues[0]
+
+
+def test_upstream_placement_rejects_unknown_source_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: local_copy
+    kind: parameter
+    dtype: Money
+    unit: USD
+    metadata:
+      source_relation: copies
+      sets: us:regulation/example#amount
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '451'
+"""
+
+    issues = find_upstream_placement_issues(content)
+
+    assert len(issues) == 1
+    assert "unknown source relation" in issues[0]
+    assert "copies" in issues[0]
+
+
+def test_upstream_placement_requires_metadata_target_for_declared_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: local_update
+    kind: parameter
+    dtype: Money
+    unit: USD
+    metadata:
+      source_relation: amends
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '100'
+"""
+
+    issues = find_upstream_placement_issues(content)
+
+    assert len(issues) == 1
+    assert "metadata.source_relation: amends" in issues[0]
+    assert "metadata.amends" in issues[0]
+
+
+def test_upstream_placement_requires_metadata_implements_from_source_metadata():
+    content = """format: rulespec/v1
+rules:
+  - name: state_mechanics
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_income
+"""
+
+    issues = find_upstream_placement_issues(
+        content,
+        source_metadata={
+            "relations": [
+                {
+                    "relation": "implements",
+                    "target": "us:statutes/7/2014/e#deduction_mechanics",
+                }
+            ]
+        },
+    )
+
+    assert len(issues) == 1
+    assert "metadata.source_relation: implements" in issues[0]
+    assert "metadata.implements" in issues[0]
+
+
+def test_upstream_placement_allows_metadata_implements_from_source_metadata():
+    content = """format: rulespec/v1
+rules:
+  - name: state_mechanics
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    metadata:
+      source_relation: implements
+      implements:
+        - target: us:statutes/7/2014/e#deduction_mechanics
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_income
+"""
+
+    assert (
+        find_upstream_placement_issues(
+            content,
+            source_metadata={
+                "relations": [
+                    {
+                        "relation": "implements",
+                        "target": "us:statutes/7/2014/e#deduction_mechanics",
+                    }
+                ]
+            },
+        )
+        == []
+    )
+
+
+def test_upstream_placement_requires_concept_for_defines_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: canonical_income_rule
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    metadata:
+      source_relation: defines
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_income
+"""
+
+    issues = find_upstream_placement_issues(content)
+
+    assert len(issues) == 1
+    assert "metadata.source_relation: defines" in issues[0]
+    assert "metadata.defines" in issues[0]
+    assert "metadata.concept_id" in issues[0]
 
 
 def test_extract_json_object_accepts_literal_newline_in_reviewer_string():
@@ -871,6 +1025,33 @@ rules:
         "snap_standard_utility_allowance" in issue
         and "expected integer 452, got integer 451" in issue
         for issue in result.issues
+    )
+
+
+def test_rulespec_output_lookup_accepts_durable_ids(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    runtime_output = {
+        "us:statutes/7/2017/a#snap_regular_month_allotment": {
+            "kind": "scalar",
+            "name": "snap_regular_month_allotment",
+            "id": "us:statutes/7/2017/a#snap_regular_month_allotment",
+            "value": {"kind": "decimal", "value": "268"},
+        }
+    }
+
+    outputs = pipeline._rulespec_outputs_by_reference(runtime_output)
+
+    assert (
+        outputs["snap_regular_month_allotment"]
+        is runtime_output["us:statutes/7/2017/a#snap_regular_month_allotment"]
+    )
+    assert (
+        outputs["us:statutes/7/2017/a#snap_regular_month_allotment"]
+        is runtime_output["us:statutes/7/2017/a#snap_regular_month_allotment"]
     )
 
 

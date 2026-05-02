@@ -1986,7 +1986,7 @@ Prefer the earliest scaffold date that is relevant to the copied precedent when 
     if workspace.source_metadata is not None:
         source_metadata_section = f"""
 Structured source metadata is available in `./source-metadata.json` and copied below.
-If a metadata relation says this source `sets` a canonical target, model this artifact as setting the effective jurisdiction-specific value for that delegated slot and record the absolute target path under `metadata.sets`. This is not an `amends` relationship unless the source itself amends another source.
+If a metadata relation says this source `sets` a canonical target, model this artifact as setting the effective jurisdiction-specific value for that delegated slot and record `metadata.source_relation: sets` plus the absolute target path under `metadata.sets`. This is not an `amends` relationship unless the source itself amends another source.
 For state option/source-slice metadata, do not add a top-level `imports:` entry to the absolute canonical target path such as `us:regulation/...#...` or `us:statutes/...#...` unless a copied context file actually provides that import target.
 If the canonical target is an option/applies/uses-style slot such as `...#*_applies` or `...#*_uses_*`, encode the canonical boolean slot as a direct dated constant `true` or `false` when the source text itself sets that option.
 Do not invent jurisdiction guards like `*_is_in_state` or `*_is_in_jurisdiction` unless `./source.txt` states them; for a jurisdiction-specific source slice, use only positive/continuity cases rather than a fabricated out-of-jurisdiction false case.
@@ -2156,7 +2156,8 @@ RuleSpec requirements:
 - Do not create named `parameter` rules for structural table row labels, household-size row indexes, or branch numbers unless the source actually sets that value as a legal amount, rate, threshold, cap, or limit; use those structural comparisons inline instead.
 - If the source cannot be represented faithfully with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
 - For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty and do not create assertions against deferred symbols.
-- If metadata or context names an absolute canonical target that this source `sets`, store that absolute path in the relevant rule's `metadata.sets` list.
+- If metadata or context names an absolute canonical target that this source `sets`, declare `metadata.source_relation: sets` and store that absolute path in the relevant rule's `metadata.sets` list.
+- If metadata or context names an absolute canonical target that this source `amends` or `implements`, declare `metadata.source_relation: amends` or `metadata.source_relation: implements` and store that target under the matching `metadata.amends` or `metadata.implements` list.
 - When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
 {target_hint}
