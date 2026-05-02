@@ -7,6 +7,11 @@ Encode only the supplied legal source text into Axiom RuleSpec YAML.
 Hard requirements:
 - Emit `format: rulespec/v1`.
 - Include `module.summary: |-` with the operative source text or an exact audit excerpt.
+- If the source has an ingested corpus provision, include
+  `module.source_verification.corpus_citation_path` or
+  `module.source_verification.corpus_citation_paths`.
+- Do not emit `source_url`; RuleSpec validation reads normalized corpus provisions,
+  not raw PDFs or web pages.
 - Use `rules:` as a list of rule objects.
 - Use `kind: parameter` for source-stated amounts, rates, thresholds, caps, and limits.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated

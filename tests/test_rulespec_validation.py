@@ -16,6 +16,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
+    find_deprecated_source_url_issues,
     find_source_verification_issues,
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
@@ -30,10 +31,10 @@ AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
 AXIOM_RULES_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules"
 
 
-def _mock_source_url_text(monkeypatch, text: str) -> None:
+def _mock_corpus_source_text(monkeypatch, text: str) -> None:
     monkeypatch.setattr(
-        "axiom_encode.harness.validator_pipeline._fetch_source_url_text",
-        lambda _source_url: text,
+        "axiom_encode.harness.validator_pipeline._fetch_corpus_source_text",
+        lambda _citation_path: text,
     )
 
 
@@ -41,7 +42,7 @@ def test_rulespec_compile_ci_and_grounding(tmp_path, monkeypatch):
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
-    _mock_source_url_text(
+    _mock_corpus_source_text(
         monkeypatch,
         "The official source states the standard utility allowance is $451.",
     )
@@ -52,12 +53,13 @@ def test_rulespec_compile_ci_and_grounding(tmp_path, monkeypatch):
 module:
   summary: |-
     The standard utility allowance is $451.
+  source_verification:
+    corpus_citation_path: us/guidance/example/sua
 rules:
   - name: snap_standard_utility_allowance_value
     kind: parameter
     dtype: Money
     unit: USD
-    source_url: https://example.gov/sua
     versions:
       - effective_from: '2024-01-01'
         formula: |-
@@ -636,10 +638,39 @@ rules:
     assert "`module.summary` is not accepted" in issues[0]
 
 
-def test_rulespec_grounding_uses_declared_source_url_text(monkeypatch):
+def test_rulespec_grounding_uses_declared_corpus_source_text(monkeypatch):
     content = """format: rulespec/v1
 module:
   summary: A human summary is not numeric source text.
+  source_verification:
+    corpus_citation_path: us/guidance/example/source
+rules:
+  - name: standard_deduction_single
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '16100'
+"""
+
+    def fake_fetch(citation_path: str) -> str | None:
+        assert citation_path == "us/guidance/example/source"
+        return "The official source states $16,100 for this amount."
+
+    monkeypatch.setattr(
+        "axiom_encode.harness.validator_pipeline._fetch_corpus_source_text",
+        fake_fetch,
+    )
+
+    assert find_ungrounded_numeric_issues(content) == []
+
+
+def test_rulespec_rejects_legacy_source_url_metadata():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/example/source
 rules:
   - name: standard_deduction_single
     kind: parameter
@@ -651,16 +682,11 @@ rules:
         formula: '16100'
 """
 
-    def fake_fetch(source_url: str) -> str | None:
-        assert source_url == "https://example.gov/source"
-        return "The official source states $16,100 for this amount."
+    issues = find_deprecated_source_url_issues(content)
 
-    monkeypatch.setattr(
-        "axiom_encode.harness.validator_pipeline._fetch_source_url_text",
-        fake_fetch,
-    )
-
-    assert find_ungrounded_numeric_issues(content) == []
+    assert len(issues) == 1
+    assert "Legacy source URL metadata not allowed" in issues[0]
+    assert "rules.standard_deduction_single.source_url" in issues[0]
 
 
 def test_rulespec_grounding_accepts_source_leading_decimal():
@@ -1786,7 +1812,7 @@ def test_rulespec_ci_compares_parameter_only_outputs(tmp_path, monkeypatch):
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
-    _mock_source_url_text(
+    _mock_corpus_source_text(
         monkeypatch, "The official source states the policy rate is 0.2."
     )
 
@@ -1795,11 +1821,12 @@ def test_rulespec_ci_compares_parameter_only_outputs(tmp_path, monkeypatch):
         """format: rulespec/v1
 module:
   summary: The policy rate is 0.2.
+  source_verification:
+    corpus_citation_path: us/guidance/example/rate
 rules:
   - name: policy_rate
     kind: parameter
     dtype: Rate
-    source_url: https://example.gov/rate
     versions:
       - effective_from: '2024-01-01'
         formula: '0.2'
@@ -1830,7 +1857,7 @@ def test_rulespec_ci_executes_indexed_parameter_table_lookup(tmp_path, monkeypat
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
-    _mock_source_url_text(
+    _mock_corpus_source_text(
         monkeypatch,
         "The official source lists $298 and $546 for sizes 1 and 2, plus $218.",
     )
@@ -1842,13 +1869,14 @@ module:
   summary: |-
     The maximum monthly allotments are 298 and 546 for household sizes 1 and 2,
     plus 218 for each additional person.
+  source_verification:
+    corpus_citation_path: us/guidance/example/allotments
 rules:
   - name: benefit_amount_table
     kind: parameter
     dtype: Money
     unit: USD
     indexed_by: household_size
-    source_url: https://example.gov/allotments
     versions:
       - effective_from: '2025-10-01'
         values:
@@ -1858,7 +1886,6 @@ rules:
     kind: parameter
     dtype: Money
     unit: USD
-    source_url: https://example.gov/allotments
     versions:
       - effective_from: '2025-10-01'
         formula: '218'
@@ -2025,7 +2052,7 @@ rules:
     assert issues == []
 
 
-def test_source_verification_reads_local_corpus_artifact_before_source_url(
+def test_source_verification_reads_local_corpus_artifact(
     tmp_path,
     monkeypatch,
 ):
@@ -2046,18 +2073,10 @@ def test_source_verification_reads_local_corpus_artifact_before_source_url(
     validator_pipeline._fetch_corpus_source_text.cache_clear()
     validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
-    def reject_source_url_fetch(source_url: str) -> str | None:
-        raise AssertionError(f"source_url fetch should not run: {source_url}")
-
-    monkeypatch.setattr(
-        "axiom_encode.harness.validator_pipeline._fetch_source_url_text",
-        reject_source_url_fetch,
-    )
     content = """format: rulespec/v1
 module:
   source_verification:
     corpus_citation_path: us/guidance/example/page-1
-    source_url: https://example.gov/raw.pdf
     values:
       official_amount: 123
 rules:
@@ -2074,11 +2093,11 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
-def test_source_verification_accepts_values_in_official_source_url_text():
+def test_source_verification_accepts_values_in_corpus_source_text():
     content = """format: rulespec/v1
 module:
   source_verification:
-    source_url: https://www.irs.gov/irb/2025-45_IRB
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-18
     values:
       standard_deduction_single: 16100
 rules:
@@ -2094,7 +2113,7 @@ rules:
     issues = find_source_verification_issues(
         content,
         source_texts={
-            "https://www.irs.gov/irb/2025-45_IRB": (
+            "us/guidance/irs/rev-proc-2025-32/page-18": (
                 "For taxable years beginning in 2026, the standard deduction "
                 "for unmarried individuals is $16,100."
             )
@@ -2267,7 +2286,6 @@ rules:
   - name: co_snap_maximum_allotment_reiterates_usda_fy_2026
     kind: reiteration
     source: 10 CCR 2506-1 section 4.207.3(D)
-    source_url: https://example.test/co-snap
     reiterates:
       target: us:policies/usda/snap/fy-2026-cola#snap_maximum_allotment
       authority: federal
@@ -2592,7 +2610,7 @@ def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
-    _mock_source_url_text(
+    _mock_corpus_source_text(
         monkeypatch,
         "The official source states the standard utility allowance is $451.",
     )
@@ -2603,12 +2621,13 @@ def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(
 module:
   summary: |-
     The standard utility allowance is $451.
+  source_verification:
+    corpus_citation_path: us/guidance/example/sua
 rules:
   - name: snap_standard_utility_allowance_value
     kind: parameter
     dtype: Money
     unit: USD
-    source_url: https://example.gov/sua
     versions:
       - effective_from: '2024-01-01'
         formula: |-

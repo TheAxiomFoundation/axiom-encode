@@ -17,8 +17,6 @@ Uses Claude Code CLI (subprocess) for reviewer agents - cheaper than direct API.
 import contextlib
 import functools
 import hashlib
-import html
-import io
 import json
 import logging
 import math
@@ -1604,9 +1602,9 @@ def find_ungrounded_numeric_issues(
     if not source:
         return [
             "Numeric source required: RuleSpec defines policy numeric literals "
-            "but does not provide source-verification text or fetchable official "
-            "`source_url` text. `module.summary` is not accepted as source text "
-            "for numeric grounding."
+            "but does not provide `source_verification.corpus_citation_path` "
+            "or `source_verification.corpus_citation_paths` text. "
+            "`module.summary` is not accepted as source text for numeric grounding."
         ]
 
     source_numbers = extract_numbers_from_text(source)
@@ -1625,13 +1623,53 @@ def find_ungrounded_numeric_issues(
 def extract_numeric_grounding_source_text(content: str) -> str | None:
     """Return authoritative source text usable for numeric grounding.
 
-    Numeric grounding must use official source-verification text or declared
-    source URLs. The human-readable module summary is intentionally excluded.
+    Numeric grounding must use ingested corpus source text. The human-readable
+    module summary is intentionally excluded.
     """
-    source_text = _extract_source_verification_text(content)
-    if source_text:
-        return source_text
-    return _extract_rule_source_url_text(content)
+    return _extract_source_verification_text(content)
+
+
+def find_deprecated_source_url_issues(content: str) -> list[str]:
+    """Reject raw source URL references in RuleSpec encodings."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+
+    locations: list[str] = []
+    module = payload.get("module")
+    if isinstance(module, dict):
+        if "source_url" in module:
+            locations.append("module.source_url")
+        source_verification = module.get("source_verification")
+        if (
+            isinstance(source_verification, dict)
+            and "source_url" in source_verification
+        ):
+            locations.append("module.source_verification.source_url")
+
+    source_verification = payload.get("source_verification")
+    if isinstance(source_verification, dict) and "source_url" in source_verification:
+        locations.append("source_verification.source_url")
+
+    rules = payload.get("rules")
+    if isinstance(rules, list):
+        for index, rule in enumerate(rules):
+            if isinstance(rule, dict) and "source_url" in rule:
+                name = rule.get("name") or f"rules[{index}]"
+                locations.append(f"rules.{name}.source_url")
+
+    if not locations:
+        return []
+    return [
+        "Legacy source URL metadata not allowed: "
+        + ", ".join(locations[:5])
+        + ("; ..." if len(locations) > 5 else "")
+        + ". Use `module.source_verification.corpus_citation_path` or "
+        "`module.source_verification.corpus_citation_paths`."
+    ]
 
 
 def find_structured_scale_parameter_issues(content: str) -> list[str]:
@@ -2503,20 +2541,22 @@ def find_source_verification_issues(
     if source_verification is None:
         return []
 
-    citation_paths, source_url, source_label = _source_verification_source_fields(
+    citation_paths, source_label = _source_verification_source_fields(
         source_verification
     )
     expected_values = source_verification.get("values")
-    if not citation_paths and not source_url:
+    if not citation_paths:
         return [
             "Source verification source required: missing `corpus_citation_path`, "
-            "`corpus_citation_paths`, or `source_url`."
+            "or `corpus_citation_paths`."
         ]
     if not isinstance(expected_values, dict) or not expected_values:
-        return [
-            "Source verification values required: "
-            "`source_verification.values` must list RuleSpec values to verify."
-        ]
+        if expected_values is not None:
+            return [
+                "Source verification values invalid: "
+                "`source_verification.values` must be a non-empty mapping when present."
+            ]
+        expected_values = {}
 
     rulespec_values, _, load_issue = _extract_rulespec_parameter_values(payload)
     if load_issue is not None:
@@ -2542,20 +2582,17 @@ def find_source_verification_issues(
 
     source_text = _source_verification_text(
         citation_paths=citation_paths,
-        source_url=source_url,
         source_label=source_label,
         source_texts=source_texts,
     )
     if source_text is None:
         issues.append(
             "Source verification source missing: "
-            + (
-                f"{_format_source_verification_paths(citation_paths)} "
-                "was not found in corpus.provisions."
-                if citation_paths
-                else f"`{source_url}` could not be fetched."
-            )
+            + f"{_format_source_verification_paths(citation_paths)} "
+            "was not found in corpus.provisions."
         )
+        return issues
+    if not expected_values:
         return issues
 
     for value_name, expected_value in expected_values.items():
@@ -2584,7 +2621,7 @@ def _source_verification_block(payload: dict[str, Any]) -> dict[str, Any] | None
 
 def _source_verification_source_fields(
     source_verification: dict[str, Any],
-) -> tuple[tuple[str, ...], str, str]:
+) -> tuple[tuple[str, ...], str]:
     citation_paths: list[str] = []
     raw_citation_path = str(
         source_verification.get("corpus_citation_path") or ""
@@ -2600,15 +2637,12 @@ def _source_verification_source_fields(
             if citation_path:
                 citation_paths.append(citation_path)
     citation_path_tuple = tuple(dict.fromkeys(citation_paths))
-    source_url = str(source_verification.get("source_url") or "").strip()
-    source_label = ", ".join(citation_path_tuple) if citation_path_tuple else source_url
-    return citation_path_tuple, source_url, source_label
+    return citation_path_tuple, ", ".join(citation_path_tuple)
 
 
 def _source_verification_text(
     *,
     citation_paths: tuple[str, ...],
-    source_url: str,
     source_label: str,
     source_texts: dict[str, str] | None = None,
 ) -> str | None:
@@ -2628,7 +2662,7 @@ def _source_verification_text(
                 return None
             source_text_values.append(source_text)
         return "\n\n".join(source_text_values)
-    return _fetch_source_url_text(source_url)
+    return None
 
 
 def _extract_source_verification_text(content: str) -> str | None:
@@ -2641,14 +2675,13 @@ def _extract_source_verification_text(content: str) -> str | None:
     source_verification = _source_verification_block(payload)
     if source_verification is None:
         return None
-    citation_paths, source_url, source_label = _source_verification_source_fields(
+    citation_paths, source_label = _source_verification_source_fields(
         source_verification
     )
     if not source_label:
         return None
     return _source_verification_text(
         citation_paths=citation_paths,
-        source_url=source_url,
         source_label=source_label,
     )
 
@@ -2661,47 +2694,6 @@ def _format_source_verification_paths(citation_paths: tuple[str, ...]) -> str:
         + "`, `".join(citation_paths[:3])
         + ("`, ..." if len(citation_paths) > 3 else "`")
     )
-
-
-def _extract_rule_source_url_text(content: str) -> str | None:
-    try:
-        payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
-        return None
-    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-        return None
-
-    source_urls: list[str] = []
-    seen: set[str] = set()
-
-    def add_source_url(value: Any) -> None:
-        if not isinstance(value, str):
-            return
-        source_url = value.strip().strip("'\"")
-        if not source_url or source_url in seen:
-            return
-        seen.add(source_url)
-        source_urls.append(source_url)
-
-    module = payload.get("module")
-    if isinstance(module, dict):
-        add_source_url(module.get("source_url"))
-
-    rules = payload.get("rules")
-    if isinstance(rules, list):
-        for rule in rules:
-            if not isinstance(rule, dict):
-                continue
-            add_source_url(rule.get("source_url"))
-
-    source_texts = [
-        source_text
-        for source_url in source_urls
-        if (source_text := _fetch_source_url_text(source_url))
-    ]
-    if not source_texts:
-        return None
-    return "\n\n".join(source_texts)
 
 
 def _compare_source_verification_expected_value(
@@ -2957,52 +2949,6 @@ def _fetch_supabase_corpus_source_text(citation_path: str) -> str | None:
         return None
     body = data[0].get("body") if isinstance(data[0], dict) else None
     return str(body) if body is not None else None
-
-
-@functools.lru_cache(maxsize=512)
-def _fetch_source_url_text(source_url: str) -> str | None:
-    """Fetch source text from an official source URL for source verification."""
-    if not source_url:
-        return None
-    parsed = urllib.parse.urlparse(source_url)
-    if parsed.scheme != "https":
-        return None
-    request = urllib.request.Request(
-        source_url,
-        headers={"User-Agent": "axiom-encode source-verification"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            content_type = response.headers.get("content-type", "")
-            body = response.read(15_000_000)
-    except (TimeoutError, urllib.error.HTTPError, urllib.error.URLError):
-        return None
-    if "text/html" in content_type or source_url.endswith((".html", "_IRB")):
-        text = body.decode("utf-8", errors="ignore")
-        text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", text)
-        text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
-        text = re.sub(r"(?s)<[^>]+>", " ", text)
-        return html.unescape(text)
-    if "application/pdf" in content_type or source_url.lower().endswith(".pdf"):
-        return _extract_pdf_source_url_text(body)
-    if "text/plain" in content_type:
-        return body.decode("utf-8", errors="ignore")
-    return None
-
-
-def _extract_pdf_source_url_text(body: bytes) -> str | None:
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        return None
-
-    try:
-        reader = PdfReader(io.BytesIO(body))
-        pages = [page.extract_text() or "" for page in reader.pages]
-    except Exception:
-        return None
-    text = "\n".join(page for page in pages if page.strip())
-    return text or None
 
 
 def _normalize_source_verification_text(text: str) -> str:
@@ -4507,6 +4453,7 @@ class ValidatorPipeline:
             issues.append("No tests found.")
 
         issues.extend(find_ungrounded_numeric_issues(content))
+        issues.extend(find_deprecated_source_url_issues(content))
         issues.extend(find_structured_scale_parameter_issues(content))
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
