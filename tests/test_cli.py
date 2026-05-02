@@ -1135,6 +1135,7 @@ class TestCmdValidate:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_validate(args)
             assert exc_info.value.code == 0
+            assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] is None
         captured = capsys.readouterr()
         assert "PASSED" in captured.out
 
@@ -1169,6 +1170,7 @@ class TestCmdValidate:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_validate(args)
             assert exc_info.value.code == 1
+            assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] is None
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["all_passed"] is False
@@ -1203,6 +1205,9 @@ class TestCmdValidate:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_validate(args)
             assert exc_info.value.code == 0
+            assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] == (
+                "policyengine",
+            )
 
     def test_validate_with_oracle_policyengine_fail(self, capsys, tmp_path):
         rulespec_file = tmp_path / "test.yaml"
@@ -1234,6 +1239,9 @@ class TestCmdValidate:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_validate(args)
             assert exc_info.value.code == 1
+            assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] == (
+                "policyengine",
+            )
 
     def test_validate_with_oracle_taxsim_fail(self, capsys, tmp_path):
         rulespec_file = tmp_path / "test.yaml"
@@ -1298,6 +1306,7 @@ class TestCmdValidate:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_validate(args)
             assert exc_info.value.code == 0
+            assert mock_pipeline_cls.call_args.kwargs["oracle_validators"] is None
 
     def test_validate_json_output_with_reviewresults_object(self, capsys, tmp_path):
         rulespec_file = tmp_path / "test.yaml"

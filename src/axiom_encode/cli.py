@@ -744,11 +744,17 @@ def cmd_validate(args):
 
     # Enable oracles if --oracle flag is set
     enable_oracles = args.oracle is not None
+    oracle_validators = None
+    if args.oracle == "policyengine":
+        oracle_validators = ("policyengine",)
+    elif args.oracle == "taxsim":
+        oracle_validators = ("taxsim",)
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo_root,
         axiom_rules_path=axiom_rules_path,
         enable_oracles=enable_oracles,
+        oracle_validators=oracle_validators,
     )
 
     result = pipeline.validate(rulespec_file, skip_reviewers=args.skip_reviewers)
@@ -768,6 +774,16 @@ def cmd_validate(args):
     for name, vr in result.results.items():
         if vr.error:
             errors.append(f"{name}: {vr.error}")
+    oracle_issues = None
+    if args.oracle:
+        oracle_issues = {}
+        for name, vr in result.results.items():
+            issues = getattr(vr, "issues", None)
+            if name in {"policyengine", "taxsim"} and isinstance(issues, list):
+                if issues:
+                    oracle_issues[name] = issues
+        if not oracle_issues:
+            oracle_issues = None
 
     # Check oracle results against minimum match rate
     oracle_passed = True
@@ -810,6 +826,7 @@ def cmd_validate(args):
             if args.oracle
             else None,
             "oracle_passed": oracle_passed if args.oracle else None,
+            "oracle_issues": oracle_issues,
             "all_passed": all_passed,
             "errors": errors,
             "duration_ms": result.total_duration_ms,
@@ -840,6 +857,14 @@ def cmd_validate(args):
         if errors:
             for err in errors:
                 print(f"  - {err}")
+        if oracle_issues:
+            for name, issues in oracle_issues.items():
+                for issue in issues[:10]:
+                    print(f"  - {name}: {issue}")
+                if len(issues) > 10:
+                    print(
+                        f"  - {name}: ... {len(issues) - 10} more oracle issue(s)"
+                    )
 
     sys.exit(0 if all_passed else 1)
 

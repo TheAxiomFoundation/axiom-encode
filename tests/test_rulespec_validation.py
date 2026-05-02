@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode.harness.validator_pipeline import (
+    OracleSubprocessResult,
     ValidatorPipeline,
     _extract_json_object,
     extract_embedded_source_text,
@@ -121,6 +122,104 @@ rules:
         and "us:statutes/7/2017/a#snap_regular_month_allotment" in issue
         for issue in result.issues
     )
+
+
+def test_oracle_test_extraction_normalizes_legal_output_ids(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    tests = pipeline._extract_rulespec_tests(
+        """- name: base
+  period: 2026-01
+  input:
+    household_size: 1
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+"""
+    )
+
+    assert tests == [
+        {
+            "variable": "snap_standard_deduction",
+            "raw_variable": "us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction",
+            "name": "base",
+            "period": "2026-01",
+            "inputs": {"household_size": 1},
+            "expect": 209,
+        }
+    ]
+
+
+def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: mapped
+  period: 2026-01
+  input: {}
+  output:
+    mapped_var: 10
+- name: unmapped
+  period: 2026-01
+  input: {}
+  output:
+    unmapped_var: 99
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._should_compare_pe_test_output = lambda *_args, **_kwargs: True
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+    pipeline._resolve_pe_variable = (
+        lambda _country, name: "pe_mapped_var" if name == "mapped_var" else None
+    )
+    pipeline._build_pe_scenario_script = lambda *_args, **_kwargs: ""
+    pipeline._run_pe_subprocess_detailed = lambda *_args, **_kwargs: (
+        OracleSubprocessResult(returncode=0, stdout="RESULT:10\n")
+    )
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert len(result.issues) == 1
+    assert "no PE mapping" in result.issues[0]
+    assert "unmapped_var" in result.issues[0]
+
+
+def test_reviewer_score_below_threshold_fails_even_if_declared_passed(
+    monkeypatch, tmp_path
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    def fake_run_claude_code(*_args, **_kwargs):
+        return ('{"score": 2.0, "passed": true, "issues": []}', 0)
+
+    monkeypatch.setattr(
+        "axiom_encode.harness.validator_pipeline.run_claude_code",
+        fake_run_claude_code,
+    )
+
+    result = pipeline._run_reviewer("Formula Reviewer", rules_file)
+
+    assert result.score == 2.0
+    assert result.passed is False
+    assert any("reviewer_score_below_pass_threshold" in issue for issue in result.issues)
 
 
 def test_rulespec_grounding_tolerates_decimal_percentage_float_noise():

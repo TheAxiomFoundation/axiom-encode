@@ -3350,6 +3350,7 @@ class ValidatorPipeline:
         policy_repo_path: Path,
         axiom_rules_path: Path,
         enable_oracles: bool = True,
+        oracle_validators: tuple[str, ...] | None = None,
         max_workers: int = 4,
         encoding_db: Optional[EncodingDB] = None,
         session_id: Optional[str] = None,
@@ -3359,6 +3360,7 @@ class ValidatorPipeline:
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
         self.enable_oracles = enable_oracles
+        self.oracle_validators = oracle_validators or ("policyengine", "taxsim")
         self.max_workers = max_workers
         self.encoding_db = encoding_db
         self.session_id = session_id
@@ -3454,9 +3456,14 @@ class ValidatorPipeline:
             )
             oracle_start = time.time()
 
-            oracle_validators = {
+            available_oracle_validators = {
                 "policyengine": lambda: self._run_policyengine(rulespec_file),
                 "taxsim": lambda: self._run_taxsim(rulespec_file),
+            }
+            oracle_validators = {
+                name: available_oracle_validators[name]
+                for name in self.oracle_validators
+                if name in available_oracle_validators
             }
 
             with ThreadPoolExecutor(max_workers=2) as executor:
@@ -5320,6 +5327,15 @@ Output ONLY valid JSON:
             else:
                 passed = bool(data.get("passed", score >= 7.0))
                 issues = data.get("issues", [])
+            if not isinstance(issues, list):
+                issues = [str(issues)]
+            if score < 7.0:
+                if passed:
+                    issues.append(
+                        "reviewer_score_below_pass_threshold: "
+                        f"score {score:.1f}/10 is below 7.0"
+                    )
+                passed = False
 
             duration = int((time.time() - start) * 1000)
 
@@ -5327,7 +5343,7 @@ Output ONLY valid JSON:
                 validator_name=reviewer_type,
                 passed=passed,
                 score=score,
-                issues=issues if isinstance(issues, list) else [str(issues)],
+                issues=issues,
                 duration_ms=duration,
                 raw_output=output,
                 prompt_sha256=prompt_sha256,
@@ -5608,15 +5624,19 @@ Output ONLY valid JSON:
             if not pe_var:
                 if self.policyengine_rule_hint:
                     issues.append(
-                        "No PE mapping for encoded variable "
+                        "PolicyEngine unavailable for "
+                        f"'{test.get('name', test_rule_name)}': no PE mapping for "
+                        "encoded variable "
                         f"'{test_rule_name}' with oracle hint "
                         f"'{self.policyengine_rule_hint}'"
                     )
                 else:
                     issues.append(
-                        f"No PE mapping for encoded variable '{test_rule_name}'"
+                        "PolicyEngine unavailable for "
+                        f"'{test.get('name', test_rule_name)}': no PE mapping for "
+                        f"encoded variable '{test_rule_name}'"
                     )
-                total += 1
+                unsupported_count += 1
                 continue
 
             # Build and run PE scenario — include period in inputs for monthly detection
@@ -6106,6 +6126,12 @@ print("BENCHMARK:" + json.dumps(result))
         """Extract oracle-comparable cases from a RuleSpec `.test.yaml` file."""
         tests = []
 
+        def normalize_variable_name(value: Any) -> str:
+            text = str(value)
+            if "#" in text:
+                return text.rsplit("#", 1)[1]
+            return text
+
         def normalize_test_value(value: Any) -> Any:
             if isinstance(value, dict):
                 lowered_keys = {str(key).lower() for key in value.keys()}
@@ -6222,7 +6248,8 @@ print("BENCHMARK:" + json.dumps(result))
                     for variable, expected in outputs.items():
                         tests.append(
                             {
-                                "variable": variable,
+                                "variable": normalize_variable_name(variable),
+                                "raw_variable": str(variable),
                                 "name": test_case.get("name"),
                                 "period": test_case.get("period"),
                                 "inputs": normalized_inputs,
