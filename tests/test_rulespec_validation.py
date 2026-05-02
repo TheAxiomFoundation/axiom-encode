@@ -15,7 +15,11 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
 )
-from axiom_encode.oracles.policyengine.registry import load_policyengine_registry
+from axiom_encode.oracles.policyengine.registry import (
+    PolicyEngineMapping,
+    PolicyEngineOracleRegistry,
+    load_policyengine_registry,
+)
 
 AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
 AXIOM_RULES_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules"
@@ -208,6 +212,65 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert mapping is not None
     assert mapping.policyengine_variable == "snap_earned_income_deduction"
     assert registry.mapping_for_legal_id("snap_earned_income_deduction") is None
+    assert (
+        registry.mapping_for_legal_id(
+            "us-co:regulations/10-ccr-2506-1/4.207.2#snap_initial_month_prorated_allotment",
+            country="us",
+        ).mapping_type
+        == "not_comparable"
+    )
+
+
+def test_policyengine_oracle_tracks_not_comparable_without_issue_noise(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: mapped
+  period: 2026-01
+  input: {}
+  output:
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+- name: classified_unsupported
+  period: 2026-01
+  input: {}
+  output:
+    us:test/fake#classified_unsupported: 99
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    base_registry = load_policyengine_registry()
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            **base_registry.mappings_by_legal_id,
+            "us:test/fake#classified_unsupported": PolicyEngineMapping(
+                legal_id="us:test/fake#classified_unsupported",
+                country="us",
+                mapping_type="not_comparable",
+                rationale="synthetic unsupported oracle mapping",
+            ),
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+    pipeline._build_pe_scenario_script = lambda *_args, **_kwargs: ""
+    pipeline._run_pe_subprocess_detailed = lambda *_args, **_kwargs: (
+        OracleSubprocessResult(returncode=0, stdout="RESULT:209\n")
+    )
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert result.details["coverage"]["unsupported"] == 1
+    assert result.details["coverage"]["unmapped"] == 0
 
 
 def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):

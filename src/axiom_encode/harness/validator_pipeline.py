@@ -5270,11 +5270,6 @@ Output ONLY valid JSON:
             mapping = self._resolve_pe_mapping(country, raw_test_rule_name)
             pe_var = mapping.policyengine_variable if mapping else None
             if mapping is not None and not mapping.comparable:
-                issues.append(
-                    "PolicyEngine unavailable for "
-                    f"'{test.get('name', test_rule_name)}': "
-                    f"{mapping.rationale or 'mapping is marked not comparable'}"
-                )
                 coverage.unsupported += 1
                 continue
 

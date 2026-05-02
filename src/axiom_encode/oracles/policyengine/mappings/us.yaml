@@ -86,3 +86,94 @@ mappings:
     unit: USD
     comparison: money
     rationale: Colorado individual utility allowance, with state defaults supplied by the adapter.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_earned_income
+    rationale: Colorado manual countable-earned-income rule is a source-specific aggregation; PolicyEngine's federal SNAP earned-income variable is adjacent but not the same legal output.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.404#snap_countable_unearned_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_unearned_income
+    rationale: Colorado manual countable-unearned-income rule is a source-specific aggregation; PolicyEngine's federal SNAP unearned-income variable is adjacent but not the same legal output.
+
+  - legal_id: us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_monthly_household_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Axiom composition helper combining Colorado countable earned and unearned income; not an independently exposed PolicyEngine variable.
+
+  - legal_id: us-co:policies/cdhs/snap/fy-2026-benefit-calculation#gross_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_gross_income
+    rationale: Axiom composition alias for Colorado SNAP household income; PolicyEngine's SNAP gross income is adjacent but computed from PE's own income source graph.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.401#snap_income_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Colorado eligibility combines categorical, gross-income, and net-income provisions encoded across Axiom rules; no single PE variable represents this legal output with the same boundary.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.408#passes_resource_test
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_asset_test
+    rationale: Colorado resource-test rule is encoded from state manual resource provisions; PolicyEngine's asset test uses PE's annual SNAP asset abstraction.
+
+  - legal_id: us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: is_snap_eligible
+    rationale: Axiom composition helper combining Colorado income, resource, work, student, citizenship, transfer, and application rules; PE eligibility is adjacent but not this composed legal output.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Colorado manual predicate for heating/cooling utility allowance eligibility; PE derives utility allowance type internally rather than exposing this predicate.
+
+  - legal_id: us-co:policies/cdhs/snap/fy-2026-benefit-calculation#shelter_costs
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Axiom composition helper summing Colorado shelter costs and utility allowances; PE uses separate housing-cost and SNAP utility-allowance variables.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.407.3#excess_shelter_deduction
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_excess_shelter_expense_deduction
+    rationale: Colorado manual rule includes Colorado source inputs and reiterative USDA cap values; PE's federal shelter deduction is adjacent but requires PE-specific housing and utility inputs.
+
+  - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Legal intermediate before the SNAP minimum allotment; PolicyEngine does not expose this intermediate as a variable.
+
+  - legal_id: us:statutes/7/2017/a#snap_regular_month_allotment
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_normal_allotment
+    rationale: PolicyEngine exposes adjacent normal allotment, but comparison requires PE's full eligibility scenario rather than the upstream legal outputs used by Axiom tests.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Colorado final allotment combines regular allotment, initial-month proration, minimum-allotment suppression, and Colorado eligibility; PE does not expose this Colorado legal output.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.207.2#snap_initial_month_prorated_allotment
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Colorado initial-month proration output; PolicyEngine SNAP does not expose Colorado initial-month proration.

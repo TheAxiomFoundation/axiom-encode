@@ -51,3 +51,7 @@ Oracle runs report coverage separately from match score:
 
 Unmapped and unsupported outputs are not scored as mismatches, but they must stay
 visible so a green score cannot hide weak oracle coverage.
+
+Known non-comparable legal IDs should be registry entries with
+`mapping_type: not_comparable` and a short rationale. Truly new legal IDs should
+remain `unmapped` until someone classifies them.
