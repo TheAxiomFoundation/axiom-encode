@@ -784,6 +784,15 @@ def cmd_validate(args):
                     oracle_issues[name] = issues
         if not oracle_issues:
             oracle_issues = None
+    oracle_coverage = None
+    if args.oracle:
+        oracle_coverage = {}
+        for name, vr in result.results.items():
+            coverage = getattr(vr, "details", {}).get("coverage")
+            if name in {"policyengine", "taxsim"} and isinstance(coverage, dict):
+                oracle_coverage[name] = coverage
+        if not oracle_coverage:
+            oracle_coverage = None
 
     # Check oracle results against minimum match rate
     oracle_passed = True
@@ -827,6 +836,7 @@ def cmd_validate(args):
             else None,
             "oracle_passed": oracle_passed if args.oracle else None,
             "oracle_issues": oracle_issues,
+            "oracle_coverage": oracle_coverage,
             "all_passed": all_passed,
             "errors": errors,
             "duration_ms": result.total_duration_ms,
@@ -853,6 +863,15 @@ def cmd_validate(args):
             if args.oracle in ("taxsim", "all") and ts_score is not None:
                 status = "✓" if ts_score >= min_match else "✗"
                 print(f"TAXSIM: {status} {ts_score:.1%} (min: {min_match:.0%})")
+            if oracle_coverage:
+                for name, coverage in oracle_coverage.items():
+                    print(
+                        f"{name} coverage: comparable={coverage.get('comparable', 0)} "
+                        f"passed={coverage.get('passed', 0)} "
+                        f"failed={coverage.get('failed', 0)} "
+                        f"unmapped={coverage.get('unmapped', 0)} "
+                        f"unsupported={coverage.get('unsupported', 0)}"
+                    )
         print(f"Result: {'✓ PASSED' if all_passed else '✗ FAILED'}")
         if errors:
             for err in errors:

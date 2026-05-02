@@ -1,0 +1,88 @@
+mappings:
+  - legal_id: us:statutes/7/2014/e/2#snap_earned_income_deduction
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_earned_income_deduction
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same SNAP earned income deduction output.
+
+  - legal_id: us:statutes/7/2014/e/6/A#snap_net_income_pre_shelter
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_net_income_pre_shelter
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same SNAP net income before shelter deduction output.
+
+  - legal_id: us:statutes/7/2014/e/6/A#snap_net_income
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_net_income
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same SNAP net income output.
+
+  - legal_id: us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_standard_deduction
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same USDA SNAP standard deduction amount.
+
+  - legal_id: us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_max_allotment
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same USDA maximum allotment table output.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_standard_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Colorado standard utility allowance, with state defaults supplied by the adapter.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_limited_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_limited_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Colorado limited utility allowance, with state defaults supplied by the adapter.
+
+  - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_individual_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_individual_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Colorado individual utility allowance, with state defaults supplied by the adapter.

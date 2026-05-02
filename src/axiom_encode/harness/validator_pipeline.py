@@ -42,6 +42,18 @@ import yaml
 
 from axiom_encode.codex_cli import resolve_codex_cli
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL, REVIEWER_CLI_MODEL
+from axiom_encode.oracles.policyengine.adapters import (
+    PE_US_MONTHLY_VAR_NAMES,
+    PE_US_SPM_VAR_NAMES,
+    PolicyEngineUSVarAdapter,
+    get_pe_us_var_adapter,
+    normalize_state_code_from_utility_region,
+)
+from axiom_encode.oracles.policyengine.registry import (
+    PolicyEngineMapping,
+    PolicyEngineOracleCoverage,
+    load_policyengine_registry,
+)
 from axiom_encode.repo_routing import find_policy_repo_root
 
 from .dependency_stubs import (
@@ -165,420 +177,11 @@ class _SubprocessRunResult:
     returncode: int
 
 
-@dataclass(frozen=True)
-class _PolicyEngineUSVarAdapter:
-    """Declarative mapping/config for PE-US replay of an encoded variable."""
-
-    rule_names: tuple[str, ...]
-    pe_var: str
-    monthly: bool = False
-    spm: bool = False
-    annualized_person_inputs: tuple[tuple[str, str], ...] = ()
-    boolean_person_inputs: tuple[tuple[str, str], ...] = ()
-    monthly_boolean_person_inputs: tuple[tuple[str, str], ...] = ()
-    direct_spm_overrides: tuple[tuple[str, str], ...] = ()
-    derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
-    annual_direct_spm_overrides: tuple[tuple[str, str], ...] = ()
-    annual_derived_spm_overrides: tuple[tuple[str, str, tuple[str, ...]], ...] = ()
-    unsupported_input_keys: tuple[str, ...] = ()
-    unsupported_input_patterns: tuple[str, ...] = ()
-    unsupported_input_reason: str | None = None
-    default_state_code: str | None = None
-    state_code_from_boolean_input: tuple[str, str, str] | None = None
-    parameter_path: str | None = None
-    parameter_value_mode: str = "bool"
-
-
-def _normalize_state_code_from_utility_region(region: str) -> str:
-    """Map sub-state SNAP utility region codes back to their parent state code."""
-    match = re.match(r"^([A-Z]{2})_", region)
-    if match:
-        return match.group(1)
-    return region
-
-
 def _sha256_text(text: str | None) -> str | None:
     """Return a stable digest for prompt text."""
     if text is None:
         return None
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-_PE_US_VAR_ADAPTERS = (
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap", "snap_benefits"),
-        pe_var="snap",
-        monthly=True,
-        spm=True,
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_allotment", "snap_normal_allotment"),
-        pe_var="snap_normal_allotment",
-        monthly=True,
-        spm=True,
-        unsupported_input_keys=(
-            "snap_max_allotment",
-            "snap_expected_contribution",
-            "snap_min_allotment",
-            "is_snap_eligible",
-        ),
-        unsupported_input_reason=(
-            "RuleSpec test supplies intermediate SNAP allotment inputs that "
-            "PolicyEngine US does not expose as scenario inputs"
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_expected_contribution",),
-        pe_var="snap_expected_contribution",
-        monthly=True,
-        spm=True,
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_earned_income_deduction",),
-        pe_var="snap_earned_income_deduction",
-        monthly=True,
-        spm=True,
-        direct_spm_overrides=(("snap_earned_income", "snap_earned_income"),),
-        derived_spm_overrides=(
-            (
-                "snap_earned_income",
-                "difference_floor_zero",
-                (
-                    "snap_earned_income_before_exclusions",
-                    "snap_child_earned_income_exclusion",
-                    "snap_other_earned_income_exclusions",
-                    "snap_work_support_public_assistance_income",
-                ),
-            ),
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_min_allotment", "minimum_allotment"),
-        pe_var="snap_min_allotment",
-        monthly=True,
-        spm=True,
-        unsupported_input_keys=("snap_one_person_thrifty_food_plan_cost",),
-        unsupported_input_patterns=("thrifty_food_plan_cost",),
-        unsupported_input_reason=(
-            "RuleSpec test supplies a thrifty-food-plan cost input that "
-            "PolicyEngine US treats as an internal parameter, not a scenario input"
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_net_income", "snap_net_income_calculation"),
-        pe_var="snap_net_income",
-        monthly=True,
-        spm=True,
-        derived_spm_overrides=(
-            (
-                "snap_net_income",
-                "difference",
-                ("snap_household_income", "snap_deductions"),
-            ),
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_net_income_pre_shelter",),
-        pe_var="snap_net_income_pre_shelter",
-        monthly=True,
-        spm=True,
-        direct_spm_overrides=(
-            (
-                "snap_monthly_household_income_after_all_other_applicable_deductions",
-                "snap_net_income_pre_shelter",
-            ),
-            (
-                "snap_monthly_household_income_after_all_other_applicable_deductions_have_been_allowed",
-                "snap_net_income_pre_shelter",
-            ),
-            (
-                "snap_household_income_after_all_other_applicable_deductions",
-                "snap_net_income_pre_shelter",
-            ),
-            (
-                "snap_household_income_after_all_other_applicable_deductions_have_been_allowed",
-                "snap_net_income_pre_shelter",
-            ),
-            (
-                "snap_income_after_all_other_applicable_deductions",
-                "snap_net_income_pre_shelter",
-            ),
-            (
-                "snap_income_after_all_other_applicable_deductions_have_been_allowed",
-                "snap_net_income_pre_shelter",
-            ),
-            ("snap_gross_income", "snap_gross_income"),
-            ("snap_standard_deduction", "snap_standard_deduction"),
-            ("snap_earned_income_deduction", "snap_earned_income_deduction"),
-            ("snap_child_support_deduction", "snap_child_support_deduction"),
-            (
-                "snap_excess_medical_expense_deduction",
-                "snap_excess_medical_expense_deduction",
-            ),
-        ),
-        derived_spm_overrides=(
-            (
-                "snap_earned_income",
-                "difference_floor_zero",
-                (
-                    "snap_earned_income_before_exclusions",
-                    "snap_child_earned_income_exclusion",
-                    "snap_other_earned_income_exclusions",
-                    "snap_work_support_public_assistance_income",
-                ),
-            ),
-        ),
-        annual_derived_spm_overrides=(
-            (
-                "spm_unit_pre_subsidy_childcare_expenses",
-                "difference_floor_zero_annualized",
-                (
-                    "snap_dependent_care_actual_costs",
-                    "snap_dependent_care_excluded_expenses",
-                ),
-            ),
-            (
-                "spm_unit_pre_subsidy_childcare_expenses",
-                "monthly_to_annual",
-                ("snap_dependent_care_deduction",),
-            ),
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_standard_utility_allowance",),
-        pe_var="snap_standard_utility_allowance",
-        monthly=True,
-        spm=True,
-        direct_spm_overrides=(
-            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
-            ("spm_unit_size", "spm_unit_size"),
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_limited_utility_allowance",),
-        pe_var="snap_limited_utility_allowance",
-        monthly=True,
-        spm=True,
-        direct_spm_overrides=(
-            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
-            ("spm_unit_size", "spm_unit_size"),
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_individual_utility_allowance",),
-        pe_var="snap_individual_utility_allowance",
-        monthly=True,
-        spm=True,
-        direct_spm_overrides=(
-            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
-            ("spm_unit_size", "spm_unit_size"),
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_state_using_standard_utility_allowance",),
-        pe_var="snap_state_using_standard_utility_allowance",
-        monthly=True,
-        spm=True,
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_state_uses_child_support_deduction",),
-        pe_var="snap_state_uses_child_support_deduction",
-        default_state_code="TN",
-        parameter_path="gov.usda.snap.income.deductions.child_support",
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_self_employment_expense_based_deduction_applies",),
-        pe_var="snap_self_employment_expense_based_deduction_applies",
-        default_state_code="CA",
-        parameter_path=(
-            "gov.usda.snap.income.deductions.self_employment."
-            "expense_based_deduction_applies"
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_self_employment_simplified_deduction_rate",),
-        pe_var="snap_self_employment_simplified_deduction_rate",
-        default_state_code="MD",
-        parameter_path="gov.usda.snap.income.deductions.self_employment.rate",
-        parameter_value_mode="float",
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_standard_medical_expense_deduction",),
-        pe_var="snap_standard_medical_expense_deduction",
-        parameter_path="gov.usda.snap.income.deductions.excess_medical_expense.standard",
-        parameter_value_mode="float",
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_homeless_shelter_deduction_available",),
-        pe_var="snap_homeless_shelter_deduction_available",
-        parameter_path=(
-            "gov.usda.snap.income.deductions.excess_shelter_expense.homeless.available"
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_tanf_non_cash_gross_income_limit_fpg_ratio",),
-        pe_var="snap_tanf_non_cash_gross_income_limit_fpg_ratio",
-        default_state_code="TX",
-        parameter_path="gov.hhs.tanf.non_cash.income_limit.gross",
-        parameter_value_mode="float",
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_tanf_non_cash_asset_limit",),
-        pe_var="snap_tanf_non_cash_asset_limit",
-        default_state_code="TX",
-        parameter_path="gov.hhs.tanf.non_cash.asset_limit",
-        parameter_value_mode="float",
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("meets_snap_asset_test",),
-        pe_var="meets_snap_asset_test",
-        monthly=True,
-        spm=True,
-        annual_direct_spm_overrides=(
-            ("snap_assets", "snap_assets"),
-            ("snap_countable_resources", "snap_assets"),
-            ("snap_countable_financial_resources", "snap_assets"),
-            ("snap_financial_resources", "snap_assets"),
-            (
-                "snap_household_has_elderly_or_disabled_member",
-                "has_usda_elderly_disabled",
-            ),
-        ),
-        annual_derived_spm_overrides=(
-            (
-                "snap_assets",
-                "difference",
-                (
-                    "snap_total_resources_before_exclusions",
-                    "snap_mandatory_retirement_account_resource_exclusion",
-                    "snap_discretionary_retirement_account_resource_exclusion",
-                    "snap_mandatory_education_account_resource_exclusion",
-                    "snap_discretionary_education_account_resource_exclusion",
-                    "snap_other_resource_exclusions_under_g",
-                ),
-            ),
-        ),
-        unsupported_input_keys=(
-            "snap_statutory_asset_limit",
-            "snap_applicable_asset_limit",
-            "snap_asset_limit",
-            "snap_asset_limit_with_elderly_or_disabled_member",
-        ),
-        unsupported_input_reason=(
-            "RuleSpec test restates the SNAP asset-test threshold with local "
-            "limit/resource abstractions that PolicyEngine US does not expose "
-            "as scenario inputs"
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("meets_snap_gross_income_test",),
-        pe_var="meets_snap_gross_income_test",
-        monthly=True,
-        spm=True,
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("meets_snap_net_income_test",),
-        pe_var="meets_snap_net_income_test",
-        monthly=True,
-        spm=True,
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("is_snap_eligible",),
-        pe_var="is_snap_eligible",
-        monthly=True,
-        spm=True,
-        boolean_person_inputs=(
-            ("is_snap_ineligible_student", "is_snap_ineligible_student"),
-        ),
-        monthly_boolean_person_inputs=(
-            (
-                "is_snap_immigration_status_eligible",
-                "is_snap_immigration_status_eligible",
-            ),
-        ),
-        direct_spm_overrides=(
-            ("meets_snap_gross_income_test", "meets_snap_gross_income_test"),
-            ("meets_snap_net_income_test", "meets_snap_net_income_test"),
-            ("meets_snap_asset_test", "meets_snap_asset_test"),
-            (
-                "meets_snap_categorical_eligibility",
-                "meets_snap_categorical_eligibility",
-            ),
-            ("meets_snap_work_requirements", "meets_snap_work_requirements"),
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_standard_deduction",),
-        pe_var="snap_standard_deduction",
-        monthly=True,
-        spm=True,
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_child_support_deduction",),
-        pe_var="snap_child_support_gross_income_deduction",
-        monthly=True,
-        spm=True,
-        annualized_person_inputs=(
-            ("snap_child_support_payments_made", "child_support_expense"),
-        ),
-        state_code_from_boolean_input=(
-            "snap_state_uses_child_support_deduction",
-            "TX",
-            "CA",
-        ),
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_excess_medical_expense_deduction",),
-        pe_var="snap_excess_medical_expense_deduction",
-        monthly=True,
-        spm=True,
-        annualized_person_inputs=(
-            (
-                "snap_allowable_medical_expenses_before_threshold",
-                "medical_out_of_pocket_expenses",
-            ),
-        ),
-        boolean_person_inputs=(
-            (
-                "snap_household_has_elderly_or_disabled_member",
-                "is_usda_disabled",
-            ),
-        ),
-        default_state_code="NY",
-    ),
-    _PolicyEngineUSVarAdapter(
-        rule_names=("snap_maximum_allotment",),
-        pe_var="snap_max_allotment",
-        monthly=True,
-        spm=True,
-    ),
-)
-
-_PE_US_VARIABLE_MAP = {
-    rule_name: adapter.pe_var
-    for adapter in _PE_US_VAR_ADAPTERS
-    for rule_name in adapter.rule_names
-}
-
-_PE_US_VAR_ADAPTERS_BY_NAME = {
-    name: adapter
-    for adapter in _PE_US_VAR_ADAPTERS
-    for name in (adapter.pe_var, *adapter.rule_names)
-}
-
-_PE_US_MONTHLY_VAR_NAMES = {
-    name
-    for adapter in _PE_US_VAR_ADAPTERS
-    if adapter.monthly
-    for name in (adapter.pe_var, *adapter.rule_names)
-}
-
-_PE_US_SPM_VAR_NAMES = {
-    name
-    for adapter in _PE_US_VAR_ADAPTERS
-    if adapter.spm
-    for name in (adapter.pe_var, *adapter.rule_names)
-}
 
 
 def _run_subprocess_with_idle_timeout(
@@ -1243,6 +846,23 @@ def _source_metadata_jurisdiction(
     return None
 
 
+def _infer_us_state_code_from_rulespec_path(
+    rulespec_file: Path,
+    rulespec_source_content: str = "",
+) -> str | None:
+    """Infer a US state code from canonical RuleSpec repo paths or legal ids."""
+    path_text = rulespec_file.as_posix().lower()
+    match = re.search(r"(?:^|/)rules-us-([a-z]{2})(?:/|$)", path_text)
+    if match:
+        return match.group(1).upper()
+
+    source_text = rulespec_source_content.lower()
+    match = re.search(r"\bus-([a-z]{2}):", source_text)
+    if match:
+        return match.group(1).upper()
+    return None
+
+
 def _default_snap_utility_type_for_rule(rule_name: str | None) -> str | None:
     return {
         "snap_standard_utility_allowance": "SUA",
@@ -1260,6 +880,35 @@ def _default_snap_utility_region_for_jurisdiction(
     if normalized == "NY":
         return "NY_NYC"
     return normalized
+
+
+def _policyengine_us_snap_input_aliases(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Derive standard SNAP PE inputs from source-document input names."""
+
+    def numeric_value(key: str) -> float | None:
+        if key not in inputs:
+            return None
+        try:
+            return float(inputs[key])
+        except (TypeError, ValueError):
+            return None
+
+    aliases: dict[str, Any] = {}
+    earned = numeric_value("employee_wages_received")
+    if earned is not None:
+        aliases.setdefault("snap_earned_income", earned)
+        aliases.setdefault("snap_gross_income", earned)
+
+    shelter_cost = numeric_value("household_shelter_costs_incurred")
+    if shelter_cost is not None:
+        aliases.setdefault("housing_cost", shelter_cost)
+
+    if inputs.get(
+        "household_incurred_or_anticipated_heating_or_cooling_costs_separate_from_rent_or_mortgage"
+    ):
+        aliases.setdefault("snap_utility_allowance_type", "SUA")
+
+    return {key: value for key, value in aliases.items() if key not in inputs}
 
 
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
@@ -3263,6 +2912,7 @@ class ValidationResult:
     error: Optional[str] = None
     raw_output: Optional[str] = None
     prompt_sha256: Optional[str] = None
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -3366,6 +3016,7 @@ class ValidatorPipeline:
         self.session_id = session_id
         self.policyengine_country = policyengine_country
         self.policyengine_rule_hint = policyengine_rule_hint
+        self.policyengine_registry = load_policyengine_registry()
 
     def _log_event(
         self, event_type: str, content: str = "", metadata: Optional[dict] = None
@@ -3481,6 +3132,7 @@ class ValidatorPipeline:
                             "passed": results[name].passed,
                             "issues": results[name].issues,
                             "duration_ms": results[name].duration_ms,
+                            "details": results[name].details,
                         }
                     except Exception as e:
                         results[name] = ValidationResult(
@@ -5577,21 +5229,24 @@ Output ONLY valid JSON:
                 ],
                 duration_ms=duration,
                 error=f"policyengine-{country} not available",
+                details={
+                    "coverage": PolicyEngineOracleCoverage(setup_errors=1).as_dict()
+                },
             )
 
-        # Map encoded variables to PE variables.
-        # Run comparison for each test
+        # Run comparison for each legal-ID keyed test output.
         matches = 0
         total = 0
-        unsupported_count = 0
+        coverage = PolicyEngineOracleCoverage()
         for test in tests:
-            test_rule_name = test.get("variable", "")
-            oracle_rule_name = self.policyengine_rule_hint or test_rule_name
+            test_rule_name = str(test.get("variable", ""))
+            raw_test_rule_name = str(test.get("raw_variable") or test_rule_name)
+            oracle_rule_name = self.policyengine_rule_hint or raw_test_rule_name
             if not self._should_compare_pe_test_output(
-                country, test_rule_name, oracle_rule_name
+                country, raw_test_rule_name, oracle_rule_name
             ):
+                coverage.skipped += 1
                 continue
-            pe_var = self._resolve_pe_variable(country, oracle_rule_name)
             expected = test.get("expect")
             raw_inputs = test.get("inputs", {})
             inputs = dict(raw_inputs) if isinstance(raw_inputs, dict) else raw_inputs
@@ -5610,64 +5265,78 @@ Output ONLY valid JSON:
 
             if expected is None:
                 continue
+            coverage.total_outputs += 1
+
+            mapping = self._resolve_pe_mapping(country, raw_test_rule_name)
+            pe_var = mapping.policyengine_variable if mapping else None
+            if mapping is not None and not mapping.comparable:
+                issues.append(
+                    "PolicyEngine unavailable for "
+                    f"'{test.get('name', test_rule_name)}': "
+                    f"{mapping.rationale or 'mapping is marked not comparable'}"
+                )
+                coverage.unsupported += 1
+                continue
 
             mappable, reason = self._is_pe_test_mappable(
-                country, oracle_rule_name, inputs, expected
+                country, raw_test_rule_name, inputs, expected, pe_var=pe_var
             )
             if not mappable:
                 issues.append(
                     f"PolicyEngine unavailable for '{test.get('name', test_rule_name)}': {reason}"
                 )
-                unsupported_count += 1
+                coverage.unsupported += 1
                 continue
 
             if not pe_var:
-                if self.policyengine_rule_hint:
-                    issues.append(
-                        "PolicyEngine unavailable for "
-                        f"'{test.get('name', test_rule_name)}': no PE mapping for "
-                        "encoded variable "
-                        f"'{test_rule_name}' with oracle hint "
-                        f"'{self.policyengine_rule_hint}'"
-                    )
-                else:
-                    issues.append(
-                        "PolicyEngine unavailable for "
-                        f"'{test.get('name', test_rule_name)}': no PE mapping for "
-                        f"encoded variable '{test_rule_name}'"
-                    )
-                unsupported_count += 1
+                coverage.unmapped += 1
                 continue
 
             # Build and run PE scenario — include period in inputs for monthly detection
             inputs_with_period = {**inputs, "period": str(period)}
             source_jurisdiction = None
             if country == "us":
-                source_jurisdiction = _source_metadata_jurisdiction(source_metadata)
+                source_jurisdiction = _source_metadata_jurisdiction(
+                    source_metadata
+                ) or _infer_us_state_code_from_rulespec_path(
+                    rulespec_file,
+                    rulespec_source_content,
+                )
                 if source_jurisdiction and "state_code_str" not in inputs_with_period:
                     inputs_with_period["state_code_str"] = source_jurisdiction
-                if source_jurisdiction and pe_var in {
+                if (
+                    source_jurisdiction
+                    and inputs_with_period.get("snap_utility_allowance_type")
+                    and "snap_utility_region_str" not in inputs_with_period
+                ):
+                    inputs_with_period["snap_utility_region_str"] = (
+                        _default_snap_utility_region_for_jurisdiction(
+                            source_jurisdiction
+                        )
+                    )
+                if pe_var in {
                     "snap_standard_utility_allowance",
                     "snap_limited_utility_allowance",
                     "snap_individual_utility_allowance",
                 }:
                     inputs_with_period.setdefault(
                         "snap_utility_allowance_type",
-                        _default_snap_utility_type_for_rule(oracle_rule_name),
+                        _default_snap_utility_type_for_rule(pe_var),
                     )
-                    inputs_with_period.setdefault(
-                        "snap_utility_region_str",
-                        _default_snap_utility_region_for_jurisdiction(
-                            source_jurisdiction
-                        ),
-                    )
+                    if source_jurisdiction:
+                        inputs_with_period.setdefault(
+                            "snap_utility_region_str",
+                            _default_snap_utility_region_for_jurisdiction(
+                                source_jurisdiction
+                            ),
+                        )
             scenario_script = self._build_pe_scenario_script(
                 pe_var,
                 inputs_with_period,
                 year,
                 expected,
                 country=country,
-                rule_name=oracle_rule_name,
+                rule_name=pe_var,
             )
             output = self._run_pe_subprocess_detailed(scenario_script, pe_python)
 
@@ -5677,11 +5346,14 @@ Output ONLY valid JSON:
                     issues.append(
                         f"PolicyEngine unavailable for '{test.get('name', test_rule_name)}': {summary}"
                     )
-                    unsupported_count += 1
+                    coverage.unsupported += 1
                     continue
                 issues.append(
-                    f"PE calculation failed for '{test.get('name', test_rule_name)}': {summary}"
+                    "PE calculation failed for "
+                    f"'{test.get('name', test_rule_name)}' "
+                    f"({raw_test_rule_name} -> {pe_var}): {summary}"
                 )
+                coverage.adapter_errors += 1
                 total += 1
                 continue
 
@@ -5696,26 +5368,35 @@ Output ONLY valid JSON:
                     match = self._values_match(pe_value, expected_float, tolerance=0.02)
                     if match:
                         matches += 1
+                        coverage.passed += 1
                     else:
                         issues.append(
-                            f"'{test.get('name', test_rule_name)}': "
+                            f"'{test.get('name', test_rule_name)}' "
+                            f"({raw_test_rule_name} -> {pe_var}): "
                             f"PE={pe_value:.2f}, RuleSpec expects={expected_float:.2f}"
                         )
+                        coverage.failed += 1
+                    coverage.comparable += 1
                     total += 1
                 else:
                     issues.append(
-                        f"No RESULT in PE output for '{test.get('name', test_rule_name)}'"
+                        "No RESULT in PE output for "
+                        f"'{test.get('name', test_rule_name)}' "
+                        f"({raw_test_rule_name} -> {pe_var})"
                     )
+                    coverage.adapter_errors += 1
                     total += 1
             except Exception as parse_err:
                 issues.append(
-                    f"Parse error for '{test.get('name', test_rule_name)}': {parse_err}"
+                    f"Parse error for '{test.get('name', test_rule_name)}' "
+                    f"({raw_test_rule_name} -> {pe_var}): {parse_err}"
                 )
+                coverage.adapter_errors += 1
                 total += 1
 
         if total == 0:
             duration = int((time.time() - start) * 1000)
-            if unsupported_count:
+            if coverage.unsupported or coverage.unmapped:
                 issues.append(
                     "PolicyEngine could not evaluate any oracle-comparable tests"
                 )
@@ -5725,6 +5406,7 @@ Output ONLY valid JSON:
                 score=None,
                 issues=issues or ["No PolicyEngine-comparable tests found"],
                 duration_ms=duration,
+                details={"coverage": coverage.as_dict()},
             )
 
         score = matches / total if total > 0 else None
@@ -5737,6 +5419,7 @@ Output ONLY valid JSON:
             score=score,
             issues=issues,
             duration_ms=duration,
+            details={"coverage": coverage.as_dict()},
         )
 
     def _read_test_content(self, rulespec_file: Path) -> str:
@@ -6346,13 +6029,22 @@ print("BENCHMARK:" + json.dumps(result))
             "agi": "adjusted_gross_income",
             "adjusted_gross_income": "adjusted_gross_income",
         }
-        mapping.update(_PE_US_VARIABLE_MAP)
         return mapping
 
+    def _resolve_pe_mapping(
+        self, country: str, legal_id: str | None
+    ) -> PolicyEngineMapping | None:
+        """Resolve a canonical Axiom legal output ID to a PE registry mapping."""
+        if not legal_id or "#" not in str(legal_id) or ":" not in str(legal_id):
+            return None
+        return self.policyengine_registry.mapping_for_legal_id(
+            str(legal_id), country=country
+        )
+
     @staticmethod
-    def _get_pe_us_var_adapter(name: str) -> _PolicyEngineUSVarAdapter | None:
+    def _get_pe_us_var_adapter(name: str) -> PolicyEngineUSVarAdapter | None:
         """Return the PE-US adapter row for a mapped PE var or encoded alias."""
-        return _PE_US_VAR_ADAPTERS_BY_NAME.get(name)
+        return get_pe_us_var_adapter(name)
 
     @staticmethod
     def _is_uk_child_benefit_rate_var(rule_name: str) -> bool:
@@ -6739,18 +6431,23 @@ print("BENCHMARK:" + json.dumps(result))
         "ssi",
         "ssi_amount_if_eligible",
         "tanf",
-    } | _PE_US_MONTHLY_VAR_NAMES
+    } | PE_US_MONTHLY_VAR_NAMES
 
     # PE variables at spm_unit level (need spm_units in situation)
-    _PE_SPM_VARS = set(_PE_US_SPM_VAR_NAMES)
+    _PE_SPM_VARS = set(PE_US_SPM_VAR_NAMES)
 
     def _is_pe_test_mappable(
-        self, country: str, rule_name: str, inputs: dict, expected: Any = None
+        self,
+        country: str,
+        rule_name: str,
+        inputs: dict,
+        expected: Any = None,
+        pe_var: str | None = None,
     ) -> tuple[bool, str | None]:
         """Return whether the test case can be represented in PolicyEngine."""
         rule_name_lower = rule_name.lower()
         if country == "us":
-            adapter = self._get_pe_us_var_adapter(rule_name)
+            adapter = self._get_pe_us_var_adapter(pe_var or rule_name)
             if adapter is not None and (
                 adapter.unsupported_input_keys or adapter.unsupported_input_patterns
             ):
@@ -6904,6 +6601,14 @@ print("BENCHMARK:" + json.dumps(result))
 
     def _resolve_pe_variable(self, country: str, rule_name: str) -> str | None:
         """Resolve an encoded variable to a PolicyEngine variable, including heuristics."""
+        if country == "us":
+            mapping = self._resolve_pe_mapping(country, rule_name)
+            return (
+                mapping.policyengine_variable
+                if mapping and mapping.comparable
+                else None
+            )
+
         pe_var = self._get_pe_variable_map(country).get(rule_name)
         if pe_var:
             return pe_var
@@ -6987,6 +6692,17 @@ print("BENCHMARK:" + json.dumps(result))
             return True
         if test_rule_name == oracle_rule_name:
             return True
+        if country == "us":
+            test_mapping = self._resolve_pe_mapping(country, test_rule_name)
+            if not test_mapping or not test_mapping.comparable:
+                return False
+            hinted_mapping = self._resolve_pe_mapping(country, oracle_rule_name)
+            hinted_pe_var = (
+                hinted_mapping.policyengine_variable
+                if hinted_mapping and hinted_mapping.comparable
+                else oracle_rule_name
+            )
+            return test_mapping.policyengine_variable == hinted_pe_var
         hinted_pe_var = self._resolve_pe_variable(country, oracle_rule_name)
         if not hinted_pe_var:
             return False
@@ -7036,6 +6752,7 @@ print("BENCHMARK:" + json.dumps(result))
 
     def _build_pe_us_scenario_script(self, pe_var: str, inputs: dict, year: str) -> str:
         """Build a Python script to run a US PolicyEngine scenario."""
+        inputs = {**_policyengine_us_snap_input_aliases(inputs), **inputs}
 
         def derive_override_value(
             operation: str, source_values: list[float]
@@ -7340,7 +7057,7 @@ print("BENCHMARK:" + json.dumps(result))
         elif "state_name" in inputs:
             household_state = str(inputs["state_name"])
         elif utility_region is not None:
-            household_state = _normalize_state_code_from_utility_region(utility_region)
+            household_state = normalize_state_code_from_utility_region(utility_region)
 
         household_extra_parts = [
             f"'state_name': {{'{year}': {repr(household_state)}}}",

@@ -6,6 +6,8 @@ from axiom_encode.harness.validator_pipeline import (
     OracleSubprocessResult,
     ValidatorPipeline,
     _extract_json_object,
+    _infer_us_state_code_from_rulespec_path,
+    _policyengine_us_snap_input_aliases,
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
@@ -13,6 +15,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
 )
+from axiom_encode.oracles.policyengine.registry import load_policyengine_registry
 
 AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
 AXIOM_RULES_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules"
@@ -161,12 +164,12 @@ def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
   period: 2026-01
   input: {}
   output:
-    mapped_var: 10
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
 - name: unmapped
   period: 2026-01
   input: {}
   output:
-    unmapped_var: 99
+    us:test/fake#unmapped_var: 99
 """
     )
     pipeline = ValidatorPipeline(
@@ -179,21 +182,102 @@ def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
     pipeline._find_pe_python = lambda _country: Path("python")
     pipeline._should_compare_pe_test_output = lambda *_args, **_kwargs: True
     pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
-    pipeline._resolve_pe_variable = lambda _country, name: (
-        "pe_mapped_var" if name == "mapped_var" else None
-    )
     pipeline._build_pe_scenario_script = lambda *_args, **_kwargs: ""
     pipeline._run_pe_subprocess_detailed = lambda *_args, **_kwargs: (
-        OracleSubprocessResult(returncode=0, stdout="RESULT:10\n")
+        OracleSubprocessResult(returncode=0, stdout="RESULT:209\n")
     )
 
     result = pipeline._run_policyengine(rules_file)
 
     assert result.score == 1.0
     assert result.passed is True
-    assert len(result.issues) == 1
-    assert "no PE mapping" in result.issues[0]
-    assert "unmapped_var" in result.issues[0]
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert result.details["coverage"]["passed"] == 1
+    assert result.details["coverage"]["unmapped"] == 1
+
+
+def test_policyengine_registry_is_legal_id_keyed():
+    registry = load_policyengine_registry()
+
+    mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2014/e/2#snap_earned_income_deduction",
+        country="us",
+    )
+
+    assert mapping is not None
+    assert mapping.policyengine_variable == "snap_earned_income_deduction"
+    assert registry.mapping_for_legal_id("snap_earned_income_deduction") is None
+
+
+def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+
+    assert pipeline._resolve_pe_variable("us", "snap_earned_income_deduction") is None
+    assert (
+        pipeline._resolve_pe_variable(
+            "us", "us:statutes/7/2014/e/2#snap_earned_income_deduction"
+        )
+        == "snap_earned_income_deduction"
+    )
+
+
+def test_policyengine_us_state_inference_uses_rulespec_repo_path(tmp_path):
+    rules_file = tmp_path / "rules-us-co" / "regulations" / "rules.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("format: rulespec/v1\n")
+
+    assert _infer_us_state_code_from_rulespec_path(rules_file) == "CO"
+    assert (
+        _infer_us_state_code_from_rulespec_path(
+            tmp_path / "rules.yaml",
+            "imports:\n  - us-ny:regulations/example\n",
+        )
+        == "NY"
+    )
+
+
+def test_policyengine_snap_input_aliases_derive_standard_pe_inputs():
+    aliases = _policyengine_us_snap_input_aliases(
+        {
+            "employee_wages_received": 1000,
+            "household_shelter_costs_incurred": 500,
+            "household_incurred_or_anticipated_heating_or_cooling_costs_separate_from_rent_or_mortgage": True,
+        }
+    )
+
+    assert aliases == {
+        "snap_earned_income": 1000.0,
+        "snap_gross_income": 1000.0,
+        "housing_cost": 500.0,
+        "snap_utility_allowance_type": "SUA",
+    }
+
+
+def test_policyengine_snap_net_income_annualizes_housing_cost(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "snap_net_income",
+        {
+            "period": "2026-01",
+            "employee_wages_received": 1000,
+            "household_shelter_costs_incurred": 500,
+        },
+        "2026",
+    )
+
+    assert "'housing_cost': {'2026': 6000}" in script
+    assert "'housing_cost': {'2026-01':" not in script
 
 
 def test_reviewer_score_below_threshold_fails_even_if_declared_passed(
