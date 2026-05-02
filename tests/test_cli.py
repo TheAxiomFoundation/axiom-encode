@@ -1474,7 +1474,7 @@ class TestCmdCompile:
             content
             or """format: rulespec/v1
 module:
-  summary: Test programme.
+  summary: Test RuleSpec file.
 rules:
   - name: test_rule
     kind: parameter

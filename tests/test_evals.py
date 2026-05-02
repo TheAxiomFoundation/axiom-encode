@@ -1808,7 +1808,7 @@ class TestEvalPrompt:
         assert "period:" in prompt
         assert "dtype:" in prompt
         assert "RuleSpec requirements:" in prompt
-        assert "The programme file must begin with `format: rulespec/v1`" in prompt
+        assert "The RuleSpec file must begin with `format: rulespec/v1`" in prompt
         assert (
             "Use chained `if condition: value else: other_value` expressions" in prompt
         )

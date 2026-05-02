@@ -3575,7 +3575,7 @@ class ValidatorPipeline:
         )
 
     def _is_rulespec_file(self, rules_file: Path) -> bool:
-        """Return true for current RuleSpec programme files."""
+        """Return true for current RuleSpec files."""
         if rules_file.suffix not in {".yaml", ".yml"} or rules_file.name.endswith(
             ".test.yaml"
         ):

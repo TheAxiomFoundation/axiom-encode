@@ -1951,7 +1951,7 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
 
 
 def _rulespec_test_path(path: Path) -> Path:
-    """Return the companion RuleSpec test path for a programme file."""
+    """Return the companion RuleSpec test path for a RuleSpec file."""
     return path.with_name(f"{path.stem}.test.yaml")
 
 
@@ -2132,7 +2132,7 @@ Primary legal authority:
 {backend_section}
 
 RuleSpec requirements:
-- The programme file must begin with `format: rulespec/v1`.
+- The RuleSpec file must begin with `format: rulespec/v1`.
 - Include `module.summary: |-` containing the exact operative source text or an exact compact excerpt sufficient to audit all encoded rules.
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.

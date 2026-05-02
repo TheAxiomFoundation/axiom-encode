@@ -495,7 +495,7 @@ rules:
     )
 
 
-def test_upstream_placement_flags_legacy_snap_allotment_alias_references():
+def test_upstream_placement_flags_friendly_snap_allotment_alias_references():
     content = """format: rulespec/v1
 rules:
   - name: state_snap_uses_food_contribution
