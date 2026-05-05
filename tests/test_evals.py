@@ -4570,10 +4570,7 @@ class TestSourceEval:
         assert '"relation": "sets"' in prompt
         assert "kind: source_relation" in prompt
         assert "source_relation.type" in prompt
-        assert (
-            "record that legal/provenance edge as a separate"
-            in prompt
-        )
+        assert "record that legal/provenance edge as a separate" in prompt
         assert (
             "us:regulation/7-cfr/273/9/d/6/iii#snap_standard_utility_allowance"
             in prompt

@@ -2254,9 +2254,7 @@ def _rules_include_source_relation_target(
         and str(rule["source_relation"].get("type") or "").strip().lower()
         == relation_type
         and _target_matches(
-            _normalize_relation_target(
-                rule["source_relation"].get("target")
-            ),
+            _normalize_relation_target(rule["source_relation"].get("target")),
             target,
         )
         for rule in rules
