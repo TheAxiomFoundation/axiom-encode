@@ -530,10 +530,11 @@ def test_rulespec_ci_rejects_repo_backed_friendly_relation_child_input_keys(tmp_
         """format: rulespec/v1
 module:
   summary: 7 USC 2012(j) defines SNAP elderly or disabled household members.
-relations:
-  - name: member_of_household
-    arity: 2
 rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -581,10 +582,11 @@ def test_rulespec_ci_executes_repo_backed_absolute_relation_child_input_keys(tmp
         """format: rulespec/v1
 module:
   summary: 7 USC 2012(j) defines SNAP elderly or disabled household members.
-relations:
-  - name: member_of_household
-    arity: 2
 rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -628,10 +630,11 @@ def test_rulespec_ci_rejects_repo_backed_unresolved_relation_reference(tmp_path)
         """format: rulespec/v1
 module:
   summary: 7 USC 2012(j) defines SNAP elderly or disabled household members.
-relations:
-  - name: member_of_household
-    arity: 2
 rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -1640,10 +1643,11 @@ rules:
 
 def test_upstream_placement_flags_snap_elderly_disabled_definition_in_cola():
     content = """format: rulespec/v1
-relations:
-  - name: member_of_household
-    arity: 2
 rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
   - name: snap_household_has_usda_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -1720,10 +1724,11 @@ rules:
 
 def test_upstream_placement_allows_canonical_snap_elderly_disabled_definition():
     content = """format: rulespec/v1
-relations:
-  - name: member_of_household
-    arity: 2
 rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
   - name: snap_household_has_elderly_or_disabled_member
     kind: derived
     entity: Household
@@ -2072,15 +2077,15 @@ rules:
     )
 
 
-def test_upstream_placement_allows_state_manual_reiteration_of_snap_allotment_formula():
+def test_upstream_placement_allows_state_manual_restatement_of_snap_allotment_formula():
     content = """format: rulespec/v1
 rules:
-  - name: co_snap_regular_allotment_reiterates_7_usc_2017_a
-    kind: reiteration
-    reiterates:
+  - name: regular_allotment_restatement
+    kind: source_relation
+    source_relation:
+      type: restates
       target: us:statutes/7/2017/a#snap_regular_month_allotment
       authority: federal
-      relationship: restates
 """
 
     assert (
@@ -2114,7 +2119,7 @@ rules:
 
     assert len(issues) == 1
     assert "federal SNAP annual COLA value" in issues[0]
-    assert "reiteration" in issues[0]
+    assert "source_relation.type: restates" in issues[0]
 
 
 def test_upstream_placement_flags_state_manual_federal_cola_aliases():
@@ -2160,15 +2165,15 @@ rules:
     assert any("us:statutes/7/2012/j" in issue for issue in issues)
 
 
-def test_upstream_placement_allows_state_manual_reiteration_of_federal_cola_values():
+def test_upstream_placement_allows_state_manual_restatement_of_federal_cola_values():
     content = """format: rulespec/v1
 rules:
-  - name: co_snap_maximum_allotment_reiterates_usda_fy_2026
-    kind: reiteration
-    reiterates:
+  - name: maximum_allotment_restatement
+    kind: source_relation
+    source_relation:
+      type: restates
       target: us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment
       authority: federal
-      relationship: restates
     verification:
       values:
         snap_maximum_allotment_table:
@@ -2185,7 +2190,7 @@ rules:
     )
 
 
-def test_upstream_placement_requires_reiteration_from_source_metadata():
+def test_upstream_placement_requires_source_relation_from_source_metadata():
     content = """format: rulespec/v1
 rules:
   - name: local_benefit_limit
@@ -2210,19 +2215,19 @@ rules:
     )
 
     assert len(issues) == 1
-    assert "Source metadata upstream relation requires reiteration" in issues[0]
+    assert "Source metadata upstream relation requires source_relation" in issues[0]
     assert "us:policies/example/fy-2026#benefit_limit" in issues[0]
 
 
-def test_upstream_placement_allows_reiteration_from_source_metadata():
+def test_upstream_placement_allows_source_relation_from_source_metadata():
     content = """format: rulespec/v1
 rules:
-  - name: local_benefit_limit_reiterates_example_policy
-    kind: reiteration
-    reiterates:
+  - name: benefit_limit_restatement
+    kind: source_relation
+    source_relation:
+      type: restates
       target: us:policies/example/fy-2026#benefit_limit
       authority: federal
-      relationship: restates
 """
 
     assert (
@@ -2267,23 +2272,18 @@ rules:
 
     assert len(issues) == 1
     assert "Source metadata upstream relation not recorded" in issues[0]
-    assert "metadata.sets" in issues[0]
+    assert "source_relation.type: sets" in issues[0]
     assert "us:regulation/7-cfr/273/9/d/6/iii#standard_allowance" in issues[0]
 
 
-def test_upstream_placement_allows_metadata_sets_from_source_metadata():
+def test_upstream_placement_allows_source_relation_sets_from_source_metadata():
     content = """format: rulespec/v1
 rules:
-  - name: local_standard_allowance
-    kind: parameter
-    dtype: Money
-    unit: USD
-    metadata:
-      source_relation: sets
-      sets: us:regulation/7-cfr/273/9/d/6/iii#standard_allowance
-    versions:
-      - effective_from: '2026-01-01'
-        formula: '451'
+  - name: standard_allowance_setting
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulation/7-cfr/273/9/d/6/iii#standard_allowance
 """
 
     assert (
@@ -2327,11 +2327,11 @@ rules:
     )
 
     assert len(issues) == 1
-    assert "metadata.amends" in issues[0]
+    assert "source_relation.type: amends" in issues[0]
     assert "us:statutes/7/2014/c#income_threshold" in issues[0]
 
 
-def test_upstream_placement_requires_source_relation_for_metadata_target():
+def test_upstream_placement_rejects_source_relation_metadata_on_executable_rule():
     content = """format: rulespec/v1
 rules:
   - name: local_standard_allowance
@@ -2348,11 +2348,11 @@ rules:
     issues = find_upstream_placement_issues(content)
 
     assert len(issues) == 1
-    assert "metadata.source_relation" in issues[0]
+    assert "source-relation metadata is not allowed" in issues[0]
     assert "metadata.sets" in issues[0]
 
 
-def test_upstream_placement_rejects_unknown_source_relation():
+def test_upstream_placement_rejects_metadata_source_relation_on_executable_rule():
     content = """format: rulespec/v1
 rules:
   - name: local_copy
@@ -2370,11 +2370,11 @@ rules:
     issues = find_upstream_placement_issues(content)
 
     assert len(issues) == 1
-    assert "unknown source relation" in issues[0]
-    assert "copies" in issues[0]
+    assert "source-relation metadata is not allowed" in issues[0]
+    assert "metadata.source_relation" in issues[0]
 
 
-def test_upstream_placement_requires_metadata_target_for_declared_relation():
+def test_upstream_placement_rejects_metadata_source_relation_without_target():
     content = """format: rulespec/v1
 rules:
   - name: local_update
@@ -2391,8 +2391,8 @@ rules:
     issues = find_upstream_placement_issues(content)
 
     assert len(issues) == 1
-    assert "metadata.source_relation: amends" in issues[0]
-    assert "metadata.amends" in issues[0]
+    assert "source-relation metadata is not allowed" in issues[0]
+    assert "metadata.source_relation" in issues[0]
 
 
 def test_upstream_placement_requires_metadata_implements_from_source_metadata():
@@ -2422,26 +2422,18 @@ rules:
     )
 
     assert len(issues) == 1
-    assert "metadata.source_relation: implements" in issues[0]
-    assert "metadata.implements" in issues[0]
+    assert "source_relation.type: implements" in issues[0]
+    assert "us:statutes/7/2014/e#deduction_mechanics" in issues[0]
 
 
-def test_upstream_placement_allows_metadata_implements_from_source_metadata():
+def test_upstream_placement_allows_source_relation_implements_from_source_metadata():
     content = """format: rulespec/v1
 rules:
-  - name: state_mechanics
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    metadata:
-      source_relation: implements
-      implements:
-        - target: us:statutes/7/2014/e#deduction_mechanics
-    versions:
-      - effective_from: '2026-01-01'
-        formula: household_income
+  - name: deduction_mechanics_implementation
+    kind: source_relation
+    source_relation:
+      type: implements
+      target: us:statutes/7/2014/e#deduction_mechanics
 """
 
     assert (
@@ -2460,7 +2452,7 @@ rules:
     )
 
 
-def test_upstream_placement_requires_target_for_defines_relation():
+def test_upstream_placement_rejects_metadata_defines_relation():
     content = """format: rulespec/v1
 rules:
   - name: canonical_income_rule
@@ -2479,8 +2471,8 @@ rules:
     issues = find_upstream_placement_issues(content)
 
     assert len(issues) == 1
-    assert "metadata.source_relation: defines" in issues[0]
-    assert "metadata.defines" in issues[0]
+    assert "source-relation metadata is not allowed" in issues[0]
+    assert "metadata.source_relation" in issues[0]
 
 
 def test_upstream_placement_rejects_concept_id_placeholder():
@@ -2493,7 +2485,6 @@ rules:
     period: Month
     unit: USD
     metadata:
-      source_relation: defines
       concept_id: snap.income
     versions:
       - effective_from: '2026-01-01'
@@ -3159,7 +3150,7 @@ rules:
     assert any("snap_maximum_allotment_table[2]" in issue for issue in issues)
 
 
-def test_rulespec_ci_accepts_reiteration_without_tests(tmp_path):
+def test_rulespec_ci_accepts_source_relation_without_tests(tmp_path):
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
@@ -3167,13 +3158,13 @@ def test_rulespec_ci_accepts_reiteration_without_tests(tmp_path):
     rules_file.write_text(
         """format: rulespec/v1
 rules:
-  - name: co_snap_maximum_allotment_reiterates_usda_fy_2026
-    kind: reiteration
+  - name: maximum_allotment_restatement
+    kind: source_relation
     source: 10 CCR 2506-1 section 4.207.3(D)
-    reiterates:
+    source_relation:
+      type: restates
       target: us:policies/usda/snap/fy-2026-cola#snap_maximum_allotment
       authority: federal
-      relationship: restates
 """
     )
 
@@ -3186,7 +3177,7 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_verifies_reiteration_values_against_target(tmp_path):
+def test_rulespec_ci_verifies_source_relation_values_against_target(tmp_path):
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
@@ -3231,12 +3222,12 @@ rules:
     rules_file.write_text(
         """format: rulespec/v1
 rules:
-  - name: co_snap_maximum_allotment_reiterates_usda_fy_2026
-    kind: reiteration
-    reiterates:
+  - name: maximum_allotment_restatement
+    kind: source_relation
+    source_relation:
+      type: restates
       target: us:policies/usda/snap/fy-2026-cola#snap_maximum_allotment
       authority: federal
-      relationship: restates
     verification:
       values:
         snap_maximum_allotment_table:
@@ -3255,7 +3246,7 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
-def test_rulespec_ci_rejects_reiteration_value_mismatch(tmp_path):
+def test_rulespec_ci_rejects_source_relation_value_mismatch(tmp_path):
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
@@ -3293,12 +3284,12 @@ rules:
     rules_file.write_text(
         """format: rulespec/v1
 rules:
-  - name: co_snap_maximum_allotment_reiterates_usda_fy_2026
-    kind: reiteration
-    reiterates:
+  - name: maximum_allotment_restatement
+    kind: source_relation
+    source_relation:
+      type: restates
       target: us:policies/usda/snap/fy-2026-cola#snap_maximum_allotment
       authority: federal
-      relationship: restates
     verification:
       values:
         snap_maximum_allotment_table:
@@ -3316,13 +3307,13 @@ rules:
 
     assert result.passed is False
     assert any(
-        "Reiteration verification mismatch" in issue
+        "Source relation verification mismatch" in issue
         and "snap_maximum_allotment_table[2]" in issue
         for issue in result.issues
     )
 
 
-def test_rulespec_ci_rejects_reiteration_without_target(tmp_path):
+def test_rulespec_ci_rejects_source_relation_without_target(tmp_path):
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
 
@@ -3330,10 +3321,11 @@ def test_rulespec_ci_rejects_reiteration_without_target(tmp_path):
     rules_file.write_text(
         """format: rulespec/v1
 rules:
-  - name: co_snap_maximum_allotment_reiterates_usda_fy_2026
-    kind: reiteration
+  - name: maximum_allotment_restatement
+    kind: source_relation
     source: 10 CCR 2506-1 section 4.207.3(D)
-    reiterates:
+    source_relation:
+      type: restates
       authority: federal
 """
     )
@@ -3346,7 +3338,7 @@ rules:
     result = pipeline._run_ci(rules_file)
 
     assert result.passed is False
-    assert any("Reiteration target required" in issue for issue in result.issues)
+    assert any("Source relation target required" in issue for issue in result.issues)
 
 
 def test_rulespec_ci_rejects_scalar_kind_mismatches(tmp_path):

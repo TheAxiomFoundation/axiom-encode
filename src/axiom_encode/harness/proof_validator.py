@@ -222,7 +222,7 @@ def _is_policy_bearing_rule(rule: dict[str, Any]) -> bool:
     kind = str(rule.get("kind") or "").strip()
     if kind in POLICY_RULE_KINDS:
         return True
-    if kind in {"relation", "reiteration"}:
+    if kind in {"data_relation", "source_relation"}:
         return False
     return bool(rule.get("versions"))
 

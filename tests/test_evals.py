@@ -4568,9 +4568,10 @@ class TestSourceEval:
         assert "./source-metadata.json" in prompt
         assert "\n  - relation: sets" not in prompt
         assert '"relation": "sets"' in prompt
-        assert "metadata.source_relation: sets" in prompt
+        assert "kind: source_relation" in prompt
+        assert "source_relation.type" in prompt
         assert (
-            "setting the effective jurisdiction-specific value for that delegated slot"
+            "record that legal/provenance edge as a separate"
             in prompt
         )
         assert (

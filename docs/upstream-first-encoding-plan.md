@@ -23,7 +23,7 @@ delegates that choice downstream.
 Example: a federal regulation can define a standard utility allowance slot, while
 a state manual is canonical for the Tennessee value that fills that slot. The
 state value should not be rejected as downstream duplication; it should encode
-`metadata.sets` pointing to the upstream slot.
+a `source_relation.type: sets` edge pointing to the upstream slot.
 
 Canonicality is decided by relation edges, delegated slots, concept keys, source
 spans, and effective periods. Rank only decides which candidates the encoder
@@ -42,7 +42,7 @@ The default lookup and batch order is:
 7. State agency manuals, operational guidance, notices, worksheets, and forms.
 
 This order should guide planner queues and upstream retrieval. It should not
-force every lower-rank document into a reiteration when that document is
+force every lower-rank document into a restatement edge when that document is
 lawfully setting, implementing, or amending an upstream slot.
 
 ## Source Graph
@@ -81,15 +81,15 @@ Core relation types:
 - `sets`: the source/span sets a delegated value, option, rate, region, or
   parameter.
 - `amends`: the source/span changes an upstream source, slot, or target.
-- `reiterates`: the source/span restates an upstream source or target without
+- `restates`: the source/span restates an upstream source or target without
   adding executable semantics.
 - `cites`: the source/span references another source without resolving the legal
   relationship.
 
 Relations can attach to spans, not only whole files. A single source slice can
-produce multiple RuleSpec records: one reiteration, one delegated setting, and
-one downstream implementation rule, each tied to the source span that justifies
-it.
+produce multiple RuleSpec records: one source-relation restatement, one
+delegated setting, and one downstream implementation rule, each tied to the
+source span that justifies it.
 
 ## Target Keys
 
@@ -149,9 +149,10 @@ For each source span:
 3. Materialize all graph-resolved import targets into the eval workspace, or
    create explicit planned stubs before model invocation.
 4. Fetch sibling and downstream context only after upstream context.
-5. Ask the encoder to classify each generated rule as one of:
-   `defines`, `delegates`, `implements`, `sets`, `amends`, or `reiterates`.
-6. Generate RuleSpec that records the classification in per-rule metadata.
+5. Ask the encoder to classify each generated legal/source edge as one of:
+   `defines`, `delegates`, `implements`, `sets`, `amends`, or `restates`.
+6. Generate RuleSpec that records each legal/source edge as a
+   `kind: source_relation` record.
 7. Validate the artifact against the graph, local imports, source text, tests,
    and applicable oracles.
 8. Persist new RuleSpec target metadata and trace data back into the registry so
@@ -162,9 +163,10 @@ restating upstream law. It should also require an explicit justification when it
 defines a new executable rule in a lower-authority source despite upstream
 candidates existing.
 
-## RuleSpec Metadata
+## RuleSpec Source Relations
 
-Rule-level metadata should be explicit and structured. Proposed shape:
+Legal/source relations should be explicit RuleSpec records, not executable-rule
+metadata. Proposed shape:
 
 ```yaml
 rules:
@@ -172,38 +174,36 @@ rules:
     kind: parameter
     dtype: Money
     unit: USD
-metadata:
-      source_relation: sets
-      source_span_id: corpus.provisions:co/snap/manual/utility-allowance#table-1
-      sets:
-        - target: us:regulation/7-cfr/273/9/d/6/iii#snap_standard_utility_allowance_slot
-          source_relation_id: corpus.relations:...
     versions:
       - effective_from: '2025-10-01'
         formula: '451'
+  - name: standard_utility_allowance_setting
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulation/7-cfr/273/9/d/6/iii#snap_standard_utility_allowance_slot
+      value: us-co:policies/cdhs/snap/fy-2026#snap_standard_utility_allowance
 ```
 
-Recommended metadata fields:
+Recommended `source_relation` fields:
 
-- `source_relation`: one of `defines`, `delegates`, `implements`, `sets`,
-  `amends`, or `reiterates`.
-- `source_span_id`: source span that justifies the rule.
-- `defines`: list of absolute target objects when a rule is canonical.
-- `delegates`: list of downstream slot targets created by this rule.
-- `implements`: list of upstream targets implemented by this rule.
-- `sets`: list of delegated targets set by this rule.
-- `amends`: list of upstream targets amended by this rule.
+- `type`: one of `defines`, `delegates`, `implements`, `sets`, `amends`,
+  `restates`, or `cites`.
+- `target`: absolute source or RuleSpec target.
+- `value`: absolute RuleSpec target for the executable value when applicable.
+- `basis.delegation`: absolute upstream delegation target when required.
+- `amendment`: operation and effective interval for amendments.
 
-For pure restatements, keep the existing explicit non-executable shape:
+For pure restatements, use the explicit non-executable source-relation shape:
 
 ```yaml
 rules:
-  - name: co_snap_standard_deduction_reiterates_usda_fy_2026
-    kind: reiteration
-    reiterates:
+  - name: standard_deduction_restatement
+    kind: source_relation
+    source_relation:
+      type: restates
       target: us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction
       authority: federal
-      relationship: restates
 ```
 
 The registry should index all RuleSpec relations so a downstream run can ask:
@@ -211,7 +211,7 @@ The registry should index all RuleSpec relations so a downstream run can ask:
 - What upstream source spans and RuleSpec targets exist for this citation/topic?
 - What absolute targets are already defined?
 - Which downstream sources set or amend this target?
-- Which sources merely reiterate this target?
+- Which sources merely restate this target?
 
 ## Harness Rules
 
@@ -219,18 +219,15 @@ The harness should enforce source relations, not policy-specific variable names.
 
 Required deterministic checks:
 
-- If source metadata says `reiterates` or `restates` a target, the file must use
-  `kind: reiteration` with `reiterates.target`, scoped to the relevant source
-  span.
-- If source metadata says `sets` a target, the corresponding RuleSpec rule must
-  declare `metadata.source_relation: sets` and `metadata.sets`.
-- If source metadata says `amends` a target, the corresponding RuleSpec rule
-  must declare `metadata.source_relation: amends` and `metadata.amends`.
-- If source metadata says `implements` a target, the corresponding RuleSpec rule
-  must declare `metadata.source_relation: implements` and `metadata.implements`.
+- If source metadata says `restates` a target, the file must include a
+  `kind: source_relation` record with `source_relation.type: restates` and
+  `source_relation.target`, scoped to the relevant source span.
+- If source metadata says `sets`, `implements`, or `amends` a target, the file
+  must include a `kind: source_relation` record with the corresponding
+  `source_relation.type` and absolute `source_relation.target`.
 - If a rule defines an absolute target already defined upstream and does not declare
-  `implements`, `sets`, `amends`, or a reiteration, flag it as downstream
-  duplication.
+  a matching `source_relation` record with `implements`, `sets`, `amends`, or
+  `restates`, flag it as downstream duplication.
 - If a downstream source cites an upstream provision and the graph resolves a
   unique target, require a materialized import, a relation marker, or an explicit
   non-import justification.
@@ -290,7 +287,7 @@ Add an encoding planner that creates a deterministic DAG from
 1. Group provisions by jurisdiction, program, source type, and concept topic.
 2. Sort by `authority_level`, citation hierarchy, and effective period.
 3. Add graph edges for `defines`, `delegates`, `implements`, `sets`, `amends`,
-   `reiterates`, and high-confidence `cites`.
+   `restates`, and high-confidence `cites`.
 4. Encode missing upstream dependencies before downstream slices.
 5. Requeue downstream slices when a newly encoded upstream artifact changes the
    candidate context.
@@ -328,7 +325,7 @@ Use Colorado SNAP as the first end-to-end pilot:
 3. Encode USDA FY 2026 COLA and income-standard documents as federal policy
    sources that set statutory or regulatory slots.
 4. Encode Colorado regulations/manual sections only as:
-   - reiterations of federal rules and USDA parameter docs,
+   - source-relation restatements of federal rules and USDA parameter docs,
    - Colorado-set options or values,
    - Colorado-specific implementation mechanics.
 5. Run full CO SNAP calculation tests and compare to PolicyEngine US where a
@@ -343,11 +340,11 @@ earned-income deductions, or statutory elderly/disabled definitions.
 ### Phase 1: Relation-Aware Harness
 
 - Keep corpus relation-metadata checks in `axiom-encode`.
-- Add TDD cases for generic `reiterates`, `sets`, `amends`, `implements`,
+- Add TDD cases for generic `restates`, `sets`, `amends`, `implements`,
   duplicate concept detection, source-span scoping, and period conflicts.
-- Add schema validation for `metadata.source_relation`, `metadata.defines`,
-  `metadata.delegates`, `metadata.implements`, `metadata.sets`, and
-  `metadata.amends`.
+- Add schema validation for `kind: source_relation`,
+  `source_relation.type`, `source_relation.target`, `source_relation.value`,
+  and delegation/amendment fields.
 - Keep current SNAP fallback checks only as temporary guardrails.
 
 ### Phase 2: Source Graph Ingestion
@@ -393,13 +390,13 @@ earned-income deductions, or statutory elderly/disabled definitions.
   setting, implementation, amendment, duplicate-definition, and period-conflict
   cases without program-specific rule names.
 - A downstream source that restates upstream policy fails validation unless it is
-  encoded as a reiteration.
+  encoded as a `source_relation.type: restates` record.
 - A downstream source that sets a delegated option/value fails validation unless
-  it records `metadata.source_relation: sets` and `metadata.sets`.
+  it records a `source_relation.type: sets` edge.
 - A downstream source that implements delegated mechanics fails validation unless
-  it records `metadata.source_relation: implements` and `metadata.implements`.
+  it records a `source_relation.type: implements` edge.
 - A downstream source that amends upstream policy fails validation unless it
-  records `metadata.source_relation: amends` and `metadata.amends`.
+  records a `source_relation.type: amends` edge.
 - `axiom-encode plan --json` emits a deterministic DAG with source ids, source
   spans, relation edges, effective periods, upstream candidates, and
   blocked/stubbed dependencies.
@@ -416,8 +413,8 @@ earned-income deductions, or statutory elderly/disabled definitions.
 - Citation extraction may create noisy `cites` edges. Only high-confidence
   relations should become blocking harness requirements.
 - Some source documents genuinely combine restatement and implementation in the
-  same paragraph. The encoder must split these into span-scoped reiterations and
-  downstream executable rules.
+  same paragraph. The encoder must split these into span-scoped source-relation
+  restatements and downstream executable rules.
 - `sets` and `amends` need clear semantics. A source that updates an annual value
   usually `sets` a delegated slot; a source that changes legal text or formula
   structure `amends`.

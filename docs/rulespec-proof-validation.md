@@ -29,7 +29,7 @@ The layers have separate authority:
   tables, source versions, and content hashes.
 - `claims`: thin reviewed assertions about what a source span says or how one
   source relates to another. Claims may say `sets`, `defines`, `amends`,
-  `implements`, `reiterates`, `delegates`, and similar source relations.
+  `implements`, `restates`, `delegates`, and similar source relations.
 - `rulespec`: executable policy logic, parameters, imports, tests, and runtime
   outputs.
 

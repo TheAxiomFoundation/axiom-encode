@@ -1680,7 +1680,7 @@ _SOURCE_CLAIM_ALLOWED_KINDS = frozenset(
         "implements",
         "amends",
         "supersedes",
-        "reiterates",
+        "restates",
         "delegates",
         "applies_to",
         "requires",
@@ -2114,10 +2114,7 @@ def _normalized_rulespec_path(rules_file: Path | None) -> str:
     return rules_file.as_posix().lstrip("./").lower()
 
 
-_SOURCE_METADATA_REITERATION_RELATIONS = {
-    "reiterate",
-    "reiterates",
-    "reiterated",
+_SOURCE_METADATA_RESTATEMENT_RELATIONS = {
     "restate",
     "restates",
     "restated",
@@ -2136,12 +2133,10 @@ _SOURCE_METADATA_DECLARATIVE_RELATIONS = {
     "implemented": "implements",
 }
 _RULE_METADATA_TARGET_KEYS = ("defines", "delegates", "implements", "sets", "amends")
-_RULE_METADATA_SOURCE_RELATIONS = (*_RULE_METADATA_TARGET_KEYS, "reiterates")
-_RULE_METADATA_SOURCE_RELATION_SET = frozenset(_RULE_METADATA_SOURCE_RELATIONS)
 
 
 def _find_rule_metadata_schema_issues(rules: list[Any]) -> list[str]:
-    """Validate generic source relation metadata on executable RuleSpec rules."""
+    """Reject source-relation metadata on executable RuleSpec rules."""
     issues: list[str] = []
     for rule in rules:
         if not isinstance(rule, dict):
@@ -2159,33 +2154,17 @@ def _find_rule_metadata_schema_issues(rules: list[Any]) -> list[str]:
             )
             continue
 
-        source_relation = _rule_metadata_source_relation(rule)
-        target_keys = [
+        relation_keys = [
             key
-            for key in _RULE_METADATA_TARGET_KEYS
-            if list(_iter_relation_target_values(metadata.get(key)))
+            for key in ("source_relation", *_RULE_METADATA_TARGET_KEYS)
+            if key in metadata
         ]
-
-        if (
-            source_relation is not None
-            and source_relation not in _RULE_METADATA_SOURCE_RELATION_SET
-        ):
-            allowed = ", ".join(
-                f"`{relation}`" for relation in _RULE_METADATA_SOURCE_RELATIONS
-            )
+        if relation_keys:
+            keys = ", ".join(f"`metadata.{key}`" for key in relation_keys)
             issues.append(
-                f"RuleSpec relation metadata has unknown source relation: rule "
-                f"`{rule_name}` declares `metadata.source_relation: "
-                f"{source_relation}`, but allowed values are {allowed}."
-            )
-            continue
-
-        if target_keys and source_relation is None:
-            targets = ", ".join(f"`metadata.{key}`" for key in target_keys)
-            issues.append(
-                f"RuleSpec relation metadata is missing source relation: rule "
-                f"`{rule_name}` declares {targets} and must also declare "
-                "`metadata.source_relation`."
+                f"RuleSpec source-relation metadata is not allowed on executable "
+                f"rule `{rule_name}`: {keys}. Encode legal/provenance edges as "
+                "separate `kind: source_relation` records."
             )
             continue
 
@@ -2193,39 +2172,8 @@ def _find_rule_metadata_schema_issues(rules: list[Any]) -> list[str]:
             issues.append(
                 f"RuleSpec relation metadata has placeholder target: rule "
                 f"`{rule_name}` declares `metadata.concept_id`; use an absolute "
-                "RuleSpec or corpus target in `metadata.defines`, "
-                "`metadata.delegates`, `metadata.implements`, `metadata.sets`, "
-                "or `metadata.amends` instead."
-            )
-            continue
-
-        if source_relation == "reiterates":
-            if str(rule.get("kind") or "").strip().lower() != "reiteration":
-                issues.append(
-                    f"RuleSpec relation metadata has executable reiteration: rule "
-                    f"`{rule_name}` declares `metadata.source_relation: reiterates`; "
-                    "use `kind: reiteration` with `reiterates.target` instead."
-                )
-            continue
-
-        if source_relation == "defines":
-            has_target = any(_iter_relation_target_values(metadata.get("defines")))
-            if not has_target:
-                issues.append(
-                    f"RuleSpec relation metadata is incomplete: rule `{rule_name}` "
-                    "declares `metadata.source_relation: defines` and must also "
-                    "declare `metadata.defines` with an absolute RuleSpec or "
-                    "corpus target."
-                )
-            continue
-
-        if source_relation in _RULE_METADATA_TARGET_KEYS and not any(
-            _iter_relation_target_values(metadata.get(source_relation))
-        ):
-            issues.append(
-                f"RuleSpec relation metadata is incomplete: rule `{rule_name}` "
-                f"declares `metadata.source_relation: {source_relation}` and "
-                f"must also declare `metadata.{source_relation}`."
+                "RuleSpec or corpus target in a separate `kind: source_relation` "
+                "record instead."
             )
 
     return issues
@@ -2239,13 +2187,18 @@ def _find_source_metadata_upstream_issues(
     """Enforce generic upstream/source relations from structured source metadata."""
     issues: list[str] = []
     for relation, target in _iter_source_metadata_target_relations(source_metadata):
-        if relation in _SOURCE_METADATA_REITERATION_RELATIONS:
-            if _rules_include_reiteration_target(rules, target):
+        if relation in _SOURCE_METADATA_RESTATEMENT_RELATIONS:
+            if _rules_include_source_relation_target(
+                rules,
+                target,
+                relation_type="restates",
+            ):
                 continue
             issues.append(
-                "Source metadata upstream relation requires reiteration: "
+                "Source metadata upstream relation requires source_relation: "
                 f"source metadata says this source `{relation}` `{target}`, so "
-                "encode it as `kind: reiteration` with `reiterates.target` "
+                "encode it as `kind: source_relation` with "
+                "`source_relation.type: restates` and `source_relation.target` "
                 "instead of redefining executable policy locally."
             )
             continue
@@ -2253,14 +2206,18 @@ def _find_source_metadata_upstream_issues(
         metadata_key = _SOURCE_METADATA_DECLARATIVE_RELATIONS.get(relation)
         if metadata_key is None:
             continue
-        if _rules_include_metadata_relation_target(rules, metadata_key, target):
+        if _rules_include_source_relation_target(
+            rules,
+            target,
+            relation_type=metadata_key,
+        ):
             continue
         issues.append(
             "Source metadata upstream relation not recorded: "
             f"source metadata says this source `{relation}` `{target}`, so "
-            "the corresponding RuleSpec rule must declare "
-            f"`metadata.source_relation: {metadata_key}` and "
-            f"`metadata.{metadata_key}: {target}`."
+            "the corresponding RuleSpec file must include a "
+            f"`kind: source_relation` record with `source_relation.type: {metadata_key}` "
+            f"and `source_relation.target: {target}`."
         )
     return issues
 
@@ -2284,70 +2241,26 @@ def _iter_source_metadata_target_relations(
             yield relation_name, target
 
 
-def _rules_include_reiteration_target(rules: list[Any], target: str) -> bool:
+def _rules_include_source_relation_target(
+    rules: list[Any],
+    target: str,
+    *,
+    relation_type: str,
+) -> bool:
     return any(
         isinstance(rule, dict)
-        and str(rule.get("kind") or "").lower() == "reiteration"
+        and str(rule.get("kind") or "").lower() == "source_relation"
+        and isinstance(rule.get("source_relation"), dict)
+        and str(rule["source_relation"].get("type") or "").strip().lower()
+        == relation_type
         and _target_matches(
             _normalize_relation_target(
-                (rule.get("reiterates") or {}).get("target")
-                if isinstance(rule.get("reiterates"), dict)
-                else None
+                rule["source_relation"].get("target")
             ),
             target,
         )
         for rule in rules
     )
-
-
-def _rules_include_metadata_relation_target(
-    rules: list[Any],
-    metadata_key: str,
-    target: str,
-) -> bool:
-    return any(
-        isinstance(rule, dict)
-        and _rule_metadata_source_relation(rule) == metadata_key
-        and any(
-            _target_matches(candidate, target)
-            for candidate in _iter_rule_metadata_targets(rule, metadata_key)
-        )
-        for rule in rules
-    )
-
-
-def _rule_metadata_source_relation(rule: dict[str, Any]) -> str | None:
-    metadata = rule.get("metadata")
-    if not isinstance(metadata, dict):
-        return None
-    relation = str(metadata.get("source_relation") or "").strip().lower()
-    return relation or None
-
-
-def _iter_rule_metadata_targets(
-    rule: dict[str, Any],
-    metadata_key: str,
-) -> Iterable[str]:
-    metadata = rule.get("metadata")
-    if isinstance(metadata, dict):
-        yield from _iter_relation_target_values(metadata.get(metadata_key))
-
-
-def _iter_relation_target_values(value: Any) -> Iterable[str]:
-    target = _normalize_relation_target(value)
-    if target:
-        yield target
-        return
-
-    if isinstance(value, dict):
-        target = _normalize_relation_target(value.get("target"))
-        if target:
-            yield target
-        return
-
-    if isinstance(value, list):
-        for item in value:
-            yield from _iter_relation_target_values(item)
 
 
 def _normalize_relation_target(value: Any) -> str | None:
@@ -2730,7 +2643,7 @@ def _find_upstream_placement_contract_issues(
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        if str(rule.get("kind") or "").lower() == "reiteration":
+        if str(rule.get("kind") or "").lower() == "source_relation":
             continue
         if not _rule_matches_upstream_contract_context(
             contract=contract,
@@ -2773,7 +2686,7 @@ def _upstream_placement_issue(
         "Upstream placement violation: "
         f"`{name}` appears to encode {contract.placement_noun} outside "
         f"{contract.authority_label}. Move the rule to `{target}` and use an "
-        "import or a non-executable `reiteration` marker in downstream "
+        "import or a non-executable `source_relation.type: restates` record in downstream "
         "policy/manual files."
     )
 
@@ -3066,12 +2979,12 @@ def _compare_source_verification_expected_value(
                 )
                 continue
             actual_cell = rulespec_value[cell_key]
-            if not _reiteration_values_equal(expected_cell, actual_cell):
+            if not _verification_values_equal(expected_cell, actual_cell):
                 issues.append(
                     "Source verification RuleSpec mismatch: "
                     f"`{value_name}[{cell_key}]` declares "
-                    f"{_format_reiteration_value(expected_cell)}, but RuleSpec has "
-                    f"{_format_reiteration_value(actual_cell)}."
+                    f"{_format_verification_value(expected_cell)}, but RuleSpec has "
+                    f"{_format_verification_value(actual_cell)}."
                 )
         return issues
 
@@ -3080,12 +2993,12 @@ def _compare_source_verification_expected_value(
             "Source verification RuleSpec mismatch: "
             f"`{value_name}` is declared as a scalar but the RuleSpec value is a table."
         ]
-    if _reiteration_values_equal(expected_value, rulespec_value):
+    if _verification_values_equal(expected_value, rulespec_value):
         return []
     return [
         "Source verification RuleSpec mismatch: "
-        f"`{value_name}` declares {_format_reiteration_value(expected_value)}, "
-        f"but RuleSpec has {_format_reiteration_value(rulespec_value)}."
+        f"`{value_name}` declares {_format_verification_value(expected_value)}, "
+        f"but RuleSpec has {_format_verification_value(rulespec_value)}."
     ]
 
 
@@ -3110,7 +3023,7 @@ def _find_source_text_value_issues(
                 issues.append(
                     "Source verification value missing: "
                     f"`{source_label}` does not contain `{value_name}[{cell_key}]` = "
-                    f"{_format_reiteration_value(expected_cell)}."
+                    f"{_format_verification_value(expected_cell)}."
                 )
         if issues and _source_text_contains_table_value_multiset(
             normalized_text,
@@ -3124,7 +3037,7 @@ def _find_source_text_value_issues(
     return [
         "Source verification value missing: "
         f"`{source_label}` does not contain `{value_name}` = "
-        f"{_format_reiteration_value(expected_value)}."
+        f"{_format_verification_value(expected_value)}."
     ]
 
 
@@ -3352,8 +3265,8 @@ def _source_verification_numeric_text(value: Any) -> str | None:
 
 
 @dataclass(frozen=True)
-class _ReiterationTargetRef:
-    """Parsed canonical RuleSpec target for a reiteration marker."""
+class _RuleSpecTargetRef:
+    """Parsed canonical RuleSpec target reference."""
 
     prefix: str
     repo_name: str
@@ -3361,12 +3274,12 @@ class _ReiterationTargetRef:
     symbol: str | None
 
 
-def find_reiteration_issues(
+def find_source_relation_issues(
     content: str,
     *,
     policy_repo_path: Path | None = None,
 ) -> list[str]:
-    """Validate non-executable reiteration markers."""
+    """Validate non-executable source-relation records."""
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -3381,36 +3294,41 @@ def find_reiteration_issues(
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        if str(rule.get("kind") or "").lower() != "reiteration":
+        if str(rule.get("kind") or "").lower() != "source_relation":
             continue
         name = str(rule.get("name") or "<unknown>")
-        reiterates = rule.get("reiterates")
+        source_relation = rule.get("source_relation")
         target = ""
-        target_ref: _ReiterationTargetRef | None = None
+        target_ref: _RuleSpecTargetRef | None = None
+        relation_type = ""
+        if isinstance(source_relation, dict):
+            relation_type = str(source_relation.get("type") or "").strip().lower()
+        if relation_type != "restates":
+            continue
         if (
-            not isinstance(reiterates, dict)
-            or not str(reiterates.get("target") or "").strip()
+            not isinstance(source_relation, dict)
+            or not str(source_relation.get("target") or "").strip()
         ):
             issues.append(
-                "Reiteration target required: "
-                f"{name} must declare `reiterates.target` pointing to the canonical RuleSpec rule."
+                "Source relation target required: "
+                f"{name} must declare `source_relation.target` pointing to the canonical RuleSpec rule."
             )
         else:
-            target = str(reiterates.get("target") or "").strip()
-            target_ref = _parse_reiteration_target(target)
+            target = str(source_relation.get("target") or "").strip()
+            target_ref = _parse_rulespec_target(target)
             if target_ref is None:
                 issues.append(
-                    "Reiteration target invalid: "
+                    "Source relation target invalid: "
                     f"{name} uses `{target}`, expected `<jurisdiction>:<path>#<rule>`."
                 )
             elif target_ref.symbol is None:
                 issues.append(
-                    "Reiteration target rule required: "
+                    "Source relation target rule required: "
                     f"{name} must point to a specific RuleSpec rule with `#rule_name`."
                 )
         if rule.get("versions"):
             issues.append(
-                "Reiteration must be non-executable: "
+                "Source relation must be non-executable: "
                 f"{name} should not declare `versions`; use the canonical target for formulas and values."
             )
         verification = rule.get("verification")
@@ -3422,7 +3340,7 @@ def find_reiteration_issues(
             and isinstance(verification.get("values"), dict)
         ):
             issues.extend(
-                _find_reiteration_value_verification_issues(
+                _find_source_relation_value_verification_issues(
                     name=name,
                     target=target,
                     target_ref=target_ref,
@@ -3433,36 +3351,36 @@ def find_reiteration_issues(
     return issues
 
 
-def _find_reiteration_value_verification_issues(
+def _find_source_relation_value_verification_issues(
     *,
     name: str,
     target: str,
-    target_ref: _ReiterationTargetRef,
+    target_ref: _RuleSpecTargetRef,
     expected_values: dict[Any, Any],
     policy_repo_path: Path | None,
 ) -> list[str]:
-    """Compare a reiteration's expected values against its canonical target file."""
-    target_file = _resolve_reiteration_target_file(target_ref, policy_repo_path)
+    """Compare a source relation's expected values against its canonical target file."""
+    target_file = _resolve_rulespec_target_file(target_ref, policy_repo_path)
     if target_file is None:
         return [
-            "Reiteration verification target unavailable: "
+            "Source relation verification target unavailable: "
             f"{name} points to `{target}`, but repository `{target_ref.repo_name}` "
             "was not found."
         ]
 
-    target_values, target_symbols, load_issue = _extract_reiteration_target_values(
+    target_values, target_symbols, load_issue = _extract_source_relation_target_values(
         target_file
     )
     if load_issue is not None:
         return [
-            "Reiteration verification target invalid: "
+            "Source relation verification target invalid: "
             f"{name} points to `{target}`, but {load_issue}"
         ]
 
     issues: list[str] = []
     if target_ref.symbol and target_ref.symbol not in target_symbols:
         issues.append(
-            "Reiteration target rule missing: "
+            "Source relation target rule missing: "
             f"{name} points to `{target}`, but `{target_ref.symbol}` is not defined "
             f"in {target_ref.relative_path}."
         )
@@ -3471,13 +3389,13 @@ def _find_reiteration_value_verification_issues(
         value_key = str(value_name)
         if value_key not in target_values:
             issues.append(
-                "Reiteration verification target missing value: "
+                "Source relation verification target missing value: "
                 f"{name} expects `{value_key}` but `{target}` does not define it."
             )
             continue
         actual_value = target_values[value_key]
         issues.extend(
-            _compare_reiteration_verification_value(
+            _compare_source_relation_verification_value(
                 name=name,
                 target=target,
                 value_name=value_key,
@@ -3489,7 +3407,7 @@ def _find_reiteration_value_verification_issues(
     return issues
 
 
-def _parse_reiteration_target(target: str) -> _ReiterationTargetRef | None:
+def _parse_rulespec_target(target: str) -> _RuleSpecTargetRef | None:
     """Parse `us:policies/foo#rule` into a target repo and relative file path."""
     normalized = target.strip().strip("'\"")
     match = re.match(
@@ -3512,7 +3430,7 @@ def _parse_reiteration_target(target: str) -> _ReiterationTargetRef | None:
 
     prefix = match.group("prefix")
     symbol = match.group("symbol")
-    return _ReiterationTargetRef(
+    return _RuleSpecTargetRef(
         prefix=prefix,
         repo_name=f"rules-{prefix}",
         relative_path=relative_path,
@@ -3520,12 +3438,12 @@ def _parse_reiteration_target(target: str) -> _ReiterationTargetRef | None:
     )
 
 
-def _resolve_reiteration_target_file(
-    target_ref: _ReiterationTargetRef,
+def _resolve_rulespec_target_file(
+    target_ref: _RuleSpecTargetRef,
     policy_repo_path: Path | None,
 ) -> Path | None:
     """Resolve a canonical RuleSpec target file across sibling/CI checkouts."""
-    for root in _candidate_reiteration_repo_roots(
+    for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
     ):
@@ -3535,7 +3453,7 @@ def _resolve_reiteration_target_file(
     return None
 
 
-def _candidate_reiteration_repo_roots(
+def _candidate_rulespec_repo_roots(
     repo_name: str,
     policy_repo_path: Path | None,
 ) -> list[Path]:
@@ -3578,7 +3496,7 @@ def _candidate_reiteration_repo_roots(
     return unique
 
 
-def _extract_reiteration_target_values(
+def _extract_source_relation_target_values(
     target_file: Path,
 ) -> tuple[dict[str, Any], set[str], str | None]:
     """Extract scalar/table parameter values from a canonical RuleSpec file."""
@@ -3627,7 +3545,7 @@ def _extract_rulespec_parameter_values(
     return values, symbols, None
 
 
-def _compare_reiteration_verification_value(
+def _compare_source_relation_verification_value(
     *,
     name: str,
     target: str,
@@ -3639,7 +3557,7 @@ def _compare_reiteration_verification_value(
     if isinstance(expected_value, dict):
         if not isinstance(actual_value, dict):
             return [
-                "Reiteration verification mismatch: "
+                "Source relation verification mismatch: "
                 f"{name} expects `{value_name}` to be a table, but `{target}` "
                 "defines a scalar."
             ]
@@ -3648,38 +3566,38 @@ def _compare_reiteration_verification_value(
             cell_key = str(raw_key)
             if cell_key not in actual_value:
                 issues.append(
-                    "Reiteration verification target missing value: "
+                    "Source relation verification target missing value: "
                     f"{name} expects `{value_name}[{cell_key}]` but `{target}` "
                     "does not define it."
                 )
                 continue
             actual_cell = actual_value[cell_key]
-            if not _reiteration_values_equal(expected_cell, actual_cell):
+            if not _verification_values_equal(expected_cell, actual_cell):
                 issues.append(
-                    "Reiteration verification mismatch: "
+                    "Source relation verification mismatch: "
                     f"{name} expects `{value_name}[{cell_key}]` = "
-                    f"{_format_reiteration_value(expected_cell)}, but `{target}` "
-                    f"has {_format_reiteration_value(actual_cell)}."
+                    f"{_format_verification_value(expected_cell)}, but `{target}` "
+                    f"has {_format_verification_value(actual_cell)}."
                 )
         return issues
 
     if isinstance(actual_value, dict):
         return [
-            "Reiteration verification mismatch: "
+            "Source relation verification mismatch: "
             f"{name} expects `{value_name}` to be a scalar, but `{target}` "
             "defines a table."
         ]
-    if _reiteration_values_equal(expected_value, actual_value):
+    if _verification_values_equal(expected_value, actual_value):
         return []
     return [
-        "Reiteration verification mismatch: "
+        "Source relation verification mismatch: "
         f"{name} expects `{value_name}` = "
-        f"{_format_reiteration_value(expected_value)}, but `{target}` has "
-        f"{_format_reiteration_value(actual_value)}."
+        f"{_format_verification_value(expected_value)}, but `{target}` has "
+        f"{_format_verification_value(actual_value)}."
     ]
 
 
-def _reiteration_values_equal(expected_value: Any, actual_value: Any) -> bool:
+def _verification_values_equal(expected_value: Any, actual_value: Any) -> bool:
     """Compare verification scalar values, allowing numeric text/int equivalence."""
     expected_numeric = _numeric_rule_value(expected_value)
     actual_numeric = _numeric_rule_value(actual_value)
@@ -3688,7 +3606,7 @@ def _reiteration_values_equal(expected_value: Any, actual_value: Any) -> bool:
     return str(expected_value).strip() == str(actual_value).strip()
 
 
-def _format_reiteration_value(value: Any) -> str:
+def _format_verification_value(value: Any) -> str:
     """Format a verification value for validation messages."""
     return repr(value)
 
@@ -3918,6 +3836,7 @@ def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
 
     derived: set[str] = set()
     parameters: set[str] = set()
+    relations: set[str] = set()
     rules = payload.get("rules")
     if isinstance(rules, list):
         for rule in rules:
@@ -3926,19 +3845,12 @@ def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
             name = str(rule.get("name") or "").strip()
             if not name:
                 continue
-            if rule.get("kind") == "parameter":
+            kind = str(rule.get("kind") or "").strip().lower()
+            if kind == "parameter":
                 parameters.add(name)
-            else:
+            elif kind == "derived":
                 derived.add(name)
-
-    relations: set[str] = set()
-    relation_items = payload.get("relations")
-    if isinstance(relation_items, list):
-        for relation in relation_items:
-            if not isinstance(relation, dict):
-                continue
-            name = str(relation.get("name") or "").strip()
-            if name:
+            elif kind == "data_relation":
                 relations.add(name)
 
     formula_identifiers = _rulespec_formula_identifiers(payload)
@@ -3960,11 +3872,11 @@ def _rulespec_absolute_test_reference_issue(
     allow_relations: bool,
     allow_outputs: bool,
 ) -> str | None:
-    target_ref = _parse_reiteration_target(reference)
+    target_ref = _parse_rulespec_target(reference)
     if target_ref is None or not target_ref.symbol:
         return f"{label} `{reference}` must be an absolute legal RuleSpec reference."
 
-    target_file = _resolve_reiteration_target_file(target_ref, policy_repo_path)
+    target_file = _resolve_rulespec_target_file(target_ref, policy_repo_path)
     if target_file is None:
         return (
             f"{label} `{reference}` points to a RuleSpec file that could not be "
@@ -5182,7 +5094,7 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(
-            find_reiteration_issues(content, policy_repo_path=self.policy_repo_path)
+            find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
         )
 
         duration = int((time.time() - start) * 1000)
@@ -5218,7 +5130,7 @@ class ValidatorPipeline:
             and rules
             and all(
                 isinstance(rule, dict)
-                and str(rule.get("kind") or "").lower() == "reiteration"
+                and str(rule.get("kind") or "").lower() == "source_relation"
                 for rule in rules
             )
         ):

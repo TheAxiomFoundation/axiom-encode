@@ -28,14 +28,15 @@ Hard requirements:
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
 - Use `kind: derived` for entity-scoped outputs.
-- Use `kind: relation` only for relation facts.
-- Use `kind: reiteration` for a provision that merely restates another
-  canonical rule. It must include `reiterates.target` and must not include
-  executable `versions`; optional `verification` may record matching source
-  values for audit.
-- Do not put source graph relationships on executable rules. If a source
-  `sets`, `amends`, `implements`, or `reiterates` another source, reference
-  accepted source claim IDs in `module.source_claims`.
+- Use `kind: data_relation` for executable runtime predicates such as
+  `member_of_household`. Put arity under `data_relation.arity`.
+- Use `kind: source_relation` for non-executable legal/provenance edges such as
+  `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
+  `cites`. It must include `source_relation.type` and
+  `source_relation.target`, and it must not include executable `versions`.
+- Do not put source graph relationships in executable rule metadata. If a
+  source `sets`, `amends`, `implements`, or `restates` another source, encode a
+  separate `kind: source_relation` record in the same RuleSpec file.
 - Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
 - In `.test.yaml` companions, every `input:` and `output:` key must be a
   canonical legal RuleSpec reference that resolves to an actual file and
