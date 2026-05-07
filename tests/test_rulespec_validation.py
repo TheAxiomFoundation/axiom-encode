@@ -1725,6 +1725,40 @@ rules:
     )
 
 
+def test_upstream_placement_ignores_nested_axiom_dependency_checkout(tmp_path):
+    repo_parent = tmp_path / "repos"
+    canonical_content = """format: rulespec/v1
+rules:
+  - name: benefit_limit
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '500'
+"""
+    rules_file = _write_rulespec_file(
+        repo_parent / "rules-us" / "policies/example/fy-2026.yaml",
+        canonical_content,
+    )
+    _write_rulespec_file(
+        repo_parent
+        / "rules-us"
+        / "_axiom"
+        / "rules-us"
+        / "policies/example/fy-2026.yaml",
+        canonical_content,
+    )
+
+    assert (
+        find_upstream_placement_issues(
+            rules_file.read_text(encoding="utf-8"),
+            rules_file=rules_file,
+        )
+        == []
+    )
+
+
 def test_upstream_placement_ignores_sibling_jurisdiction_duplicates(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(

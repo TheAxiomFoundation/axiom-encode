@@ -2439,6 +2439,8 @@ def _rulespec_executable_index_for_roots(
         for rules_file in sorted(root.rglob("*.yaml")):
             if rules_file.name.endswith(".test.yaml"):
                 continue
+            if "_axiom" in rules_file.relative_to(root).parts:
+                continue
             try:
                 payload = yaml.safe_load(rules_file.read_text())
             except (OSError, yaml.YAMLError, ValueError):
