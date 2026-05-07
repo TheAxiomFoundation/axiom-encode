@@ -2960,7 +2960,7 @@ def _read_local_corpus_provision_file(
 
 @functools.lru_cache(maxsize=512)
 def _fetch_supabase_corpus_source_text(citation_path: str) -> str | None:
-    """Fetch a corpus.provisions body by exact citation path from Supabase."""
+    """Fetch current corpus source text by exact citation path from Supabase."""
     supabase_url = os.environ.get(
         "AXIOM_SUPABASE_URL", DEFAULT_AXIOM_SUPABASE_URL
     ).rstrip("/")
@@ -2977,7 +2977,7 @@ def _fetch_supabase_corpus_source_text(citation_path: str) -> str | None:
         }
     )
     request = urllib.request.Request(
-        f"{supabase_url}/rest/v1/provisions?{params}",
+        f"{supabase_url}/rest/v1/current_provisions?{params}",
         headers={
             "apikey": anon_key,
             "Authorization": f"Bearer {anon_key}",
