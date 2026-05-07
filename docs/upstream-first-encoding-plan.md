@@ -5,9 +5,9 @@
 Axiom should encode policy in legal-authority order so each downstream source can
 distinguish a genuinely new rule from a restatement, delegation, option setting,
 or amendment of upstream law. The encoder should not rely on program-specific
-variable-name heuristics to make that decision. It should use a source graph
-built from ingestion metadata, source-span relations, and already validated
-RuleSpec artifacts.
+variable-name heuristics to make that decision. It should use deterministic
+corpus metadata plus already validated RuleSpec artifacts and `source_relation`
+records.
 
 For SNAP, that means encoding federal statutes before federal regulations, USDA
 policy documents before state manuals that repeat USDA values, and Colorado
@@ -45,32 +45,31 @@ This order should guide planner queues and upstream retrieval. It should not
 force every lower-rank document into a restatement edge when that document is
 lawfully setting, implementing, or amending an upstream slot.
 
-## Source Graph
+## Corpus Metadata and RuleSpec Registry
 
-Ingestion should write every source slice to `corpus.provisions` with structured
-metadata:
+Ingestion should write every source slice to `corpus.provisions` with verbatim
+source text and structured deterministic metadata:
 
 - `citation_path`: stable Axiom source path.
-- `source_span_id`: stable id for paragraph/table/row/subsection spans that can
-  carry distinct relations.
+- `source_span_id`: stable id for paragraph/table/row/subsection spans.
 - `jurisdiction`: `US`, `CO`, `TN`, etc.
 - `source_type`: statute, regulation, agency_policy, manual, notice, form, etc.
 - `authority_level`: comparable rank for default ordering.
 - `effective_start` and `effective_end` where available.
 - `source_url` and source storage pointer.
-- `canonical_target`: stable absolute corpus, statute, regulation, policy, or
-  RuleSpec path when known.
-- `relations`: structured links to source spans, citation paths, and absolute
-  corpus or RuleSpec targets.
+- deterministic citations or cross-references that can be extracted without
+  policy interpretation.
 
-The graph is two-stage:
+The clean boundary is:
 
-1. **Source graph:** ingestion stores source-source and citation-level relations
-   before any RuleSpec exists.
-2. **RuleSpec registry:** after validation, RuleSpec artifacts register symbols,
-   relation metadata, and absolute targets. Provisional targets are then
-   reconciled to concrete RuleSpec symbols by citation, source span, target
-   path, and symbol.
+1. **Corpus:** stores source text, source spans, citations, effective dates, and
+   other deterministic retrieval metadata.
+2. **RuleSpec registry:** indexes validated RuleSpec files, symbols, absolute
+   targets, imports, and `kind: source_relation` records.
+
+Legal/provenance edges that require interpretation belong in RuleSpec, not in a
+separate intermediate relation layer. The registry can index those RuleSpec
+relations for lookup, but the checked-in RuleSpec file is the source of truth.
 
 Core relation types:
 
@@ -144,17 +143,17 @@ Bare friendly keys and unresolved absolute-looking placeholders are invalid.
 
 For each source span:
 
-1. Resolve source metadata and graph neighborhood.
+1. Resolve corpus metadata and registry-neighboring RuleSpec targets.
 2. Fetch period-overlapping upstream candidates in authority order.
-3. Materialize all graph-resolved import targets into the eval workspace, or
+3. Materialize all registry-resolved import targets into the eval workspace, or
    create explicit planned stubs before model invocation.
 4. Fetch sibling and downstream context only after upstream context.
 5. Ask the encoder to classify each generated legal/source edge as one of:
    `defines`, `delegates`, `implements`, `sets`, `amends`, or `restates`.
 6. Generate RuleSpec that records each legal/source edge as a
    `kind: source_relation` record.
-7. Validate the artifact against the graph, local imports, source text, tests,
-   and applicable oracles.
+7. Validate the artifact against the registry, local imports, source text,
+   tests, and applicable oracles.
 8. Persist new RuleSpec target metadata and trace data back into the registry so
    later downstream sources can discover it.
 
@@ -215,34 +214,36 @@ The registry should index all RuleSpec relations so a downstream run can ask:
 
 ## Harness Rules
 
-The harness should enforce source relations, not policy-specific variable names.
+The harness should enforce RuleSpec source relations, not policy-specific
+variable names.
 
 Required deterministic checks:
 
-- If source metadata says `restates` a target, the file must include a
-  `kind: source_relation` record with `source_relation.type: restates` and
-  `source_relation.target`, scoped to the relevant source span.
-- If source metadata says `sets`, `implements`, or `amends` a target, the file
-  must include a `kind: source_relation` record with the corresponding
-  `source_relation.type` and absolute `source_relation.target`.
+- If upstream context shows that the source only restates a target, the file
+  must include a `kind: source_relation` record with
+  `source_relation.type: restates` and `source_relation.target`, scoped to the
+  relevant source span.
+- If upstream context shows that the source sets, implements, or amends a
+  target, the file must include a `kind: source_relation` record with the
+  corresponding `source_relation.type` and absolute `source_relation.target`.
 - If a rule defines an absolute target already defined upstream and does not declare
   a matching `source_relation` record with `implements`, `sets`, `amends`, or
   `restates`, flag it as downstream duplication.
-- If a downstream source cites an upstream provision and the graph resolves a
-  unique target, require a materialized import, a relation marker, or an explicit
-  non-import justification.
+- If a downstream source cites an upstream provision and registry lookup
+  resolves a unique target, require a materialized import, a relation marker, or
+  an explicit non-import justification.
 - If a source sets or amends an upstream target, verify that the target exists
   unless the run is explicitly creating a planned stub.
 
 Program-specific checks can exist temporarily as fallback assertions, but they
-should be deleted once graph metadata covers the relevant relation.
+should be deleted once RuleSpec relation metadata covers the relevant relation.
 
 ## Materialization Contract
 
 The model should never be asked to import an upstream target that was not copied
 or stubbed into its workspace.
 
-For each graph-resolved upstream target before model invocation:
+For each registry-resolved upstream target before model invocation:
 
 1. If the RuleSpec artifact exists, copy it into context and expose its canonical
    import path.
@@ -274,7 +275,8 @@ Upstream lookup must be period-aware.
 - Amendments create versioned replacement edges.
 - Conflicting same-period targets block validation unless one relation is marked
   `supersedes` or `superseded_by`.
-- Tests should use periods covered by the selected upstream relations.
+- Tests should use periods covered by the selected upstream RuleSpec relation
+  records.
 
 This is essential for USDA annual COLA documents, state option updates, and
 regulatory amendments.
@@ -282,18 +284,18 @@ regulatory amendments.
 ## Planner
 
 Add an encoding planner that creates a deterministic DAG from
-`corpus.provisions`:
+`corpus.provisions` plus the RuleSpec registry:
 
 1. Group provisions by jurisdiction, program, source type, and concept topic.
 2. Sort by `authority_level`, citation hierarchy, and effective period.
-3. Add graph edges for `defines`, `delegates`, `implements`, `sets`, `amends`,
-   `restates`, and high-confidence `cites`.
+3. Add dependency edges from deterministic citations, citation hierarchy, and
+   indexed RuleSpec `source_relation` records.
 4. Encode missing upstream dependencies before downstream slices.
 5. Requeue downstream slices when a newly encoded upstream artifact changes the
    candidate context.
-6. Emit `axiom-encode plan --json` with source ids, span ids, relation edges,
-   effective periods, upstream candidates, blocked dependencies, and planned
-   stubs.
+6. Emit `axiom-encode plan --json` with source ids, span ids, effective
+   periods, upstream candidates, known RuleSpec relation edges, blocked
+   dependencies, and planned stubs.
 
 For ad hoc encoding, the planner should still run a local upstream search before
 calling the model. If required upstream context is missing, the default should be
@@ -339,7 +341,7 @@ earned-income deductions, or statutory elderly/disabled definitions.
 
 ### Phase 1: Relation-Aware Harness
 
-- Keep corpus relation-metadata checks in `axiom-encode`.
+- Keep RuleSpec source-relation checks in `axiom-encode`.
 - Add TDD cases for generic `restates`, `sets`, `amends`, `implements`,
   duplicate concept detection, source-span scoping, and period conflicts.
 - Add schema validation for `kind: source_relation`,
@@ -347,40 +349,39 @@ earned-income deductions, or statutory elderly/disabled definitions.
   and delegation/amendment fields.
 - Keep current SNAP fallback checks only as temporary guardrails.
 
-### Phase 2: Source Graph Ingestion
+### Phase 2: Corpus Index and RuleSpec Registry
 
-- Require structured `corpus.provisions.relations` metadata for spans that are
-  known restatements, delegated settings, amendments, or implementation
-  documents.
-- Populate `corpus.provisions.relations` from source-side metadata and citation
-  extraction.
-- Add canonical targets and source span ids.
-- Add graph queries for upstream candidates by citation, absolute target, topic,
-  jurisdiction, authority rank, and effective period.
+- Require stable `source_span_id`, citation, source type, jurisdiction,
+  authority rank, and effective-period metadata in `corpus.provisions`.
+- Index deterministic source citations and cross-references from corpus metadata.
+- Index validated RuleSpec targets, imports, and `source_relation` records.
+- Add upstream candidate queries by citation, absolute target, topic,
+  jurisdiction, authority rank, relation type, and effective period.
 
 ### Phase 3: Encoder Context Retrieval
 
-- Update eval and encode flows to call upstream graph lookup before model
+- Update eval and encode flows to call upstream registry lookup before model
   invocation.
 - Materialize upstream candidates into the workspace or create planned stubs.
 - Include upstream candidates in prompt context with their import targets,
-  absolute targets, source spans, effective periods, and relation hints.
+  absolute targets, source spans, effective periods, and known RuleSpec
+  relation hints.
 - Require the model to emit rule-level relation metadata for each rule.
-- Fail validation when relation metadata is absent for source metadata that
-  requires it.
+- Fail validation when relation metadata is absent for an artifact that is
+  copying, setting, implementing, or amending a known upstream target.
 
 ### Phase 4: Planner and Batch Encoding
 
 - Add `axiom-encode plan --json` to produce the ordered DAG.
 - Add `axiom-encode encode-plan` to encode sources in dependency order.
 - Re-run downstream slices when upstream artifacts are added or changed.
-- Persist relation traces for each generated rule.
+- Persist retrieval and relation-decision traces for each generated rule.
 
 ### Phase 5: SNAP End-to-End Closure
 
 - Run the planner over federal SNAP and Colorado SNAP sources.
-- Delete SNAP-specific upstream fallback checks once equivalent source metadata
-  and graph checks catch the same failures.
+- Delete SNAP-specific upstream fallback checks once equivalent RuleSpec
+  relation checks catch the same failures.
 - Validate full CO SNAP calculation parity against PolicyEngine US on eCPS and
   targeted household cases.
 
@@ -398,7 +399,7 @@ earned-income deductions, or statutory elderly/disabled definitions.
 - A downstream source that amends upstream policy fails validation unless it
   records a `source_relation.type: amends` edge.
 - `axiom-encode plan --json` emits a deterministic DAG with source ids, source
-  spans, relation edges, effective periods, upstream candidates, and
+  spans, effective periods, upstream candidates, known relation edges, and
   blocked/stubbed dependencies.
 - Every generated non-canonical executable rule has a persisted trace listing
   upstream candidates considered, selected relation, rejected alternatives, and
@@ -406,12 +407,12 @@ earned-income deductions, or statutory elderly/disabled definitions.
 - Colorado SNAP can be calculated end to end without Colorado owning federal
   statutory definitions or USDA federal parameter values.
 - SNAP-specific placement contracts are removed only after equivalent generic
-  tests fail when graph metadata is removed.
+  tests fail when RuleSpec relation metadata is removed.
 
 ## Risks
 
-- Citation extraction may create noisy `cites` edges. Only high-confidence
-  relations should become blocking harness requirements.
+- Citation extraction may create noisy upstream candidates. Only validated
+  RuleSpec `source_relation` records should become blocking harness requirements.
 - Some source documents genuinely combine restatement and implementation in the
   same paragraph. The encoder must split these into span-scoped source-relation
   restatements and downstream executable rules.
@@ -430,8 +431,7 @@ An independent review of the first draft identified the main corrections now
 reflected here:
 
 - canonicality cannot be inferred from authority rank alone;
-- source graph relations and RuleSpec target relations need a two-stage
-  reconciliation model;
+- corpus retrieval metadata and RuleSpec source relations need a clean boundary;
 - rule metadata needs a concrete per-rule schema;
 - duplicate detection needs absolute targets, not only symbol names;
 - upstream imports need a materialization contract;
