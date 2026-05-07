@@ -24,6 +24,7 @@ from axiom_encode.cli import (
     cmd_eval_suite_archive,
     cmd_eval_suite_report,
     cmd_eval_suite_revalidate,
+    cmd_inventory,
     cmd_log,
     cmd_log_event,
     cmd_runs,
@@ -142,6 +143,12 @@ class TestMain:
     def test_stats_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "stats"]):
             with patch("axiom_encode.cli.cmd_stats") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
+    def test_inventory_command_dispatches(self):
+        with patch("sys.argv", ["axiom_encode", "inventory"]):
+            with patch("axiom_encode.cli.cmd_inventory") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
@@ -1849,6 +1856,123 @@ class TestCmdStats:
         cmd_stats(args)
         captured = capsys.readouterr()
         assert "Not enough data" in captured.out
+
+
+# =========================================================================
+# Test cmd_inventory
+# =========================================================================
+
+
+class TestCmdInventory:
+    def test_inventory_counts_rulespec_files_and_kinds(self, capsys, tmp_path):
+        statute_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+        statute_file.parent.mkdir(parents=True)
+        statute_file.write_text(
+            """
+format: rulespec/v1
+rules:
+  - name: regular_allotment
+    kind: derived
+  - name: maximum_allotment
+    kind: parameter
+"""
+        )
+        test_file = statute_file.with_name("a.test.yaml")
+        test_file.write_text(
+            """
+cases:
+  - name: ignored
+"""
+        )
+
+        composition_file = (
+            tmp_path
+            / "rules-us-co"
+            / "policies"
+            / "cdhs"
+            / "snap"
+            / "fy-2026-benefit-calculation.yaml"
+        )
+        composition_file.parent.mkdir(parents=True)
+        composition_file.write_text(
+            """
+format: rulespec/v1
+module:
+  summary: Colorado SNAP FY 2026 benefit calculation composition.
+rules:
+  - name: final_allotment
+    kind: derived
+"""
+        )
+
+        relation_file = (
+            tmp_path / "rules-us-co" / "regulations" / "10-ccr-2506-1" / "4.407.1.yaml"
+        )
+        relation_file.parent.mkdir(parents=True)
+        relation_file.write_text(
+            """
+format: rulespec/v1
+rules:
+  - name: co_standard_deduction_restates_usda
+    kind: source_relation
+"""
+        )
+
+        args = SimpleNamespace(root=tmp_path, json=True)
+
+        cmd_inventory(args)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["total_files"] == 3
+        assert output["source_provision_files"] == 2
+        assert output["composition_files"] == 1
+        assert output["total_rules"] == 4
+        assert output["kind_counts"] == {
+            "derived": 2,
+            "parameter": 1,
+            "source_relation": 1,
+        }
+        assert output["repos"] == [
+            {
+                "repo": "rules-us",
+                "files": 1,
+                "source_provision_files": 1,
+                "composition_files": 0,
+                "rules": 2,
+                "roots": {"statutes": 1},
+                "kinds": {"derived": 1, "parameter": 1},
+            },
+            {
+                "repo": "rules-us-co",
+                "files": 2,
+                "source_provision_files": 1,
+                "composition_files": 1,
+                "rules": 2,
+                "roots": {"policies": 1, "regulations": 1},
+                "kinds": {"derived": 1, "source_relation": 1},
+            },
+        ]
+
+    def test_inventory_prints_human_summary(self, capsys, tmp_path):
+        rulespec_file = tmp_path / "rules-us" / "policies" / "usda" / "cola.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """
+format: rulespec/v1
+rules:
+  - name: snap_maximum_allotment
+    kind: parameter
+"""
+        )
+        args = SimpleNamespace(root=tmp_path, json=False)
+
+        cmd_inventory(args)
+
+        output = capsys.readouterr().out
+        assert "RuleSpec inventory" in output
+        assert "Files: 1 total; 1 source/provision; 0 composition" in output
+        assert "Kinds: parameter=1" in output
+        assert "rules-us: files=1" in output
 
 
 # =========================================================================

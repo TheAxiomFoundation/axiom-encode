@@ -21,9 +21,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+import yaml
 
 from axiom_encode import __version__
 
@@ -53,6 +56,7 @@ from .repo_routing import find_policy_repo_root
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
 DEFAULT_GPT_RUNNER = f"codex:{DEFAULT_OPENAI_MODEL}"
+RULESPEC_SOURCE_ROOTS = {"policies", "regulations", "statutes"}
 
 
 def _resolve_repo_checkout(name: str) -> Path:
@@ -182,6 +186,141 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _default_rulespec_inventory_root() -> Path:
+    """Resolve the workspace root that contains rules-* repos."""
+    workspace_root = Path(__file__).resolve().parents[3]
+    if any(workspace_root.glob("rules-*")):
+        return workspace_root
+    return Path.home() / "TheAxiomFoundation"
+
+
+def _is_rulespec_yaml(path: Path) -> bool:
+    """Return whether path is a non-test RuleSpec YAML file."""
+    if path.suffix not in {".yaml", ".yml"}:
+        return False
+    if path.name.endswith(".test.yaml") or path.name.endswith(".test.yml"):
+        return False
+    parts = set(path.parts)
+    return bool(parts & RULESPEC_SOURCE_ROOTS)
+
+
+def _load_rulespec_payload(path: Path) -> dict:
+    """Load a RuleSpec YAML file and normalize missing/empty content."""
+    payload = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _is_composition_rulespec(payload: dict) -> bool:
+    """Detect composition modules without depending on one hard-coded path."""
+    module = payload.get("module") if isinstance(payload.get("module"), dict) else {}
+    marker_values = [
+        module.get("kind"),
+        module.get("type"),
+        module.get("category"),
+        module.get("summary"),
+    ]
+    marker_text = " ".join(str(value) for value in marker_values if value)
+    if re.search(r"\bcomposition\b", marker_text, flags=re.IGNORECASE):
+        return True
+
+    for rule in payload.get("rules", []) or []:
+        if not isinstance(rule, dict):
+            continue
+        source = rule.get("source")
+        if isinstance(source, str) and re.search(
+            r"\bcomposition\b", source, flags=re.IGNORECASE
+        ):
+            return True
+    return False
+
+
+def build_rulespec_inventory(root: Path | None = None) -> dict:
+    """Build a RuleSpec inventory across sibling rules-* repos."""
+    inventory_root = (root or _default_rulespec_inventory_root()).resolve()
+    repo_summaries = []
+    total_kind_counts: Counter[str] = Counter()
+    total_files = 0
+    total_source_provision_files = 0
+    total_composition_files = 0
+    total_rules = 0
+
+    for repo in sorted(inventory_root.glob("rules-*")):
+        if not repo.is_dir():
+            continue
+
+        repo_kind_counts: Counter[str] = Counter()
+        repo_root_counts: Counter[str] = Counter()
+        repo_files = 0
+        repo_source_provision_files = 0
+        repo_composition_files = 0
+        repo_rules = 0
+
+        for rulespec_file in sorted(repo.rglob("*.y*ml")):
+            if not _is_rulespec_yaml(rulespec_file):
+                continue
+
+            payload = _load_rulespec_payload(rulespec_file)
+            rules = payload.get("rules", []) or []
+            if not isinstance(rules, list):
+                rules = []
+            is_composition = _is_composition_rulespec(payload)
+            relative = rulespec_file.relative_to(repo)
+            root_name = relative.parts[0]
+
+            repo_files += 1
+            repo_root_counts[root_name] += 1
+            if is_composition:
+                repo_composition_files += 1
+            else:
+                repo_source_provision_files += 1
+
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                kind = str(rule.get("kind") or "missing")
+                repo_kind_counts[kind] += 1
+                repo_rules += 1
+
+        if repo_files == 0:
+            continue
+
+        total_files += repo_files
+        total_source_provision_files += repo_source_provision_files
+        total_composition_files += repo_composition_files
+        total_rules += repo_rules
+        total_kind_counts.update(repo_kind_counts)
+
+        repo_summaries.append(
+            {
+                "repo": repo.name,
+                "files": repo_files,
+                "source_provision_files": repo_source_provision_files,
+                "composition_files": repo_composition_files,
+                "rules": repo_rules,
+                "roots": dict(sorted(repo_root_counts.items())),
+                "kinds": dict(sorted(repo_kind_counts.items())),
+            }
+        )
+
+    return {
+        "root": str(inventory_root),
+        "total_files": total_files,
+        "source_provision_files": total_source_provision_files,
+        "composition_files": total_composition_files,
+        "total_rules": total_rules,
+        "kind_counts": dict(sorted(total_kind_counts.items())),
+        "repos": repo_summaries,
+    }
+
+
+def _format_counter(counter: dict[str, int]) -> str:
+    if not counter:
+        return "none"
+    return ", ".join(f"{key}={value}" for key, value in counter.items())
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -252,6 +391,18 @@ def main():
     # stats command
     stats_parser = subparsers.add_parser("stats", help="Show encoding statistics")
     stats_parser.add_argument("--db", type=Path, default=Path("encodings.db"))
+
+    # inventory command
+    inventory_parser = subparsers.add_parser(
+        "inventory", help="Show RuleSpec inventory across rules-* repos"
+    )
+    inventory_parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rules-* repos",
+    )
+    inventory_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     # calibration command
     calibration_parser = subparsers.add_parser(
@@ -747,6 +898,8 @@ def main():
         cmd_log(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "inventory":
+        cmd_inventory(args)
     elif args.command == "calibration":
         cmd_calibration(args)
     elif args.command == "runs":
@@ -1198,6 +1351,37 @@ def cmd_stats(args):
             print("  → Document import patterns better")
     else:
         print("Not enough data yet. Run more encodings.")
+
+
+def cmd_inventory(args):
+    """Show RuleSpec inventory across rules-* repos."""
+    inventory = build_rulespec_inventory(args.root)
+
+    if args.json:
+        print(json.dumps(inventory, indent=2, sort_keys=True))
+        return
+
+    print("RuleSpec inventory")
+    print(f"Root: {inventory['root']}")
+    print(
+        "Files: "
+        f"{inventory['total_files']} total; "
+        f"{inventory['source_provision_files']} source/provision; "
+        f"{inventory['composition_files']} composition"
+    )
+    print(f"Rules: {inventory['total_rules']}")
+    print(f"Kinds: {_format_counter(inventory['kind_counts'])}")
+    print()
+
+    for repo in inventory["repos"]:
+        print(
+            f"{repo['repo']}: "
+            f"files={repo['files']} "
+            f"source/provision={repo['source_provision_files']} "
+            f"composition={repo['composition_files']} "
+            f"rules={repo['rules']} "
+            f"roots={_format_counter(repo['roots'])}"
+        )
 
 
 def cmd_calibration(args):
