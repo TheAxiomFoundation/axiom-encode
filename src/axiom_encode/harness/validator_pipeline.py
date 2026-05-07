@@ -2081,10 +2081,6 @@ def find_upstream_placement_issues(
     if not isinstance(rules, list):
         return []
 
-    path = _normalized_rulespec_path(rules_file)
-    imports = {
-        str(item).strip() for item in payload.get("imports") or [] if str(item).strip()
-    }
     if source_metadata is None and rules_file is not None:
         source_metadata = _load_nearby_eval_source_metadata(rules_file)
 
@@ -2096,22 +2092,14 @@ def find_upstream_placement_issues(
             source_metadata=source_metadata,
         )
     )
-    for contract in _UPSTREAM_PLACEMENT_CONTRACTS:
-        issues.extend(
-            _find_upstream_placement_contract_issues(
-                contract=contract,
-                rules=rules,
-                path=path,
-                imports=imports,
-            )
+    issues.extend(_find_restatement_executable_copy_issues(rules, source_metadata))
+    issues.extend(
+        _find_duplicate_upstream_executable_issues(
+            rules=rules,
+            rules_file=rules_file,
         )
+    )
     return issues
-
-
-def _normalized_rulespec_path(rules_file: Path | None) -> str:
-    if rules_file is None:
-        return ""
-    return rules_file.as_posix().lstrip("./").lower()
 
 
 _SOURCE_METADATA_RESTATEMENT_RELATIONS = {
@@ -2280,506 +2268,309 @@ def _target_matches(left: str | None, right: str | None) -> bool:
     return _normalize_relation_target(left) == _normalize_relation_target(right)
 
 
-@dataclass(frozen=True)
-class UpstreamPlacementTargetPattern:
-    """A name pattern and the canonical import target it should resolve to."""
-
-    pattern: str
-    target: str
-
-
-@dataclass(frozen=True)
-class UpstreamPlacementContract:
-    """Declarative rule for keeping encodings at their upstream authority."""
-
-    authority_label: str
-    placement_noun: str
-    allowed_path_patterns: tuple[str, ...]
-    canonical_import: str | None = None
-    exact_targets: dict[str, str] = field(default_factory=dict)
-    target_patterns: tuple[UpstreamPlacementTargetPattern, ...] = ()
-    reference_symbols: tuple[str, ...] = ()
-    definition_name_patterns: tuple[str, ...] = ()
-    definition_formula_patterns: tuple[str, ...] = ()
-    definition_target: str | None = None
-    context_path_patterns: tuple[str, ...] = ()
-    context_rule_name_patterns: tuple[str, ...] = ()
-    context_source_terms: tuple[str, ...] = ()
-
-
-_SNAP_CONTEXT_PATH_PATTERNS = (
-    r"(?:^|/)policies/[^/]+/snap(?:/|$)",
-    r"(?:^|/)regulations/10-ccr-2506-1(?:/|$)",
-)
-_SNAP_CONTEXT_RULE_NAME_PATTERNS = (r"(?:^|_)snap(?:_|$)",)
-_SNAP_CONTEXT_SOURCE_TERMS = (
-    "snap",
-    "supplemental nutrition assistance",
-)
-_TAX_STANDARD_DEDUCTION_CONTEXT_PATH_PATTERNS = (r"(?:^|/)statutes/26/63/",)
-_TAX_STANDARD_DEDUCTION_CONTEXT_RULE_NAME_PATTERNS = (
-    r"standard_deduction",
-    r"dependent_minimum",
-    r"dependent_earned_income_addition",
-)
-_TAX_STANDARD_DEDUCTION_CONTEXT_SOURCE_TERMS = ("standard deduction",)
-
-_UPSTREAM_PLACEMENT_CONTRACTS: tuple[UpstreamPlacementContract, ...] = (
-    UpstreamPlacementContract(
-        authority_label="IRS annual tax-year inflation-adjustment source",
-        placement_noun="an annual federal tax standard-deduction value",
-        allowed_path_patterns=(r"(?:^|/)policies/irs/rev-proc-\d{4}-\d+/",),
-        canonical_import="us:policies/irs/rev-proc-2025-32/standard-deduction",
-        exact_targets={
-            "basic_standard_deduction_table": (
-                "us:policies/irs/rev-proc-2025-32/standard-deduction"
-                "#basic_standard_deduction_amount"
-            ),
-            "basic_standard_deduction_amount": (
-                "us:policies/irs/rev-proc-2025-32/standard-deduction"
-                "#basic_standard_deduction_amount"
-            ),
-            "additional_standard_deduction_per_condition_table": (
-                "us:policies/irs/rev-proc-2025-32/standard-deduction"
-                "#additional_standard_deduction_per_condition_amount"
-            ),
-            "additional_standard_deduction_per_condition_amount": (
-                "us:policies/irs/rev-proc-2025-32/standard-deduction"
-                "#additional_standard_deduction_per_condition_amount"
-            ),
-            "dependent_minimum": (
-                "us:policies/irs/rev-proc-2025-32/standard-deduction#dependent_minimum"
-            ),
-            "dependent_earned_income_addition": (
-                "us:policies/irs/rev-proc-2025-32/standard-deduction"
-                "#dependent_earned_income_addition"
-            ),
-            "single_basic_standard_deduction": (
-                "us:policies/irs/rev-proc-2025-32/standard-deduction"
-                "#single_basic_standard_deduction"
-            ),
-        },
-        reference_symbols=(
-            "basic_standard_deduction_amount",
-            "additional_standard_deduction_per_condition_amount",
-            "dependent_minimum",
-            "dependent_earned_income_addition",
-            "single_basic_standard_deduction",
-        ),
-        context_path_patterns=_TAX_STANDARD_DEDUCTION_CONTEXT_PATH_PATTERNS,
-        context_rule_name_patterns=_TAX_STANDARD_DEDUCTION_CONTEXT_RULE_NAME_PATTERNS,
-        context_source_terms=_TAX_STANDARD_DEDUCTION_CONTEXT_SOURCE_TERMS,
-    ),
-    UpstreamPlacementContract(
-        authority_label="7 USC 2012(j)",
-        placement_noun="the SNAP elderly-or-disabled member category",
-        allowed_path_patterns=(r"(?:^|/)statutes/7/2012/j\.yaml$",),
-        canonical_import="us:statutes/7/2012/j",
-        reference_symbols=("snap_household_has_elderly_or_disabled_member",),
-        definition_name_patterns=(
-            r"^elderly_or_disabled_household$",
-            r"^snap_household_has_.*elderly.*disabled.*member$",
-        ),
-        definition_formula_patterns=(
-            r"count_where\s*\(\s*member_of_household\s*,\s*"
-            r"snap_member_is_[a-z0-9_]*elderly[a-z0-9_]*disabled[a-z0-9_]*\s*\)",
-        ),
-        definition_target=(
-            "us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member"
-        ),
-        context_path_patterns=_SNAP_CONTEXT_PATH_PATTERNS,
-        context_rule_name_patterns=_SNAP_CONTEXT_RULE_NAME_PATTERNS,
-        context_source_terms=_SNAP_CONTEXT_SOURCE_TERMS,
-    ),
-    UpstreamPlacementContract(
-        authority_label="7 USC 2017(a)",
-        placement_noun="the federal SNAP regular allotment formula",
-        allowed_path_patterns=(r"(?:^|/)statutes/7/2017/a\.yaml$",),
-        canonical_import="us:statutes/7/2017/a",
-        exact_targets={
-            "snap_household_food_contribution_rate": (
-                "us:statutes/7/2017/a#snap_household_food_contribution_rate"
-            ),
-            "snap_net_income_for_allotment": (
-                "us:statutes/7/2017/a#snap_net_income_for_allotment"
-            ),
-            "net_income_for_benefit_formula": (
-                "us:statutes/7/2017/a#snap_net_income_for_allotment"
-            ),
-            "snap_household_food_contribution": (
-                "us:statutes/7/2017/a#snap_household_food_contribution"
-            ),
-            "household_food_contribution": (
-                "us:statutes/7/2017/a#snap_household_food_contribution"
-            ),
-            "snap_allotment_before_minimum": (
-                "us:statutes/7/2017/a#snap_allotment_before_minimum"
-            ),
-            "snap_minimum_monthly_allotment": (
-                "us:statutes/7/2017/a#snap_minimum_monthly_allotment"
-            ),
-            "snap_regular_month_allotment": (
-                "us:statutes/7/2017/a#snap_regular_month_allotment"
-            ),
-        },
-        reference_symbols=(
-            "snap_household_food_contribution_rate",
-            "snap_net_income_for_allotment",
-            "net_income_for_benefit_formula",
-            "snap_household_food_contribution",
-            "household_food_contribution",
-            "snap_allotment_before_minimum",
-            "snap_minimum_monthly_allotment",
-            "snap_regular_month_allotment",
-        ),
-        context_path_patterns=_SNAP_CONTEXT_PATH_PATTERNS,
-        context_rule_name_patterns=_SNAP_CONTEXT_RULE_NAME_PATTERNS,
-        context_source_terms=_SNAP_CONTEXT_SOURCE_TERMS,
-    ),
-    UpstreamPlacementContract(
-        authority_label="7 USC 2014(e)(2)",
-        placement_noun="the federal SNAP earned-income deduction",
-        allowed_path_patterns=(r"(?:^|/)statutes/7/2014/e/2\.yaml$",),
-        canonical_import="us:statutes/7/2014/e/2",
-        exact_targets={
-            "snap_earned_income_deduction_rate": (
-                "us:statutes/7/2014/e/2#snap_earned_income_deduction_rate"
-            ),
-            "snap_earned_income_subject_to_deduction": (
-                "us:statutes/7/2014/e/2#snap_earned_income_subject_to_deduction"
-            ),
-            "snap_earned_income_deduction": (
-                "us:statutes/7/2014/e/2#snap_earned_income_deduction"
-            ),
-            "earned_income_deduction": (
-                "us:statutes/7/2014/e/2#snap_earned_income_deduction"
-            ),
-        },
-        reference_symbols=(
-            "snap_earned_income_deduction_rate",
-            "snap_earned_income_subject_to_deduction",
-            "snap_earned_income_deduction",
-            "earned_income_deduction",
-        ),
-        context_path_patterns=_SNAP_CONTEXT_PATH_PATTERNS,
-        context_rule_name_patterns=_SNAP_CONTEXT_RULE_NAME_PATTERNS,
-        context_source_terms=_SNAP_CONTEXT_SOURCE_TERMS,
-    ),
-    UpstreamPlacementContract(
-        authority_label="USDA income eligibility standards",
-        placement_noun="the federal SNAP USDA income eligibility standards",
-        allowed_path_patterns=(
-            r"(?:^|/)policies/usda/snap/fy-\d{4}-cola/"
-            r"income-eligibility-standards\.yaml$",
-        ),
-        canonical_import=(
-            "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards"
-        ),
-        exact_targets={
-            "gross_income_limit_table": (
-                "us:policies/usda/snap/fy-<year>-cola/"
-                "income-eligibility-standards"
-                "#snap_gross_income_limit_130_percent_fpl_48_states_dc_table"
-            ),
-            "gross_income_limit_additional_member": (
-                "us:policies/usda/snap/fy-<year>-cola/"
-                "income-eligibility-standards"
-                "#snap_gross_income_limit_130_percent_fpl_48_states_dc_additional_member"
-            ),
-            "gross_income_limit": (
-                "us:policies/usda/snap/fy-<year>-cola/"
-                "income-eligibility-standards"
-                "#snap_gross_income_limit_130_percent_fpl_48_states_dc"
-            ),
-            "net_income_limit_table": (
-                "us:policies/usda/snap/fy-<year>-cola/"
-                "income-eligibility-standards"
-                "#snap_net_income_limit_100_percent_fpl_48_states_dc_table"
-            ),
-            "net_income_limit_additional_member": (
-                "us:policies/usda/snap/fy-<year>-cola/"
-                "income-eligibility-standards"
-                "#snap_net_income_limit_100_percent_fpl_48_states_dc_additional_member"
-            ),
-            "net_income_limit": (
-                "us:policies/usda/snap/fy-<year>-cola/"
-                "income-eligibility-standards"
-                "#snap_net_income_limit_100_percent_fpl_48_states_dc"
-            ),
-        },
-        target_patterns=(
-            UpstreamPlacementTargetPattern(
-                pattern=r"^snap_net_income_limit_100_percent_fpl(?:$|_48_states_dc)",
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/"
-                    "income-eligibility-standards"
-                    "#snap_net_income_limit_100_percent_fpl_48_states_dc"
-                ),
-            ),
-            UpstreamPlacementTargetPattern(
-                pattern=r"^snap_gross_income_limit_130_percent_fpl(?:$|_48_states_dc)",
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/"
-                    "income-eligibility-standards"
-                    "#snap_gross_income_limit_130_percent_fpl_48_states_dc"
-                ),
-            ),
-            UpstreamPlacementTargetPattern(
-                pattern=r"^snap_gross_income_limit_165_percent_fpl(?:$|_48_states_dc)",
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/"
-                    "income-eligibility-standards"
-                    "#snap_gross_income_limit_165_percent_fpl_48_states_dc"
-                ),
-            ),
-        ),
-        reference_symbols=(
-            "snap_net_income_limit_100_percent_fpl_48_states_dc",
-            "snap_gross_income_limit_130_percent_fpl_48_states_dc",
-            "snap_gross_income_limit_165_percent_fpl_48_states_dc",
-            "gross_income_limit",
-            "net_income_limit",
-        ),
-        context_path_patterns=_SNAP_CONTEXT_PATH_PATTERNS,
-        context_rule_name_patterns=_SNAP_CONTEXT_RULE_NAME_PATTERNS,
-        context_source_terms=_SNAP_CONTEXT_SOURCE_TERMS,
-    ),
-    UpstreamPlacementContract(
-        authority_label="USDA COLA policy file",
-        placement_noun="a federal SNAP annual COLA value",
-        allowed_path_patterns=(r"(?:^|/)policies/usda/snap/fy-\d{4}-cola/",),
-        exact_targets={
-            "standard_deduction_table": (
-                "us:policies/usda/snap/fy-<year>-cola/deductions"
-                "#snap_standard_deduction_48_states_dc_table"
-            ),
-            "standard_deduction": (
-                "us:policies/usda/snap/fy-<year>-cola/deductions"
-                "#snap_standard_deduction"
-            ),
-            "excess_shelter_deduction_cap": (
-                "us:policies/usda/snap/fy-<year>-cola/deductions"
-                "#snap_maximum_excess_shelter_deduction_48_states_dc"
-            ),
-            "snap_homeless_shelter_deduction_amount": (
-                "us:policies/usda/snap/fy-<year>-cola/deductions"
-                "#snap_homeless_shelter_deduction"
-            ),
-            "snap_resource_limit": (
-                "us:policies/usda/snap/fy-<year>-cola/deductions#snap_asset_limit"
-            ),
-            "snap_asset_limit": (
-                "us:policies/usda/snap/fy-<year>-cola/deductions#snap_asset_limit"
-            ),
-        },
-        target_patterns=(
-            UpstreamPlacementTargetPattern(
-                pattern=(
-                    r"^snap_maximum_allotment"
-                    r"(?:$|_table$|_additional_member$|_alaska|_guam|_hawaii|_virgin_islands)"
-                ),
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/maximum-allotments"
-                    "#snap_maximum_allotment"
-                ),
-            ),
-            UpstreamPlacementTargetPattern(
-                pattern=(
-                    r"^snap_standard_deduction"
-                    r"(?:$|_48_states_dc|_alaska|_guam|_hawaii|_virgin_islands)"
-                ),
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/deductions"
-                    "#snap_standard_deduction_48_states_dc"
-                ),
-            ),
-            UpstreamPlacementTargetPattern(
-                pattern=(
-                    r"^snap_asset_limit_"
-                    r"(?:elderly_or_disabled_member|other_households)$"
-                ),
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/deductions#snap_asset_limit"
-                ),
-            ),
-            UpstreamPlacementTargetPattern(
-                pattern=(
-                    r"^snap_maximum_excess_shelter_deduction"
-                    r"(?:$|_48_states_dc|_alaska|_guam|_hawaii|_virgin_islands)"
-                ),
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/deductions"
-                    "#snap_maximum_excess_shelter_deduction_48_states_dc"
-                ),
-            ),
-            UpstreamPlacementTargetPattern(
-                pattern=r"^snap_homeless_shelter_deduction$",
-                target=(
-                    "us:policies/usda/snap/fy-<year>-cola/deductions"
-                    "#snap_homeless_shelter_deduction"
-                ),
-            ),
-        ),
-        context_path_patterns=_SNAP_CONTEXT_PATH_PATTERNS,
-        context_rule_name_patterns=_SNAP_CONTEXT_RULE_NAME_PATTERNS,
-        context_source_terms=_SNAP_CONTEXT_SOURCE_TERMS,
-    ),
-)
-
-
-def _find_upstream_placement_contract_issues(
-    *,
-    contract: UpstreamPlacementContract,
+def _find_restatement_executable_copy_issues(
     rules: list[Any],
-    path: str,
-    imports: set[str],
+    source_metadata: dict[str, object] | None,
 ) -> list[str]:
-    if _path_matches_any(path, contract.allowed_path_patterns):
+    """Reject local executable rules that copy explicitly restated targets."""
+    restated_symbols: dict[str, str] = {}
+    for relation, target in _iter_source_metadata_target_relations(source_metadata):
+        if relation not in _SOURCE_METADATA_RESTATEMENT_RELATIONS:
+            continue
+        symbol = _target_symbol(target)
+        if symbol is not None:
+            restated_symbols.setdefault(symbol, target)
+
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        if str(source_relation.get("type") or "").strip().lower() != "restates":
+            continue
+        target = _normalize_relation_target(source_relation.get("target"))
+        if target is None:
+            continue
+        symbol = _target_symbol(target)
+        if symbol is not None:
+            restated_symbols.setdefault(symbol, target)
+        verification = rule.get("verification")
+        if isinstance(verification, dict) and isinstance(
+            verification.get("values"), dict
+        ):
+            for value_name in verification["values"]:
+                restated_symbols.setdefault(str(value_name), target)
+
+    issues: list[str] = []
+    for rule in rules:
+        if not _is_executable_rulespec_rule(rule):
+            continue
+        name = _rulespec_rule_name(rule)
+        target = restated_symbols.get(name)
+        if target is None:
+            continue
+        issues.append(
+            "Restated upstream target copied as executable RuleSpec: "
+            f"`{name}` duplicates `{target}`. Remove the local executable rule "
+            "and keep only an import or a non-executable `kind: source_relation` "
+            "record with verification if the downstream source restates it."
+        )
+    return issues
+
+
+@dataclass(frozen=True)
+class _IndexedExecutableRule:
+    """Executable RuleSpec rule discovered in a local rule repository."""
+
+    target: str
+    symbol: str
+    signature: str
+    source_file: str
+
+
+def _find_duplicate_upstream_executable_issues(
+    *,
+    rules: list[Any],
+    rules_file: Path | None,
+) -> list[str]:
+    """Reject copied executable rules when an upstream RuleSpec target exists."""
+    if rules_file is None:
+        return []
+
+    repo_root = _rulespec_repo_root(rules_file)
+    if repo_root is None:
+        return []
+
+    prefix = _rulespec_repo_prefix(repo_root)
+    current_file = Path(rules_file).resolve()
+    candidate_roots = _candidate_upstream_rulespec_roots(repo_root)
+    index = _rulespec_executable_index_for_roots(
+        tuple(str(root.resolve()) for root in candidate_roots)
+    )
+    if not index:
         return []
 
     issues: list[str] = []
     for rule in rules:
-        if not isinstance(rule, dict):
+        if not _is_executable_rulespec_rule(rule):
             continue
-        if str(rule.get("kind") or "").lower() == "source_relation":
+        signature = _rulespec_executable_signature(rule)
+        if signature is None:
             continue
-        if not _rule_matches_upstream_contract_context(
-            contract=contract,
-            path=path,
-            rule=rule,
-        ):
-            continue
-
-        name = str(rule.get("name") or "<unknown>")
-        target = _upstream_placement_target(contract, rule)
-        if target is not None:
-            issues.append(_upstream_placement_issue(contract, name, target))
-            continue
-
-        referenced_symbol = _referenced_upstream_symbol(
-            rule,
-            contract.reference_symbols,
+        name = _rulespec_rule_name(rule)
+        current_target = _canonical_rulespec_target(
+            prefix=prefix,
+            repo_root=repo_root,
+            rules_file=current_file,
+            symbol=name,
         )
-        if (
-            referenced_symbol is not None
-            and contract.canonical_import is not None
-            and contract.canonical_import not in imports
-        ):
+        for candidate in index:
+            if candidate.symbol != name or candidate.signature != signature:
+                continue
+            if candidate.target == current_target:
+                continue
+            if Path(candidate.source_file).resolve() == current_file:
+                continue
             issues.append(
-                "Upstream import required: "
-                f"`{name}` references {contract.placement_noun} symbol "
-                f"`{referenced_symbol}` but does not import "
-                f"`{contract.canonical_import}`."
+                "Upstream placement violation: "
+                f"executable rule `{name}` duplicates existing RuleSpec target "
+                f"`{candidate.target}`. Remove the local executable copy and "
+                "use an import, or encode only a non-executable "
+                "`kind: source_relation` record if this source restates the "
+                "upstream rule."
             )
-
+            break
     return issues
 
 
-def _upstream_placement_issue(
-    contract: UpstreamPlacementContract,
-    name: str,
-    target: str,
-) -> str:
-    return (
-        "Upstream placement violation: "
-        f"`{name}` appears to encode {contract.placement_noun} outside "
-        f"{contract.authority_label}. Move the rule to `{target}` and use an "
-        "import or a non-executable `source_relation.type: restates` record in downstream "
-        "policy/manual files."
-    )
-
-
-def _upstream_placement_target(
-    contract: UpstreamPlacementContract,
-    rule: dict[str, Any],
-) -> str | None:
-    if _rule_matches_definition_patterns(contract, rule):
-        return contract.definition_target or contract.canonical_import
-
-    name = str(rule.get("name") or "").lower()
-    target = contract.exact_targets.get(name)
-    if target is not None:
-        return target
-
-    for target_pattern in contract.target_patterns:
-        if re.search(target_pattern.pattern, name, flags=re.IGNORECASE):
-            return target_pattern.target
+def _rulespec_repo_root(rules_file: Path) -> Path | None:
+    path = Path(rules_file).resolve()
+    search = path if path.is_dir() else path.parent
+    for candidate in (search, *search.parents):
+        if candidate.name.startswith("rules-"):
+            return candidate
     return None
 
 
-def _rule_matches_definition_patterns(
-    contract: UpstreamPlacementContract,
-    rule: dict[str, Any],
-) -> bool:
-    if not (contract.definition_name_patterns or contract.definition_formula_patterns):
+def _rulespec_repo_prefix(repo_root: Path) -> str:
+    return repo_root.name.removeprefix("rules-")
+
+
+def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
+    """Return repos that can contain canonical targets for this repo."""
+    roots: list[Path] = []
+
+    def add(candidate: Path) -> None:
+        if candidate.exists() and candidate.is_dir():
+            roots.append(candidate)
+
+    add(repo_root)
+    prefix_parts = _rulespec_repo_prefix(repo_root).split("-")
+    for length in range(len(prefix_parts) - 1, 0, -1):
+        ancestor_prefix = "-".join(prefix_parts[:length])
+        add(repo_root.parent / f"rules-{ancestor_prefix}")
+        add(repo_root / "_axiom" / f"rules-{ancestor_prefix}")
+        add(repo_root.parent / "_axiom" / f"rules-{ancestor_prefix}")
+
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        resolved = root.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(root)
+    return tuple(unique)
+
+
+@functools.lru_cache(maxsize=64)
+def _rulespec_executable_index_for_roots(
+    root_paths: tuple[str, ...],
+) -> tuple[_IndexedExecutableRule, ...]:
+    records: list[_IndexedExecutableRule] = []
+    for root_path in root_paths:
+        root = Path(root_path)
+        if not root.exists():
+            continue
+        prefix = _rulespec_repo_prefix(root)
+        for rules_file in sorted(root.rglob("*.yaml")):
+            if rules_file.name.endswith(".test.yaml"):
+                continue
+            try:
+                payload = yaml.safe_load(rules_file.read_text())
+            except (OSError, yaml.YAMLError, ValueError):
+                continue
+            if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+                continue
+            rules = payload.get("rules")
+            if not isinstance(rules, list):
+                continue
+            for rule in rules:
+                if not _is_executable_rulespec_rule(rule):
+                    continue
+                signature = _rulespec_executable_signature(rule)
+                if signature is None:
+                    continue
+                symbol = _rulespec_rule_name(rule)
+                records.append(
+                    _IndexedExecutableRule(
+                        target=_canonical_rulespec_target(
+                            prefix=prefix,
+                            repo_root=root,
+                            rules_file=rules_file,
+                            symbol=symbol,
+                        ),
+                        symbol=symbol,
+                        signature=signature,
+                        source_file=str(rules_file.resolve()),
+                    )
+                )
+    return tuple(records)
+
+
+def _is_executable_rulespec_rule(rule: Any) -> bool:
+    if not isinstance(rule, dict):
         return False
-
-    name = str(rule.get("name") or "").lower()
-    if any(
-        re.search(pattern, name, flags=re.IGNORECASE)
-        for pattern in contract.definition_name_patterns
-    ):
-        return True
-
-    return any(
-        re.search(pattern, formula, flags=re.IGNORECASE)
-        for formula in _iter_rulespec_formula_strings(rule)
-        for pattern in contract.definition_formula_patterns
-    )
+    return str(rule.get("kind") or "").strip().lower() in {"parameter", "derived"}
 
 
-def _rule_matches_upstream_contract_context(
+def _rulespec_rule_name(rule: dict[str, Any]) -> str:
+    return str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+
+
+def _canonical_rulespec_target(
     *,
-    contract: UpstreamPlacementContract,
-    path: str,
-    rule: dict[str, Any],
-) -> bool:
-    if not (
-        contract.context_path_patterns
-        or contract.context_rule_name_patterns
-        or contract.context_source_terms
-    ):
-        return True
-
-    if _path_matches_any(path, contract.context_path_patterns):
-        return True
-
-    name = str(rule.get("name") or "").lower()
-    if any(
-        re.search(pattern, name, flags=re.IGNORECASE)
-        for pattern in contract.context_rule_name_patterns
-    ):
-        return True
-
-    source = str(rule.get("source") or "").lower()
-    return any(term.lower() in source for term in contract.context_source_terms)
+    prefix: str,
+    repo_root: Path,
+    rules_file: Path,
+    symbol: str,
+) -> str:
+    relative = rules_file.resolve().relative_to(repo_root.resolve())
+    if relative.suffix in {".yaml", ".yml"}:
+        relative = relative.with_suffix("")
+    return f"{prefix}:{relative.as_posix()}#{symbol}"
 
 
-def _path_matches_any(path: str, patterns: Iterable[str]) -> bool:
-    return any(re.search(pattern, path, flags=re.IGNORECASE) for pattern in patterns)
-
-
-def _referenced_upstream_symbol(
-    rule: dict[str, Any],
-    symbols: Iterable[str],
-) -> str | None:
-    for formula in _iter_rulespec_formula_strings(rule):
-        for symbol in symbols:
-            if re.search(rf"\b{re.escape(symbol)}\b", formula):
-                return symbol
-    return None
-
-
-def _iter_rulespec_formula_strings(rule: dict[str, Any]) -> Iterable[str]:
+def _rulespec_executable_signature(rule: dict[str, Any]) -> str | None:
     versions = rule.get("versions")
     if not isinstance(versions, list):
-        return
+        return None
+
+    normalized_versions: list[dict[str, Any]] = []
+    substantive = False
     for version in versions:
         if not isinstance(version, dict):
             continue
-        formula = version.get("formula")
-        if isinstance(formula, str):
-            yield formula
+        normalized_version: dict[str, Any] = {}
+        for key in ("effective_from", "from", "effective_to", "to"):
+            if key in version:
+                normalized_version[key] = _canonical_yaml_value(version.get(key))
+        values = version.get("values")
+        if isinstance(values, dict) and values:
+            normalized_version["values"] = _canonical_yaml_value(values)
+            substantive = True
+        else:
+            formula = version.get("formula")
+            if isinstance(formula, str) and formula.strip():
+                normalized_formula = _normalize_formula_signature(formula)
+                normalized_version["formula"] = normalized_formula
+                if _formula_signature_is_substantive(normalized_formula):
+                    substantive = True
+        if "values" in normalized_version or "formula" in normalized_version:
+            normalized_versions.append(normalized_version)
+
+    if not normalized_versions or not substantive:
+        return None
+
+    payload = {
+        "kind": str(rule.get("kind") or "").strip().lower(),
+        "dtype": str(rule.get("dtype") or "").strip(),
+        "period": str(rule.get("period") or "").strip(),
+        "unit": str(rule.get("unit") or "").strip(),
+        "indexed_by": str(rule.get("indexed_by") or "").strip(),
+        "versions": normalized_versions,
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _normalize_formula_signature(formula: str) -> str:
+    return re.sub(r"\s+", " ", formula.strip())
+
+
+def _formula_signature_is_substantive(formula: str) -> bool:
+    numeric = _numeric_rule_value(formula)
+    if numeric is not None:
+        value = numeric[1]
+        return not (float(value).is_integer() and int(value) in {-1, 0, 1, 2, 3})
+    if re.fullmatch(r"[A-Za-z_][\w.]*", formula):
+        return False
+    return True
+
+
+def _canonical_yaml_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _canonical_yaml_value(value[key])
+            for key in sorted(value, key=lambda item: str(item))
+        }
+    if isinstance(value, list):
+        return [_canonical_yaml_value(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _target_symbol(target: str | None) -> str | None:
+    if not target:
+        return None
+    _, separator, symbol = target.partition("#")
+    if not separator:
+        return None
+    symbol = symbol.strip()
+    return symbol or None
 
 
 def find_source_verification_issues(

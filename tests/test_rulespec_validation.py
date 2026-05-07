@@ -1641,553 +1641,199 @@ rules:
     )
 
 
-def test_upstream_placement_flags_snap_elderly_disabled_definition_in_cola():
-    content = """format: rulespec/v1
+def _write_rulespec_file(path: Path, content: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    validator_pipeline._rulespec_executable_index_for_roots.cache_clear()
+    return path
+
+
+def test_upstream_placement_flags_duplicate_upstream_executable_rule(tmp_path):
+    repo_parent = tmp_path / "repos"
+    _write_rulespec_file(
+        repo_parent / "rules-us" / "policies/example/fy-2026.yaml",
+        """format: rulespec/v1
 rules:
-  - name: member_of_household
-    kind: data_relation
-    data_relation:
-      arity: 2
-  - name: snap_household_has_usda_elderly_or_disabled_member
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: count_where(member_of_household, snap_member_is_usda_elderly_or_disabled) > 0
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("policies/usda/snap/fy-2026-cola/deductions.yaml"),
-    )
-
-    assert len(issues) == 1
-    assert "7 USC 2012(j)" in issues[0]
-    assert "us:statutes/7/2012/j" in issues[0]
-
-
-def test_upstream_placement_allows_snap_elderly_disabled_import_in_cola():
-    content = """format: rulespec/v1
-imports:
-  - us:statutes/7/2012/j
-rules:
-  - name: snap_asset_limit
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if snap_household_has_elderly_or_disabled_member:
-              snap_asset_limit_elderly_or_disabled_member
-          else: snap_asset_limit_other_households
-"""
-
-    assert (
-        find_upstream_placement_issues(
-            content,
-            rules_file=Path("policies/usda/snap/fy-2026-cola/deductions.yaml"),
-        )
-        == []
-    )
-
-
-def test_upstream_placement_requires_snap_elderly_disabled_import():
-    content = """format: rulespec/v1
-rules:
-  - name: snap_resource_limit
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if snap_household_has_elderly_or_disabled_member:
-              snap_asset_limit_elderly_or_disabled_member
-          else: snap_asset_limit_other_households
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.408.yaml"),
-    )
-
-    assert any("Upstream import required" in issue for issue in issues)
-    assert any("us:statutes/7/2012/j" in issue for issue in issues)
-
-
-def test_upstream_placement_allows_canonical_snap_elderly_disabled_definition():
-    content = """format: rulespec/v1
-rules:
-  - name: member_of_household
-    kind: data_relation
-    data_relation:
-      arity: 2
-  - name: snap_household_has_elderly_or_disabled_member
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2008-10-01'
-        formula: count_where(member_of_household, snap_member_is_elderly_or_disabled) > 0
-"""
-
-    assert (
-        find_upstream_placement_issues(
-            content,
-            rules_file=Path("statutes/7/2012/j.yaml"),
-        )
-        == []
-    )
-
-
-def test_upstream_placement_flags_state_manual_snap_allotment_formula():
-    content = """format: rulespec/v1
-rules:
-  - name: snap_household_food_contribution_rate
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '0.30'
-  - name: household_food_contribution
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: net_income_for_benefit_formula * snap_household_food_contribution_rate
-  - name: snap_regular_month_allotment
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if snap_eligible:
-              max(snap_allotment_before_minimum, snap_minimum_monthly_allotment)
-          else: 0
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
-    )
-
-    assert len(issues) == 3
-    assert all("7 USC 2017(a)" in issue for issue in issues)
-    assert any("snap_household_food_contribution_rate" in issue for issue in issues)
-    assert any("snap_household_food_contribution" in issue for issue in issues)
-    assert any("snap_regular_month_allotment" in issue for issue in issues)
-
-
-def test_upstream_placement_requires_snap_allotment_formula_import():
-    content = """format: rulespec/v1
-rules:
-  - name: snap_application_denied_for_zero_benefit
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: snap_allotment_before_minimum == 0
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
-    )
-
-    assert len(issues) == 1
-    assert "Upstream import required" in issues[0]
-    assert "us:statutes/7/2017/a" in issues[0]
-
-
-def test_upstream_placement_flags_state_manual_snap_standard_deduction():
-    content = """format: rulespec/v1
-rules:
-  - name: standard_deduction_table
+  - name: benefit_limit
     kind: parameter
     dtype: Money
     unit: USD
-    indexed_by: household_size
-    versions:
-      - effective_from: '2025-10-01'
-        values:
-          1: 209
-          2: 209
-          3: 209
-  - name: standard_deduction
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: standard_deduction_table[household_size]
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.407.1.yaml"),
-    )
-
-    assert len(issues) == 2
-    assert all("USDA COLA policy file" in issue for issue in issues)
-    assert any("standard_deduction_table" in issue for issue in issues)
-    assert any("standard_deduction" in issue for issue in issues)
-
-
-def test_upstream_placement_flags_tax_standard_deduction_amounts_in_statute():
-    content = """format: rulespec/v1
-rules:
-  - name: basic_standard_deduction_amount
-    kind: parameter
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    source: 26 USC 63(c)
     versions:
       - effective_from: '2026-01-01'
-        formula: '16100'
-"""
+        formula: '500'
+""",
+    )
+    rules_file = _write_rulespec_file(
+        repo_parent / "rules-us-co" / "regulations/example/benefit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: benefit_limit
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '500'
+""",
+    )
 
     issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("statutes/26/63/c.yaml"),
+        rules_file.read_text(encoding="utf-8"),
+        rules_file=rules_file,
     )
 
     assert len(issues) == 1
-    assert "IRS annual tax-year inflation-adjustment source" in issues[0]
-    assert "basic_standard_deduction_amount" in issues[0]
+    assert "duplicates existing RuleSpec target" in issues[0]
+    assert "us:policies/example/fy-2026#benefit_limit" in issues[0]
 
 
-def test_upstream_placement_requires_tax_standard_deduction_import():
-    content = """format: rulespec/v1
+def test_upstream_placement_allows_distinct_local_rule_with_same_name(tmp_path):
+    repo_parent = tmp_path / "repos"
+    _write_rulespec_file(
+        repo_parent / "rules-us" / "policies/example/fy-2026.yaml",
+        """format: rulespec/v1
 rules:
-  - name: standard_deduction
-    kind: derived
-    entity: TaxUnit
+  - name: benefit_limit
+    kind: parameter
     dtype: Money
-    period: Year
     unit: USD
-    source: 26 USC 63(c)
     versions:
       - effective_from: '2026-01-01'
-        formula: basic_standard_deduction_amount + additional_std_ded_amount
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("statutes/26/63/c.yaml"),
+        formula: '500'
+""",
     )
-
-    assert len(issues) == 1
-    assert "Upstream import required" in issues[0]
-    assert "us:policies/irs/rev-proc-2025-32/standard-deduction" in issues[0]
-
-
-def test_upstream_placement_allows_tax_standard_deduction_import():
-    content = """format: rulespec/v1
-imports:
-  - us:policies/irs/rev-proc-2025-32/standard-deduction
+    rules_file = _write_rulespec_file(
+        repo_parent / "rules-us-co" / "regulations/example/benefit.yaml",
+        """format: rulespec/v1
 rules:
-  - name: standard_deduction
-    kind: derived
-    entity: TaxUnit
+  - name: benefit_limit
+    kind: parameter
     dtype: Money
-    period: Year
     unit: USD
-    source: 26 USC 63(c)
     versions:
       - effective_from: '2026-01-01'
-        formula: basic_standard_deduction_amount + additional_std_ded_amount
-"""
+        formula: '525'
+""",
+    )
 
     assert (
         find_upstream_placement_issues(
-            content,
-            rules_file=Path("statutes/26/63/c.yaml"),
+            rules_file.read_text(encoding="utf-8"),
+            rules_file=rules_file,
         )
         == []
     )
 
 
-def test_upstream_placement_flags_state_manual_snap_earned_income_deduction():
-    content = """format: rulespec/v1
+def test_upstream_placement_ignores_sibling_jurisdiction_duplicates(tmp_path):
+    repo_parent = tmp_path / "repos"
+    _write_rulespec_file(
+        repo_parent / "rules-us-ny" / "regulations/example/benefit.yaml",
+        """format: rulespec/v1
 rules:
-  - name: snap_earned_income_deduction_rate
-    kind: parameter
-    dtype: Rate
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '0.20'
-  - name: earned_income_deduction
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: snap_earned_income_subject_to_deduction * snap_earned_income_deduction_rate
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.407.2.yaml"),
-    )
-
-    assert len(issues) == 2
-    assert all("7 USC 2014(e)(2)" in issue for issue in issues)
-    assert any("snap_earned_income_deduction_rate" in issue for issue in issues)
-    assert any("snap_earned_income_deduction" in issue for issue in issues)
-
-
-def test_upstream_placement_flags_state_manual_snap_income_standards():
-    content = """format: rulespec/v1
-rules:
-  - name: gross_income_limit_table
+  - name: state_allowance
     kind: parameter
     dtype: Money
     unit: USD
-    indexed_by: household_size
     versions:
-      - effective_from: '2025-10-01'
-        values:
-          1: 1696
-          2: 2292
-  - name: net_income_limit
-    kind: derived
-    entity: Household
+      - effective_from: '2026-01-01'
+        formula: '451'
+""",
+    )
+    rules_file = _write_rulespec_file(
+        repo_parent / "rules-us-co" / "regulations/example/benefit.yaml",
+        """format: rulespec/v1
+rules:
+  - name: state_allowance
+    kind: parameter
     dtype: Money
-    period: Month
     unit: USD
     versions:
-      - effective_from: '2025-10-01'
-        formula: net_income_limit_table[household_size]
-  - name: snap_gross_income_limit_165_percent_fpl
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: snap_gross_income_limit_165_percent_fpl_table[household_size]
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.401.1.yaml"),
+      - effective_from: '2026-01-01'
+        formula: '451'
+""",
     )
-
-    assert len(issues) == 3
-    assert all("USDA income eligibility standards" in issue for issue in issues)
-    assert any("gross_income_limit_table" in issue for issue in issues)
-    assert any("net_income_limit" in issue for issue in issues)
-    assert any("snap_gross_income_limit_165_percent_fpl" in issue for issue in issues)
-
-
-def test_upstream_placement_requires_snap_income_standards_import():
-    content = """format: rulespec/v1
-rules:
-  - name: passes_gross_income_test
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: gross_income <= snap_gross_income_limit_130_percent_fpl_48_states_dc
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.401.yaml"),
-    )
-
-    assert len(issues) == 1
-    assert "Upstream import required" in issues[0]
-    assert (
-        "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards" in issues[0]
-    )
-
-
-def test_upstream_placement_flags_friendly_snap_allotment_alias_references():
-    content = """format: rulespec/v1
-rules:
-  - name: state_snap_uses_food_contribution
-    kind: derived
-    entity: Household
-    dtype: Judgment
-    period: Month
-    versions:
-      - effective_from: '2025-10-01'
-        formula: household_food_contribution > 0
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
-    )
-
-    assert len(issues) == 1
-    assert "household_food_contribution" in issues[0]
-    assert "us:statutes/7/2017/a" in issues[0]
-
-
-def test_upstream_placement_allows_canonical_snap_allotment_formula():
-    content = """format: rulespec/v1
-rules:
-  - name: snap_regular_month_allotment
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2008-10-01'
-        formula: |-
-          if snap_eligible:
-              max(snap_allotment_before_minimum, snap_minimum_monthly_allotment)
-          else: 0
-"""
 
     assert (
         find_upstream_placement_issues(
-            content,
-            rules_file=Path("statutes/7/2017/a.yaml"),
+            rules_file.read_text(encoding="utf-8"),
+            rules_file=rules_file,
         )
         == []
     )
 
 
-def test_upstream_placement_allows_state_manual_restatement_of_snap_allotment_formula():
+def test_upstream_placement_rejects_executable_copy_of_restated_target():
     content = """format: rulespec/v1
 rules:
-  - name: regular_allotment_restatement
+  - name: benefit_limit_restatement
     kind: source_relation
     source_relation:
       type: restates
-      target: us:statutes/7/2017/a#snap_regular_month_allotment
-      authority: federal
+      target: us:policies/example/fy-2026#benefit_limit
+  - name: benefit_limit
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '500'
 """
 
-    assert (
-        find_upstream_placement_issues(
-            content,
-            rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
-        )
-        == []
-    )
+    issues = find_upstream_placement_issues(content)
+
+    assert len(issues) == 1
+    assert "Restated upstream target copied as executable RuleSpec" in issues[0]
+    assert "us:policies/example/fy-2026#benefit_limit" in issues[0]
 
 
-def test_upstream_placement_flags_state_manual_federal_cola_values():
+def test_upstream_placement_rejects_executable_copy_of_verified_restatement_value():
     content = """format: rulespec/v1
 rules:
-  - name: snap_maximum_allotment_table
+  - name: benefit_table_restatement
+    kind: source_relation
+    source_relation:
+      type: restates
+      target: us:policies/example/fy-2026#benefit_amount
+    verification:
+      values:
+        benefit_amount_table:
+          1: 500
+          2: 750
+  - name: benefit_amount_table
     kind: parameter
     dtype: Money
     unit: USD
     indexed_by: household_size
     versions:
-      - effective_from: '2025-10-01'
+      - effective_from: '2026-01-01'
         values:
-          1: 298
-          2: 546
+          1: 500
+          2: 750
 """
 
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
-    )
+    issues = find_upstream_placement_issues(content)
 
     assert len(issues) == 1
-    assert "federal SNAP annual COLA value" in issues[0]
-    assert "source_relation.type: restates" in issues[0]
+    assert "benefit_amount_table" in issues[0]
+    assert "us:policies/example/fy-2026#benefit_amount" in issues[0]
 
 
-def test_upstream_placement_flags_state_manual_federal_cola_aliases():
+def test_upstream_placement_allows_pure_source_relation_restatement():
     content = """format: rulespec/v1
 rules:
-  - name: excess_shelter_deduction_cap
-    kind: parameter
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '744'
-  - name: snap_homeless_shelter_deduction_amount
-    kind: parameter
-    dtype: Money
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: '198.99'
-  - name: snap_resource_limit
-    kind: derived
-    entity: Household
-    dtype: Money
-    period: Month
-    unit: USD
-    versions:
-      - effective_from: '2025-10-01'
-        formula: |-
-          if snap_household_has_elderly_or_disabled_member:
-              4500
-          else: 3000
-"""
-
-    issues = find_upstream_placement_issues(
-        content,
-        rules_file=Path("regulations/10-ccr-2506-1/4.407.3.yaml"),
-    )
-
-    assert len(issues) == 4
-    assert any("snap_maximum_excess_shelter_deduction" in issue for issue in issues)
-    assert any("snap_homeless_shelter_deduction" in issue for issue in issues)
-    assert any("snap_asset_limit" in issue for issue in issues)
-    assert any("us:statutes/7/2012/j" in issue for issue in issues)
-
-
-def test_upstream_placement_allows_state_manual_restatement_of_federal_cola_values():
-    content = """format: rulespec/v1
-rules:
-  - name: maximum_allotment_restatement
+  - name: benefit_limit_restatement
     kind: source_relation
     source_relation:
       type: restates
-      target: us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment
+      target: us:policies/example/fy-2026#benefit_limit
       authority: federal
     verification:
       values:
-        snap_maximum_allotment_table:
-          1: 298
-          2: 546
+        benefit_limit: 500
 """
 
-    assert (
-        find_upstream_placement_issues(
-            content,
-            rules_file=Path("regulations/10-ccr-2506-1/4.207.3.yaml"),
-        )
-        == []
-    )
+    assert find_upstream_placement_issues(content) == []
 
 
 def test_upstream_placement_requires_source_relation_from_source_metadata():
