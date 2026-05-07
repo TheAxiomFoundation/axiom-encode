@@ -16,6 +16,7 @@ axiom-encode encode "26 USC 32(a)(1)" \
 
 axiom-encode validate /tmp/axiom-encode-encodings/codex-gpt-5.5/statutes/26/32/a/1.yaml
 axiom-encode proof-validate /tmp/axiom-encode-encodings/codex-gpt-5.5/statutes/26/32/a/1.yaml
+axiom-encode inventory --root ~/TheAxiomFoundation
 ```
 
 `encode` resolves the requested citation to `corpus.provisions` before model
@@ -28,6 +29,11 @@ oracles. It also resolves declared source-claim IDs against local
 `axiom-corpus/claims` artifacts and rejects missing, unaccepted, executable, or
 placeholder-subject claims. Strict proof validation is enabled per file with
 `module.proof_validation.required: true`.
+
+`inventory` counts checked-in RuleSpec files across sibling `rules-*` repos,
+separating source/provision encodings from composition modules and reporting
+rule-kind totals. Use `--json` when feeding the current inventory into status
+reports or dashboards.
 
 ## Run telemetry and repair manifests
 
