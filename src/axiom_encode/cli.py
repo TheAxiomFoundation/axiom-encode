@@ -51,6 +51,7 @@ from .harness.evals import (
 )
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import ValidatorPipeline
+from .oracles.policyengine.coverage import build_policyengine_coverage_report
 from .repo_routing import find_policy_repo_root
 
 # Default DB path - can be overridden with --db
@@ -403,6 +404,43 @@ def main():
         help="Workspace root containing rules-* repos",
     )
     inventory_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # oracle-coverage command
+    oracle_coverage_parser = subparsers.add_parser(
+        "oracle-coverage",
+        help="Classify RuleSpec executable outputs against oracle registries",
+    )
+    oracle_coverage_parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rules-* repos",
+    )
+    oracle_coverage_parser.add_argument(
+        "--oracle",
+        choices=["policyengine"],
+        default="policyengine",
+        help="Oracle registry to inspect",
+    )
+    oracle_coverage_parser.add_argument(
+        "--program",
+        default=None,
+        help="Restrict report to a program label such as snap or tax",
+    )
+    oracle_coverage_parser.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Maximum unmapped outputs to print in text mode",
+    )
+    oracle_coverage_parser.add_argument(
+        "--fail-on-unmapped",
+        action="store_true",
+        help="Exit non-zero when any executable output is unmapped",
+    )
+    oracle_coverage_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
 
     # calibration command
     calibration_parser = subparsers.add_parser(
@@ -900,6 +938,8 @@ def main():
         cmd_stats(args)
     elif args.command == "inventory":
         cmd_inventory(args)
+    elif args.command == "oracle-coverage":
+        cmd_oracle_coverage(args)
     elif args.command == "calibration":
         cmd_calibration(args)
     elif args.command == "runs":
@@ -1382,6 +1422,50 @@ def cmd_inventory(args):
             f"rules={repo['rules']} "
             f"roots={_format_counter(repo['roots'])}"
         )
+
+
+def cmd_oracle_coverage(args):
+    """Show oracle coverage classification across rules-* repos."""
+    if args.oracle != "policyengine":
+        print(f"Unsupported oracle: {args.oracle}")
+        sys.exit(2)
+
+    root = (args.root or _default_rulespec_inventory_root()).resolve()
+    report = build_policyengine_coverage_report(root, program=args.program)
+
+    unmapped = int(report["status_counts"].get("unmapped", 0))
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        sys.exit(1 if args.fail_on_unmapped and unmapped else 0)
+
+    print("PolicyEngine oracle coverage")
+    print(f"Root: {report['root']}")
+    if args.program:
+        print(f"Program: {args.program}")
+    print(f"Executable outputs: {report['total_outputs']}")
+    print(f"Status: {_format_counter(report['status_counts'])}")
+    print(f"Programs: {_format_counter(report['program_counts'])}")
+    print()
+
+    for repo in report["repos"]:
+        print(
+            f"{repo['repo']}: "
+            f"outputs={repo['total_outputs']} "
+            f"status={_format_counter(repo['status_counts'])}"
+        )
+
+    unmapped_items = [
+        item for item in report["items"] if item.get("status") == "unmapped"
+    ]
+    if unmapped_items:
+        print()
+        print(f"Unmapped outputs (first {args.limit}):")
+        for item in unmapped_items[: args.limit]:
+            print(f"  - {item['legal_id']}")
+        if len(unmapped_items) > args.limit:
+            print(f"  - ... {len(unmapped_items) - args.limit} more")
+
+    sys.exit(1 if args.fail_on_unmapped and unmapped else 0)
 
 
 def cmd_calibration(args):

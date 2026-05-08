@@ -27,6 +27,7 @@ from axiom_encode.cli import (
     cmd_inventory,
     cmd_log,
     cmd_log_event,
+    cmd_oracle_coverage,
     cmd_runs,
     cmd_session_end,
     cmd_session_show,
@@ -149,6 +150,12 @@ class TestMain:
     def test_inventory_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "inventory"]):
             with patch("axiom_encode.cli.cmd_inventory") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
+    def test_oracle_coverage_command_dispatches(self):
+        with patch("sys.argv", ["axiom_encode", "oracle-coverage"]):
+            with patch("axiom_encode.cli.cmd_oracle_coverage") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
@@ -1336,6 +1343,39 @@ class TestCmdValidate:
             assert exc_info.value.code == 0
 
         assert "unmapped=0 unsupported=2" in capsys.readouterr().out
+
+    def test_oracle_coverage_fail_on_unmapped_exits_nonzero(self, capsys, tmp_path):
+        args = MagicMock()
+        args.root = tmp_path
+        args.oracle = "policyengine"
+        args.program = None
+        args.limit = 25
+        args.fail_on_unmapped = True
+        args.json = True
+
+        with patch(
+            "axiom_encode.cli.build_policyengine_coverage_report",
+            return_value={
+                "oracle": "policyengine",
+                "root": str(tmp_path),
+                "total_outputs": 1,
+                "status_counts": {"unmapped": 1},
+                "program_counts": {"snap": 1},
+                "repos": [],
+                "items": [
+                    {
+                        "legal_id": "us:statutes/7/9999#snap_new_output",
+                        "status": "unmapped",
+                    }
+                ],
+            },
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_oracle_coverage(args)
+
+        assert exc_info.value.code == 1
+        output = json.loads(capsys.readouterr().out)
+        assert output["status_counts"]["unmapped"] == 1
 
     def test_validate_with_oracle_taxsim_fail(self, capsys, tmp_path):
         rulespec_file = tmp_path / "test.yaml"

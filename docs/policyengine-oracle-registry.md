@@ -61,3 +61,33 @@ the registry may use `prefixes` entries. Prefix entries only classify
 `not_comparable` outputs. Exact legal-ID mappings always override prefixes, so a
 specific output can still become PolicyEngine-comparable later without changing
 the RuleSpec file.
+
+## Repository Coverage Report
+
+Use the coverage command before assigning autonomous encoding work and after a
+batch lands:
+
+```bash
+axiom-encode oracle-coverage --root /path/to/workspace --program snap
+```
+
+The report scans sibling `rules-*` repositories, constructs canonical legal IDs
+for every executable `kind: parameter` and `kind: derived` output, and classifies
+each output as:
+
+- `comparable`: an exact registry mapping can be run against PolicyEngine
+- `known_not_comparable`: the registry deliberately classifies the output as out
+  of oracle scope, usually because it is a legal intermediate or source-specific
+  assembly point
+- `unmapped`: no registry entry or prefix covers the output yet
+
+Autonomous agents should treat `unmapped` as work queue material. They should
+either add an exact oracle mapping, add a narrow `not_comparable` classification
+with a rationale, or improve the RuleSpec if the unmapped output is accidental.
+Do not hide unmapped outputs in RuleSpec metadata.
+
+CI jobs that need complete classification can use:
+
+```bash
+axiom-encode oracle-coverage --root /path/to/workspace --program snap --fail-on-unmapped
+```
