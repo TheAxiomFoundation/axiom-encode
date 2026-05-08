@@ -80,3 +80,27 @@ rules:
     assert (
         statuses_by_id["us:statutes/7/9999#snap_unclassified_new_output"] == "unmapped"
     )
+
+
+def test_policyengine_coverage_ignores_nested_axiom_dependency_checkout(tmp_path):
+    content = """format: rulespec/v1
+rules:
+  - name: snap_earned_income_deduction
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: earned_income * 0.2
+"""
+    _write_rulespec_file(
+        tmp_path / "rules-us" / "statutes/7/2014/e/2.yaml",
+        content,
+    )
+    _write_rulespec_file(
+        tmp_path / "rules-us" / "_axiom" / "rules-us" / "statutes/7/2014/e/2.yaml",
+        content,
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    assert report["total_outputs"] == 1
+    assert report["status_counts"] == {"comparable": 1}

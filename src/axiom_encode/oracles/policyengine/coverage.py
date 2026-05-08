@@ -96,6 +96,8 @@ def _iter_policyengine_coverage_items(
         for rulespec_file in sorted(repo.rglob("*.y*ml")):
             if rulespec_file.name.endswith(".test.yaml"):
                 continue
+            if "_axiom" in rulespec_file.relative_to(repo).parts:
+                continue
             payload = _load_rulespec_payload(rulespec_file)
             if not payload:
                 continue
