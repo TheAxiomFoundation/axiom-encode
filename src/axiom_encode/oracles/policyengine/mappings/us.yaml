@@ -161,6 +161,89 @@ mappings:
     policyengine_variable: snap_normal_allotment
     rationale: PolicyEngine exposes adjacent normal allotment, but comparison requires PE's full eligibility scenario rather than the upstream legal outputs used by Axiom tests.
 
+  - legal_id: us:regulations/7-cfr/273/4#snap_member_citizenship_or_alien_status_eligible
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: is_snap_immigration_status_eligible
+    entity: person
+    period: month
+    comparison: boolean
+    rationale: Same federal SNAP citizenship or eligible noncitizen status predicate.
+
+  - legal_id: us:regulations/7-cfr/273/5#snap_member_student_ineligible
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: is_snap_ineligible_student
+    entity: person
+    period: month
+    comparison: boolean
+    rationale: Same federal SNAP student-ineligibility predicate.
+
+  - legal_id: us:regulations/7-cfr/273/8#snap_resource_eligible
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: meets_snap_asset_test
+    entity: spm_unit
+    period: month
+    comparison: boolean
+    rationale: Same federal SNAP resource eligibility test.
+
+  - legal_id: us:regulations/7-cfr/273/9#snap_standard_gross_income_eligible
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: meets_snap_gross_income_test
+    entity: spm_unit
+    period: month
+    comparison: boolean
+    rationale: Same federal SNAP gross-income eligibility test.
+
+  - legal_id: us:regulations/7-cfr/273/9#snap_standard_net_income_eligible
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: meets_snap_net_income_test
+    entity: spm_unit
+    period: month
+    comparison: boolean
+    rationale: Same federal SNAP net-income eligibility test.
+
+  - legal_id: us:regulations/7-cfr/273/10#snap_gross_monthly_income
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_gross_income
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same federal SNAP gross monthly income output.
+
+  - legal_id: us:regulations/7-cfr/273/10#snap_monthly_household_income
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_gross_income
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Axiom aliases monthly household income to the federal SNAP gross monthly income used by PolicyEngine.
+
+  - legal_id: us:regulations/7-cfr/273/10#snap_excess_shelter_deduction
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_excess_shelter_expense_deduction
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same federal SNAP excess shelter deduction output.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment
     country: us
     program: snap
@@ -430,6 +513,12 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: USDA COLA table and parameter outputs require parameter-aware oracle adapters unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:regulations/7-cfr/273/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Federal SNAP regulatory outputs are provision-level eligibility and mechanics intermediates unless an exact PolicyEngine mapping overrides this prefix.
 
   - legal_id_prefix: us:statutes/7/2012/j#
     country: us
