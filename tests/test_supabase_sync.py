@@ -165,6 +165,80 @@ class TestSyncRunToSupabase:
         assert upsert_payload["scores"]["rulespec"] == 8.0
         assert upsert_payload["scores"]["formula"] == 7.0
 
+    def test_final_apply_outcome_overrides_raw_iteration_issue(self):
+        mock_run = MagicMock()
+        mock_run.id = "test-123"
+        mock_run.timestamp = datetime.now()
+        mock_run.citation = "NY SNAP telephone standard"
+        mock_run.file_path = "policies/example.yaml"
+        mock_run.source_text = "source text"
+        mock_run.rulespec_content = "format: rulespec/v1"
+        mock_run.review_results = None
+        mock_run.outcome = {
+            "standalone_validation_success": False,
+            "apply_requested": True,
+            "overlay_validation_success": True,
+            "apply_success": True,
+            "final_success": True,
+            "status": "apply_applied",
+        }
+        error = MagicMock()
+        error.error_type = "validation"
+        error.message = "Generated RuleSpec failed compile validation."
+        error.variable = None
+        error.fix_applied = None
+        iteration = MagicMock()
+        iteration.attempt = 1
+        iteration.duration_ms = 1000
+        iteration.success = False
+        iteration.errors = [error]
+        mock_run.iterations = [iteration]
+
+        mock_client = MagicMock()
+        mock_client.schema.return_value.table.return_value.upsert.return_value.execute.return_value = MagicMock(
+            data=[{"id": "test-123"}]
+        )
+
+        result = sync_run_to_supabase(mock_run, "reviewer_agent", client=mock_client)
+
+        assert result is True
+        upsert_payload = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args.args[0]
+        )
+        assert upsert_payload["outcome"]["final_success"] is True
+        assert upsert_payload["has_issues"] is False
+        assert (
+            upsert_payload["note"]
+            == "Standalone validation failed; overlay apply succeeded."
+        )
+
+    def test_retries_without_outcome_when_remote_schema_rejects_it(self):
+        mock_run = MagicMock()
+        mock_run.id = "test-123"
+        mock_run.timestamp = datetime.now()
+        mock_run.citation = "26 USC 1"
+        mock_run.file_path = "test.yaml"
+        mock_run.source_text = "source text"
+        mock_run.rulespec_content = ""
+        mock_run.review_results = None
+        mock_run.outcome = {"final_success": True, "status": "apply_applied"}
+
+        mock_client = MagicMock()
+        execute = mock_client.schema.return_value.table.return_value.upsert.return_value.execute
+        execute.side_effect = [
+            Exception("Could not find the 'outcome' column"),
+            MagicMock(data=[{"id": "test-123"}]),
+        ]
+
+        result = sync_run_to_supabase(mock_run, "ci_only", client=mock_client)
+
+        assert result is True
+        upsert_calls = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args_list
+        )
+        assert "outcome" in upsert_calls[0].args[0]
+        assert "outcome" not in upsert_calls[1].args[0]
+
     def test_upsert_failure(self, capsys):
         mock_run = MagicMock()
         mock_run.id = "test-123"

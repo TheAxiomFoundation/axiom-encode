@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from axiom_encode import (
     EncodingDB,
+    Iteration,
     ReviewResult,
     ReviewResults,
     create_run,
@@ -155,6 +156,27 @@ class TestLogAndRetrieveRuns:
         assert (
             retrieved.lessons == "Learned that bracket syntax needs special handling."
         )
+
+    def test_log_run_with_final_outcome(self, experiment_db, sample_encoding_run):
+        """Test final encode/apply outcomes are persisted and drive run success."""
+        sample_encoding_run.iterations = [
+            Iteration(attempt=1, duration_ms=1000, success=False)
+        ]
+        sample_encoding_run.outcome = {
+            "standalone_validation_success": False,
+            "apply_requested": True,
+            "overlay_validation_success": True,
+            "apply_success": True,
+            "final_success": True,
+            "status": "apply_applied",
+        }
+
+        experiment_db.log_run(sample_encoding_run)
+        retrieved = experiment_db.get_run(sample_encoding_run.id)
+
+        assert retrieved.outcome["status"] == "apply_applied"
+        assert retrieved.iterations[0].success is False
+        assert retrieved.success is True
 
     def test_log_run_with_review_issues(self, experiment_db):
         """Test logging a run with review issues at different severity levels."""
@@ -478,6 +500,7 @@ class TestRowToRun:
             review_results,
             "Some lessons",
             "0.2.0",
+            "{}",
         )
         run = experiment_db._row_to_run(row)
         assert run.id == "test-id"
@@ -489,6 +512,7 @@ class TestRowToRun:
         assert run.rulespec_content == "content"
         assert run.source_text == "source text"
         assert run.axiom_encode_version == "0.2.0"
+        assert run.outcome == {}
 
 
 class TestAxiomEncodeVersion:

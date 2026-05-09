@@ -2009,13 +2009,18 @@ def cmd_encode(args):
     print(f"  trace={result.trace_file}")
     print(f"  manifest={result.context_manifest_file}")
     db_path = getattr(args, "db", DEFAULT_DB)
-    logged_run = _log_eval_result(result, db_path=db_path)
+    apply_requested = getattr(args, "apply", False) is True
+    logged_run = _log_eval_result(
+        result,
+        db_path=db_path,
+        end_session=False,
+        log_issue=False,
+    )
     print(f"  run_id={logged_run.id}")
-    repair_manifest = _eval_repair_manifest_path(result)
-    if repair_manifest and repair_manifest.exists():
-        print(f"  repair_manifest={repair_manifest}")
+    outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
+    repair_manifest = None
     apply_passed = False
-    if getattr(args, "apply", False) is True:
+    if apply_requested:
         can_apply, apply_issues, supplemental_files = (
             _validate_generated_encoding_in_policy_overlay(
                 result,
@@ -2024,8 +2029,12 @@ def cmd_encode(args):
                 axiom_rules_path=axiom_rules_path,
             )
         )
+        outcome["overlay_validation_success"] = bool(can_apply)
         if not can_apply:
             detail = apply_issues[0] if apply_issues else "generation_failed"
+            outcome["status"] = "apply_blocked_validation"
+            outcome["apply_error"] = detail
+            outcome["final_success"] = False
             print(f"  apply=blocked_validation:{detail}")
         if can_apply:
             try:
@@ -2037,10 +2046,25 @@ def cmd_encode(args):
                     supplemental_files=supplemental_files,
                 )
             except RuntimeError as exc:
+                outcome["status"] = "apply_blocked_manifest"
+                outcome["apply_error"] = str(exc)
+                outcome["final_success"] = False
                 print(f"  apply=blocked_manifest:{exc}")
             else:
                 print("  apply=" + ",".join(str(path) for path in applied))
                 apply_passed = True
+                outcome["status"] = "apply_applied"
+                outcome["apply_success"] = True
+                outcome["final_success"] = True
+                outcome["applied_files"] = [str(path) for path in applied]
+    repair_manifest = _record_encode_outcome(
+        db_path=db_path,
+        result=result,
+        run=logged_run,
+        outcome=outcome,
+    )
+    if repair_manifest and repair_manifest.exists():
+        print(f"  repair_manifest={repair_manifest}")
     if getattr(args, "sync", True) is True:
         sync_result = _sync_run_to_supabase_if_configured(logged_run, db_path=db_path)
         if not sync_result["configured"]:
@@ -2052,7 +2076,7 @@ def cmd_encode(args):
         else:
             print("  supabase_sync=failed")
 
-    if getattr(args, "apply", False) is True:
+    if apply_requested:
         sys.exit(0 if apply_passed else 1)
     sys.exit(0 if result.success else 1)
 
@@ -2495,7 +2519,13 @@ def _rulespec_file_imports_target(
     return False
 
 
-def _log_eval_result(result, *, db_path: Path) -> EncodingRun:
+def _log_eval_result(
+    result,
+    *,
+    db_path: Path,
+    end_session: bool = True,
+    log_issue: bool = True,
+) -> EncodingRun:
     """Persist an eval-backed encode run in the local run history DB."""
     rulespec_content = _read_optional_text(getattr(result, "output_file", ""))
     source_text = _read_eval_source_text(getattr(result, "context_manifest_file", ""))
@@ -2531,8 +2561,15 @@ def _log_eval_result(result, *, db_path: Path) -> EncodingRun:
     run.session_id = f"encode-{run.id}"
     db = EncodingDB(db_path)
     db.log_run(run)
-    repair_manifest = _write_eval_repair_manifest(result, run)
-    _log_eval_session(db, result, run, repair_manifest=repair_manifest)
+    repair_manifest = _write_eval_repair_manifest(result, run) if log_issue else None
+    _log_eval_session(
+        db,
+        result,
+        run,
+        repair_manifest=repair_manifest,
+        log_issue=log_issue,
+        end_session=end_session,
+    )
     return run
 
 
@@ -2542,6 +2579,8 @@ def _log_eval_session(
     run: EncodingRun,
     *,
     repair_manifest: Path | None = None,
+    log_issue: bool = True,
+    end_session: bool = True,
 ) -> None:
     """Persist a minimal SDK-style session for eval-backed encode runs."""
     session = db.start_session(
@@ -2575,6 +2614,7 @@ def _log_eval_session(
         "run_id": run.id,
         "citation": run.citation,
         "success": bool(getattr(result, "success", False)),
+        "standalone_validation_success": bool(getattr(result, "success", False)),
         "duration_ms": int(getattr(result, "duration_ms", 0) or 0),
         "estimated_cost_usd": getattr(result, "estimated_cost_usd", None),
         "input_tokens": int(getattr(result, "input_tokens", 0) or 0),
@@ -2603,7 +2643,7 @@ def _log_eval_session(
         metadata={"run_id": run.id, "success": result_summary["success"]},
     )
     error = getattr(result, "error", None)
-    if isinstance(error, str) and error:
+    if log_issue and isinstance(error, str) and error:
         db.log_event(
             session.id,
             "encode_issue",
@@ -2614,7 +2654,90 @@ def _log_eval_session(
                 "repair_manifest": str(repair_manifest) if repair_manifest else None,
             },
         )
-    db.end_session(session.id)
+    if end_session:
+        db.end_session(session.id)
+
+
+def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
+    """Build the workflow-level outcome object for an eval-backed encode run."""
+    standalone_success = bool(getattr(result, "success", False))
+    return {
+        "standalone_validation_success": standalone_success,
+        "apply_requested": bool(apply_requested),
+        "overlay_validation_success": None,
+        "apply_success": False if apply_requested else None,
+        "final_success": standalone_success if not apply_requested else False,
+        "status": "standalone_validated" if standalone_success else "standalone_failed",
+        "primary_error": getattr(result, "error", None),
+        "apply_error": None,
+        "applied_files": [],
+    }
+
+
+def _record_encode_outcome(
+    *,
+    db_path: Path,
+    result,
+    run: EncodingRun,
+    outcome: dict,
+) -> Path | None:
+    """Persist final encode workflow status and close the encode session."""
+    db = EncodingDB(db_path)
+    run.outcome = dict(outcome)
+    db.update_run_outcome(run.id, run.outcome)
+    db.log_event(
+        run.session_id,
+        "encode_outcome",
+        content=json.dumps(run.outcome, indent=2, sort_keys=True),
+        tool_name="axiom-encode",
+        metadata={
+            "run_id": run.id,
+            "status": run.outcome.get("status"),
+            "final_success": run.outcome.get("final_success"),
+            "standalone_validation_success": run.outcome.get(
+                "standalone_validation_success"
+            ),
+            "apply_requested": run.outcome.get("apply_requested"),
+            "overlay_validation_success": run.outcome.get("overlay_validation_success"),
+            "apply_success": run.outcome.get("apply_success"),
+        },
+    )
+
+    repair_manifest = None
+    if run.outcome.get("final_success") is not True:
+        if run.outcome.get("standalone_validation_success") is not True:
+            repair_manifest = _write_eval_repair_manifest(result, run)
+        issue = _encode_outcome_issue(result, run.outcome)
+        if issue:
+            db.log_event(
+                run.session_id,
+                "encode_issue",
+                content=issue,
+                tool_name="validator",
+                metadata={
+                    "run_id": run.id,
+                    "status": run.outcome.get("status"),
+                    "repair_manifest": str(repair_manifest)
+                    if repair_manifest
+                    else None,
+                },
+            )
+    db.end_session(run.session_id)
+    return repair_manifest
+
+
+def _encode_outcome_issue(result, outcome: dict) -> str:
+    for key in ("apply_error", "primary_error"):
+        value = outcome.get(key)
+        if isinstance(value, str) and value:
+            return value
+    error = getattr(result, "error", None)
+    if isinstance(error, str) and error:
+        return error
+    status = outcome.get("status")
+    if isinstance(status, str) and status:
+        return status
+    return ""
 
 
 def _write_eval_repair_manifest(result, run: EncodingRun) -> Path | None:

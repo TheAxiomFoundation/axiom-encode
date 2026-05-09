@@ -39,9 +39,10 @@ reports or dashboards.
 
 `axiom-encode encode` records each completed eval-backed run in the local
 encoding DB and creates a linked SDK-style session with
-`session_id=encode-<run_id>`. The session stores concise request/result/issue
-events, token counts, model, cwd, and `axiom-encode` version so the public ops
-dashboard can show run health and session telemetry from the same encode path.
+`session_id=encode-<run_id>`. The session stores concise request/result/outcome
+events, issue events when the final workflow fails, token counts, model, cwd,
+and `axiom-encode` version so the public ops dashboard can show run health and
+session telemetry from the same encode path.
 
 When Supabase write credentials are configured, `encode` syncs both records:
 
@@ -59,7 +60,10 @@ Failed encode runs write a sibling `*.repair.json` file next to the generated
 RuleSpec candidate. That manifest includes the run ID, session ID, citation,
 trace path, generated output path, and actions for inspecting the trace,
 and rerunning the same citation. The manifest does not include a manual repair
-action; live RuleSpec changes should come from a new encode run.
+action; live RuleSpec changes should come from a new encode run. When
+`--apply` validates and applies cleanly, the final outcome is successful even
+if standalone validation failed before the generated file was checked in the
+policy-repo overlay, and no repair manifest is written.
 
 ## Applying generated RuleSpec
 

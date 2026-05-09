@@ -2355,7 +2355,8 @@ class TestCmdEncode:
         assert session is not None
         assert session.run_id == runs[0].id
         assert session.total_tokens == 150
-        assert session.event_count == 2
+        assert session.event_count == 3
+        assert runs[0].outcome["status"] == "standalone_validated"
 
     def test_encode_syncs_when_credentials_are_configured(self, tmp_path):
         args = self._make_args(tmp_path, backend="codex")
@@ -2504,6 +2505,61 @@ class TestCmdEncode:
 
         assert exc_info.value.code == 1
         mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "apply_blocked_validation"
+        assert run.outcome["final_success"] is False
+        assert run.outcome["apply_error"] == "dependent failed"
+        events = EncodingDB(args.db).get_session_events(run.session_id)
+        assert [event.event_type for event in events] == [
+            "encode_request",
+            "encode_result",
+            "encode_outcome",
+            "encode_issue",
+        ]
+
+    def test_encode_apply_records_final_success_when_overlay_apply_passes(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "regulations/example.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ),
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.iterations[0].success is False
+        assert run.outcome["standalone_validation_success"] is False
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["apply_success"] is True
+        assert run.outcome["final_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+        assert run.success is True
+        assert not output_file.with_suffix(".repair.json").exists()
+        events = EncodingDB(args.db).get_session_events(run.session_id)
+        assert [event.event_type for event in events] == [
+            "encode_request",
+            "encode_result",
+            "encode_outcome",
+        ]
 
 
 class TestGuardGenerated:

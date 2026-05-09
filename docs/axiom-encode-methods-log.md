@@ -56,6 +56,23 @@ As of 2026-04-10:
   - [test_cli.py](../tests/test_cli.py)
   - [test_encoding_db.py](../tests/test_encoding_db.py)
 
+## 2026-05-09: Encode logs distinguish raw validation from final apply outcome
+- Hypothesis:
+  - Runs that fail standalone validation but pass policy-overlay validation and `--apply` should not look failed in run telemetry. Operators still need the raw standalone result, but the public run status should reflect the final workflow outcome.
+- Effect:
+  - Local `encoding_runs` now stores `outcome_json` with standalone validation, overlay validation, apply status, final status, and applied files.
+  - Eval-backed sessions now log an `encode_outcome` event after apply/validation completes.
+  - `encode_issue` events and `*.repair.json` manifests are only emitted for final failures; a successful overlay apply suppresses the misleading repair path.
+  - Supabase `encodings.encoding_runs` gained an `outcome` JSONB column and the sync path sends it, with a fallback for deployments that have not applied the migration yet.
+- Evidence:
+  - Full local suite: `uv run pytest -q` reported `509 passed`.
+  - Lint: `uv run ruff check .` passed.
+- Primary evidence paths:
+  - [cli.py](../src/axiom_encode/cli.py)
+  - [encoding_db.py](../src/axiom_encode/harness/encoding_db.py)
+  - [supabase_sync.py](../src/axiom_encode/supabase_sync.py)
+  - [005_encoding_run_outcomes.sql](../migrations/005_encoding_run_outcomes.sql)
+
 ## Backfill: 2026-03-29 to 2026-04-10
 
 ### 2026-03-29: UK oracle bridge became a first-class harness path

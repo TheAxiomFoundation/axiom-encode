@@ -34,6 +34,7 @@ RUN_COLUMNS = (
     "review_results_json",
     "lessons",
     "axiom_encode_version",
+    "outcome_json",
 )
 
 
@@ -101,6 +102,11 @@ EventType = Literal[
     "validation_oracle_end",
     "validation_llm_start",
     "validation_llm_end",
+    # Eval-backed encode events
+    "encode_request",
+    "encode_result",
+    "encode_outcome",
+    "encode_issue",
 ]
 
 
@@ -247,6 +253,7 @@ class EncodingRun:
     agent_type: str = "encoder"
     agent_model: str = ""
     axiom_encode_version: str = ""
+    outcome: dict = field(default_factory=dict)
 
     # Session linkage
     session_id: Optional[str] = None
@@ -257,6 +264,8 @@ class EncodingRun:
 
     @property
     def success(self) -> bool:
+        if isinstance(self.outcome, dict) and "final_success" in self.outcome:
+            return bool(self.outcome["final_success"])
         return self.iterations and self.iterations[-1].success
 
     @property
@@ -327,7 +336,8 @@ class EncodingDB:
                 parent_run_id TEXT,
                 review_results_json TEXT,
                 lessons TEXT DEFAULT '',
-                axiom_encode_version TEXT DEFAULT ''
+                axiom_encode_version TEXT DEFAULT '',
+                outcome_json TEXT DEFAULT '{}'
             )
         """)
 
@@ -341,6 +351,7 @@ class EncodingDB:
             ("review_results_json", "TEXT", None),
             ("lessons", "TEXT", "''"),
             ("axiom_encode_version", "TEXT", "''"),
+            ("outcome_json", "TEXT", "'{}'"),
         ]:
             try:
                 stmt = f"ALTER TABLE encoding_runs ADD COLUMN {col} {col_type}"
@@ -511,8 +522,8 @@ class EncodingDB:
             (id, timestamp, citation, file_path, source_text, complexity_json,
              iterations_json, total_duration_ms, agent_type, agent_model,
              rulespec_content, session_id, iteration, parent_run_id,
-             review_results_json, lessons, axiom_encode_version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             review_results_json, lessons, axiom_encode_version, outcome_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 run.id,
@@ -532,6 +543,7 @@ class EncodingDB:
                 review_results_json,
                 run.lessons,
                 run.axiom_encode_version,
+                json.dumps(run.outcome or {}),
             ),
         )
 
@@ -539,6 +551,19 @@ class EncodingDB:
         conn.close()
 
         return run.id
+
+    def update_run_outcome(self, run_id: str, outcome: dict) -> None:
+        """Update final encode/apply outcome metadata for a run."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "UPDATE encoding_runs SET outcome_json = ? WHERE id = ?",
+            (json.dumps(outcome or {}, sort_keys=True), run_id),
+        )
+
+        conn.commit()
+        conn.close()
 
     def get_run(self, run_id: str) -> Optional[EncodingRun]:
         """Get a specific run by ID."""
@@ -689,6 +714,7 @@ class EncodingDB:
         review_results_json = values["review_results_json"]
         lessons = values["lessons"]
         axiom_encode_version = values["axiom_encode_version"]
+        outcome_json = values["outcome_json"]
 
         # Parse complexity
         c = json.loads(complexity_json) if complexity_json else {}
@@ -763,6 +789,7 @@ class EncodingDB:
             agent_type=agent_type or "encoder",
             agent_model=agent_model or "",
             axiom_encode_version=axiom_encode_version or "",
+            outcome=json.loads(outcome_json) if outcome_json else {},
             rulespec_content=rulespec_content or "",
             session_id=session_id,
         )

@@ -2725,15 +2725,30 @@ def test_extract_json_object_repairs_missing_terminal_object_brace():
     ]
 
 
-def test_rulespec_ci_executes_companion_test_outputs(tmp_path):
+def test_rulespec_ci_executes_companion_test_outputs(tmp_path, monkeypatch):
     if not AXIOM_RULES_BINARY.exists():
         pytest.skip("local axiom-rules binary is not built")
+
+    citation_path = "us/guidance/example/sua"
+    _write_local_corpus_provision(
+        tmp_path,
+        citation_path,
+        body="The standard utility allowance is $451.",
+    )
+    monkeypatch.setenv(
+        "AXIOM_CORPUS_ARTIFACT_ROOT",
+        str(tmp_path / "axiom-corpus" / "data" / "corpus"),
+    )
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
         """format: rulespec/v1
 module:
   summary: The standard utility allowance is $451.
+  source_verification:
+    corpus_citation_path: us/guidance/example/sua
 rules:
   - name: snap_standard_utility_allowance_value
     kind: parameter

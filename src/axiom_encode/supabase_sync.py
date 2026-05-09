@@ -99,6 +99,7 @@ def sync_run_to_supabase(
     encoder_version = getattr(run, "axiom_encode_version", "") or ""
     if not isinstance(encoder_version, str):
         encoder_version = ""
+    outcome = _run_outcome(run)
 
     data = {
         "id": run.id,
@@ -141,27 +142,51 @@ def sync_run_to_supabase(
         "synced_at": datetime.now().isoformat(),
         "data_source": data_source,
     }
+    if outcome:
+        data["outcome"] = outcome
 
     if run.review_results:
         data["scores"] = _review_results_to_scores(run.review_results)
 
     try:
-        # Upsert to handle both new and updated runs
-        result = (
-            client.schema(ENCODINGS_SCHEMA)
-            .table("encoding_runs")
-            .upsert(data)
-            .execute()
-        )
+        result = _upsert_encoding_run(client, data)
         return len(result.data) > 0
     except Exception as e:
+        if "outcome" in data:
+            fallback_data = dict(data)
+            fallback_data.pop("outcome", None)
+            try:
+                result = _upsert_encoding_run(client, fallback_data)
+                print(
+                    f"Synced run {run.id} without outcome metadata after Supabase rejected it: {e}"
+                )
+                return len(result.data) > 0
+            except Exception:
+                pass
         print(f"Error syncing run {run.id}: {e}")
         return False
 
 
+def _upsert_encoding_run(client: Client, data: dict):
+    # Upsert to handle both new and updated runs.
+    return client.schema(ENCODINGS_SCHEMA).table("encoding_runs").upsert(data).execute()
+
+
+def _run_outcome(run: "EncodingRun") -> dict:
+    outcome = getattr(run, "outcome", None)
+    if isinstance(outcome, dict):
+        return outcome
+    return {}
+
+
 def _run_has_issues(run: "EncodingRun") -> bool:
+    outcome = _run_outcome(run)
+    if outcome.get("final_success") is False:
+        return True
+    skip_iteration_issues = outcome.get("final_success") is True
+
     iterations = getattr(run, "iterations", None)
-    if isinstance(iterations, list):
+    if isinstance(iterations, list) and not skip_iteration_issues:
         if iterations and not getattr(iterations[-1], "success", False):
             return True
         for iteration in iterations:
@@ -185,9 +210,24 @@ def _run_has_issues(run: "EncodingRun") -> bool:
 
 def _run_issue_note(run: "EncodingRun") -> str | None:
     notes: list[str] = []
+    outcome = _run_outcome(run)
+    final_success = outcome.get("final_success")
+    if final_success is True:
+        if (
+            outcome.get("standalone_validation_success") is False
+            and outcome.get("apply_success") is True
+        ):
+            notes.append("Standalone validation failed; overlay apply succeeded.")
+    else:
+        status = outcome.get("status")
+        if isinstance(status, str) and status:
+            notes.append(f"status={status}")
+        apply_error = outcome.get("apply_error")
+        if isinstance(apply_error, str) and apply_error:
+            notes.append(apply_error)
 
     iterations = getattr(run, "iterations", None)
-    if isinstance(iterations, list):
+    if isinstance(iterations, list) and final_success is not True:
         for iteration in iterations:
             errors = getattr(iteration, "errors", None)
             if not isinstance(errors, list):
