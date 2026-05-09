@@ -2190,6 +2190,75 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _source_relation_preservation_issues(
+    existing_content: str,
+    generated_content: str,
+) -> list[str]:
+    """Return issues for source_relation edges dropped by generated content."""
+    existing_records = _source_relation_records(existing_content)
+    if not existing_records:
+        return []
+    generated_signatures = {
+        record["signature"] for record in _source_relation_records(generated_content)
+    }
+    issues: list[str] = []
+    for record in existing_records:
+        if record["signature"] in generated_signatures:
+            continue
+        issues.append(
+            "Generated RuleSpec dropped existing source_relation "
+            f"`{record['name']}` (`{record['relation_type']}` -> "
+            f"`{record['target']}`). Regenerate with the source_relation "
+            "preserved; do not remove provenance edges by manual edit."
+        )
+    return issues
+
+
+def _source_relation_records(content: str) -> list[dict[str, object]]:
+    try:
+        document = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return []
+    rules = document.get("rules") if isinstance(document, dict) else []
+    if not isinstance(rules, list):
+        return []
+    records: list[dict[str, object]] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source_relation = rule.get("source_relation")
+        if not isinstance(source_relation, dict):
+            continue
+        basis = source_relation.get("basis")
+        if not isinstance(basis, dict):
+            basis = {}
+        relation_type = _normalize_source_relation_field(source_relation.get("type"))
+        target = _normalize_source_relation_field(source_relation.get("target"))
+        signature = (
+            relation_type,
+            target,
+            _normalize_source_relation_field(source_relation.get("authority")),
+            _normalize_source_relation_field(source_relation.get("value")),
+            _normalize_source_relation_field(basis.get("delegation")),
+        )
+        records.append(
+            {
+                "name": _normalize_source_relation_field(rule.get("name"))
+                or "<unnamed>",
+                "relation_type": relation_type or "<missing type>",
+                "target": target or "<missing target>",
+                "signature": signature,
+            }
+        )
+    return records
+
+
+def _normalize_source_relation_field(value: object) -> str:
+    return str(value or "").strip()
+
+
 def _validate_generated_encoding_in_policy_overlay(
     result,
     *,
@@ -2207,6 +2276,19 @@ def _validate_generated_encoding_in_policy_overlay(
         )
     except RuntimeError as exc:
         return False, [str(exc)], {}
+
+    existing_output = policy_repo_path / relative_output
+    if existing_output.exists():
+        preservation_issues = _source_relation_preservation_issues(
+            existing_output.read_text(),
+            output_file.read_text(),
+        )
+        if preservation_issues:
+            return (
+                False,
+                [f"{relative_output}: {issue}" for issue in preservation_issues],
+                {},
+            )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         overlay_parent = Path(tmpdir)

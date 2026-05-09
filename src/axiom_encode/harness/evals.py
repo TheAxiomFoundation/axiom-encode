@@ -2214,6 +2214,7 @@ Import and context rules:
 - do not wrap import targets in quotes.
 - Every import path must point to a file that is actually copied into the workspace.
 - If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
+- If a copied context file for this target or a same-program sibling contains a `kind: source_relation` record, preserve the legal/provenance edge unless `./source.txt` proves it wrong; executable formula changes are not a reason to drop source graph context.
 - Do not fabricate same-instrument imports or `statutes/...#symbol` paths unless that exact `path#symbol` import target is listed.
 - do not fabricate sibling-file imports for uncopied same-instrument provisions.
 - When a copied chart or parameter file supplies values, keep `.test.yaml` inputs and expected outputs consistent with the rows visible in that imported file; do not guess contradictory expectations for those imported values.
@@ -2257,8 +2258,11 @@ Test file rules:
 - Emit 1-4 cases unless `module.status` is `deferred` or `entity_not_supported`, in which case the test file may be empty.
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
-- If a test needs an imported derived output to become true or false, set that imported file's underlying `#input.<fact>` keys. Do not put imported output names or sibling output names in this file's `input:` mapping.
+- If a test needs an imported derived output to become true or false, mirror the copied companion test `input:` pattern. Usually this means setting the imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not shortcutting by setting the imported derived output itself. Only set an imported derived key in `input:` when a copied companion test also uses that exact derived key in `input:`.
+- Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds` or `not_holds`, not `us:statutes/7/2012/j#input.snap_household_has_elderly_or_disabled_member`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
+- Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
+- Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
 - If context files import this target file or reference this target file's outputs, preserve this file's public output names unless the source text proves the old interface was legally wrong. Do not rename an exported value just because a clearer friendly name is possible.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
@@ -2364,6 +2368,8 @@ RuleSpec requirements:
 - If the source cannot be represented faithfully with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
 - For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty and do not create assertions against deferred symbols.
 - If metadata or context names an absolute canonical target that this source `sets`, `amends`, `implements`, or `restates`, add a separate `kind: source_relation` record with `source_relation.type` and `source_relation.target`. Do not put source graph edges in executable rule metadata.
+- Preserve existing or copied `kind: source_relation` records unless `./source.txt` proves the legal/provenance edge is wrong.
+- For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
 - When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
 {target_hint}
@@ -2544,6 +2550,14 @@ def _expand_context_files(
             continue
         seen.add(resolved)
         expanded.append((source_path, kind))
+        if source_path.suffix in {".yaml", ".yml"} and not source_path.name.endswith(
+            ".test.yaml"
+        ):
+            test_path = _rulespec_test_path(source_path)
+            resolved_test = test_path.resolve()
+            if test_path.exists() and resolved_test not in seen:
+                seen.add(resolved_test)
+                expanded.append((test_path, "implementation_test_context"))
 
         if not _is_under_root(source_path, policy_root):
             continue

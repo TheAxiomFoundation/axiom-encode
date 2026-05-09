@@ -44,6 +44,14 @@ Hard requirements:
 - Do not put source graph relationships in executable rule metadata. If a
   source `sets`, `amends`, `implements`, or `restates` another source, encode a
   separate `kind: source_relation` record in the same RuleSpec file.
+- If supplied context for this target or a same-program sibling contains a
+  `kind: source_relation` record, preserve that legal/provenance edge unless
+  the source text proves it wrong; executable formula changes are not a reason
+  to drop source graph context.
+- For state-set standards, allowances, thresholds, or options implementing
+  federal delegation, include `source_relation.value` pointing to the local
+  executable RuleSpec output and `source_relation.basis.delegation` when context
+  identifies the upstream delegated slot.
 - Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
 - In `.test.yaml` companions, every `input:` and `output:` key must be a
   canonical legal RuleSpec reference that resolves to an actual file and
@@ -51,15 +59,27 @@ Hard requirements:
   consumed by that file, `<jurisdiction>:<repo-path>#relation.<name>` for
   relation inputs, and `<jurisdiction>:<repo-path>#<rule_or_parameter>` for
   executable outputs or imported legal values. Never use bare friendly keys.
-- If a test needs an imported derived output to become true or false, set that
-  imported file's underlying `#input.<fact>` keys. Do not put imported output
-  names or sibling output names in this file's `input:` mapping.
+- If a test needs an imported derived output to become true or false, mirror the
+  copied companion test `input:` pattern. Usually this means setting the
+  imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not
+  shortcutting by setting the imported derived output itself. Only set an
+  imported derived key in `input:` when a copied companion test also uses that
+  exact derived key in `input:`.
+- Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
+  key. For example, use
+  `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds`
+  or `not_holds`, not
+  `us:statutes/7/2012/j#input.snap_household_has_elderly_or_disabled_member`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names
   that the imported file's formulas actually reference, or mirror the imported
   file's companion `.test.yaml` input pattern when it is supplied in context. If
   that imported output is driven by an upstream structural relation, set the
   upstream `#relation.<name>` rows used by the companion test instead of
   creating a local input under the imported file.
+- Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test
+  inputs and outputs; do not use YAML booleans for Judgment rule values.
+- Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys
+  referenced directly by formulas.
 - If context files import the target file or reference target outputs, preserve
   the target file's public output names unless the source text proves the old
   interface was legally wrong. Do not rename an exported value just because a

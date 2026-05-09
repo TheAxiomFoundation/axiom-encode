@@ -3987,6 +3987,45 @@ class TestRepoAugmentedContext:
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
+    def test_prepare_eval_workspace_copies_context_companion_tests(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root.mkdir(parents=True)
+        statute_root = repo_root / "rules-us" / "statutes" / "26" / "24"
+        statute_root.mkdir(parents=True)
+        context_file = statute_root / "b.yaml"
+        context_test = statute_root / "b.test.yaml"
+        context_file.write_text("format: rulespec/v1\nrules: []\n")
+        context_test.write_text("- name: context_case\n  period: 2026-01\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[context_file],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 24(a)",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text="(a) Allowance of credit ... $1,000.",
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
+        assert (
+            copied_sources[str(context_test)]["kind"] == "implementation_test_context"
+        )
+        copied_test = (
+            workspace.root / copied_sources[str(context_test)]["workspace_path"]
+        )
+        assert copied_test.read_text() == "- name: context_case\n  period: 2026-01\n"
+
     def test_prepare_eval_workspace_materializes_corpus_source_metadata(self, tmp_path):
         runner = parse_runner_spec("openai:gpt-5.4")
         workspace = prepare_eval_workspace(
@@ -4578,6 +4617,12 @@ class TestSourceEval:
         assert "kind: source_relation" in prompt
         assert "source_relation.type" in prompt
         assert "record that legal/provenance edge as a separate" in prompt
+        assert "Preserve existing or copied `kind: source_relation` records" in prompt
+        assert "source_relation.basis.delegation" in prompt
+        assert "mirror the copied companion test `input:` pattern" in prompt
+        assert "Never turn an imported derived rule into a fabricated" in prompt
+        assert "Use `holds` and `not_holds` for actual `dtype: Judgment`" in prompt
+        assert "Use YAML booleans `true` and `false` for local factual" in prompt
         assert (
             "us:regulation/7-cfr/273/9/d/6/iii#snap_standard_utility_allowance"
             in prompt

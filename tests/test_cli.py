@@ -24,6 +24,8 @@ from axiom_encode.cli import (
     _rewrite_gpt_runner_backend,
     _sha256_file,
     _sign_applied_encoding_manifest,
+    _source_relation_preservation_issues,
+    _validate_generated_encoding_in_policy_overlay,
     cmd_calibration,
     cmd_compile,
     cmd_encode,
@@ -2652,6 +2654,111 @@ class TestGuardGenerated:
 
 
 class TestApplyDependencyValidation:
+    def test_source_relation_preservation_rejects_dropped_existing_edge(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: sets_snap_telephone_utility_allowance
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+      authority: state
+      value: us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: snap_individual_utility_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: telephone_standard_allowance_amount
+"""
+
+        issues = _source_relation_preservation_issues(existing, generated)
+
+        assert len(issues) == 1
+        assert "dropped existing source_relation" in issues[0]
+        assert "sets_snap_telephone_utility_allowance" in issues[0]
+        assert (
+            "us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option"
+            in issues[0]
+        )
+
+    def test_source_relation_preservation_allows_preserved_edge(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: sets_snap_telephone_utility_allowance
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+      authority: state
+      value: us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: renamed_relation_record
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+      authority: state
+      value: us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+"""
+
+        assert _source_relation_preservation_issues(existing, generated) == []
+
+    def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rules-us-ny"
+        target = policy_repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
+        generated = (
+            output_root
+            / "codex-test-model"
+            / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
+        )
+        target.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: sets_snap_telephone_utility_allowance
+    kind: source_relation
+    source_relation:
+      type: sets
+      target: us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option
+      authority: state
+      value: us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance
+      basis:
+        delegation: us:regulations/7-cfr/273/9#snap_state_standard_utility_allowance_delegation
+"""
+        )
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules",
+        )
+
+        assert ok is False
+        assert supplemental == {}
+        assert len(issues) == 1
+        assert issues[0].startswith("regulations/18-nycrr/387/12/f/3/v/c.yaml: ")
+        assert "dropped existing source_relation" in issues[0]
+
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
         repo = tmp_path / "rules-us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
