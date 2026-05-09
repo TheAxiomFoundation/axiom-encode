@@ -2742,6 +2742,93 @@ def find_source_verification_issues(
     return issues
 
 
+_COST_AVAILABILITY_SOURCE_PATTERN = re.compile(
+    r"\b(available|allowed|eligible|entitled)\b.{0,180}"
+    r"\b(billed|cost|costs|expense|expenses|incur|incurs|incurred|paid|pay|pays)\b"
+    r"|"
+    r"\b(billed|cost|costs|expense|expenses|incur|incurs|incurred|paid|pay|pays)\b"
+    r".{0,180}\b(available|allowed|eligible|entitled)\b",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def find_source_condition_coverage_issues(
+    content: str,
+    *,
+    source_texts: dict[str, str] | None = None,
+) -> list[str]:
+    """Flag eligibility formulas that collapse cost availability to only exclusions."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    source_verification = _source_verification_block(payload)
+    if source_verification is None:
+        return []
+    citation_paths, source_label = _source_verification_source_fields(
+        source_verification
+    )
+    source_text = _source_verification_text(
+        citation_paths=citation_paths,
+        source_label=source_label,
+        source_texts=source_texts,
+    )
+    if not source_text or not _COST_AVAILABILITY_SOURCE_PATTERN.search(source_text):
+        return []
+
+    issues: list[str] = []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return issues
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind != "derived":
+            continue
+        name = str(rule.get("name") or "").strip()
+        normalized_name = name.lower()
+        if not any(
+            token in normalized_name
+            for token in ("eligible", "available", "allowance", "applies")
+        ):
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"judgment", "boolean", "bool"}:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            identifiers = set(_RULESPEC_IDENTIFIER.findall(formula))
+            identifiers -= _RULESPEC_FORMULA_BUILTINS
+            if not identifiers:
+                continue
+            negated = {
+                match.group(1)
+                for match in re.finditer(
+                    r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", formula
+                )
+            }
+            if identifiers and identifiers <= negated:
+                issues.append(
+                    "Source condition coverage missing: "
+                    f"`{name}` is grounded in source text that makes cost/expense availability conditional, "
+                    "but its formula only negates other predicates. Add a positive fact predicate "
+                    "for the source-stated cost, billing, payment, or incurrence condition."
+                )
+                continue
+    return issues
+
+
 def _source_verification_block(payload: dict[str, Any]) -> dict[str, Any] | None:
     module = payload.get("module")
     if isinstance(module, dict) and isinstance(module.get("source_verification"), dict):
@@ -4954,8 +5041,22 @@ class ValidatorPipeline:
         except Exception as exc:
             issues.append(f"Axiom Rules compile failed: {exc}")
 
+        issues.extend(find_ungrounded_numeric_issues(content))
+        issues.extend(find_deprecated_source_url_issues(content))
+        issues.extend(find_source_claim_reference_issues(content))
+        issues.extend(find_rulespec_proof_issues(content))
+        issues.extend(find_structured_scale_parameter_issues(content))
+        issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
+        issues.extend(find_source_verification_issues(content))
+        issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(
+            find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
+        )
+
         test_path = self._rulespec_test_path(rules_file)
-        if test_path.exists():
+        if issues:
+            pass
+        elif test_path.exists():
             try:
                 payload = yaml.safe_load(test_path.read_text())
             except (yaml.YAMLError, ValueError) as exc:
@@ -4983,17 +5084,6 @@ class ValidatorPipeline:
                     )
         elif not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
-
-        issues.extend(find_ungrounded_numeric_issues(content))
-        issues.extend(find_deprecated_source_url_issues(content))
-        issues.extend(find_source_claim_reference_issues(content))
-        issues.extend(find_rulespec_proof_issues(content))
-        issues.extend(find_structured_scale_parameter_issues(content))
-        issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
-        issues.extend(find_source_verification_issues(content))
-        issues.extend(
-            find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
-        )
 
         duration = int((time.time() - start) * 1000)
         try:

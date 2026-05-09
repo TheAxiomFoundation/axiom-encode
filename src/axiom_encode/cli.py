@@ -13,6 +13,8 @@ Self-contained -- no external plugin dependencies.
 
 import argparse
 import csv
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -61,6 +63,11 @@ from .repo_routing import find_policy_repo_root
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
 DEFAULT_GPT_RUNNER = f"codex:{DEFAULT_OPENAI_MODEL}"
 RULESPEC_SOURCE_ROOTS = {"policies", "regulations", "statutes"}
+APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
+APPLIED_ENCODING_MANIFEST_SCHEMA = "axiom-encode/applied-rulespec/v1"
+APPLIED_ENCODING_SIGNING_KEY_ENV = "AXIOM_ENCODE_APPLY_SIGNING_KEY"
+APPLIED_ENCODING_SIGNATURE_ALGORITHM = "hmac-sha256"
+APPLIED_ENCODING_SIGNATURE_KEY_ID = "axiom-encode-apply-v1"
 
 
 def _resolve_repo_checkout(name: str) -> Path:
@@ -493,6 +500,35 @@ def main():
     runs_parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     runs_parser.add_argument("--limit", type=int, default=20)
 
+    guard_generated_parser = subparsers.add_parser(
+        "guard-generated",
+        help="Reject RuleSpec changes that were not installed by axiom-encode --apply",
+    )
+    guard_generated_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository to inspect",
+    )
+    guard_generated_parser.add_argument(
+        "--base-ref",
+        default=None,
+        help="Git base ref/SHA for changed-file detection",
+    )
+    guard_generated_parser.add_argument(
+        "--head-ref",
+        default="HEAD",
+        help="Git head ref/SHA for changed-file detection",
+    )
+    guard_generated_parser.add_argument(
+        "--roots",
+        default=" ".join(sorted(RULESPEC_SOURCE_ROOTS)),
+        help="Space-separated RuleSpec roots to protect",
+    )
+    guard_generated_parser.add_argument(
+        "--json", action="store_true", help="Output guard result as JSON"
+    )
+
     # compile command
     compile_parser = subparsers.add_parser(
         "compile", help="Compile a RuleSpec YAML file with Axiom Rules"
@@ -592,6 +628,15 @@ def main():
         action="store_false",
         default=True,
         help="Do not sync the completed run to Supabase even when credentials are configured",
+    )
+    encode_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help=(
+            "After successful validation, install the generated RuleSpec and "
+            "companion test into the policy repo path. This is the non-manual "
+            "path for updating live RuleSpec files."
+        ),
     )
 
     # eval command - run deterministic model comparisons on one or more citations
@@ -985,6 +1030,8 @@ def main():
         cmd_calibration(args)
     elif args.command == "runs":
         cmd_runs(args)
+    elif args.command == "guard-generated":
+        cmd_guard_generated(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -1655,6 +1702,254 @@ def cmd_runs(args):
 
 
 # =========================================================================
+# Generated RuleSpec Guard
+# =========================================================================
+
+
+def cmd_guard_generated(args):
+    """Reject protected RuleSpec changes that lack an apply manifest."""
+    repo_path = Path(args.repo).resolve()
+    roots = tuple(str(args.roots).split())
+    issues = guard_generated_change_issues(
+        repo_path,
+        base_ref=args.base_ref,
+        head_ref=args.head_ref,
+        roots=roots,
+    )
+    payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    elif issues:
+        print("Manual RuleSpec changes are not allowed.")
+        for issue in issues:
+            print(f"- {issue}")
+    else:
+        print("All changed RuleSpec files have encoder apply manifests.")
+    sys.exit(0 if not issues else 1)
+
+
+def guard_generated_change_issues(
+    repo_path: Path,
+    *,
+    base_ref: str | None = None,
+    head_ref: str = "HEAD",
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
+    changed_files: list[str] | None = None,
+) -> list[str]:
+    """Return issues for RuleSpec changes that do not match apply manifests."""
+    repo_path = Path(repo_path)
+    changed = (
+        changed_files
+        if changed_files is not None
+        else _git_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref)
+    )
+    protected = [
+        path
+        for path in changed
+        if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
+    ]
+    if not protected:
+        return []
+
+    changed_manifests = [
+        path
+        for path in changed
+        if Path(path).parts[:2] == APPLIED_ENCODING_MANIFEST_DIR.parts
+        and path.endswith(".json")
+    ]
+    if not changed_manifests:
+        return [
+            f"{path} changed without a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
+            for path in protected
+        ]
+
+    manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
+        repo_path, changed_manifests
+    )
+    if manifest_issues:
+        return manifest_issues
+
+    issues: list[str] = []
+    for path in protected:
+        expected = manifest_entries.get(path)
+        if expected is None:
+            issues.append(
+                f"{path} changed but is not listed in a changed encoder apply manifest"
+            )
+            continue
+        current_path = repo_path / path
+        if not current_path.exists():
+            issues.append(f"{path} changed but does not exist in the working tree")
+            continue
+        current_hash = _sha256_file(current_path)
+        if current_hash != expected:
+            issues.append(
+                f"{path} content does not match the encoder apply manifest sha256"
+            )
+    return issues
+
+
+def _git_changed_files(
+    repo_path: Path, *, base_ref: str | None, head_ref: str
+) -> list[str]:
+    if base_ref:
+        diff_range = f"{base_ref}...{head_ref}"
+        command = ["git", "diff", "--name-only", "--diff-filter=ACDMRT", diff_range]
+    else:
+        command = ["git", "diff", "--name-only", "--diff-filter=ACDMRT", head_ref]
+    completed = subprocess.run(
+        command,
+        cwd=repo_path,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0 and base_ref:
+        completed = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=ACDMRT", base_ref, head_ref],
+            cwd=repo_path,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "git diff failed")
+    changed = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    if base_ref is None:
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=repo_path,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if untracked.returncode != 0:
+            raise RuntimeError(untracked.stderr.strip() or "git ls-files failed")
+        changed.extend(
+            line.strip() for line in untracked.stdout.splitlines() if line.strip()
+        )
+    return sorted(set(changed))
+
+
+def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> bool:
+    parts = path.parts
+    if len(parts) < 2:
+        return False
+    if parts[0] not in roots:
+        return False
+    return path.suffix in {".yaml", ".yml"}
+
+
+def _load_applied_encoding_manifest_entries(
+    repo_path: Path, manifest_paths: list[str]
+) -> tuple[dict[str, str], list[str]]:
+    entries: dict[str, str] = {}
+    issues: list[str] = []
+    signing_key = _applied_encoding_manifest_signing_key()
+    if not signing_key:
+        return (
+            entries,
+            [
+                f"{APPLIED_ENCODING_SIGNING_KEY_ENV} is required to verify encoder apply manifests"
+            ],
+        )
+
+    for manifest_path in manifest_paths:
+        manifest_label = Path(manifest_path).as_posix()
+        path = repo_path / manifest_path
+        if not path.exists():
+            issues.append(f"{manifest_label} does not exist in the working tree")
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            issues.append(f"{manifest_label} is not valid JSON")
+            continue
+        if payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA:
+            issues.append(f"{manifest_label} is not an encoder apply manifest")
+            continue
+        signature_issue = _applied_encoding_manifest_signature_issue(
+            payload, signing_key
+        )
+        if signature_issue:
+            issues.append(f"{manifest_label} {signature_issue}")
+            continue
+        applied_files = payload.get("applied_files")
+        if not isinstance(applied_files, list):
+            issues.append(f"{manifest_label} does not list applied files")
+            continue
+        for item in applied_files:
+            if not isinstance(item, dict):
+                continue
+            file_path = item.get("path")
+            file_hash = item.get("sha256")
+            if isinstance(file_path, str) and isinstance(file_hash, str):
+                entries[file_path] = file_hash
+    return entries, issues
+
+
+def _applied_encoding_manifest_signing_key() -> str | None:
+    key = os.getenv(APPLIED_ENCODING_SIGNING_KEY_ENV, "")
+    return key if key else None
+
+
+def _require_applied_encoding_manifest_signing_key() -> str:
+    key = _applied_encoding_manifest_signing_key()
+    if not key:
+        raise RuntimeError(
+            f"{APPLIED_ENCODING_SIGNING_KEY_ENV} is required to apply generated RuleSpec changes"
+        )
+    return key
+
+
+def _unsigned_applied_encoding_manifest_bytes(payload: dict) -> bytes:
+    unsigned_payload = dict(payload)
+    unsigned_payload.pop("signature", None)
+    return json.dumps(
+        unsigned_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode()
+
+
+def _applied_encoding_manifest_signature(payload: dict, signing_key: str) -> str:
+    return hmac.new(
+        signing_key.encode(),
+        _unsigned_applied_encoding_manifest_bytes(payload),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _sign_applied_encoding_manifest(payload: dict, signing_key: str) -> None:
+    payload["signature"] = {
+        "algorithm": APPLIED_ENCODING_SIGNATURE_ALGORITHM,
+        "key_id": APPLIED_ENCODING_SIGNATURE_KEY_ID,
+        "value": _applied_encoding_manifest_signature(payload, signing_key),
+    }
+
+
+def _applied_encoding_manifest_signature_issue(
+    payload: dict, signing_key: str
+) -> str | None:
+    signature = payload.get("signature")
+    if not isinstance(signature, dict):
+        return "is missing an encoder apply manifest signature"
+    if signature.get("algorithm") != APPLIED_ENCODING_SIGNATURE_ALGORITHM:
+        return "uses an unsupported encoder apply manifest signature algorithm"
+    if signature.get("key_id") != APPLIED_ENCODING_SIGNATURE_KEY_ID:
+        return "uses an unknown encoder apply manifest signing key"
+    expected = _applied_encoding_manifest_signature(payload, signing_key)
+    actual = signature.get("value")
+    if not isinstance(actual, str) or not hmac.compare_digest(actual, expected):
+        return "has an invalid encoder apply manifest signature"
+    return None
+
+
+# =========================================================================
 # Encode Command
 # =========================================================================
 
@@ -1719,6 +2014,33 @@ def cmd_encode(args):
     repair_manifest = _eval_repair_manifest_path(result)
     if repair_manifest and repair_manifest.exists():
         print(f"  repair_manifest={repair_manifest}")
+    apply_passed = False
+    if getattr(args, "apply", False) is True:
+        can_apply, apply_issues, supplemental_files = (
+            _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=args.output,
+                policy_repo_path=policy_repo_path,
+                axiom_rules_path=axiom_rules_path,
+            )
+        )
+        if not can_apply:
+            detail = apply_issues[0] if apply_issues else "generation_failed"
+            print(f"  apply=blocked_validation:{detail}")
+        if can_apply:
+            try:
+                applied = _apply_generated_encoding_result(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    run_id=logged_run.id,
+                    supplemental_files=supplemental_files,
+                )
+            except RuntimeError as exc:
+                print(f"  apply=blocked_manifest:{exc}")
+            else:
+                print("  apply=" + ",".join(str(path) for path in applied))
+                apply_passed = True
     if getattr(args, "sync", True) is True:
         sync_result = _sync_run_to_supabase_if_configured(logged_run, db_path=db_path)
         if not sync_result["configured"]:
@@ -1730,7 +2052,359 @@ def cmd_encode(args):
         else:
             print("  supabase_sync=failed")
 
+    if getattr(args, "apply", False) is True:
+        sys.exit(0 if apply_passed else 1)
     sys.exit(0 if result.success else 1)
+
+
+def _relative_generated_output_path(
+    result,
+    *,
+    output_root: Path,
+) -> Path:
+    output_file = Path(str(getattr(result, "output_file", "") or ""))
+    runner = str(getattr(result, "runner", "") or "")
+    if not output_file.exists():
+        raise RuntimeError(f"Generated output file not found: {output_file}")
+    generated_root = Path(output_root) / runner
+    try:
+        relative_output = output_file.resolve().relative_to(generated_root.resolve())
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Generated output {output_file} is not under {generated_root}"
+        ) from exc
+    return relative_output
+
+
+def _apply_generated_encoding_result(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    run_id: str | None = None,
+    supplemental_files: dict[Path, str] | None = None,
+) -> list[Path]:
+    """Install a successful generated encoding into the target policy repo."""
+    output_file = Path(str(getattr(result, "output_file", "") or ""))
+    relative_output = _relative_generated_output_path(result, output_root=output_root)
+    signing_key = _require_applied_encoding_manifest_signing_key()
+
+    applied: list[Path] = []
+    for source in (output_file, _rulespec_test_path(output_file)):
+        if not source.exists():
+            continue
+        relative_source = (
+            relative_output
+            if source == output_file
+            else _rulespec_test_path(relative_output)
+        )
+        target = policy_repo_path / relative_source
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        applied.append(target)
+    for relative_path, content in (supplemental_files or {}).items():
+        target = policy_repo_path / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        applied.append(target)
+    if applied:
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=Path(output_root),
+            policy_repo_path=Path(policy_repo_path),
+            relative_output=relative_output,
+            applied_files=applied,
+            run_id=run_id,
+            signing_key=signing_key,
+        )
+        applied.append(manifest_path)
+    return applied
+
+
+def _write_applied_encoding_manifest(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    applied_files: list[Path],
+    signing_key: str,
+    run_id: str | None = None,
+) -> Path:
+    """Record that live RuleSpec files were installed by the encoder."""
+    manifest_path = policy_repo_path / _applied_encoding_manifest_path(relative_output)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    context_manifest_raw = str(getattr(result, "context_manifest_file", "") or "")
+    trace_file_raw = str(getattr(result, "trace_file", "") or "")
+    output_file_raw = str(getattr(result, "output_file", "") or "")
+    context_manifest = Path(context_manifest_raw) if context_manifest_raw else None
+    trace_file = Path(trace_file_raw) if trace_file_raw else None
+    output_file = Path(output_file_raw) if output_file_raw else None
+    payload = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tool": "axiom-encode encode --apply",
+        "axiom_encode_version": __version__,
+        "run_id": run_id,
+        "citation": str(getattr(result, "citation", "") or ""),
+        "runner": str(getattr(result, "runner", "") or ""),
+        "backend": str(getattr(result, "backend", "") or ""),
+        "model": str(getattr(result, "model", "") or ""),
+        "generated_output_root": str(output_root),
+        "generated_output_file": str(output_file) if output_file is not None else None,
+        "generated_output_sha256": _sha256_file(output_file)
+        if output_file is not None and output_file.is_file()
+        else None,
+        "trace_file": str(trace_file) if trace_file is not None else None,
+        "trace_sha256": _sha256_file(trace_file)
+        if trace_file is not None and trace_file.is_file()
+        else None,
+        "context_manifest_file": str(context_manifest)
+        if context_manifest is not None
+        else None,
+        "context_manifest_sha256": _sha256_file(context_manifest)
+        if context_manifest is not None and context_manifest.is_file()
+        else None,
+        "applied_files": [
+            {
+                "path": path.relative_to(policy_repo_path).as_posix(),
+                "sha256": _sha256_file(path),
+            }
+            for path in applied_files
+        ],
+    }
+    _sign_applied_encoding_manifest(payload, signing_key)
+    manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return manifest_path
+
+
+def _applied_encoding_manifest_path(relative_output: Path) -> Path:
+    return (APPLIED_ENCODING_MANIFEST_DIR / relative_output).with_suffix(".json")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_generated_encoding_in_policy_overlay(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+) -> tuple[bool, list[str], dict[Path, str]]:
+    """Validate generated artifacts in a temporary policy-repo overlay."""
+    output_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not output_file.exists():
+        return False, [f"Generated output file not found: {output_file}"], {}
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError as exc:
+        return False, [str(exc)], {}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        overlay_parent = Path(tmpdir)
+        for sibling in policy_repo_path.parent.glob("rules-*"):
+            if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
+                continue
+            sibling_target = overlay_parent / sibling.name
+            try:
+                sibling_target.symlink_to(sibling.resolve(), target_is_directory=True)
+            except OSError:
+                shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
+
+        overlay_repo = overlay_parent / policy_repo_path.name
+        shutil.copytree(policy_repo_path, overlay_repo)
+        overlay_target = overlay_repo / relative_output
+        overlay_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(output_file, overlay_target)
+        output_test = _rulespec_test_path(output_file)
+        if output_test.exists():
+            shutil.copy2(output_test, _rulespec_test_path(overlay_target))
+
+        pipeline = ValidatorPipeline(
+            policy_repo_path=overlay_repo,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+        )
+        dependents = _find_rulespec_dependents(overlay_repo, relative_output)
+        validations = _validate_overlay_files(
+            pipeline, overlay_target=overlay_target, dependents=dependents
+        )
+        supplemental_files: dict[Path, str] = {}
+        if not all(validation.all_passed for _, validation in validations):
+            changed_tests = _complete_missing_dependent_test_inputs(
+                overlay_repo=overlay_repo,
+                relative_output=relative_output,
+                validations=validations,
+            )
+            if changed_tests:
+                validations = _validate_overlay_files(
+                    pipeline, overlay_target=overlay_target, dependents=dependents
+                )
+                supplemental_files = {
+                    path.relative_to(overlay_repo): path.read_text()
+                    for path in changed_tests
+                }
+        if all(validation.all_passed for _, validation in validations):
+            return True, [], supplemental_files
+        issues: list[str] = []
+        for validated_file, validation in validations:
+            for validator_result in validation.results.values():
+                if validator_result.error:
+                    relative_file = validated_file.relative_to(overlay_repo)
+                    issues.append(
+                        f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
+                    )
+        return False, issues, {}
+
+
+def _validate_overlay_files(
+    pipeline: ValidatorPipeline, *, overlay_target: Path, dependents: list[Path]
+) -> list[tuple[Path, object]]:
+    validations = [(overlay_target, pipeline.validate(overlay_target, skip_reviewers=True))]
+    if validations[0][1].all_passed:
+        for dependent in dependents:
+            validations.append((dependent, pipeline.validate(dependent, skip_reviewers=True)))
+    return validations
+
+
+_MISSING_INPUT_RE = re.compile(
+    r"Test case `(?P<case>[^`]+)` execution failed: missing input `(?P<input>[^`]+)`"
+)
+
+
+def _complete_missing_dependent_test_inputs(
+    *,
+    overlay_repo: Path,
+    relative_output: Path,
+    validations: list[tuple[Path, object]],
+) -> list[Path]:
+    """Fill missing generated target inputs as false in dependent tests."""
+    target_ref = (
+        f"{_repo_jurisdiction_prefix(overlay_repo)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    changed: list[Path] = []
+    for validated_file, validation in validations:
+        if validated_file == overlay_repo / relative_output:
+            continue
+        test_path = _rulespec_test_path(validated_file)
+        if not test_path.exists():
+            continue
+        missing_inputs: set[str] = set()
+        for validator_result in validation.results.values():
+            error = validator_result.error or ""
+            for match in _MISSING_INPUT_RE.finditer(error):
+                missing_inputs.add(match.group("input"))
+        if not missing_inputs:
+            continue
+        content = test_path.read_text()
+        updated = content
+        for input_name in sorted(missing_inputs):
+            input_ref = f"{target_ref}#input.{input_name}"
+            if input_ref in updated:
+                continue
+            updated = _insert_false_input_default(updated, input_ref)
+        if updated != content:
+            test_path.write_text(updated)
+            changed.append(test_path)
+    return changed
+
+
+def _insert_false_input_default(content: str, input_ref: str) -> str:
+    """Insert an input default into the first anchored test input block."""
+    lines = content.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        match = re.match(r"^(?P<indent>\s*)input:\s*&\S+\s*(?:#.*)?$", line)
+        if not match:
+            continue
+        indent = match.group("indent") + "  "
+        newline = "\n" if line.endswith("\n") else ""
+        lines.insert(index + 1, f"{indent}{input_ref}: false{newline}")
+        return "".join(lines)
+
+    for index, line in enumerate(lines):
+        match = re.match(r"^(?P<indent>\s*)input:\s*(?:#.*)?$", line)
+        if not match:
+            continue
+        indent = match.group("indent") + "  "
+        newline = "\n" if line.endswith("\n") else ""
+        lines.insert(index + 1, f"{indent}{input_ref}: false{newline}")
+        return "".join(lines)
+
+    return content
+
+
+def _rulespec_test_path(path: Path) -> Path:
+    """Return the companion RuleSpec test path."""
+    return path.with_name(f"{path.stem}.test.yaml")
+
+
+def _find_rulespec_dependents(policy_repo_path: Path, relative_output: Path) -> list[Path]:
+    """Find RuleSpec files that directly import the generated output."""
+    target = _relative_rulespec_import_target(relative_output)
+    jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)
+    dependents: list[Path] = []
+    for root in sorted(RULESPEC_SOURCE_ROOTS):
+        root_path = policy_repo_path / root
+        if not root_path.exists():
+            continue
+        for candidate in sorted(root_path.rglob("*.yaml")):
+            if candidate.name.endswith(".test.yaml"):
+                continue
+            try:
+                relative_candidate = candidate.relative_to(policy_repo_path)
+            except ValueError:
+                continue
+            if relative_candidate == relative_output:
+                continue
+            if _rulespec_file_imports_target(
+                candidate, target=target, jurisdiction=jurisdiction
+            ):
+                dependents.append(candidate)
+    return dependents
+
+
+def _relative_rulespec_import_target(relative_output: Path) -> str:
+    return relative_output.with_suffix("").as_posix()
+
+
+def _repo_jurisdiction_prefix(policy_repo_path: Path) -> str:
+    name = policy_repo_path.name
+    if name == "rules-us":
+        return "us"
+    if name.startswith("rules-"):
+        return name.removeprefix("rules-")
+    return name
+
+
+def _rulespec_file_imports_target(
+    path: Path, *, target: str, jurisdiction: str
+) -> bool:
+    try:
+        payload = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return False
+    canonical = f"{jurisdiction}:{target}"
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        import_target = raw_import.split("#", 1)[0].strip().strip("/")
+        if import_target == target or import_target == canonical:
+            return True
+    return False
 
 
 def _log_eval_result(result, *, db_path: Path) -> EncodingRun:
@@ -1888,11 +2562,6 @@ def _write_eval_repair_manifest(result, run: EncodingRun) -> Path | None:
                     "id": "inspect_trace",
                     "label": "Inspect the model trace and validation output",
                     "path": str(getattr(result, "trace_file", "") or ""),
-                },
-                {
-                    "id": "repair_rulespec",
-                    "label": "Repair the generated RuleSpec candidate",
-                    "path": str(getattr(result, "output_file", "") or ""),
                 },
                 {
                     "id": "rerun_encode",

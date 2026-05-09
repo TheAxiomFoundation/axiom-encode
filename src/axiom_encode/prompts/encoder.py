@@ -28,8 +28,15 @@ Hard requirements:
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
 - Use `kind: derived` for entity-scoped outputs.
+- Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility,
+  availability, applicability, entitlement, and other holds/not-holds style
+  outputs, especially when the formula contains `not`.
 - Use `kind: data_relation` for executable runtime predicates such as
   `member_of_household`. Put arity under `data_relation.arity`.
+- Do not encode simple unary factual inputs as `kind: data_relation` rules. If
+  a formula needs a local true/false fact, reference a descriptive bare fact
+  name in the formula and put that fact in tests as
+  `<jurisdiction>:<repo-path>#input.<fact>`.
 - Use `kind: source_relation` for non-executable legal/provenance edges such as
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and
@@ -44,10 +51,54 @@ Hard requirements:
   consumed by that file, `<jurisdiction>:<repo-path>#relation.<name>` for
   relation inputs, and `<jurisdiction>:<repo-path>#<rule_or_parameter>` for
   executable outputs or imported legal values. Never use bare friendly keys.
+- If a test needs an imported derived output to become true or false, set that
+  imported file's underlying `#input.<fact>` keys. Do not put imported output
+  names or sibling output names in this file's `input:` mapping.
+- Do not invent `#input` keys for imported files. Use only the bare fact names
+  that the imported file's formulas actually reference, or mirror the imported
+  file's companion `.test.yaml` input pattern when it is supplied in context. If
+  that imported output is driven by an upstream structural relation, set the
+  upstream `#relation.<name>` rows used by the companion test instead of
+  creating a local input under the imported file.
+- If context files import the target file or reference target outputs, preserve
+  the target file's public output names unless the source text proves the old
+  interface was legally wrong. Do not rename an exported value just because a
+  clearer friendly name is possible.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
+- When source text uses amendment markup like `[old] new`, treat the bracketed
+  value as superseded text. Encode the current unbracketed value/effective date
+  unless the task explicitly asks for historical text.
+- If a source makes an allowance, deduction, exemption, or eligibility branch
+  conditional on billed, paid, incurred, anticipated, or other cost/expense
+  facts, encode a positive fact predicate for that source-stated condition.
+  Do not model availability solely as `not` other categories. If the condition
+  lives in a parent paragraph needed to understand a child paragraph, include
+  the parent corpus path in `module.source_verification.corpus_citation_paths`.
+- When the cost/expense fact only matters after exclusion predicates, exported
+  amount/quantity formulas consumed by dependent modules must guard the
+  exclusions before referencing the branch-specific fact, so excluded cases do
+  not require that fact as an input. For example, the amount should use
+  `if other_allowance_eligible: 0 else: if household_has_telephone_cost: amount else: 0`
+  rather than `if telephone_eligible: amount else: 0` when `telephone_eligible`
+  itself references the branch-specific telephone-cost input.
+- Phrases like `consists of the cost for X` or `available to households with X
+  costs` require a positive fact for that cost/service. For example, a telephone
+  allowance must depend on a fact for the household having or incurring the
+  basic telephone-service cost before applying exclusions for other allowances.
+- In a jurisdiction-specific repo, phrases like `residing in New York State`
+  usually describe the document's scope, not a new input variable. Do not add a
+  state-residency input unless the provision itself is encoding a residency
+  eligibility test.
 - Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==`, `and`, and `or`.
+- Axiom conditionals are expression syntax, not YAML syntax. Money/scalar
+  formulas may use `if condition: value else: other`; do not use Python ternary
+  syntax. Judgment formulas should usually be boolean expressions, not `if`
+  conditionals.
+- When using negated conjuncts, write them as a multiline formula with each
+  `not <predicate>` term on its own line joined by `and`, rather than one
+  compact `not A and not B` line.
 - Formula strings reference indexed parameter tables with `table_name[index_expr]`.
 - Every substantive numeric literal must be grounded in the supplied source text unless it is -1, 0, 1, 2, or 3.
 

@@ -1893,13 +1893,20 @@ def _run_single_eval(
         extra_context_paths=extra_context_paths,
     )
 
-    relative_output = citation_to_relative_rulespec_path(citation)
+    relative_output = (
+        _source_identifier_to_relative_rulespec_path(source_unit.citation_path)
+        if _looks_like_corpus_citation_path(citation)
+        else citation_to_relative_rulespec_path(citation)
+    )
     prompt = _build_eval_prompt(
         citation,
         mode,
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
+        target_ref_prefix=_canonical_target_ref_prefix(
+            source_unit.citation_path, relative_output
+        ),
         include_tests=include_tests,
         runner_backend=runner.backend,
     )
@@ -2007,6 +2014,7 @@ def _run_single_source_eval(
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
+        target_ref_prefix=_canonical_target_ref_prefix(source_id, relative_output),
         include_tests=True,
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -2078,7 +2086,32 @@ def _run_single_source_eval(
 
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     """Map an arbitrary source identifier to a stable eval artifact path."""
+    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if len(parts) >= 3:
+        document_roots = {
+            "guidance": "guidance",
+            "policies": "policies",
+            "policy": "policies",
+            "regulation": "regulations",
+            "regulations": "regulations",
+            "statute": "statutes",
+            "statutes": "statutes",
+        }
+        root = document_roots.get(parts[1])
+        if root is not None:
+            tail = parts[2:]
+            if tail:
+                return (Path(root) / Path(*tail)).with_suffix(".yaml")
     return Path("source") / f"{_slugify(source_id)}.yaml"
+
+
+def _canonical_target_ref_prefix(source_id: str, relative_path: Path) -> str | None:
+    parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if len(parts) < 3:
+        return None
+    if relative_path.parts and relative_path.parts[0] == "source":
+        return None
+    return f"{parts[0]}:{_relative_rulespec_path_to_import_target(relative_path)}"
 
 
 def _rulespec_test_path(path: Path) -> Path:
@@ -2092,6 +2125,7 @@ def _build_rulespec_eval_prompt(
     workspace: EvalWorkspace,
     context_files: list[EvalContextFile],
     target_file_name: str,
+    target_ref_prefix: str | None,
     include_tests: bool,
     runner_backend: str,
     policyengine_rule_hint: str | None,
@@ -2199,6 +2233,12 @@ Import and context rules:
                 "`jurisdiction:path#rule` id when the artifact has a legal "
                 "pointer.\n"
             )
+        canonical_target_rule = ""
+        if target_ref_prefix:
+            canonical_target_rule = f"""
+- The canonical RuleSpec reference prefix for `{target_file_name}` is `{target_ref_prefix}`.
+- In tests for this file, use `{target_ref_prefix}#input.<fact>` for local factual inputs and `{target_ref_prefix}#<rule>` for outputs. Never use `{target_file_name}#...` keys.
+"""
         output_rules = f"""
 Return exactly this two-file bundle and nothing else:
 === FILE: {target_file_name} ===
@@ -2217,10 +2257,14 @@ Test file rules:
 - Emit 1-4 cases unless `module.status` is `deferred` or `entity_not_supported`, in which case the test file may be empty.
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
+- If a test needs an imported derived output to become true or false, set that imported file's underlying `#input.<fact>` keys. Do not put imported output names or sibling output names in this file's `input:` mapping.
+- Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
+- If context files import this target file or reference this target file's outputs, preserve this file's public output names unless the source text proves the old interface was legally wrong. Do not rename an exported value just because a clearer friendly name is possible.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
   use bare friendly keys or absolute-looking placeholders.
 - Do not add speculative future-period tests that rely on uprating or amendments not stated in `./source.txt`.
+{canonical_target_rule.rstrip()}
 {oracle_rule.rstrip()}
 """
     else:
@@ -2285,13 +2329,18 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
+- Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + '#input.<fact>' if target_ref_prefix else '<jurisdiction>:<path>#input.<fact>'}`.
+- Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
 - Do not invent new entities, periods, or dtypes.
 - Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
 - Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
+- Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility, availability, applicability, entitlement, and other holds/not-holds style outputs, especially when the formula contains `not`.
 - Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
 - Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
+- Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax. Judgment formulas should usually be boolean expressions, not `if` conditionals.
+- When using negated conjuncts, write them as a multiline formula with each `not <predicate>` term on its own line joined by `and`, rather than one compact `not A and not B` line.
 - Do not use Python inline ternaries like `x if cond else y`.
 - Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks.
 - Do not append a multiline conditional directly onto another expression, and do not use inline assignment syntax like `:=` inside formula blocks.
@@ -2302,6 +2351,12 @@ RuleSpec requirements:
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
 - If the same numeric value appears twice in materially different legal roles, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - If `./source.txt` says someone is "aged 18 or over", "under 25", or similar, model the legal age predicate instead of inventing documentary age constants.
+- When source text uses amendment markup like `[old] new`, treat the bracketed value as superseded text. Encode the current unbracketed value/effective date unless the task explicitly asks for historical text.
+- If `./source.txt` makes an allowance, deduction, exemption, or eligibility branch conditional on billed, paid, incurred, anticipated, or other cost/expense facts, encode a positive fact predicate for that source-stated condition. Do not model availability solely as `not` other categories.
+- When the cost/expense fact only matters after exclusion predicates, exported amount/quantity formulas consumed by dependent modules must guard the exclusions before referencing the branch-specific fact, so excluded cases do not require that fact as an input. For example, the amount should use `if other_allowance_eligible: 0 else: if household_has_telephone_cost: amount else: 0` rather than `if telephone_eligible: amount else: 0` when `telephone_eligible` itself references the branch-specific telephone-cost input.
+- Phrases like `consists of the cost for X` or `available to households with X costs` require a positive fact for that cost/service. For example, a telephone allowance must depend on a fact for the household having or incurring the basic telephone-service cost before applying exclusions for other allowances.
+- In a jurisdiction-specific repo, phrases like `residing in New York State` usually describe the document's scope, not a new input variable. Do not add a state-residency input unless the provision itself is encoding a residency eligibility test.
+- If an encoded child paragraph depends on an operative parent condition, include the parent condition in `module.summary` and include both child and parent corpus paths under `module.source_verification.corpus_citation_paths` when those corpus paths are available.
 - Do not create scalar variables for citation numbers, paragraph numbers, branch numbers, or source line labels.
 - Do not invent `dtype: String` variables just to restate the effective date.
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
@@ -2366,6 +2421,7 @@ def _build_eval_prompt(
     workspace: EvalWorkspace,
     context_files: list[EvalContextFile],
     target_file_name: str,
+    target_ref_prefix: str | None = None,
     include_tests: bool = False,
     runner_backend: str = "codex",
     policyengine_rule_hint: str | None = None,
@@ -2377,6 +2433,7 @@ def _build_eval_prompt(
         workspace=workspace,
         context_files=context_files,
         target_file_name=target_file_name,
+        target_ref_prefix=target_ref_prefix,
         include_tests=include_tests,
         runner_backend=runner_backend,
         policyengine_rule_hint=policyengine_rule_hint,

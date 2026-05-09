@@ -58,7 +58,29 @@ single local session sync.
 Failed encode runs write a sibling `*.repair.json` file next to the generated
 RuleSpec candidate. That manifest includes the run ID, session ID, citation,
 trace path, generated output path, and actions for inspecting the trace,
-repairing the RuleSpec candidate, and rerunning the same citation.
+and rerunning the same citation. The manifest does not include a manual repair
+action; live RuleSpec changes should come from a new encode run.
+
+## Applying generated RuleSpec
+
+Live jurisdiction RuleSpec must be installed with `axiom-encode encode --apply`,
+not by editing YAML in place. `--apply` validates the generated main file,
+companion test, and direct dependent RuleSpec modules inside a temporary
+policy-repo overlay, copies the validated files into the target rules repo, and
+writes a signed JSON apply manifest under `.axiom/encoding-manifests/`.
+Set `AXIOM_ENCODE_APPLY_SIGNING_KEY` when running `--apply`; without it the
+encoder refuses to install generated RuleSpec into a live repo.
+
+Repository CI should run:
+
+```bash
+axiom-encode guard-generated --repo "$GITHUB_WORKSPACE" --base-ref "$BASE_REF" --head-ref "$GITHUB_SHA"
+```
+
+That guard rejects changed RuleSpec YAML under `statutes/`, `regulations/`, or
+`policies/` unless the changed files match an encoder apply manifest in the
+same diff and that manifest has a valid `AXIOM_ENCODE_APPLY_SIGNING_KEY`
+signature.
 
 ## Eval suites and readiness gates
 

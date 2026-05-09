@@ -15,8 +15,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from axiom_encode.cli import (
+    APPLIED_ENCODING_MANIFEST_SCHEMA,
+    APPLIED_ENCODING_SIGNING_KEY_ENV,
+    _apply_generated_encoding_result,
     _effective_runner_specs,
+    _find_rulespec_dependents,
+    _insert_false_input_default,
     _rewrite_gpt_runner_backend,
+    _sha256_file,
+    _sign_applied_encoding_manifest,
     cmd_calibration,
     cmd_compile,
     cmd_encode,
@@ -24,6 +31,7 @@ from axiom_encode.cli import (
     cmd_eval_suite_archive,
     cmd_eval_suite_report,
     cmd_eval_suite_revalidate,
+    cmd_guard_generated,
     cmd_inventory,
     cmd_log,
     cmd_log_event,
@@ -40,6 +48,7 @@ from axiom_encode.cli import (
     cmd_sync_transcripts,
     cmd_transcript_stats,
     cmd_validate,
+    guard_generated_change_issues,
     main,
 )
 from axiom_encode.harness.encoding_db import (
@@ -52,6 +61,14 @@ from axiom_encode.harness.encoding_db import (
 )
 from axiom_encode.harness.evals import EvalArtifactMetrics
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
+
+TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
+
+
+def _signed_manifest_payload(payload: dict) -> dict:
+    _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_KEY)
+    return payload
+
 
 # =========================================================================
 # Test main() dispatch
@@ -2374,6 +2391,312 @@ class TestCmdEncode:
             session_id=synced_run.session_id,
             db_path=args.db,
         )
+
+    def test_apply_generated_encoding_writes_manifest(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rules-us-ny"
+        generated = (
+            output_root
+            / "codex-test-model"
+            / "regulations"
+            / "18-nycrr"
+            / "387"
+            / "12"
+            / "f"
+            / "3"
+            / "v"
+            / "c.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("c.test.yaml").write_text("[]\n")
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        Path(result.context_manifest_file).write_text("{}\n")
+        Path(result.trace_file).write_text("{}\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                run_id="run-123",
+            )
+
+        target = policy_repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
+        target_test = policy_repo / "regulations/18-nycrr/387/12/f/3/v/c.test.yaml"
+        manifest = (
+            policy_repo
+            / ".axiom/encoding-manifests/regulations/18-nycrr/387/12/f/3/v/c.json"
+        )
+        assert applied == [target, target_test, manifest]
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["tool"] == "axiom-encode encode --apply"
+        assert payload["run_id"] == "run-123"
+        assert payload["signature"]["algorithm"] == "hmac-sha256"
+        assert payload["applied_files"] == [
+            {"path": "regulations/18-nycrr/387/12/f/3/v/c.yaml", "sha256": _sha256_file(target)},
+            {"path": "regulations/18-nycrr/387/12/f/3/v/c.test.yaml", "sha256": _sha256_file(target_test)},
+        ]
+
+    def test_apply_generated_encoding_requires_signing_key(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rules-us-ny"
+        generated = (
+            output_root
+            / "codex-test-model"
+            / "regulations"
+            / "18-nycrr"
+            / "387"
+            / "12"
+            / "f"
+            / "3"
+            / "v"
+            / "c.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+
+    def test_encode_apply_exits_nonzero_when_overlay_validation_blocks(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex")
+        args.apply = True
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(False, ["dependent failed"], {}),
+            ),
+            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        mock_apply.assert_not_called()
+
+
+class TestGuardGenerated:
+    def test_rejects_rulespec_change_without_encoder_manifest(self, tmp_path):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            changed_files=["regulations/example.yaml"],
+        )
+
+        assert issues == [
+            "regulations/example.yaml changed without a matching .axiom/encoding-manifests manifest"
+        ]
+
+    def test_accepts_rulespec_change_with_matching_encoder_manifest(self, tmp_path):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "regulations/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/example.json",
+                ],
+            )
+
+        assert issues == []
+
+    def test_rejects_rulespec_change_with_stale_encoder_manifest(self, tmp_path):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "regulations/example.yaml",
+                        "sha256": "not-current",
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/example.json",
+                ],
+            )
+
+        assert issues == [
+            "regulations/example.yaml content does not match the encoder apply manifest sha256"
+        ]
+
+    def test_rejects_rulespec_change_with_unsigned_encoder_manifest(self, tmp_path):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "applied_files": [
+                        {
+                            "path": "regulations/example.yaml",
+                            "sha256": _sha256_file(rule),
+                        }
+                    ],
+                }
+            )
+            + "\n"
+        )
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/example.json",
+                ],
+            )
+
+        assert issues == [
+            ".axiom/encoding-manifests/regulations/example.json is missing an encoder apply manifest signature"
+        ]
+
+    def test_guard_generated_command_exits_nonzero_for_manual_change(
+        self, capsys, tmp_path
+    ):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        args = SimpleNamespace(
+            repo=tmp_path,
+            base_ref=None,
+            head_ref="HEAD",
+            roots="regulations",
+            json=False,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._git_changed_files",
+                return_value=["regulations/example.yaml"],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_guard_generated(args)
+
+        assert exc_info.value.code == 1
+        assert "Manual RuleSpec changes are not allowed." in capsys.readouterr().out
+
+
+class TestApplyDependencyValidation:
+    def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
+        repo = tmp_path / "rules-us-ny"
+        target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
+        dependent = repo / "policies/otda/snap/fy-2026-benefit-calculation.yaml"
+        unrelated = repo / "policies/otda/snap/other.yaml"
+        for path in (target, dependent, unrelated):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us-ny:regulations/18-nycrr/387/12/f/3/v/c
+rules: []
+"""
+        )
+        unrelated.write_text("format: rulespec/v1\nimports: []\nrules: []\n")
+
+        dependents = _find_rulespec_dependents(
+            repo, Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
+        )
+
+        assert dependents == [dependent]
+
+    def test_insert_false_input_default_uses_base_anchor(self):
+        content = """- name: first_case
+  period: 2026-01
+  input: &base_case
+    existing: true
+  output:
+    result: 1
+
+- name: second_case
+  period: 2026-01
+  input:
+    <<: *base_case
+  output:
+    result: 2
+"""
+
+        updated = _insert_false_input_default(
+            content,
+            "us-ny:regulations/18-nycrr/387/12/f/3/v/c#input.household_has_basic_telephone_service_cost",
+        )
+
+        assert (
+            "  input: &base_case\n"
+            "    us-ny:regulations/18-nycrr/387/12/f/3/v/c#input.household_has_basic_telephone_service_cost: false\n"
+            "    existing: true\n"
+        ) in updated
 
 
 # =========================================================================

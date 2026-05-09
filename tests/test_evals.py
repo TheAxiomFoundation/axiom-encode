@@ -28,6 +28,7 @@ from axiom_encode.harness.evals import (
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
     _run_codex_prompt_eval,
+    _source_identifier_to_relative_rulespec_path,
     _wait_for_codex_process,
     evaluate_artifact,
     load_eval_suite_manifest,
@@ -91,6 +92,12 @@ class TestParseRunnerSpec:
         assert runner.name == "openai-gpt-5.4"
         assert runner.backend == "openai"
         assert runner.model == "gpt-5.4"
+
+
+def test_source_identifier_maps_corpus_regulation_to_repo_path():
+    assert _source_identifier_to_relative_rulespec_path(
+        "us-ny/regulation/18-nycrr/387/12/f/3/v/c"
+    ) == Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
 
 
 class TestCorpusSourceResolution:

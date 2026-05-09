@@ -23,6 +23,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_named_scalar_occurrences,
     find_deprecated_source_url_issues,
     find_source_claim_reference_issues,
+    find_source_condition_coverage_issues,
     find_source_verification_issues,
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
@@ -3198,6 +3199,85 @@ rules:
                 "For taxable years beginning in 2026, the standard deduction "
                 "for unmarried individuals is $16,100."
             )
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_condition_coverage_rejects_cost_availability_as_only_exclusions():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us-ny/regulation/18-nycrr/387/12/f/3/v
+      - us-ny/regulation/18-nycrr/387/12/f/3/v/c
+rules:
+  - name: snap_telephone_allowance_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          not snap_heating_cooling_standard_allowance_eligible
+          and not snap_utilities_standard_allowance_eligible
+"""
+
+    issues = find_source_condition_coverage_issues(
+        content,
+        source_texts={
+            "us-ny/regulation/18-nycrr/387/12/f/3/v": (
+                "Standard allowances are available to households billed separately "
+                "and on a recurring basis for heating/cooling costs, other utility "
+                "costs and/or telephone costs."
+            ),
+            "us-ny/regulation/18-nycrr/387/12/f/3/v/c": (
+                "The standard allowance for telephone is $32 per month for households "
+                "that do not qualify for the heating/cooling or utilities allowances."
+            ),
+        },
+    )
+
+    assert any("Source condition coverage missing" in issue for issue in issues)
+    assert "snap_telephone_allowance_eligible" in issues[0]
+
+
+def test_source_condition_coverage_accepts_positive_cost_fact_predicate():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us-ny/regulation/18-nycrr/387/12/f/3/v
+      - us-ny/regulation/18-nycrr/387/12/f/3/v/c
+rules:
+  - name: snap_telephone_allowance_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if snap_heating_cooling_standard_allowance_eligible
+             or snap_utilities_standard_allowance_eligible:
+              false
+          else: household_billed_separately_for_telephone_service
+"""
+
+    issues = find_source_condition_coverage_issues(
+        content,
+        source_texts={
+            "us-ny/regulation/18-nycrr/387/12/f/3/v": (
+                "Standard allowances are available to households billed separately "
+                "and on a recurring basis for heating/cooling costs, other utility "
+                "costs and/or telephone costs."
+            ),
+            "us-ny/regulation/18-nycrr/387/12/f/3/v/c": (
+                "The standard allowance for telephone is $32 per month for households "
+                "that do not qualify for the heating/cooling or utilities allowances."
+            ),
         },
     )
 
