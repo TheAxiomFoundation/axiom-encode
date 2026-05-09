@@ -722,6 +722,29 @@ def test_oracle_test_extraction_aliases_legal_input_ids(tmp_path):
     assert tests[0]["inputs"]["wages"] == 100000
 
 
+def test_oracle_test_extraction_preserves_relation_list_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    tests = pipeline._extract_rulespec_tests(
+        """- name: relation_case
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output:
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds
+"""
+    )
+
+    assert tests[0]["inputs"]["us:statutes/7/2012/j#relation.member_of_household"] == [
+        {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+    ]
+
+
 def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text("format: rulespec/v1\n")
@@ -774,6 +797,34 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert mapping is not None
     assert mapping.policyengine_variable == "snap_earned_income_deduction"
     assert registry.mapping_for_legal_id("snap_earned_income_deduction") is None
+    earned_income_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2014/e/2#snap_earned_income_deduction_rate",
+        country="us",
+    )
+    assert earned_income_rate_mapping.mapping_type == "parameter_value"
+    assert (
+        earned_income_rate_mapping.policyengine_parameter
+        == "gov.usda.snap.income.deductions.earned_income"
+    )
+    maximum_allotment_mapping = registry.mapping_for_legal_id(
+        "us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment_table",
+        country="us",
+    )
+    assert maximum_allotment_mapping.mapping_type == "parameter_value"
+    assert (
+        maximum_allotment_mapping.policyengine_parameter
+        == "gov.usda.snap.max_allotment.main.CONTIGUOUS_US"
+    )
+    assert maximum_allotment_mapping.parameter_key_input == "household_size"
+    shelter_cap_mapping = registry.mapping_for_legal_id(
+        "us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_alaska",
+        country="us",
+    )
+    assert shelter_cap_mapping.parameter_keys == (
+        "AK_URBAN",
+        "AK_RURAL_1",
+        "AK_RURAL_2",
+    )
     assert (
         registry.mapping_for_legal_id(
             "us-co:regulations/10-ccr-2506-1/4.207.2#snap_initial_month_prorated_allotment",
@@ -1077,6 +1128,59 @@ def test_policyengine_oracle_compares_multi_key_parameter_value_mapping(tmp_path
     assert 'keys = ["JOINT", "SEPARATE", "SURVIVING_SPOUSE"]' in scripts[0]
 
 
+def test_policyengine_oracle_passes_through_parameter_key_input(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: one_person_max_allotment
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1
+  output:
+    us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment_table: 298
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment_table": PolicyEngineMapping(
+                legal_id="us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment_table",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.usda.snap.max_allotment.main.CONTIGUOUS_US",
+                parameter_key_input="household_size",
+                period="month",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:298\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert result.details["coverage"]["passed"] == 1
+    assert "gov.usda.snap.max_allotment.main.CONTIGUOUS_US" in scripts[0]
+    assert 'keys = ["1"]' in scripts[0]
+
+
 def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -1130,8 +1234,11 @@ def test_policyengine_snap_input_aliases_derive_upstream_legal_inputs():
     aliases = _policyengine_us_snap_input_aliases(
         {
             "snap_countable_earned_income": 1000,
+            "snap_countable_unearned_income": 200,
             "work_supplementation_earned_income": 250,
             "snap_monthly_household_income": 1200,
+            "snap_standard_deduction": 209,
+            "snap_allowable_shelter_costs": 500,
             "dependent_care_deduction": 50,
             "child_support_deduction": 25,
             "medical_deduction": 10,
@@ -1141,11 +1248,49 @@ def test_policyengine_snap_input_aliases_derive_upstream_legal_inputs():
 
     assert aliases == {
         "snap_earned_income": 750.0,
+        "snap_unearned_income": 200.0,
         "snap_gross_income": 1200.0,
+        "housing_cost": 500.0,
+        "snap_utility_allowance_type": "NONE",
         "snap_dependent_care_deduction": 50.0,
         "snap_child_support_deduction": 25.0,
         "snap_excess_medical_expense_deduction": 10.0,
         "snap_excess_shelter_expense_deduction": 100.0,
+    }
+
+
+def test_policyengine_snap_input_aliases_read_legal_rule_keys():
+    aliases = _policyengine_us_snap_input_aliases(
+        {
+            "us:regulations/7-cfr/273/10#input.snap_countable_earned_income": 1000,
+            "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income": 0,
+            "us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction": 209,
+            "us:regulations/7-cfr/273/10#input.snap_allowable_shelter_costs": 1094,
+        }
+    )
+
+    assert aliases == {
+        "snap_earned_income": 1000.0,
+        "snap_unearned_income": 0.0,
+        "snap_gross_income": 1000.0,
+        "snap_standard_deduction": 209.0,
+        "housing_cost": 1094.0,
+        "snap_utility_allowance_type": "NONE",
+    }
+
+
+def test_policyengine_snap_input_aliases_read_relation_list_member_facts():
+    aliases = _policyengine_us_snap_input_aliases(
+        {
+            "us:statutes/7/2012/j#relation.member_of_household": [
+                {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+            ],
+        }
+    )
+
+    assert aliases == {
+        "snap_household_has_elderly_or_disabled_member": True,
+        "has_usda_elderly_disabled": True,
     }
 
 
@@ -2645,6 +2790,54 @@ rules:
     household_size: 3
   output:
     max_allotment: 764
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._run_ci(rules_file).passed is True
+
+
+def test_rulespec_ci_compares_indexed_parameter_outputs(tmp_path, monkeypatch):
+    if not AXIOM_RULES_BINARY.exists():
+        pytest.skip("local axiom-rules binary is not built")
+
+    _mock_corpus_source_text(
+        monkeypatch,
+        "The official source lists $298 and $546 for household sizes 1 and 2.",
+    )
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: The maximum monthly allotments are 298 and 546.
+  source_verification:
+    corpus_citation_path: us/guidance/example/allotments
+rules:
+  - name: benefit_amount_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2025-10-01'
+        values:
+          1: 298
+          2: 546
+"""
+    )
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: second_household_member_table_value
+  period: 2026-01
+  input:
+    household_size: 2
+  output:
+    benefit_amount_table: 546
 """
     )
 

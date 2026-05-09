@@ -366,6 +366,45 @@ PE_US_VAR_ADAPTERS = (
         spm=True,
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("snap_excess_shelter_deduction",),
+        pe_var="snap_excess_shelter_expense_deduction",
+        monthly=True,
+        spm=True,
+        direct_spm_overrides=(
+            ("snap_gross_income", "snap_gross_income"),
+            ("snap_earned_income", "snap_earned_income"),
+            ("snap_standard_deduction", "snap_standard_deduction"),
+            ("snap_earned_income_deduction", "snap_earned_income_deduction"),
+            ("snap_child_support_deduction", "snap_child_support_deduction"),
+            (
+                "snap_excess_medical_expense_deduction",
+                "snap_excess_medical_expense_deduction",
+            ),
+        ),
+        derived_spm_overrides=(
+            (
+                "snap_earned_income",
+                "difference_floor_zero",
+                (
+                    "snap_earned_income_before_exclusions",
+                    "snap_child_earned_income_exclusion",
+                    "snap_other_earned_income_exclusions",
+                    "snap_work_support_public_assistance_income",
+                ),
+            ),
+        ),
+        annual_direct_spm_overrides=(
+            (
+                "snap_household_has_elderly_or_disabled_member",
+                "has_usda_elderly_disabled",
+            ),
+            ("has_usda_elderly_disabled", "has_usda_elderly_disabled"),
+        ),
+        annual_derived_spm_overrides=(
+            ("housing_cost", "monthly_to_annual", ("housing_cost",)),
+        ),
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("snap_child_support_deduction",),
         pe_var="snap_child_support_gross_income_deduction",
         monthly=True,

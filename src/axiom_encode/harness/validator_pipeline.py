@@ -890,11 +890,46 @@ def _default_snap_utility_region_for_jurisdiction(
 def _policyengine_us_snap_input_aliases(inputs: dict[str, Any]) -> dict[str, Any]:
     """Derive standard SNAP PE inputs from source-document input names."""
 
+    def input_value(key: str) -> Any | None:
+        if key in inputs:
+            return inputs[key]
+        for input_key, value in inputs.items():
+            key_text = str(input_key)
+            if (
+                key_text.endswith(f"#input.{key}")
+                or key_text.endswith(f"#{key}")
+                or key_text.endswith(f".{key}")
+            ):
+                return value
+        return None
+
+    def nested_input_values(key: str) -> list[Any]:
+        matches: list[Any] = []
+        stack = list(inputs.values())
+        while stack:
+            value = stack.pop()
+            if isinstance(value, dict):
+                for nested_key, nested_value in value.items():
+                    nested_key_text = str(nested_key)
+                    if (
+                        nested_key_text == key
+                        or nested_key_text.endswith(f"#input.{key}")
+                        or nested_key_text.endswith(f"#{key}")
+                        or nested_key_text.endswith(f".{key}")
+                    ):
+                        matches.append(nested_value)
+                    elif isinstance(nested_value, (dict, list)):
+                        stack.append(nested_value)
+            elif isinstance(value, list):
+                stack.extend(value)
+        return matches
+
     def numeric_value(key: str) -> float | None:
-        if key not in inputs:
+        value = input_value(key)
+        if value is None:
             return None
         try:
-            return float(inputs[key])
+            return float(value)
         except (TypeError, ValueError):
             return None
 
@@ -905,20 +940,53 @@ def _policyengine_us_snap_input_aliases(inputs: dict[str, Any]) -> dict[str, Any
         aliases.setdefault("snap_gross_income", earned)
 
     countable_earned = numeric_value("snap_countable_earned_income")
+    countable_unearned = numeric_value("snap_countable_unearned_income")
     work_supplementation = numeric_value("work_supplementation_earned_income")
     if countable_earned is not None:
         aliases.setdefault(
             "snap_earned_income",
             max(0.0, countable_earned - (work_supplementation or 0.0)),
         )
+    if countable_unearned is not None:
+        aliases.setdefault("snap_unearned_income", countable_unearned)
+    if countable_earned is not None or countable_unearned is not None:
+        aliases.setdefault(
+            "snap_gross_income",
+            (countable_earned or 0.0) + (countable_unearned or 0.0),
+        )
 
     monthly_household_income = numeric_value("snap_monthly_household_income")
     if monthly_household_income is not None:
         aliases.setdefault("snap_gross_income", monthly_household_income)
 
+    standard_deduction = numeric_value("snap_standard_deduction")
+    if standard_deduction is not None:
+        aliases.setdefault("snap_standard_deduction", standard_deduction)
+
+    elderly_or_disabled_member = input_value("snap_member_is_elderly_or_disabled")
+    if elderly_or_disabled_member is None:
+        nested_elderly_or_disabled = nested_input_values(
+            "snap_member_is_elderly_or_disabled"
+        )
+        if nested_elderly_or_disabled:
+            elderly_or_disabled_member = any(
+                bool(item) for item in nested_elderly_or_disabled
+            )
+    if elderly_or_disabled_member is not None:
+        aliases.setdefault(
+            "snap_household_has_elderly_or_disabled_member",
+            bool(elderly_or_disabled_member),
+        )
+        aliases.setdefault(
+            "has_usda_elderly_disabled", bool(elderly_or_disabled_member)
+        )
+
     shelter_cost = numeric_value("household_shelter_costs_incurred")
+    if shelter_cost is None:
+        shelter_cost = numeric_value("snap_allowable_shelter_costs")
     if shelter_cost is not None:
         aliases.setdefault("housing_cost", shelter_cost)
+        aliases.setdefault("snap_utility_allowance_type", "NONE")
 
     deduction_aliases = {
         "dependent_care_deduction": "snap_dependent_care_deduction",
@@ -932,13 +1000,16 @@ def _policyengine_us_snap_input_aliases(inputs: dict[str, Any]) -> dict[str, Any
             aliases.setdefault(alias_key, deduction_value)
 
     heating_or_cooling = bool(
-        inputs.get(
+        input_value(
             "household_incurred_or_anticipated_heating_or_cooling_costs_separate_from_rent_or_mortgage"
         )
     )
     if heating_or_cooling:
-        aliases.setdefault("snap_utility_allowance_type", "SUA")
-    elif any(str(key).startswith("household_pays_") for key in inputs):
+        aliases["snap_utility_allowance_type"] = "SUA"
+    elif any(
+        str(key).startswith("household_pays_") or "#input.household_pays_" in str(key)
+        for key in inputs
+    ):
         non_heating_cooling_utility_keys = (
             "household_pays_electricity_utility_cost",
             "household_pays_water_utility_cost",
@@ -947,7 +1018,7 @@ def _policyengine_us_snap_input_aliases(inputs: dict[str, Any]) -> dict[str, Any
             "household_pays_cooking_fuel_utility_cost",
         )
         non_heating_cooling_count = sum(
-            1 for key in non_heating_cooling_utility_keys if inputs.get(key)
+            1 for key in non_heating_cooling_utility_keys if input_value(key)
         )
         aliases.setdefault(
             "snap_utility_allowance_type",
@@ -4469,8 +4540,9 @@ class ValidatorPipeline:
         self,
         parameter: dict[str, Any],
         period: dict[str, Any],
+        inputs: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return the live key-0 scalar value for a compiled scalar parameter."""
+        """Return the live scalar value for a compiled scalar or table parameter."""
         period_start = date.fromisoformat(str(period["start"]))
         versions = parameter.get("versions") or []
         live_versions = [
@@ -4489,8 +4561,30 @@ class ValidatorPipeline:
         )
         values = version.get("values") or {}
         value = values.get("0", values.get(0))
+        indexed_by = parameter.get("indexed_by")
+        if indexed_by:
+            index_names = (
+                [str(indexed_by)]
+                if isinstance(indexed_by, str)
+                else [str(item) for item in indexed_by]
+            )
+            if len(index_names) != 1:
+                raise ValueError(
+                    f"parameter `{parameter.get('name')}` has unsupported "
+                    "multi-index test output"
+                )
+            input_value = self._rulespec_test_input_value(inputs or {}, index_names[0])
+            if input_value is None:
+                raise ValueError(
+                    f"parameter `{parameter.get('name')}` needs input "
+                    f"`{index_names[0]}` for indexed output"
+                )
+            value = values.get(str(input_value), values.get(input_value))
         if not isinstance(value, dict):
-            raise ValueError(f"parameter `{parameter.get('name')}` has no key 0 value")
+            raise ValueError(
+                f"parameter `{parameter.get('name')}` has no scalar value "
+                "for the requested test output"
+            )
         return value
 
     def _rulespec_decimal(self, value: Any) -> Decimal:
@@ -4788,7 +4882,9 @@ class ValidatorPipeline:
             for output_name in parameter_outputs:
                 try:
                     parameter_value = self._rulespec_compiled_parameter_value(
-                        parameter_by_key[output_name], period
+                        parameter_by_key[output_name],
+                        period,
+                        case.get("input", {}),
                     )
                 except ValueError as exc:
                     issues.append(f"Test case `{case_name}` parameter failed: {exc}")
@@ -6782,6 +6878,12 @@ print("BENCHMARK:" + json.dumps(result))
                     return float(compact)
             return value
 
+        def normalize_input_value(key: Any, value: Any) -> Any:
+            key_text = str(key)
+            if "#relation." in key_text or ".relation." in key_text:
+                return value
+            return normalize_test_value(value)
+
         def normalized_input_alias(key: Any) -> str:
             key_text = str(key)
             if "#" not in key_text:
@@ -6846,7 +6948,7 @@ print("BENCHMARK:" + json.dumps(result))
                     outputs = unwrap_entity_wrapper(outputs)
                     normalized_inputs = (
                         {
-                            key: normalize_test_value(value)
+                            key: normalize_input_value(key, value)
                             for key, value in inputs.items()
                         }
                         if isinstance(inputs, dict)
@@ -7742,10 +7844,12 @@ print(f'RESULT:{{float(value)}}')
         raw_key = str(input_value)
         if raw_key in mapping.parameter_key_map:
             return [mapping.parameter_key_map[raw_key]]
-        raise ValueError(
-            "PolicyEngine parameter mapping has no key for "
-            f"`{mapping.parameter_key_input}={raw_key}`"
-        )
+        if mapping.parameter_key_map:
+            raise ValueError(
+                "PolicyEngine parameter mapping has no key for "
+                f"`{mapping.parameter_key_input}={raw_key}`"
+            )
+        return [raw_key]
 
     @staticmethod
     def _rulespec_test_input_value(inputs: dict, name: str) -> Any:
