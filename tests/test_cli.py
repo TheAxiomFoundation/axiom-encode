@@ -2442,8 +2442,14 @@ class TestCmdEncode:
         assert payload["run_id"] == "run-123"
         assert payload["signature"]["algorithm"] == "hmac-sha256"
         assert payload["applied_files"] == [
-            {"path": "regulations/18-nycrr/387/12/f/3/v/c.yaml", "sha256": _sha256_file(target)},
-            {"path": "regulations/18-nycrr/387/12/f/3/v/c.test.yaml", "sha256": _sha256_file(target_test)},
+            {
+                "path": "regulations/18-nycrr/387/12/f/3/v/c.yaml",
+                "sha256": _sha256_file(target),
+            },
+            {
+                "path": "regulations/18-nycrr/387/12/f/3/v/c.test.yaml",
+                "sha256": _sha256_file(target_test),
+            },
         ]
 
     def test_apply_generated_encoding_requires_signing_key(self, tmp_path):
@@ -2477,9 +2483,7 @@ class TestCmdEncode:
                 policy_repo_path=policy_repo,
             )
 
-    def test_encode_apply_exits_nonzero_when_overlay_validation_blocks(
-        self, tmp_path
-    ):
+    def test_encode_apply_exits_nonzero_when_overlay_validation_blocks(self, tmp_path):
         args = self._make_args(tmp_path, backend="codex")
         args.apply = True
         result = self._make_eval_result(True)

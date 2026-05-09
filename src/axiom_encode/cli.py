@@ -2268,10 +2268,14 @@ def _validate_generated_encoding_in_policy_overlay(
 def _validate_overlay_files(
     pipeline: ValidatorPipeline, *, overlay_target: Path, dependents: list[Path]
 ) -> list[tuple[Path, object]]:
-    validations = [(overlay_target, pipeline.validate(overlay_target, skip_reviewers=True))]
+    validations = [
+        (overlay_target, pipeline.validate(overlay_target, skip_reviewers=True))
+    ]
     if validations[0][1].all_passed:
         for dependent in dependents:
-            validations.append((dependent, pipeline.validate(dependent, skip_reviewers=True)))
+            validations.append(
+                (dependent, pipeline.validate(dependent, skip_reviewers=True))
+            )
     return validations
 
 
@@ -2347,7 +2351,9 @@ def _rulespec_test_path(path: Path) -> Path:
     return path.with_name(f"{path.stem}.test.yaml")
 
 
-def _find_rulespec_dependents(policy_repo_path: Path, relative_output: Path) -> list[Path]:
+def _find_rulespec_dependents(
+    policy_repo_path: Path, relative_output: Path
+) -> list[Path]:
     """Find RuleSpec files that directly import the generated output."""
     target = _relative_rulespec_import_target(relative_output)
     jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)

@@ -2814,9 +2814,7 @@ def find_source_condition_coverage_issues(
                 continue
             negated = {
                 match.group(1)
-                for match in re.finditer(
-                    r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", formula
-                )
+                for match in re.finditer(r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", formula)
             }
             if identifiers and identifiers <= negated:
                 issues.append(
