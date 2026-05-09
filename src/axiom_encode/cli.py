@@ -2065,9 +2065,7 @@ def cmd_encode(args):
         outcome=outcome,
     )
     if apply_requested:
-        print(
-            f"  outcome={outcome['status']} final_success={outcome['final_success']}"
-        )
+        print(f"  outcome={outcome['status']} final_success={outcome['final_success']}")
     if repair_manifest and repair_manifest.exists():
         print(f"  repair_manifest={repair_manifest}")
     if getattr(args, "sync", True) is True:
