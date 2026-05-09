@@ -861,6 +861,22 @@ def test_policyengine_registry_is_legal_id_keyed():
         "snap_individual_utility_allowance"
     )
     assert phone_allowance_mapping.candidate_priority == "P4"
+    ny_phone_allowance_mapping = registry.mapping_for_legal_id(
+        "us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance",
+        country="us",
+    )
+    assert ny_phone_allowance_mapping.mapping_type == "direct_variable"
+    assert (
+        ny_phone_allowance_mapping.policyengine_variable
+        == "snap_individual_utility_allowance"
+    )
+    assert (
+        registry.mapping_for_legal_id(
+            "us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_telephone_allowance_eligible",
+            country="us",
+        ).match_type
+        == "prefix"
+    )
     regular_allotment_mapping = registry.mapping_for_legal_id(
         "us:statutes/7/2017/a#snap_regular_month_allotment",
         country="us",

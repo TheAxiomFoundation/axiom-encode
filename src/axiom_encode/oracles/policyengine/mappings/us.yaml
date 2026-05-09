@@ -484,6 +484,17 @@ mappings:
     candidate_priority: P4
     rationale: Colorado individual/telephone utility allowance is a manual-specific output; direct PolicyEngine replay returned $0 for Colorado phone-only while the Colorado source rule expects $97.
 
+  - legal_id: us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_individual_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same New York SNAP telephone standard utility allowance, with state defaults supplied by the adapter.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income
     country: us
     program: snap
@@ -1130,6 +1141,12 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Colorado SNAP composition outputs are Axiom assembly points across upstream rules unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us-ny:regulations/18-nycrr/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: New York OTDA regulation outputs are source-specific state SNAP mechanics unless an exact PolicyEngine mapping overrides this prefix.
 
   - legal_id_prefix: us:policies/usda/snap/fy-2026-cola/
     country: us
