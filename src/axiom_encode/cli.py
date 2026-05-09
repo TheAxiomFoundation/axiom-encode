@@ -439,6 +439,11 @@ def main():
         help="Exit non-zero when any executable output is unmapped",
     )
     oracle_coverage_parser.add_argument(
+        "--fail-on-untested-comparable",
+        action="store_true",
+        help="Exit non-zero when a comparable output is absent from companion tests",
+    )
+    oracle_coverage_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
     )
 
@@ -1434,9 +1439,13 @@ def cmd_oracle_coverage(args):
     report = build_policyengine_coverage_report(root, program=args.program)
 
     unmapped = int(report["status_counts"].get("unmapped", 0))
+    untested_comparable = int(report.get("untested_comparable", 0))
+    should_fail = (args.fail_on_unmapped and unmapped) or (
+        args.fail_on_untested_comparable and untested_comparable
+    )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
-        sys.exit(1 if args.fail_on_unmapped and unmapped else 0)
+        sys.exit(1 if should_fail else 0)
 
     print("PolicyEngine oracle coverage")
     print(f"Root: {report['root']}")
@@ -1444,6 +1453,7 @@ def cmd_oracle_coverage(args):
         print(f"Program: {args.program}")
     print(f"Executable outputs: {report['total_outputs']}")
     print(f"Status: {_format_counter(report['status_counts'])}")
+    print(f"Untested comparable outputs: {untested_comparable}")
     print(f"Programs: {_format_counter(report['program_counts'])}")
     print()
 
@@ -1465,7 +1475,20 @@ def cmd_oracle_coverage(args):
         if len(unmapped_items) > args.limit:
             print(f"  - ... {len(unmapped_items) - args.limit} more")
 
-    sys.exit(1 if args.fail_on_unmapped and unmapped else 0)
+    untested_items = [
+        item
+        for item in report["items"]
+        if item.get("status") == "comparable" and not item.get("tested")
+    ]
+    if untested_items:
+        print()
+        print(f"Untested comparable outputs (first {args.limit}):")
+        for item in untested_items[: args.limit]:
+            print(f"  - {item['legal_id']}")
+        if len(untested_items) > args.limit:
+            print(f"  - ... {len(untested_items) - args.limit} more")
+
+    sys.exit(1 if should_fail else 0)
 
 
 def cmd_calibration(args):

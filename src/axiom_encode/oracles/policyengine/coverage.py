@@ -30,8 +30,10 @@ class PolicyEngineCoverageItem:
     policyengine_variable: str | None = None
     policyengine_parameter: str | None = None
     rationale: str | None = None
+    tested: bool = False
+    test_output_count: int = 0
 
-    def as_dict(self) -> dict[str, str | None]:
+    def as_dict(self) -> dict[str, str | int | bool | None]:
         return {
             "legal_id": self.legal_id,
             "repo": self.repo,
@@ -44,6 +46,8 @@ class PolicyEngineCoverageItem:
             "policyengine_variable": self.policyengine_variable,
             "policyengine_parameter": self.policyengine_parameter,
             "rationale": self.rationale,
+            "tested": self.tested,
+            "test_output_count": self.test_output_count,
         }
 
 
@@ -63,6 +67,9 @@ def build_policyengine_coverage_report(
         items = [item for item in items if item.program == program]
 
     status_counts = Counter(item.status for item in items)
+    untested_comparable = [
+        item for item in items if item.status == "comparable" and not item.tested
+    ]
     program_counts = Counter(item.program for item in items)
     repo_counts: dict[str, Counter[str]] = {}
     for item in items:
@@ -73,6 +80,7 @@ def build_policyengine_coverage_report(
         "root": str(root),
         "total_outputs": len(items),
         "status_counts": dict(sorted(status_counts.items())),
+        "untested_comparable": len(untested_comparable),
         "program_counts": dict(sorted(program_counts.items())),
         "repos": [
             {
@@ -106,6 +114,7 @@ def _iter_policyengine_coverage_items(
             rules = payload.get("rules")
             if not isinstance(rules, list):
                 continue
+            test_output_counts = _rulespec_test_output_counts(rulespec_file)
             for rule in rules:
                 if not isinstance(rule, dict):
                     continue
@@ -131,6 +140,7 @@ def _iter_policyengine_coverage_items(
                         rule_name=rule_name,
                         kind=kind,
                         mapping=mapping,
+                        test_output_count=test_output_counts.get(legal_id, 0),
                     )
                 )
     return items
@@ -144,6 +154,32 @@ def _load_rulespec_payload(path: Path) -> dict[str, Any] | None:
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return None
     return payload
+
+
+def _rulespec_test_output_counts(path: Path) -> Counter[str]:
+    """Count canonical output IDs emitted by the companion `.test.yaml` file."""
+    test_path = path.with_name(path.stem + ".test.yaml")
+    if not test_path.exists():
+        return Counter()
+    try:
+        payload = yaml.safe_load(test_path.read_text(encoding="utf-8")) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return Counter()
+    if isinstance(payload, dict):
+        cases = payload.get("cases", payload.get("tests", []))
+    else:
+        cases = payload
+    output_counts: Counter[str] = Counter()
+    if not isinstance(cases, list):
+        return output_counts
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        outputs = case.get("output", case.get("expect"))
+        if not isinstance(outputs, dict):
+            continue
+        output_counts.update(str(key) for key in outputs)
+    return output_counts
 
 
 def _canonical_rulespec_legal_id(
@@ -168,6 +204,7 @@ def _coverage_item_from_mapping(
     rule_name: str,
     kind: str,
     mapping: PolicyEngineMapping | None,
+    test_output_count: int,
 ) -> PolicyEngineCoverageItem:
     if mapping is None:
         status = "unmapped"
@@ -194,6 +231,8 @@ def _coverage_item_from_mapping(
         policyengine_variable=mapping.policyengine_variable if mapping else None,
         policyengine_parameter=mapping.policyengine_parameter if mapping else None,
         rationale=mapping.rationale if mapping else None,
+        tested=test_output_count > 0,
+        test_output_count=test_output_count,
     )
 
 

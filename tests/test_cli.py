@@ -1351,6 +1351,7 @@ class TestCmdValidate:
         args.program = None
         args.limit = 25
         args.fail_on_unmapped = True
+        args.fail_on_untested_comparable = False
         args.json = True
 
         with patch(
@@ -1360,6 +1361,7 @@ class TestCmdValidate:
                 "root": str(tmp_path),
                 "total_outputs": 1,
                 "status_counts": {"unmapped": 1},
+                "untested_comparable": 0,
                 "program_counts": {"snap": 1},
                 "repos": [],
                 "items": [
@@ -1376,6 +1378,45 @@ class TestCmdValidate:
         assert exc_info.value.code == 1
         output = json.loads(capsys.readouterr().out)
         assert output["status_counts"]["unmapped"] == 1
+
+    def test_oracle_coverage_fail_on_untested_comparable_exits_nonzero(
+        self, capsys, tmp_path
+    ):
+        args = MagicMock()
+        args.root = tmp_path
+        args.oracle = "policyengine"
+        args.program = None
+        args.limit = 25
+        args.fail_on_unmapped = False
+        args.fail_on_untested_comparable = True
+        args.json = False
+
+        with patch(
+            "axiom_encode.cli.build_policyengine_coverage_report",
+            return_value={
+                "oracle": "policyengine",
+                "root": str(tmp_path),
+                "total_outputs": 1,
+                "status_counts": {"comparable": 1},
+                "untested_comparable": 1,
+                "program_counts": {"tax": 1},
+                "repos": [],
+                "items": [
+                    {
+                        "legal_id": "us:statutes/26/3101/a#oasdi_wage_tax_rate",
+                        "status": "comparable",
+                        "tested": False,
+                    }
+                ],
+            },
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_oracle_coverage(args)
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "Untested comparable outputs: 1" in output
+        assert "us:statutes/26/3101/a#oasdi_wage_tax_rate" in output
 
     def test_validate_with_oracle_taxsim_fail(self, capsys, tmp_path):
         rulespec_file = tmp_path / "test.yaml"
