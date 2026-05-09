@@ -819,6 +819,26 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "basic_standard_deduction"
     )
+    standard_deduction_single_mapping = registry.mapping_for_legal_id(
+        "us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single",
+        country="us",
+    )
+    assert standard_deduction_single_mapping.mapping_type == "parameter_value"
+    assert (
+        standard_deduction_single_mapping.policyengine_parameter
+        == "gov.irs.deductions.standard.amount"
+    )
+    assert standard_deduction_single_mapping.parameter_key == "SINGLE"
+    married_additional_mapping = registry.mapping_for_legal_id(
+        "us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_married_or_surviving_spouse",
+        country="us",
+    )
+    assert married_additional_mapping.mapping_type == "parameter_value"
+    assert married_additional_mapping.parameter_keys == (
+        "JOINT",
+        "SEPARATE",
+        "SURVIVING_SPOUSE",
+    )
     assert (
         registry.mapping_for_legal_id(
             "us:statutes/26/63/c#standard_deduction",
@@ -979,7 +999,57 @@ def test_policyengine_oracle_compares_parameter_value_mapping(tmp_path):
     assert result.details["coverage"]["comparable"] == 1
     assert result.details["coverage"]["passed"] == 1
     assert "gov.irs.payroll.medicare.additional.exclusion" in scripts[0]
-    assert 'key = "JOINT"' in scripts[0]
+    assert 'keys = ["JOINT"]' in scripts[0]
+
+
+def test_policyengine_oracle_compares_multi_key_parameter_value_mapping(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: married_additional_deduction
+  period: 2026
+  output:
+    us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_married_or_surviving_spouse: 1650
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_married_or_surviving_spouse": PolicyEngineMapping(
+                legal_id="us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_married_or_surviving_spouse",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.irs.deductions.standard.aged_or_blind.amount",
+                parameter_keys=("JOINT", "SEPARATE", "SURVIVING_SPOUSE"),
+                period="year",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:1650\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert "gov.irs.deductions.standard.aged_or_blind.amount" in scripts[0]
+    assert 'keys = ["JOINT", "SEPARATE", "SURVIVING_SPOUSE"]' in scripts[0]
 
 
 def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):

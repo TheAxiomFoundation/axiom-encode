@@ -30,6 +30,7 @@ class PolicyEngineMapping:
     policyengine_variable: str | None = None
     policyengine_parameter: str | None = None
     parameter_key: str | None = None
+    parameter_keys: tuple[str, ...] = ()
     parameter_key_input: str | None = None
     parameter_key_map: dict[str, str] = field(default_factory=dict)
     program: str | None = None
@@ -159,10 +160,15 @@ class PolicyEngineOracleRegistry:
                 issues.append(
                     f"PolicyEngine parameter mapping missing policyengine_parameter: {legal_id}"
                 )
-            if mapping.parameter_key and mapping.parameter_key_input:
+            key_selectors = [
+                bool(mapping.parameter_key),
+                bool(mapping.parameter_keys),
+                bool(mapping.parameter_key_input),
+            ]
+            if sum(key_selectors) > 1:
                 issues.append(
-                    "PolicyEngine parameter mapping cannot declare both "
-                    f"parameter_key and parameter_key_input: {legal_id}"
+                    "PolicyEngine parameter mapping must use only one of "
+                    f"parameter_key, parameter_keys, or parameter_key_input: {legal_id}"
                 )
             if mapping.parameter_key_map and not mapping.parameter_key_input:
                 issues.append(
@@ -225,6 +231,11 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
         aliases = ()
     if isinstance(aliases, str):
         aliases = (aliases,)
+    parameter_keys = payload.get("parameter_keys", ())
+    if parameter_keys is None:
+        parameter_keys = ()
+    if isinstance(parameter_keys, str):
+        parameter_keys = (parameter_keys,)
     legal_id = payload.get("legal_id", payload.get("legal_id_prefix"))
     if legal_id is None:
         raise ValueError("PolicyEngine mapping missing legal_id")
@@ -240,6 +251,7 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
             if payload.get("parameter_key") is not None
             else None
         ),
+        parameter_keys=tuple(str(key) for key in parameter_keys),
         parameter_key_input=payload.get("parameter_key_input"),
         parameter_key_map={
             str(key): str(value)

@@ -529,26 +529,46 @@ mappings:
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores filing-status-specific standard deduction amounts as parameter data rather than exposing each cell as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.amount
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS single-filer standard deduction amount, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_joint
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores filing-status-specific standard deduction amounts as parameter data rather than exposing each cell as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.amount
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS joint-filer standard deduction amount, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_separate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores filing-status-specific standard deduction amounts as parameter data rather than exposing each cell as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.amount
+    parameter_key: SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS married-filing-separately standard deduction amount, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_head_of_household
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores filing-status-specific standard deduction amounts as parameter data rather than exposing each cell as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.amount
+    parameter_key: HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS head-of-household standard deduction amount, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount
     country: us
@@ -564,38 +584,77 @@ mappings:
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_married_or_surviving_spouse
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the per-condition additional standard deduction amount as parameter data rather than exposing it as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.aged_or_blind.amount
+    parameter_keys:
+      - JOINT
+      - SEPARATE
+      - SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS additional standard deduction amount for married or surviving-spouse statuses, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_unmarried_not_surviving_spouse
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the per-condition additional standard deduction amount as parameter data rather than exposing it as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.aged_or_blind.amount
+    parameter_keys:
+      - SINGLE
+      - HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS additional standard deduction amount for unmarried non-surviving-spouse statuses, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_per_condition_amount
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the per-condition additional standard deduction amount as parameter data rather than exposing it as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.aged_or_blind.amount
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+      4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS filing-status-selected additional standard deduction amount per aged or blind condition, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#dependent_minimum
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine implements the dependent standard deduction formula without exposing this tax-year parameter as a separate variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.dependent.amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS dependent minimum standard deduction amount, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#dependent_earned_income_addition
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine implements the dependent standard deduction formula without exposing this tax-year parameter as a separate variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.dependent.additional_earned_income
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS dependent earned-income addition for standard deduction, stored in PE as parameter data.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#single_basic_standard_deduction
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the single-filer standard deduction amount as parameter data rather than exposing this cell as a separate variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.amount
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS single-filer basic standard deduction amount, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/63/c#additional_std_ded_amount
     country: us

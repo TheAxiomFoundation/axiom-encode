@@ -83,8 +83,9 @@ variable:
   policyengine_parameter: gov.irs.payroll.social_security.rate.employee
 ```
 
-Parameterized PE tables can be keyed by a fixed `parameter_key`, or by a
-RuleSpec test input through `parameter_key_input` and `parameter_key_map`:
+Parameterized PE tables can be keyed by a fixed `parameter_key`, by several
+fixed `parameter_keys` that must agree, or by a RuleSpec test input through
+`parameter_key_input` and `parameter_key_map`:
 
 ```yaml
 - legal_id: us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold
@@ -96,6 +97,19 @@ RuleSpec test input through `parameter_key_input` and `parameter_key_map`:
     1: JOINT
     2: SEPARATE
     3: HEAD_OF_HOUSEHOLD
+```
+
+Use `parameter_keys` when one legal output intentionally groups multiple PE
+table cells that should have the same value:
+
+```yaml
+- legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_married_or_surviving_spouse
+  mapping_type: parameter_value
+  policyengine_parameter: gov.irs.deductions.standard.aged_or_blind.amount
+  parameter_keys:
+    - JOINT
+    - SEPARATE
+    - SURVIVING_SPOUSE
 ```
 
 Keep these mappings in `axiom-encode`; do not put oracle parameter paths in

@@ -7646,7 +7646,12 @@ print("BENCHMARK:" + json.dumps(result))
         if mapping.policyengine_variable:
             return f"variable:{mapping.policyengine_variable}"
         if mapping.policyengine_parameter:
-            key = mapping.parameter_key or mapping.parameter_key_input or ""
+            key = (
+                mapping.parameter_key
+                or ",".join(mapping.parameter_keys)
+                or mapping.parameter_key_input
+                or ""
+            )
             return f"parameter:{mapping.policyengine_parameter}:{key}"
         return mapping.expression
 
@@ -7681,7 +7686,7 @@ print("BENCHMARK:" + json.dumps(result))
         if not mapping.policyengine_parameter:
             raise ValueError("PolicyEngine parameter mapping is missing a path")
 
-        parameter_key = self._resolve_pe_parameter_key(mapping, inputs)
+        parameter_keys = self._resolve_pe_parameter_keys(mapping, inputs)
         period = self._normalize_monthly_pe_period(
             inputs.get("period"),
             year,
@@ -7691,7 +7696,7 @@ print("BENCHMARK:" + json.dumps(result))
             period = year
 
         parameter_path = json.dumps(mapping.policyengine_parameter)
-        parameter_key_literal = json.dumps(parameter_key)
+        parameter_keys_literal = json.dumps(parameter_keys)
         period_literal = json.dumps(period)
         return f"""
 from policyengine_us import CountryTaxBenefitSystem
@@ -7705,21 +7710,26 @@ def get_parameter(root, path):
 system = CountryTaxBenefitSystem()
 params = system.parameters({period_literal})
 value = get_parameter(params, {parameter_path})
-key = {parameter_key_literal}
-if key is not None:
-    value = value[key]
+keys = {parameter_keys_literal}
+if keys:
+    values = [float(value[key]) for key in keys]
+    if any(item != values[0] for item in values):
+        raise ValueError(f'Parameter keys disagree: {{dict(zip(keys, values))}}')
+    value = values[0]
 print(f'RESULT:{{float(value)}}')
 """
 
-    def _resolve_pe_parameter_key(
+    def _resolve_pe_parameter_keys(
         self,
         mapping: PolicyEngineMapping,
         inputs: dict,
-    ) -> str | None:
+    ) -> list[str]:
         if mapping.parameter_key is not None:
-            return mapping.parameter_key
+            return [mapping.parameter_key]
+        if mapping.parameter_keys:
+            return list(mapping.parameter_keys)
         if not mapping.parameter_key_input:
-            return None
+            return []
         input_value = self._rulespec_test_input_value(
             inputs,
             mapping.parameter_key_input,
@@ -7731,7 +7741,7 @@ print(f'RESULT:{{float(value)}}')
             )
         raw_key = str(input_value)
         if raw_key in mapping.parameter_key_map:
-            return mapping.parameter_key_map[raw_key]
+            return [mapping.parameter_key_map[raw_key]]
         raise ValueError(
             "PolicyEngine parameter mapping has no key for "
             f"`{mapping.parameter_key_input}={raw_key}`"
