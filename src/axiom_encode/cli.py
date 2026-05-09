@@ -51,7 +51,10 @@ from .harness.evals import (
 )
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import ValidatorPipeline
-from .oracles.policyengine.coverage import build_policyengine_coverage_report
+from .oracles.policyengine.coverage import (
+    build_policyengine_candidate_report,
+    build_policyengine_coverage_report,
+)
 from .repo_routing import find_policy_repo_root
 
 # Default DB path - can be overridden with --db
@@ -444,6 +447,37 @@ def main():
         help="Exit non-zero when a comparable output is absent from companion tests",
     )
     oracle_coverage_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
+
+    oracle_candidates_parser = subparsers.add_parser(
+        "oracle-candidates",
+        help="Show candidate RuleSpec outputs for expanding oracle coverage",
+    )
+    oracle_candidates_parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rules-* repos",
+    )
+    oracle_candidates_parser.add_argument(
+        "--oracle",
+        choices=["policyengine"],
+        default="policyengine",
+        help="Oracle registry to inspect",
+    )
+    oracle_candidates_parser.add_argument(
+        "--program",
+        default=None,
+        help="Restrict report to a program label such as snap or tax",
+    )
+    oracle_candidates_parser.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Maximum candidates to print in text mode",
+    )
+    oracle_candidates_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
     )
 
@@ -945,6 +979,8 @@ def main():
         cmd_inventory(args)
     elif args.command == "oracle-coverage":
         cmd_oracle_coverage(args)
+    elif args.command == "oracle-candidates":
+        cmd_oracle_candidates(args)
     elif args.command == "calibration":
         cmd_calibration(args)
     elif args.command == "runs":
@@ -1489,6 +1525,52 @@ def cmd_oracle_coverage(args):
             print(f"  - ... {len(untested_items) - args.limit} more")
 
     sys.exit(1 if should_fail else 0)
+
+
+def cmd_oracle_candidates(args):
+    """Show candidate outputs for expanding oracle coverage."""
+    if args.oracle != "policyengine":
+        print(f"Unsupported oracle: {args.oracle}")
+        sys.exit(2)
+
+    root = (args.root or _default_rulespec_inventory_root()).resolve()
+    report = build_policyengine_candidate_report(root, program=args.program)
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        sys.exit(0)
+
+    print("PolicyEngine oracle candidates")
+    print(f"Root: {report['root']}")
+    if args.program:
+        print(f"Program: {args.program}")
+    print(f"Candidates: {report['total_candidates']}")
+    print(f"Categories: {_format_counter(report['category_counts'])}")
+    print(f"Priorities: {_format_counter(report['priority_counts'])}")
+    print(f"Coverage status: {_format_counter(report['coverage_status_counts'])}")
+    if not report.get("policyengine_variables_available"):
+        print("PolicyEngine variables: unavailable; exact-variable hints omitted")
+
+    items = report["items"]
+    if items:
+        print()
+        print(f"Top candidates (first {args.limit}):")
+        for item in items[: args.limit]:
+            target = item.get("policyengine_variable") or item.get(
+                "policyengine_parameter"
+            )
+            target_suffix = f" -> {target}" if target else ""
+            tested = "tested" if item.get("tested") else "untested"
+            print(
+                f"  - [{item['priority']}] {item['category']} "
+                f"{item['legal_id']}{target_suffix} ({tested})"
+            )
+            print(f"    {item['recommendation']}")
+            if item.get("rationale"):
+                print(f"    current rationale: {item['rationale']}")
+        if len(items) > args.limit:
+            print(f"  - ... {len(items) - args.limit} more")
+
+    sys.exit(0)
 
 
 def cmd_calibration(args):

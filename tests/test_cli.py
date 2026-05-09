@@ -27,6 +27,7 @@ from axiom_encode.cli import (
     cmd_inventory,
     cmd_log,
     cmd_log_event,
+    cmd_oracle_candidates,
     cmd_oracle_coverage,
     cmd_runs,
     cmd_session_end,
@@ -156,6 +157,12 @@ class TestMain:
     def test_oracle_coverage_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "oracle-coverage"]):
             with patch("axiom_encode.cli.cmd_oracle_coverage") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
+    def test_oracle_candidates_command_dispatches(self):
+        with patch("sys.argv", ["axiom_encode", "oracle-candidates"]):
+            with patch("axiom_encode.cli.cmd_oracle_candidates") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
@@ -1417,6 +1424,48 @@ class TestCmdValidate:
         output = capsys.readouterr().out
         assert "Untested comparable outputs: 1" in output
         assert "us:statutes/26/3101/a#oasdi_wage_tax_rate" in output
+
+    def test_oracle_candidates_prints_priority_queue(self, capsys, tmp_path):
+        args = MagicMock()
+        args.root = tmp_path
+        args.oracle = "policyengine"
+        args.program = "snap"
+        args.limit = 1
+        args.json = False
+
+        with patch(
+            "axiom_encode.cli.build_policyengine_candidate_report",
+            return_value={
+                "oracle": "policyengine",
+                "root": str(tmp_path),
+                "program": "snap",
+                "policyengine_variables_available": True,
+                "total_candidates": 1,
+                "category_counts": {"exact_variable_unmapped": 1},
+                "priority_counts": {"P1": 1},
+                "coverage_status_counts": {"unmapped": 1},
+                "items": [
+                    {
+                        "legal_id": "us:statutes/7/9999#snap_new_exact_variable",
+                        "category": "exact_variable_unmapped",
+                        "priority": "P1",
+                        "recommendation": "Review mapping.",
+                        "policyengine_variable": "snap_new_exact_variable",
+                        "policyengine_parameter": None,
+                        "tested": True,
+                        "rationale": None,
+                    }
+                ],
+            },
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_oracle_candidates(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "PolicyEngine oracle candidates" in output
+        assert "[P1] exact_variable_unmapped" in output
+        assert "snap_new_exact_variable" in output
 
     def test_validate_with_oracle_taxsim_fail(self, capsys, tmp_path):
         rulespec_file = tmp_path / "test.yaml"

@@ -51,6 +51,44 @@ class PolicyEngineCoverageItem:
         }
 
 
+@dataclass(frozen=True)
+class PolicyEngineCandidateItem:
+    """One actionable oracle mapping candidate or review item."""
+
+    legal_id: str
+    repo: str
+    file: str
+    rule_name: str
+    status: str
+    program: str
+    category: str
+    priority: str
+    recommendation: str
+    policyengine_variable: str | None = None
+    policyengine_parameter: str | None = None
+    rationale: str | None = None
+    tested: bool = False
+    test_output_count: int = 0
+
+    def as_dict(self) -> dict[str, str | int | bool | None]:
+        return {
+            "legal_id": self.legal_id,
+            "repo": self.repo,
+            "file": self.file,
+            "rule_name": self.rule_name,
+            "status": self.status,
+            "program": self.program,
+            "category": self.category,
+            "priority": self.priority,
+            "recommendation": self.recommendation,
+            "policyengine_variable": self.policyengine_variable,
+            "policyengine_parameter": self.policyengine_parameter,
+            "rationale": self.rationale,
+            "tested": self.tested,
+            "test_output_count": self.test_output_count,
+        }
+
+
 def build_policyengine_coverage_report(
     root: Path,
     *,
@@ -91,6 +129,49 @@ def build_policyengine_coverage_report(
             for repo, counter in sorted(repo_counts.items())
         ],
         "items": [item.as_dict() for item in items],
+    }
+
+
+def build_policyengine_candidate_report(
+    root: Path,
+    *,
+    program: str | None = None,
+    policyengine_variables: set[str] | None = None,
+) -> dict[str, Any]:
+    """Build a triage queue for expanding PolicyEngine oracle coverage."""
+    coverage_report = build_policyengine_coverage_report(root, program=program)
+    pe_variables = (
+        policyengine_variables
+        if policyengine_variables is not None
+        else _load_policyengine_variable_names()
+    )
+    raw_candidates = [
+        _candidate_from_coverage_item(
+            item,
+            policyengine_variables=pe_variables,
+        )
+        for item in coverage_report["items"]
+    ]
+    candidates = sorted(
+        (candidate for candidate in raw_candidates if candidate is not None),
+        key=lambda item: (
+            _candidate_priority_rank(item.priority),
+            item.category,
+            item.legal_id,
+        ),
+    )
+    category_counts = Counter(item.category for item in candidates)
+    priority_counts = Counter(item.priority for item in candidates)
+    return {
+        "oracle": "policyengine",
+        "root": coverage_report["root"],
+        "program": program,
+        "policyengine_variables_available": pe_variables is not None,
+        "total_candidates": len(candidates),
+        "category_counts": dict(sorted(category_counts.items())),
+        "priority_counts": dict(sorted(priority_counts.items())),
+        "coverage_status_counts": coverage_report["status_counts"],
+        "items": [item.as_dict() for item in candidates],
     }
 
 
@@ -144,6 +225,169 @@ def _iter_policyengine_coverage_items(
                     )
                 )
     return items
+
+
+def _candidate_from_coverage_item(
+    item: dict[str, Any],
+    *,
+    policyengine_variables: set[str] | None,
+) -> PolicyEngineCandidateItem | None:
+    status = str(item.get("status") or "")
+    rule_name = str(item.get("rule_name") or "")
+    legal_id = str(item.get("legal_id") or "")
+    tested = bool(item.get("tested"))
+    pe_variable = item.get("policyengine_variable")
+    pe_parameter = item.get("policyengine_parameter")
+    exact_pe_variable = bool(
+        policyengine_variables and rule_name in policyengine_variables
+    )
+    pe_looking = _is_policyengine_looking_rule_name(rule_name)
+
+    if status == "comparable" and not tested:
+        return _candidate_item(
+            item,
+            category="comparable_untested",
+            priority="P1",
+            recommendation=(
+                "Add this comparable output to the companion .test.yaml so CI "
+                "continues to exercise the oracle mapping."
+            ),
+        )
+
+    if status == "unmapped":
+        if exact_pe_variable:
+            return _candidate_item(
+                item,
+                category="exact_variable_unmapped",
+                priority="P1" if tested else "P2",
+                policyengine_variable=rule_name,
+                recommendation=(
+                    f"Review whether `{legal_id}` has the same legal boundary as "
+                    f"PolicyEngine variable `{rule_name}`; if exact, add a "
+                    "direct_variable mapping."
+                ),
+            )
+        if tested and pe_looking:
+            return _candidate_item(
+                item,
+                category="tested_unmapped_pe_like",
+                priority="P2",
+                recommendation=(
+                    "This tested output looks oracle-relevant but has no explicit "
+                    "classification. Add an exact mapping, an adapter-backed "
+                    "mapping, or a not_comparable rationale."
+                ),
+            )
+        return _candidate_item(
+            item,
+            category="unmapped",
+            priority="P3",
+            recommendation=(
+                "Classify this output explicitly before relying on full oracle "
+                "coverage gates."
+            ),
+        )
+
+    if status == "known_not_comparable":
+        if pe_variable or pe_parameter:
+            return _candidate_item(
+                item,
+                category="known_adjacent_target",
+                priority="P2" if tested else "P3",
+                recommendation=(
+                    "A nearby PolicyEngine target is recorded but currently marked "
+                    "not comparable. Revisit only if a small adapter can make the "
+                    "RuleSpec tests compare without changing the legal boundary."
+                ),
+            )
+        if exact_pe_variable:
+            return _candidate_item(
+                item,
+                category="pe_name_but_not_comparable",
+                priority="P2" if tested else "P3",
+                policyengine_variable=rule_name,
+                recommendation=(
+                    f"`{rule_name}` exists in PolicyEngine, but the registry "
+                    "currently classifies this Axiom output as not comparable. "
+                    "Review the rationale before adding an exact override."
+                ),
+            )
+        return _candidate_item(
+            item,
+            category="prefix_not_comparable",
+            priority="P4",
+            recommendation=(
+                "Covered by a broad not_comparable prefix. Leave it alone unless "
+                "this output becomes tested or a known exact oracle target."
+            ),
+        )
+
+    return None
+
+
+def _candidate_item(
+    item: dict[str, Any],
+    *,
+    category: str,
+    priority: str,
+    recommendation: str,
+    policyengine_variable: str | None = None,
+    policyengine_parameter: str | None = None,
+) -> PolicyEngineCandidateItem:
+    return PolicyEngineCandidateItem(
+        legal_id=str(item.get("legal_id") or ""),
+        repo=str(item.get("repo") or ""),
+        file=str(item.get("file") or ""),
+        rule_name=str(item.get("rule_name") or ""),
+        status=str(item.get("status") or ""),
+        program=str(item.get("program") or "unknown"),
+        category=category,
+        priority=priority,
+        recommendation=recommendation,
+        policyengine_variable=policyengine_variable
+        if policyengine_variable is not None
+        else item.get("policyengine_variable"),
+        policyengine_parameter=policyengine_parameter
+        if policyengine_parameter is not None
+        else item.get("policyengine_parameter"),
+        rationale=item.get("rationale"),
+        tested=bool(item.get("tested")),
+        test_output_count=int(item.get("test_output_count") or 0),
+    )
+
+
+def _candidate_priority_rank(priority: str) -> int:
+    return {"P1": 0, "P2": 1, "P3": 2, "P4": 3}.get(priority, 99)
+
+
+def _is_policyengine_looking_rule_name(rule_name: str) -> bool:
+    lowered = rule_name.lower()
+    return lowered.startswith(("snap_", "is_snap_", "meets_snap_")) or any(
+        token in lowered
+        for token in (
+            "tax",
+            "deduction",
+            "credit",
+            "income",
+            "allotment",
+            "eligible",
+            "eligibility",
+            "threshold",
+            "limit",
+            "rate",
+        )
+    )
+
+
+def _load_policyengine_variable_names() -> set[str] | None:
+    try:
+        from policyengine_us import CountryTaxBenefitSystem
+    except Exception:
+        return None
+    try:
+        return set(CountryTaxBenefitSystem().variables)
+    except Exception:
+        return None
 
 
 def _load_rulespec_payload(path: Path) -> dict[str, Any] | None:

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from axiom_encode.oracles.policyengine.coverage import (
+    build_policyengine_candidate_report,
     build_policyengine_coverage_report,
 )
 
@@ -204,3 +205,75 @@ rules:
     items_by_id = {item["legal_id"]: item for item in report["items"]}
     assert items_by_id["us:statutes/26/3101/a#oasdi_wage_tax_rate"]["tested"] is True
     assert items_by_id["us:statutes/26/3101/a#oasdi_wage_tax"]["tested"] is True
+
+
+def test_policyengine_candidates_prioritize_exact_unmapped_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rules-us" / "statutes/7/9999.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_new_exact_variable
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 1
+  - name: snap_other_unmapped_helper
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 1
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rules-us" / "statutes/7/9999.test.yaml",
+        """- name: base
+  output:
+    us:statutes/7/9999#snap_new_exact_variable: 1
+    us:statutes/7/9999#snap_other_unmapped_helper: 1
+""",
+    )
+
+    report = build_policyengine_candidate_report(
+        tmp_path,
+        program="snap",
+        policyengine_variables={"snap_new_exact_variable"},
+    )
+
+    assert report["category_counts"]["exact_variable_unmapped"] == 1
+    assert report["category_counts"]["tested_unmapped_pe_like"] == 1
+    first = report["items"][0]
+    assert first["legal_id"] == "us:statutes/7/9999#snap_new_exact_variable"
+    assert first["priority"] == "P1"
+    assert first["policyengine_variable"] == "snap_new_exact_variable"
+
+
+def test_policyengine_candidates_report_known_adjacent_targets(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.403.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_countable_earned_income
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: earned_income
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.403.test.yaml",
+        """- name: earned
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income: 100
+""",
+    )
+
+    report = build_policyengine_candidate_report(
+        tmp_path,
+        program="snap",
+        policyengine_variables=set(),
+    )
+
+    candidate = report["items"][0]
+    assert candidate["category"] == "known_adjacent_target"
+    assert candidate["priority"] == "P2"
+    assert candidate["policyengine_variable"] == "snap_earned_income"
