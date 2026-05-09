@@ -366,6 +366,12 @@ PE_US_VAR_ADAPTERS = (
         spm=True,
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("snap_fpg",),
+        pe_var="snap_fpg",
+        monthly=True,
+        spm=True,
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("snap_excess_shelter_deduction",),
         pe_var="snap_excess_shelter_expense_deduction",
         monthly=True,

@@ -6371,6 +6371,8 @@ Output ONLY valid JSON:
                 if result_line:
                     parts = result_line[0].split(":")
                     pe_value = float(parts[1])
+                    if mapping and mapping.result_multiplier is not None:
+                        pe_value *= mapping.result_multiplier
                     expected_float = float(expected)
                     match = self._values_match(pe_value, expected_float, tolerance=0.02)
                     if match:
@@ -7746,7 +7748,8 @@ print("BENCHMARK:" + json.dumps(result))
         if mapping is None:
             return None
         if mapping.policyengine_variable:
-            return f"variable:{mapping.policyengine_variable}"
+            multiplier = mapping.result_multiplier or 1.0
+            return f"variable:{mapping.policyengine_variable}:{multiplier}"
         if mapping.policyengine_parameter:
             key = (
                 mapping.parameter_key
@@ -7754,7 +7757,8 @@ print("BENCHMARK:" + json.dumps(result))
                 or mapping.parameter_key_input
                 or ""
             )
-            return f"parameter:{mapping.policyengine_parameter}:{key}"
+            multiplier = mapping.result_multiplier or 1.0
+            return f"parameter:{mapping.policyengine_parameter}:{key}:{multiplier}"
         return mapping.expression
 
     def _build_pe_scenario_script(

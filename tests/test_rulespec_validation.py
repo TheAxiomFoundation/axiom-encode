@@ -816,6 +816,12 @@ def test_policyengine_registry_is_legal_id_keyed():
         == "gov.usda.snap.max_allotment.main.CONTIGUOUS_US"
     )
     assert maximum_allotment_mapping.parameter_key_input == "household_size"
+    gross_income_limit_mapping = registry.mapping_for_legal_id(
+        "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc",
+        country="us",
+    )
+    assert gross_income_limit_mapping.policyengine_variable == "snap_fpg"
+    assert gross_income_limit_mapping.result_multiplier == 1.3
     shelter_cap_mapping = registry.mapping_for_legal_id(
         "us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_alaska",
         country="us",
@@ -1179,6 +1185,57 @@ def test_policyengine_oracle_passes_through_parameter_key_input(tmp_path):
     assert result.details["coverage"]["passed"] == 1
     assert "gov.usda.snap.max_allotment.main.CONTIGUOUS_US" in scripts[0]
     assert 'keys = ["1"]' in scripts[0]
+
+
+def test_policyengine_oracle_applies_result_multiplier(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: gross_income_limit
+  period: 2026-01
+  input:
+    household_size: 1
+  output:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc: 130
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc": PolicyEngineMapping(
+                legal_id="us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#snap_gross_income_limit_130_percent_fpl_48_states_dc",
+                country="us",
+                mapping_type="direct_variable",
+                policyengine_variable="snap_fpg",
+                result_multiplier=1.3,
+                period="month",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:100\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert "snap_fpg" in scripts[0]
 
 
 def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):

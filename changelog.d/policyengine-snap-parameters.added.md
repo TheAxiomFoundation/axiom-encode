@@ -1,1 +1,1 @@
-Compare USDA SNAP COLA parameter values and indexed tables against PolicyEngine.
+Compare USDA SNAP COLA parameter values, indexed tables, and income eligibility standards against PolicyEngine.

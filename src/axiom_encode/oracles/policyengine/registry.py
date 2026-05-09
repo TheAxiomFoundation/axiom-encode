@@ -39,6 +39,7 @@ class PolicyEngineMapping:
     unit: str | None = None
     comparison: str | None = None
     expression: str | None = None
+    result_multiplier: float | None = None
     rationale: str | None = None
     aliases: tuple[str, ...] = ()
 
@@ -263,6 +264,11 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
         unit=payload.get("unit"),
         comparison=payload.get("comparison"),
         expression=payload.get("expression"),
+        result_multiplier=(
+            float(payload["result_multiplier"])
+            if payload.get("result_multiplier") is not None
+            else None
+        ),
         rationale=payload.get("rationale"),
         aliases=tuple(str(alias) for alias in aliases),
     )
