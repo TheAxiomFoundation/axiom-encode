@@ -770,6 +770,8 @@ mappings:
     country: us
     program: tax
     mapping_type: not_comparable
+    policyengine_variable: self_employment_tax
+    candidate_priority: P4
     rationale: Axiom's current 1401 slice includes self-employment tax components at the section boundary; PE's self_employment_tax excludes additional_medicare_tax and applies 1402 taxable-income rules.
 
   - legal_id: us:statutes/26/3101/a#oasdi_wage_tax_rate
