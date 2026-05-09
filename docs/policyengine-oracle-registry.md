@@ -56,6 +56,11 @@ Known non-comparable legal IDs should be registry entries with
 `mapping_type: not_comparable` and a short rationale. Truly new legal IDs should
 remain `unmapped` until someone classifies them.
 
+When a non-comparable output looks close to PolicyEngine, keep the adjacent
+`policyengine_variable` or `policyengine_parameter` in the registry entry. If the
+candidate has already been reviewed and should not stay high in the queue, add
+`candidate_priority: P4` and record the concrete reason in `rationale`.
+
 For large legal namespaces where most outputs are source-specific intermediates,
 the registry may use `prefixes` entries. Prefix entries only classify
 `not_comparable` outputs. Exact legal-ID mappings always override prefixes, so a
@@ -144,3 +149,16 @@ CI jobs that need complete classification can use:
 ```bash
 axiom-encode oracle-coverage --root /path/to/workspace --fail-on-unmapped
 ```
+
+## Candidate Triage
+
+Use the candidate command to turn coverage into a priority queue:
+
+```bash
+axiom-encode oracle-candidates --root /path/to/workspace --program snap
+```
+
+The command prioritizes untested comparable mappings, unmapped outputs that look
+like exact PolicyEngine variables, and known adjacent targets that may deserve a
+small adapter. `candidate_priority` can lower already-reviewed non-comparables
+without hiding them from the report.

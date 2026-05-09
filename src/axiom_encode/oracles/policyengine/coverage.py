@@ -30,6 +30,7 @@ class PolicyEngineCoverageItem:
     policyengine_variable: str | None = None
     policyengine_parameter: str | None = None
     rationale: str | None = None
+    candidate_priority: str | None = None
     tested: bool = False
     test_output_count: int = 0
 
@@ -46,6 +47,7 @@ class PolicyEngineCoverageItem:
             "policyengine_variable": self.policyengine_variable,
             "policyengine_parameter": self.policyengine_parameter,
             "rationale": self.rationale,
+            "candidate_priority": self.candidate_priority,
             "tested": self.tested,
             "test_output_count": self.test_output_count,
         }
@@ -247,7 +249,7 @@ def _candidate_from_coverage_item(
         return _candidate_item(
             item,
             category="comparable_untested",
-            priority="P1",
+            priority=_candidate_priority(item, "P1"),
             recommendation=(
                 "Add this comparable output to the companion .test.yaml so CI "
                 "continues to exercise the oracle mapping."
@@ -259,7 +261,7 @@ def _candidate_from_coverage_item(
             return _candidate_item(
                 item,
                 category="exact_variable_unmapped",
-                priority="P1" if tested else "P2",
+                priority=_candidate_priority(item, "P1" if tested else "P2"),
                 policyengine_variable=rule_name,
                 recommendation=(
                     f"Review whether `{legal_id}` has the same legal boundary as "
@@ -271,7 +273,7 @@ def _candidate_from_coverage_item(
             return _candidate_item(
                 item,
                 category="tested_unmapped_pe_like",
-                priority="P2",
+                priority=_candidate_priority(item, "P2"),
                 recommendation=(
                     "This tested output looks oracle-relevant but has no explicit "
                     "classification. Add an exact mapping, an adapter-backed "
@@ -281,7 +283,7 @@ def _candidate_from_coverage_item(
         return _candidate_item(
             item,
             category="unmapped",
-            priority="P3",
+            priority=_candidate_priority(item, "P3"),
             recommendation=(
                 "Classify this output explicitly before relying on full oracle "
                 "coverage gates."
@@ -290,32 +292,42 @@ def _candidate_from_coverage_item(
 
     if status == "known_not_comparable":
         if pe_variable or pe_parameter:
+            priority = _candidate_priority(item, "P2" if tested else "P3")
             return _candidate_item(
                 item,
                 category="known_adjacent_target",
-                priority="P2" if tested else "P3",
+                priority=priority,
                 recommendation=(
                     "A nearby PolicyEngine target is recorded but currently marked "
                     "not comparable. Revisit only if a small adapter can make the "
                     "RuleSpec tests compare without changing the legal boundary."
+                    if priority != "P4"
+                    else "A nearby PolicyEngine target is recorded, but this "
+                    "non-comparable classification has already been reviewed. "
+                    "Leave it alone unless the source or oracle semantics change."
                 ),
             )
         if exact_pe_variable:
+            priority = _candidate_priority(item, "P2" if tested else "P3")
             return _candidate_item(
                 item,
                 category="pe_name_but_not_comparable",
-                priority="P2" if tested else "P3",
+                priority=priority,
                 policyengine_variable=rule_name,
                 recommendation=(
                     f"`{rule_name}` exists in PolicyEngine, but the registry "
                     "currently classifies this Axiom output as not comparable. "
                     "Review the rationale before adding an exact override."
+                    if priority != "P4"
+                    else f"`{rule_name}` exists in PolicyEngine, but this "
+                    "non-comparable classification has already been reviewed. "
+                    "Leave it alone unless the source or oracle semantics change."
                 ),
             )
         return _candidate_item(
             item,
             category="prefix_not_comparable",
-            priority="P4",
+            priority=_candidate_priority(item, "P4"),
             recommendation=(
                 "Covered by a broad not_comparable prefix. Leave it alone unless "
                 "this output becomes tested or a known exact oracle target."
@@ -358,6 +370,13 @@ def _candidate_item(
 
 def _candidate_priority_rank(priority: str) -> int:
     return {"P1": 0, "P2": 1, "P3": 2, "P4": 3}.get(priority, 99)
+
+
+def _candidate_priority(item: dict[str, Any], default: str) -> str:
+    priority = item.get("candidate_priority")
+    if priority in {"P1", "P2", "P3", "P4"}:
+        return str(priority)
+    return default
 
 
 def _is_policyengine_looking_rule_name(rule_name: str) -> bool:
@@ -475,6 +494,7 @@ def _coverage_item_from_mapping(
         policyengine_variable=mapping.policyengine_variable if mapping else None,
         policyengine_parameter=mapping.policyengine_parameter if mapping else None,
         rationale=mapping.rationale if mapping else None,
+        candidate_priority=mapping.candidate_priority if mapping else None,
         tested=test_output_count > 0,
         test_output_count=test_output_count,
     )

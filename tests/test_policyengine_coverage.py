@@ -249,21 +249,21 @@ rules:
 
 def test_policyengine_candidates_report_known_adjacent_targets(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.403.yaml",
+        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.408.yaml",
         """format: rulespec/v1
 rules:
-  - name: snap_countable_earned_income
+  - name: passes_resource_test
     kind: derived
     versions:
       - effective_from: '2025-01-01'
-        formula: earned_income
+        formula: resources <= limit
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.403.test.yaml",
-        """- name: earned
+        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.408.test.yaml",
+        """- name: resources
   output:
-    us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income: 100
+    us-co:regulations/10-ccr-2506-1/4.408#passes_resource_test: holds
 """,
     )
 
@@ -276,4 +276,36 @@ rules:
     candidate = report["items"][0]
     assert candidate["category"] == "known_adjacent_target"
     assert candidate["priority"] == "P2"
-    assert candidate["policyengine_variable"] == "snap_earned_income"
+    assert candidate["policyengine_variable"] == "meets_snap_asset_test"
+
+
+def test_policyengine_candidates_honor_registry_priority_overrides(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.407.31.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_individual_utility_allowance
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 97
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.407.31.test.yaml",
+        """- name: phone_only
+  output:
+    us-co:regulations/10-ccr-2506-1/4.407.31#snap_individual_utility_allowance: 97
+""",
+    )
+
+    report = build_policyengine_candidate_report(
+        tmp_path,
+        program="snap",
+        policyengine_variables={"snap_individual_utility_allowance"},
+    )
+
+    candidate = report["items"][0]
+    assert candidate["category"] == "known_adjacent_target"
+    assert candidate["priority"] == "P4"
+    assert candidate["policyengine_variable"] == "snap_individual_utility_allowance"

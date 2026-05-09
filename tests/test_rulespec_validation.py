@@ -852,6 +852,22 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).mapping_type
         == "direct_variable"
     )
+    phone_allowance_mapping = registry.mapping_for_legal_id(
+        "us-co:regulations/10-ccr-2506-1/4.407.31#snap_individual_utility_allowance",
+        country="us",
+    )
+    assert phone_allowance_mapping.mapping_type == "not_comparable"
+    assert phone_allowance_mapping.policyengine_variable == (
+        "snap_individual_utility_allowance"
+    )
+    assert phone_allowance_mapping.candidate_priority == "P4"
+    regular_allotment_mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2017/a#snap_regular_month_allotment",
+        country="us",
+    )
+    assert regular_allotment_mapping.mapping_type == "not_comparable"
+    assert regular_allotment_mapping.policyengine_variable == "snap_normal_allotment"
+    assert regular_allotment_mapping.candidate_priority == "P4"
     assert (
         registry.mapping_for_legal_id(
             "us:statutes/26/3101/a#oasdi_wage_tax",

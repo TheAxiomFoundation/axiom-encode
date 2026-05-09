@@ -17,6 +17,7 @@ SUPPORTED_MAPPING_TYPES = {
     "not_comparable",
 }
 SUPPORTED_MATCH_TYPES = {"exact", "prefix"}
+SUPPORTED_CANDIDATE_PRIORITIES = {"P1", "P2", "P3", "P4"}
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class PolicyEngineMapping:
     expression: str | None = None
     result_multiplier: float | None = None
     rationale: str | None = None
+    candidate_priority: str | None = None
     aliases: tuple[str, ...] = ()
 
     @property
@@ -180,6 +182,14 @@ class PolicyEngineOracleRegistry:
                 issues.append(
                     f"PolicyEngine not_comparable mapping missing rationale: {legal_id}"
                 )
+            if (
+                mapping.candidate_priority
+                and mapping.candidate_priority not in SUPPORTED_CANDIDATE_PRIORITIES
+            ):
+                issues.append(
+                    "Unsupported PolicyEngine candidate_priority for "
+                    f"{legal_id}: {mapping.candidate_priority}"
+                )
         return issues
 
 
@@ -270,5 +280,6 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
             else None
         ),
         rationale=payload.get("rationale"),
+        candidate_priority=payload.get("candidate_priority"),
         aliases=tuple(str(alias) for alias in aliases),
     )

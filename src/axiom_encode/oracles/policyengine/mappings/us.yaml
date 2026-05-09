@@ -480,13 +480,16 @@ mappings:
     country: us
     program: snap
     mapping_type: not_comparable
-    rationale: Colorado individual/telephone utility allowance is a manual-specific output; PolicyEngine's snap_individual_utility_allowance is an adjacent utility-type amount with different semantics.
+    policyengine_variable: snap_individual_utility_allowance
+    candidate_priority: P4
+    rationale: Colorado individual/telephone utility allowance is a manual-specific output; direct PolicyEngine replay returned $0 for Colorado phone-only while the Colorado source rule expects $97.
 
   - legal_id: us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income
     country: us
     program: snap
     mapping_type: not_comparable
     policyengine_variable: snap_earned_income
+    candidate_priority: P4
     rationale: Colorado manual countable-earned-income rule is a source-specific aggregation; PolicyEngine's federal SNAP earned-income variable is adjacent but not the same legal output.
 
   - legal_id: us-co:regulations/10-ccr-2506-1/4.404#snap_countable_unearned_income
@@ -494,6 +497,7 @@ mappings:
     program: snap
     mapping_type: not_comparable
     policyengine_variable: snap_unearned_income
+    candidate_priority: P4
     rationale: Colorado manual countable-unearned-income rule is a source-specific aggregation; PolicyEngine's federal SNAP unearned-income variable is adjacent but not the same legal output.
 
   - legal_id: us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_monthly_household_income
@@ -527,6 +531,7 @@ mappings:
     program: snap
     mapping_type: not_comparable
     policyengine_variable: is_snap_eligible
+    candidate_priority: P4
     rationale: Axiom composition helper combining Colorado income, resource, work, student, citizenship, transfer, and application rules; PE eligibility is adjacent but not this composed legal output.
 
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible
@@ -559,7 +564,8 @@ mappings:
     program: snap
     mapping_type: not_comparable
     policyengine_variable: snap_normal_allotment
-    rationale: PolicyEngine exposes adjacent normal allotment, but comparison requires PE's full eligibility scenario rather than the upstream legal outputs used by Axiom tests.
+    candidate_priority: P4
+    rationale: PolicyEngine exposes adjacent normal allotment, but direct replay uses PE's own scenario-derived eligibility, maximum allotment, and expected contribution instead of the upstream legal intermediates supplied by Axiom's 7 USC 2017(a) tests.
 
   - legal_id: us:regulations/7-cfr/273/4#snap_member_citizenship_or_alien_status_eligible
     country: us
