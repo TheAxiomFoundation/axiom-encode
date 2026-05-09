@@ -6165,6 +6165,8 @@ Output ONLY valid JSON:
 
             mapping = self._resolve_pe_mapping(country, raw_test_rule_name)
             pe_var = mapping.policyengine_variable if mapping else None
+            pe_parameter = mapping.policyengine_parameter if mapping else None
+            pe_target = pe_var or pe_parameter
             if mapping is not None and not mapping.comparable:
                 coverage.unsupported += 1
                 continue
@@ -6179,7 +6181,7 @@ Output ONLY valid JSON:
                 coverage.unsupported += 1
                 continue
 
-            if not pe_var:
+            if not pe_target:
                 coverage.unmapped += 1
                 continue
 
@@ -6225,14 +6227,28 @@ Output ONLY valid JSON:
                                 source_jurisdiction
                             ),
                         )
-            scenario_script = self._build_pe_scenario_script(
-                pe_var,
-                inputs_with_period,
-                year,
-                expected,
-                country=country,
-                rule_name=pe_var,
-            )
+            if pe_parameter:
+                try:
+                    scenario_script = self._build_pe_parameter_script(
+                        mapping,
+                        inputs_with_period,
+                        year,
+                    )
+                except ValueError as exc:
+                    issues.append(
+                        f"PolicyEngine unavailable for '{test.get('name', test_rule_name)}': {exc}"
+                    )
+                    coverage.unsupported += 1
+                    continue
+            else:
+                scenario_script = self._build_pe_scenario_script(
+                    pe_var,
+                    inputs_with_period,
+                    year,
+                    expected,
+                    country=country,
+                    rule_name=pe_var,
+                )
             output = self._run_pe_subprocess_detailed(scenario_script, pe_python)
 
             if output.returncode != 0:
@@ -6246,7 +6262,7 @@ Output ONLY valid JSON:
                 issues.append(
                     "PE calculation failed for "
                     f"'{test.get('name', test_rule_name)}' "
-                    f"({raw_test_rule_name} -> {pe_var}): {summary}"
+                    f"({raw_test_rule_name} -> {pe_target}): {summary}"
                 )
                 coverage.adapter_errors += 1
                 total += 1
@@ -6267,7 +6283,7 @@ Output ONLY valid JSON:
                     else:
                         issues.append(
                             f"'{test.get('name', test_rule_name)}' "
-                            f"({raw_test_rule_name} -> {pe_var}): "
+                            f"({raw_test_rule_name} -> {pe_target}): "
                             f"PE={pe_value:.2f}, RuleSpec expects={expected_float:.2f}"
                         )
                         coverage.failed += 1
@@ -6277,14 +6293,14 @@ Output ONLY valid JSON:
                     issues.append(
                         "No RESULT in PE output for "
                         f"'{test.get('name', test_rule_name)}' "
-                        f"({raw_test_rule_name} -> {pe_var})"
+                        f"({raw_test_rule_name} -> {pe_target})"
                     )
                     coverage.adapter_errors += 1
                     total += 1
             except Exception as parse_err:
                 issues.append(
                     f"Parse error for '{test.get('name', test_rule_name)}' "
-                    f"({raw_test_rule_name} -> {pe_var}): {parse_err}"
+                    f"({raw_test_rule_name} -> {pe_target}): {parse_err}"
                 )
                 coverage.adapter_errors += 1
                 total += 1
@@ -6766,6 +6782,17 @@ print("BENCHMARK:" + json.dumps(result))
                     return float(compact)
             return value
 
+        def normalized_input_alias(key: Any) -> str:
+            key_text = str(key)
+            if "#" not in key_text:
+                return ""
+            fragment = key_text.split("#", 1)[1].strip()
+            if ".input." in fragment:
+                return fragment.rsplit(".input.", 1)[1].strip()
+            if fragment.startswith("input."):
+                return fragment.removeprefix("input.").strip()
+            return ""
+
         def unwrap_entity_wrapper(value: Any) -> Any:
             if not isinstance(value, dict) or len(value) != 1:
                 return value
@@ -6825,6 +6852,11 @@ print("BENCHMARK:" + json.dumps(result))
                         if isinstance(inputs, dict)
                         else inputs or {}
                     )
+                    if isinstance(normalized_inputs, dict):
+                        for key, value in list(normalized_inputs.items()):
+                            alias = normalized_input_alias(key)
+                            if alias:
+                                normalized_inputs.setdefault(alias, value)
                     for variable, expected in outputs.items():
                         tests.append(
                             {
@@ -7594,17 +7626,29 @@ print("BENCHMARK:" + json.dumps(result))
             if not test_mapping or not test_mapping.comparable:
                 return False
             hinted_mapping = self._resolve_pe_mapping(country, oracle_rule_name)
-            hinted_pe_var = (
-                hinted_mapping.policyengine_variable
+            hinted_pe_target = (
+                self._policyengine_mapping_target(hinted_mapping)
                 if hinted_mapping and hinted_mapping.comparable
                 else oracle_rule_name
             )
-            return test_mapping.policyengine_variable == hinted_pe_var
+            return self._policyengine_mapping_target(test_mapping) == hinted_pe_target
         hinted_pe_var = self._resolve_pe_variable(country, oracle_rule_name)
         if not hinted_pe_var:
             return False
         test_pe_var = self._resolve_pe_variable(country, test_rule_name)
         return test_pe_var is not None and test_pe_var == hinted_pe_var
+
+    @staticmethod
+    def _policyengine_mapping_target(mapping: PolicyEngineMapping | None) -> str | None:
+        """Return a stable comparison target for a PolicyEngine registry mapping."""
+        if mapping is None:
+            return None
+        if mapping.policyengine_variable:
+            return f"variable:{mapping.policyengine_variable}"
+        if mapping.policyengine_parameter:
+            key = mapping.parameter_key or mapping.parameter_key_input or ""
+            return f"parameter:{mapping.policyengine_parameter}:{key}"
+        return mapping.expression
 
     def _build_pe_scenario_script(
         self,
@@ -7626,6 +7670,86 @@ print("BENCHMARK:" + json.dumps(result))
             return self._build_pe_uk_scenario_script(pe_var, inputs, year, rule_name)
 
         return self._build_pe_us_scenario_script(pe_var, inputs, year)
+
+    def _build_pe_parameter_script(
+        self,
+        mapping: PolicyEngineMapping,
+        inputs: dict,
+        year: str,
+    ) -> str:
+        """Build a Python script that reads a PolicyEngine parameter value."""
+        if not mapping.policyengine_parameter:
+            raise ValueError("PolicyEngine parameter mapping is missing a path")
+
+        parameter_key = self._resolve_pe_parameter_key(mapping, inputs)
+        period = self._normalize_monthly_pe_period(
+            inputs.get("period"),
+            year,
+            "01",
+        )
+        if str(mapping.period or "").lower() != "month":
+            period = year
+
+        parameter_path = json.dumps(mapping.policyengine_parameter)
+        parameter_key_literal = json.dumps(parameter_key)
+        period_literal = json.dumps(period)
+        return f"""
+from policyengine_us import CountryTaxBenefitSystem
+
+def get_parameter(root, path):
+    value = root
+    for part in path.split('.'):
+        value = getattr(value, part)
+    return value
+
+system = CountryTaxBenefitSystem()
+params = system.parameters({period_literal})
+value = get_parameter(params, {parameter_path})
+key = {parameter_key_literal}
+if key is not None:
+    value = value[key]
+print(f'RESULT:{{float(value)}}')
+"""
+
+    def _resolve_pe_parameter_key(
+        self,
+        mapping: PolicyEngineMapping,
+        inputs: dict,
+    ) -> str | None:
+        if mapping.parameter_key is not None:
+            return mapping.parameter_key
+        if not mapping.parameter_key_input:
+            return None
+        input_value = self._rulespec_test_input_value(
+            inputs,
+            mapping.parameter_key_input,
+        )
+        if input_value is None:
+            raise ValueError(
+                "PolicyEngine parameter mapping needs input "
+                f"`{mapping.parameter_key_input}`"
+            )
+        raw_key = str(input_value)
+        if raw_key in mapping.parameter_key_map:
+            return mapping.parameter_key_map[raw_key]
+        raise ValueError(
+            "PolicyEngine parameter mapping has no key for "
+            f"`{mapping.parameter_key_input}={raw_key}`"
+        )
+
+    @staticmethod
+    def _rulespec_test_input_value(inputs: dict, name: str) -> Any:
+        if name in inputs:
+            return inputs[name]
+        for key, value in inputs.items():
+            key_text = str(key)
+            if (
+                key_text.endswith(f"#input.{name}")
+                or key_text.endswith(f"#{name}")
+                or key_text.endswith(f".{name}")
+            ):
+                return value
+        return None
 
     def _normalize_monthly_pe_period(
         self,

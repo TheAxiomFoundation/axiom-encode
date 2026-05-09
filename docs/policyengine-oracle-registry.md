@@ -62,6 +62,45 @@ the registry may use `prefixes` entries. Prefix entries only classify
 specific output can still become PolicyEngine-comparable later without changing
 the RuleSpec file.
 
+## Mapping Types
+
+Use `mapping_type: direct_variable` when a RuleSpec output can be compared to a
+PolicyEngine variable:
+
+```yaml
+- legal_id: us:statutes/26/3101/a#oasdi_wage_tax
+  mapping_type: direct_variable
+  policyengine_variable: employee_social_security_tax
+```
+
+Use `mapping_type: parameter_value` when the RuleSpec output is a statutory or
+policy parameter that PolicyEngine stores in its parameter tree rather than as a
+variable:
+
+```yaml
+- legal_id: us:statutes/26/3101/a#oasdi_wage_tax_rate
+  mapping_type: parameter_value
+  policyengine_parameter: gov.irs.payroll.social_security.rate.employee
+```
+
+Parameterized PE tables can be keyed by a fixed `parameter_key`, or by a
+RuleSpec test input through `parameter_key_input` and `parameter_key_map`:
+
+```yaml
+- legal_id: us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold
+  mapping_type: parameter_value
+  policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+  parameter_key_input: filing_status
+  parameter_key_map:
+    0: SINGLE
+    1: JOINT
+    2: SEPARATE
+    3: HEAD_OF_HOUSEHOLD
+```
+
+Keep these mappings in `axiom-encode`; do not put oracle parameter paths in
+RuleSpec repositories.
+
 ## Repository Coverage Report
 
 Use the coverage command before assigning autonomous encoding work and after a

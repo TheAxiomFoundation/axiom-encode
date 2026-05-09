@@ -13,6 +13,7 @@ SUPPORTED_MAPPING_TYPES = {
     "derived_expression",
     "many_to_one",
     "one_to_many",
+    "parameter_value",
     "not_comparable",
 }
 SUPPORTED_MATCH_TYPES = {"exact", "prefix"}
@@ -27,6 +28,10 @@ class PolicyEngineMapping:
     mapping_type: str
     match_type: str = "exact"
     policyengine_variable: str | None = None
+    policyengine_parameter: str | None = None
+    parameter_key: str | None = None
+    parameter_key_input: str | None = None
+    parameter_key_map: dict[str, str] = field(default_factory=dict)
     program: str | None = None
     entity: str | None = None
     period: str | None = None
@@ -39,7 +44,7 @@ class PolicyEngineMapping:
     @property
     def comparable(self) -> bool:
         return self.mapping_type != "not_comparable" and bool(
-            self.policyengine_variable or self.expression
+            self.policyengine_variable or self.policyengine_parameter or self.expression
         )
 
 
@@ -147,6 +152,23 @@ class PolicyEngineOracleRegistry:
                 issues.append(
                     f"Direct PolicyEngine mapping missing policyengine_variable: {legal_id}"
                 )
+            if (
+                mapping.mapping_type == "parameter_value"
+                and not mapping.policyengine_parameter
+            ):
+                issues.append(
+                    f"PolicyEngine parameter mapping missing policyengine_parameter: {legal_id}"
+                )
+            if mapping.parameter_key and mapping.parameter_key_input:
+                issues.append(
+                    "PolicyEngine parameter mapping cannot declare both "
+                    f"parameter_key and parameter_key_input: {legal_id}"
+                )
+            if mapping.parameter_key_map and not mapping.parameter_key_input:
+                issues.append(
+                    "PolicyEngine parameter_key_map requires "
+                    f"parameter_key_input: {legal_id}"
+                )
             if mapping.mapping_type == "not_comparable" and not mapping.rationale:
                 issues.append(
                     f"PolicyEngine not_comparable mapping missing rationale: {legal_id}"
@@ -212,6 +234,17 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
         mapping_type=str(payload.get("mapping_type", "direct_variable")),
         match_type=str(payload.get("match_type", "exact")),
         policyengine_variable=payload.get("policyengine_variable"),
+        policyengine_parameter=payload.get("policyengine_parameter"),
+        parameter_key=(
+            str(payload["parameter_key"])
+            if payload.get("parameter_key") is not None
+            else None
+        ),
+        parameter_key_input=payload.get("parameter_key_input"),
+        parameter_key_map={
+            str(key): str(value)
+            for key, value in (payload.get("parameter_key_map") or {}).items()
+        },
         program=payload.get("program"),
         entity=payload.get("entity"),
         period=payload.get("period"),

@@ -259,20 +259,33 @@ mappings:
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_joint_threshold
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the self-employment additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory joint-return additional Medicare threshold, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_other_threshold
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the self-employment additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory other-case additional Medicare threshold, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the additional Medicare self-employment tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.rate
+    period: year
+    comparison: rate
+    rationale: Same statutory additional Medicare self-employment tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_tax
     country: us
@@ -289,8 +302,18 @@ mappings:
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_threshold
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the threshold as parameter data rather than exposing this statutory intermediate as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected additional Medicare threshold, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/1401#reduced_additional_medicare_self_employment_threshold
     country: us
@@ -301,8 +324,11 @@ mappings:
   - legal_id: us:statutes/26/1401#self_employment_hospital_insurance_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the self-employment Medicare tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.self_employment.rate.medicare
+    period: year
+    comparison: rate
+    rationale: Same statutory self-employment Medicare tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/1401#self_employment_hospital_insurance_tax
     country: us
@@ -313,8 +339,11 @@ mappings:
   - legal_id: us:statutes/26/1401#self_employment_oasdi_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the self-employment OASDI tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.self_employment.rate.social_security
+    period: year
+    comparison: rate
+    rationale: Same statutory self-employment OASDI tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/1401#self_employment_oasdi_tax
     country: us
@@ -331,8 +360,11 @@ mappings:
   - legal_id: us:statutes/26/3101/a#oasdi_wage_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the employee OASDI payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.social_security.rate.employee
+    period: year
+    comparison: rate
+    rationale: Same statutory employee OASDI payroll tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3101/a#oasdi_wage_tax
     country: us
@@ -365,8 +397,11 @@ mappings:
   - legal_id: us:statutes/26/3101/b/2#additional_medicare_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the additional Medicare payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.rate
+    period: year
+    comparison: rate
+    rationale: Same statutory additional Medicare payroll tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3101/b/2#additional_medicare_excess_wages
     country: us
@@ -388,26 +423,49 @@ mappings:
   - legal_id: us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the threshold as parameter data rather than exposing this statutory intermediate as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected additional Medicare wage threshold, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3101/b/2#additional_medicare_wage_tax_joint_threshold
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the filing-status-specific additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory joint-return additional Medicare wage threshold, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3101/b/2#additional_medicare_wage_tax_other_threshold
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the filing-status-specific additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory other-case additional Medicare wage threshold, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the employer OASDI payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.social_security.rate.employer
+    period: year
+    comparison: rate
+    rationale: Same statutory employer OASDI payroll tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax
     country: us

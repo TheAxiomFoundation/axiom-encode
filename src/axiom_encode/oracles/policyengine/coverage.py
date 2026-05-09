@@ -28,6 +28,7 @@ class PolicyEngineCoverageItem:
     program: str
     mapping_type: str | None = None
     policyengine_variable: str | None = None
+    policyengine_parameter: str | None = None
     rationale: str | None = None
 
     def as_dict(self) -> dict[str, str | None]:
@@ -41,6 +42,7 @@ class PolicyEngineCoverageItem:
             "program": self.program,
             "mapping_type": self.mapping_type,
             "policyengine_variable": self.policyengine_variable,
+            "policyengine_parameter": self.policyengine_parameter,
             "rationale": self.rationale,
         }
 
@@ -190,6 +192,7 @@ def _coverage_item_from_mapping(
         program=program,
         mapping_type=mapping_type,
         policyengine_variable=mapping.policyengine_variable if mapping else None,
+        policyengine_parameter=mapping.policyengine_parameter if mapping else None,
         rationale=mapping.rationale if mapping else None,
     )
 

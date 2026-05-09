@@ -701,6 +701,27 @@ def test_oracle_test_extraction_normalizes_legal_output_ids(tmp_path):
     ]
 
 
+def test_oracle_test_extraction_aliases_legal_input_ids(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    tests = pipeline._extract_rulespec_tests(
+        """- name: wage_tax
+  period: 2026
+  input:
+    us:statutes/26/3101/a#input.wages: 100000
+  output:
+    us:statutes/26/3101/a#oasdi_wage_tax: 6200
+"""
+    )
+
+    assert tests[0]["inputs"]["us:statutes/26/3101/a#input.wages"] == 100000
+    assert tests[0]["inputs"]["wages"] == 100000
+
+
 def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text("format: rulespec/v1\n")
@@ -781,6 +802,16 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "employee_social_security_tax"
     )
+    oasdi_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3101/a#oasdi_wage_tax_rate",
+        country="us",
+    )
+    assert oasdi_rate_mapping.mapping_type == "parameter_value"
+    assert (
+        oasdi_rate_mapping.policyengine_parameter
+        == "gov.irs.payroll.social_security.rate.employee"
+    )
+    assert oasdi_rate_mapping.comparable is True
     assert (
         registry.mapping_for_legal_id(
             "us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount",
@@ -895,6 +926,60 @@ def test_policyengine_oracle_has_no_issue_noise_for_unsupported_only(tmp_path):
     assert result.issues == []
     assert result.details["coverage"]["unsupported"] == 1
     assert result.details["coverage"]["unmapped"] == 0
+
+
+def test_policyengine_oracle_compares_parameter_value_mapping(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: joint_threshold
+  period: 2026
+  input:
+    us:statutes/26/3101/b/2#input.filing_status: 1
+  output:
+    us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold: 250000
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold": PolicyEngineMapping(
+                legal_id="us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.irs.payroll.medicare.additional.exclusion",
+                parameter_key_input="filing_status",
+                parameter_key_map={"0": "SINGLE", "1": "JOINT"},
+                period="year",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:250000\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert result.details["coverage"]["passed"] == 1
+    assert "gov.irs.payroll.medicare.additional.exclusion" in scripts[0]
+    assert 'key = "JOINT"' in scripts[0]
 
 
 def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):

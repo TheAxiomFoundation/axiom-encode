@@ -139,15 +139,19 @@ rules:
 
     assert report["total_outputs"] == 3
     assert report["status_counts"] == {
-        "comparable": 1,
-        "known_not_comparable": 2,
+        "comparable": 2,
+        "known_not_comparable": 1,
     }
     statuses_by_id = {item["legal_id"]: item["status"] for item in report["items"]}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
     assert statuses_by_id["us:statutes/26/3101/a#oasdi_wage_tax"] == "comparable"
     assert (
-        statuses_by_id["us:statutes/26/3101/a#oasdi_wage_tax_rate"]
-        == "known_not_comparable"
+        items_by_id["us:statutes/26/3101/a#oasdi_wage_tax_rate"][
+            "policyengine_parameter"
+        ]
+        == "gov.irs.payroll.social_security.rate.employee"
     )
+    assert statuses_by_id["us:statutes/26/3101/a#oasdi_wage_tax_rate"] == "comparable"
     assert (
         statuses_by_id["us:statutes/26/45A/a#indian_employment_credit_rate"]
         == "known_not_comparable"
