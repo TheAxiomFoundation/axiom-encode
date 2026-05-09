@@ -722,6 +722,35 @@ def test_oracle_test_extraction_aliases_legal_input_ids(tmp_path):
     assert tests[0]["inputs"]["wages"] == 100000
 
 
+def test_oracle_test_extraction_preserves_policyengine_only_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    tests = pipeline._extract_rulespec_tests(
+        """- name: utility_region
+  period: 2026-01
+  input:
+    us-ny:regulations/18-nycrr/387/12/f/3/v/a#input.household_resides_in_new_york_city: false
+  oracle_inputs:
+    policyengine:
+      snap_utility_region_str: NY_NAS
+  output:
+    us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance: 988
+"""
+    )
+
+    assert tests[0]["inputs"] == {
+        "us-ny:regulations/18-nycrr/387/12/f/3/v/a#input.household_resides_in_new_york_city": False,
+        "household_resides_in_new_york_city": False,
+    }
+    assert tests[0]["oracle_inputs"] == {
+        "policyengine": {"snap_utility_region_str": "NY_NAS"}
+    }
+
+
 def test_oracle_test_extraction_preserves_relation_list_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -861,6 +890,24 @@ def test_policyengine_registry_is_legal_id_keyed():
         "snap_individual_utility_allowance"
     )
     assert phone_allowance_mapping.candidate_priority == "P4"
+    ny_standard_allowance_mapping = registry.mapping_for_legal_id(
+        "us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance",
+        country="us",
+    )
+    assert ny_standard_allowance_mapping.mapping_type == "direct_variable"
+    assert (
+        ny_standard_allowance_mapping.policyengine_variable
+        == "snap_standard_utility_allowance"
+    )
+    ny_limited_allowance_mapping = registry.mapping_for_legal_id(
+        "us-ny:regulations/18-nycrr/387/12/f/3/v/b#snap_limited_utility_allowance",
+        country="us",
+    )
+    assert ny_limited_allowance_mapping.mapping_type == "direct_variable"
+    assert (
+        ny_limited_allowance_mapping.policyengine_variable
+        == "snap_limited_utility_allowance"
+    )
     ny_phone_allowance_mapping = registry.mapping_for_legal_id(
         "us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance",
         country="us",

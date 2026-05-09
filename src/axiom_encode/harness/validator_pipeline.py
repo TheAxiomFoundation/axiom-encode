@@ -6242,6 +6242,11 @@ Output ONLY valid JSON:
             expected = test.get("expect")
             raw_inputs = test.get("inputs", {})
             inputs = dict(raw_inputs) if isinstance(raw_inputs, dict) else raw_inputs
+            oracle_inputs = test.get("oracle_inputs", {})
+            if isinstance(inputs, dict) and isinstance(oracle_inputs, dict):
+                policyengine_inputs = oracle_inputs.get("policyengine", {})
+                if isinstance(policyengine_inputs, dict):
+                    inputs.update(policyengine_inputs)
             period = (
                 test.get("period")
                 or test.get("date")
@@ -6961,6 +6966,16 @@ print("BENCHMARK:" + json.dumps(result))
                             alias = normalized_input_alias(key)
                             if alias:
                                 normalized_inputs.setdefault(alias, value)
+                    oracle_inputs = test_case.get("oracle_inputs", {})
+                    normalized_oracle_inputs: dict[str, dict[str, Any]] = {}
+                    if isinstance(oracle_inputs, dict):
+                        for oracle_name, oracle_raw_inputs in oracle_inputs.items():
+                            if not isinstance(oracle_raw_inputs, dict):
+                                continue
+                            normalized_oracle_inputs[str(oracle_name)] = {
+                                str(key): normalize_input_value(key, value)
+                                for key, value in oracle_raw_inputs.items()
+                            }
                     for variable, expected in outputs.items():
                         tests.append(
                             {
@@ -6970,6 +6985,11 @@ print("BENCHMARK:" + json.dumps(result))
                                 "period": test_case.get("period"),
                                 "inputs": normalized_inputs,
                                 "expect": normalize_test_value(expected),
+                                **(
+                                    {"oracle_inputs": normalized_oracle_inputs}
+                                    if normalized_oracle_inputs
+                                    else {}
+                                ),
                             }
                         )
 

@@ -484,6 +484,28 @@ mappings:
     candidate_priority: P4
     rationale: Colorado individual/telephone utility allowance is a manual-specific output; direct PolicyEngine replay returned $0 for Colorado phone-only while the Colorado source rule expects $97.
 
+  - legal_id: us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_standard_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same New York SNAP heating/cooling standard utility allowance, with utility-region inputs supplied by the RuleSpec tests.
+
+  - legal_id: us-ny:regulations/18-nycrr/387/12/f/3/v/b#snap_limited_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_limited_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same New York SNAP standard allowance for utilities, with utility-region inputs supplied by the RuleSpec tests.
+
   - legal_id: us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance
     country: us
     program: snap
