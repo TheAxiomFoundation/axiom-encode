@@ -104,3 +104,51 @@ rules:
 
     assert report["total_outputs"] == 1
     assert report["status_counts"] == {"comparable": 1}
+
+
+def test_policyengine_coverage_classifies_tax_parameter_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rules-us" / "statutes/26/3101/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: oasdi_wage_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.062'
+  - name: oasdi_wage_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages * oasdi_wage_tax_rate
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rules-us" / "statutes/26/45A/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: indian_employment_credit_rate
+    kind: parameter
+    versions:
+      - effective_from: '1994-01-01'
+        formula: '0.20'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 2,
+    }
+    statuses_by_id = {item["legal_id"]: item["status"] for item in report["items"]}
+    assert statuses_by_id["us:statutes/26/3101/a#oasdi_wage_tax"] == "comparable"
+    assert (
+        statuses_by_id["us:statutes/26/3101/a#oasdi_wage_tax_rate"]
+        == "known_not_comparable"
+    )
+    assert (
+        statuses_by_id["us:statutes/26/45A/a#indian_employment_credit_rate"]
+        == "known_not_comparable"
+    )

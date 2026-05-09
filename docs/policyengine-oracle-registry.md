@@ -89,5 +89,5 @@ Do not hide unmapped outputs in RuleSpec metadata.
 CI jobs that need complete classification can use:
 
 ```bash
-axiom-encode oracle-coverage --root /path/to/workspace --program snap --fail-on-unmapped
+axiom-encode oracle-coverage --root /path/to/workspace --fail-on-unmapped
 ```

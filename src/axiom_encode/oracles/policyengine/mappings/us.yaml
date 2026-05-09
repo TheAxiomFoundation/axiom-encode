@@ -256,6 +256,24 @@ mappings:
     mapping_type: not_comparable
     rationale: Colorado initial-month proration output; PolicyEngine SNAP does not expose Colorado initial-month proration.
 
+  - legal_id: us:statutes/26/1401#additional_medicare_self_employment_joint_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the self-employment additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+
+  - legal_id: us:statutes/26/1401#additional_medicare_self_employment_other_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the self-employment additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+
+  - legal_id: us:statutes/26/1401#additional_medicare_self_employment_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the additional Medicare self-employment tax rate as parameter data rather than exposing this statutory parameter as a variable.
+
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_tax
     country: us
     program: tax
@@ -280,11 +298,23 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose this wage-offset self-employment threshold intermediate as a separate variable.
 
+  - legal_id: us:statutes/26/1401#self_employment_hospital_insurance_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the self-employment Medicare tax rate as parameter data rather than exposing this statutory parameter as a variable.
+
   - legal_id: us:statutes/26/1401#self_employment_hospital_insurance_tax
     country: us
     program: tax
     mapping_type: not_comparable
     rationale: Axiom's current 1401 slice tests the section-level self-employment tax base directly; PE combines 1401 with 1402 taxable self-employment income rules.
+
+  - legal_id: us:statutes/26/1401#self_employment_oasdi_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the self-employment OASDI tax rate as parameter data rather than exposing this statutory parameter as a variable.
 
   - legal_id: us:statutes/26/1401#self_employment_oasdi_tax
     country: us
@@ -298,6 +328,12 @@ mappings:
     mapping_type: not_comparable
     rationale: Axiom's current 1401 slice includes self-employment tax components at the section boundary; PE's self_employment_tax excludes additional_medicare_tax and applies 1402 taxable-income rules.
 
+  - legal_id: us:statutes/26/3101/a#oasdi_wage_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the employee OASDI payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+
   - legal_id: us:statutes/26/3101/a#oasdi_wage_tax
     country: us
     program: tax
@@ -309,6 +345,12 @@ mappings:
     comparison: money
     rationale: Same employee-side OASDI payroll tax on wages.
 
+  - legal_id: us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the employee Medicare payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+
   - legal_id: us:statutes/26/3101/b/1#hospital_insurance_wage_tax
     country: us
     program: tax
@@ -319,6 +361,12 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same employee-side Medicare payroll tax on wages.
+
+  - legal_id: us:statutes/26/3101/b/2#additional_medicare_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the additional Medicare payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
 
   - legal_id: us:statutes/26/3101/b/2#additional_medicare_excess_wages
     country: us
@@ -343,6 +391,24 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine stores the threshold as parameter data rather than exposing this statutory intermediate as a variable.
 
+  - legal_id: us:statutes/26/3101/b/2#additional_medicare_wage_tax_joint_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the filing-status-specific additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+
+  - legal_id: us:statutes/26/3101/b/2#additional_medicare_wage_tax_other_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the filing-status-specific additional Medicare threshold as parameter data rather than exposing this statutory parameter as a variable.
+
+  - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the employer OASDI payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+
   - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax
     country: us
     program: tax
@@ -353,6 +419,12 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same employer-side OASDI payroll tax on wages.
+
+  - legal_id: us:statutes/26/3111/b#hospital_insurance_employer_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the employer Medicare payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
 
   - legal_id: us:statutes/26/3111/b#hospital_insurance_employer_tax
     country: us
@@ -389,6 +461,12 @@ mappings:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine does not currently expose the section 45A Indian employment credit cost intermediates.
+
+  - legal_id: us:statutes/26/45A/a#indian_employment_credit_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose the section 45A Indian employment credit rate as a variable.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single
     country: us
