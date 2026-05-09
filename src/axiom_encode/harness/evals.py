@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Literal, Sequence
+from typing import Iterator, Literal, Sequence
 
 import requests
 import yaml
@@ -1619,7 +1619,23 @@ def _materialize_resolved_canonical_concept(
 
 
 def _auto_select_context_files(citation: str, policy_root: Path) -> list[Path]:
-    """Best-effort auto-context selection for statute citations only."""
+    """Best-effort auto-context selection for target files and nearby precedent."""
+    selected: list[Path] = []
+    target_rel = _target_rel_for_eval_identifier(citation)
+    if target_rel is not None:
+        target_path = policy_root / target_rel
+        if target_path.exists():
+            selected.append(target_path)
+        if target_path.parent.exists():
+            for sibling in sorted(target_path.parent.glob("*.yaml")):
+                if sibling.name.endswith(".test.yaml") or sibling == target_path:
+                    continue
+                selected.append(sibling)
+                if len(selected) >= 6:
+                    break
+        if selected:
+            return selected[:6]
+
     try:
         return select_context_files(citation, policy_root)
     except Exception:
@@ -1659,7 +1675,9 @@ def _relative_rulespec_path_to_import_target(path: Path) -> str:
 
 
 def _target_rel_for_eval_identifier(citation: str) -> Path | None:
-    """Return the canonical RuleSpec target path for USC citations when parseable."""
+    """Return the canonical RuleSpec target path for corpus or USC citations."""
+    if _looks_like_corpus_citation_path(citation.strip().strip("/")):
+        return _source_identifier_to_relative_rulespec_path(citation)
     try:
         return citation_to_relative_rulespec_path(citation)
     except Exception:
@@ -1689,86 +1707,89 @@ def evaluate_artifact(
     policyengine_rule_hint: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
-    pipeline = ValidatorPipeline(
-        policy_repo_path=policy_repo_root,
-        axiom_rules_path=axiom_rules_path,
-        enable_oracles=oracle != "none",
-        policyengine_country=policyengine_country,
-        policyengine_rule_hint=policyengine_rule_hint,
-    )
-    compile_result = pipeline._run_compile_check(rulespec_file)
-    ci_result = pipeline._run_ci(rulespec_file)
+    with _rulespec_validation_target(
+        rulespec_file, policy_repo_root
+    ) as validation_file:
+        pipeline = ValidatorPipeline(
+            policy_repo_path=policy_repo_root,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=oracle != "none",
+            policyengine_country=policyengine_country,
+            policyengine_rule_hint=policyengine_rule_hint,
+        )
+        compile_result = pipeline._run_compile_check(validation_file)
+        ci_result = pipeline._run_ci(validation_file)
 
-    policyengine_result = None
-    taxsim_result = None
-    if oracle in ("policyengine", "all"):
+        policyengine_result = None
+        taxsim_result = None
+        if oracle in ("policyengine", "all"):
+            try:
+                policyengine_result = pipeline._run_policyengine(validation_file)
+            except Exception as exc:
+                policyengine_result = ValidationResult(
+                    validator_name="policyengine",
+                    passed=False,
+                    error=str(exc),
+                    issues=[str(exc)],
+                )
+        if oracle == "all":
+            try:
+                taxsim_result = pipeline._run_taxsim(validation_file)
+            except Exception as exc:
+                taxsim_result = ValidationResult(
+                    validator_name="taxsim",
+                    passed=False,
+                    error=str(exc),
+                    issues=[str(exc)],
+                )
+
+        oracle_context: dict[str, dict[str, object]] = {}
+        if policyengine_result is not None:
+            oracle_context["policyengine"] = {
+                "score": policyengine_result.score,
+                "passed": policyengine_result.passed,
+                "issues": policyengine_result.issues,
+                "duration_ms": policyengine_result.duration_ms,
+            }
+        if taxsim_result is not None:
+            oracle_context["taxsim"] = {
+                "score": taxsim_result.score,
+                "passed": taxsim_result.passed,
+                "issues": taxsim_result.issues,
+                "duration_ms": taxsim_result.duration_ms,
+            }
+        review_context = (
+            "This review is running inside an eval-suite benchmark workspace. "
+            "The artifact file path is generic benchmark output and is not itself the legal citation. "
+            "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
+            "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
+            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
+            f"{source_text.strip()[:4000]}"
+        )
+        if re.search(
+            r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
+            source_text,
+            flags=re.IGNORECASE,
+        ):
+            review_context += (
+                "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
+                "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
+                "is an acceptable representation."
+            )
         try:
-            policyengine_result = pipeline._run_policyengine(rulespec_file)
+            generalist_review_result = pipeline._run_reviewer(
+                "generalist-reviewer",
+                validation_file,
+                oracle_context or None,
+                review_context=review_context,
+            )
         except Exception as exc:
-            policyengine_result = ValidationResult(
-                validator_name="policyengine",
+            generalist_review_result = ValidationResult(
+                validator_name="generalist-reviewer",
                 passed=False,
                 error=str(exc),
-                issues=[str(exc)],
+                issues=[f"Reviewer error: {exc}"],
             )
-    if oracle == "all":
-        try:
-            taxsim_result = pipeline._run_taxsim(rulespec_file)
-        except Exception as exc:
-            taxsim_result = ValidationResult(
-                validator_name="taxsim",
-                passed=False,
-                error=str(exc),
-                issues=[str(exc)],
-            )
-
-    oracle_context: dict[str, dict[str, object]] = {}
-    if policyengine_result is not None:
-        oracle_context["policyengine"] = {
-            "score": policyengine_result.score,
-            "passed": policyengine_result.passed,
-            "issues": policyengine_result.issues,
-            "duration_ms": policyengine_result.duration_ms,
-        }
-    if taxsim_result is not None:
-        oracle_context["taxsim"] = {
-            "score": taxsim_result.score,
-            "passed": taxsim_result.passed,
-            "issues": taxsim_result.issues,
-            "duration_ms": taxsim_result.duration_ms,
-        }
-    review_context = (
-        "This review is running inside an eval-suite benchmark workspace. "
-        "The artifact file path is generic benchmark output and is not itself the legal citation. "
-        "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
-        "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
-        "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
-        f"{source_text.strip()[:4000]}"
-    )
-    if re.search(
-        r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
-        source_text,
-        flags=re.IGNORECASE,
-    ):
-        review_context += (
-            "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
-            "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
-            "is an acceptable representation."
-        )
-    try:
-        generalist_review_result = pipeline._run_reviewer(
-            "generalist-reviewer",
-            rulespec_file,
-            oracle_context or None,
-            review_context=review_context,
-        )
-    except Exception as exc:
-        generalist_review_result = ValidationResult(
-            validator_name="generalist-reviewer",
-            passed=False,
-            error=str(exc),
-            issues=[f"Reviewer error: {exc}"],
-        )
 
     content = rulespec_file.read_text()
     embedded_source = extract_embedded_source_text(content)
@@ -1864,6 +1885,52 @@ def evaluate_artifact(
     )
 
 
+@contextlib.contextmanager
+def _rulespec_validation_target(
+    rulespec_file: Path, policy_repo_root: Path
+) -> Iterator[Path]:
+    """Yield a validation path whose ancestors expose canonical repo identity."""
+    if _is_under_root(rulespec_file, policy_repo_root):
+        yield rulespec_file
+        return
+    relative = _relative_rulespec_source_path(rulespec_file)
+    if relative is None or not policy_repo_root.name.startswith("rules-"):
+        yield rulespec_file
+        return
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        overlay_parent = Path(tmpdir)
+        for sibling in policy_repo_root.parent.glob("rules-*"):
+            if sibling.resolve() == policy_repo_root.resolve() or not sibling.is_dir():
+                continue
+            sibling_target = overlay_parent / sibling.name
+            try:
+                sibling_target.symlink_to(sibling.resolve(), target_is_directory=True)
+            except OSError:
+                shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
+        overlay_repo = overlay_parent / policy_repo_root.name
+        shutil.copytree(policy_repo_root, overlay_repo)
+        validation_file = overlay_repo / relative
+        validation_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(rulespec_file, validation_file)
+        companion_test = rulespec_file.with_name(f"{rulespec_file.stem}.test.yaml")
+        if companion_test.exists():
+            validation_test = validation_file.with_name(
+                f"{validation_file.stem}.test.yaml"
+            )
+            shutil.copy2(companion_test, validation_test)
+        yield validation_file
+
+
+def _relative_rulespec_source_path(path: Path) -> Path | None:
+    """Return the path beginning at the RuleSpec source-root directory."""
+    parts = path.parts
+    for index, part in enumerate(parts):
+        if part in {"policies", "regulations", "statutes"}:
+            return Path(*parts[index:])
+    return None
+
+
 def _run_single_eval(
     citation: str,
     runner: EvalRunnerSpec,
@@ -1934,7 +2001,7 @@ def _run_single_eval(
     if output_file.exists():
         metrics = evaluate_artifact(
             rulespec_file=output_file,
-            policy_repo_root=Path(output_root) / runner.name,
+            policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
             source_text=source_text,
         )
@@ -2044,7 +2111,7 @@ def _run_single_source_eval(
     if output_file.exists():
         metrics = evaluate_artifact(
             rulespec_file=output_file,
-            policy_repo_root=Path(output_root) / runner.name,
+            policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
             source_text=source_text,
             oracle=oracle,
@@ -2496,11 +2563,12 @@ def _format_context_file_listing(
 ) -> str:
     """Format one copied context file for prompt display."""
     details = f": {item.label or item.source_path}" if include_label else ""
+    kind = f" (kind: {item.kind})"
     if item.workspace_path == item.import_path:
-        return f"- `{item.workspace_path}`{details}"
+        return f"- `{item.workspace_path}`{details}{kind}"
     return (
         f"- inspect `{item.workspace_path}`; import target `{item.import_path}`"
-        f"{details}"
+        f"{details}{kind}"
     )
 
 
@@ -2531,10 +2599,18 @@ def _expand_context_files(
     seen: set[Path] = set()
 
     for path in selected_paths:
+        is_target = (
+            target_rel is not None
+            and _relative_to_root(path, policy_root) == target_rel
+        )
         kind = (
-            "implementation_precedent"
-            if _is_under_root(path, policy_root)
-            else "implementation_external"
+            "existing_target"
+            if is_target
+            else (
+                "implementation_precedent"
+                if _is_under_root(path, policy_root)
+                else "implementation_external"
+            )
         )
         pending.append((path, kind))
 
@@ -2546,6 +2622,7 @@ def _expand_context_files(
         if (
             target_rel is not None
             and _relative_to_root(source_path, policy_root) == target_rel
+            and kind != "existing_target"
         ):
             continue
         seen.add(resolved)

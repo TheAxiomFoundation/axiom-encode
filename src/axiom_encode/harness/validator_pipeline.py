@@ -1473,6 +1473,7 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
         cleaned_lines.append(_STRUCTURAL_SOURCE_PREFIX_PATTERN.sub("", normalized_line))
 
     cleaned = "\n".join(cleaned_lines)
+    cleaned = re.sub(r"\[[^\]]*\d[^\]]*\]", " ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_MANUAL_VOLUME_PATTERN.sub(" ", cleaned)
     cleaned = _STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN.sub(" ", cleaned)
@@ -4022,6 +4023,25 @@ class ValidatorPipeline:
             )
         return env
 
+    def _rulespec_compile_env(self) -> dict[str, str]:
+        """Build an env that can resolve canonical RuleSpec repo imports."""
+        env = self._pythonpath_env()
+        roots = [self.policy_repo_path, self.policy_repo_path.parent]
+        existing_roots = env.get("AXIOM_RULE_REPO_ROOTS", "")
+        if existing_roots:
+            roots.extend(
+                Path(root) for root in existing_roots.split(os.pathsep) if root
+            )
+        deduped_roots: list[str] = []
+        seen: set[str] = set()
+        for root in roots:
+            raw = str(root)
+            if raw and raw not in seen:
+                seen.add(raw)
+                deduped_roots.append(raw)
+        env["AXIOM_RULE_REPO_ROOTS"] = os.pathsep.join(deduped_roots)
+        return env
+
     def validate(
         self, rulespec_file: Path, skip_reviewers: bool = False
     ) -> PipelineResult:
@@ -4266,6 +4286,7 @@ class ValidatorPipeline:
             text=True,
             timeout=60,
             cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
+            env=self._rulespec_compile_env(),
         )
         if result.returncode != 0:
             return result, None

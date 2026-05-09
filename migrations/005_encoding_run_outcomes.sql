@@ -3,13 +3,15 @@
 ALTER TABLE encodings.encoding_runs
     ADD COLUMN IF NOT EXISTS outcome JSONB NOT NULL DEFAULT '{}'::jsonb;
 
+DROP FUNCTION IF EXISTS encodings.get_encoding_runs(INTEGER, INTEGER);
+
 CREATE OR REPLACE FUNCTION encodings.get_encoding_runs(
     limit_count INTEGER DEFAULT 100,
     offset_count INTEGER DEFAULT 0
 )
 RETURNS TABLE (
     id TEXT,
-    timestamp TIMESTAMPTZ,
+    "timestamp" TIMESTAMPTZ,
     citation TEXT,
     iterations JSONB,
     outcome JSONB,

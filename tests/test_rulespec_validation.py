@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,26 @@ from axiom_encode.oracles.policyengine.registry import (
 
 AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
 AXIOM_RULES_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules"
+
+
+def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
+    repo_parent = tmp_path / "repos"
+    policy_repo = repo_parent / "rules-us-ny"
+    policy_repo.mkdir(parents=True)
+    existing_root = tmp_path / "existing-roots"
+    monkeypatch.setenv("AXIOM_RULE_REPO_ROOTS", str(existing_root))
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=repo_parent / "axiom-rules",
+        enable_oracles=False,
+    )
+
+    roots = pipeline._rulespec_compile_env()["AXIOM_RULE_REPO_ROOTS"].split(
+        os.pathsep
+    )
+    assert roots[:2] == [str(policy_repo), str(repo_parent)]
+    assert str(existing_root) in roots
 
 
 def _mock_corpus_source_text(monkeypatch, text: str) -> None:

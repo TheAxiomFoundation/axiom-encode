@@ -650,6 +650,56 @@ def test_eval_result_payload_round_trips_prompt_digests():
 
 
 class TestEvaluateArtifact:
+    def test_validates_generated_artifact_inside_policy_repo_overlay(self, tmp_path):
+        policy_repo = tmp_path / "repos" / "rules-us-ny"
+        policy_repo.mkdir(parents=True)
+        generated = (
+            tmp_path
+            / "out"
+            / "openai-gpt-5.5"
+            / "regulations"
+            / "18-nycrr"
+            / "387"
+            / "12"
+            / "f"
+            / "3"
+            / "v"
+            / "c.yaml"
+        )
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("c.test.yaml").write_text("[]\n")
+        seen_targets: list[tuple[tuple[str, ...], str, bool]] = []
+
+        def fake_compile(_pipeline, path):
+            seen_targets.append(
+                (path.parts, path.name, path.with_name("c.test.yaml").exists())
+            )
+            return ValidationResult("compile", passed=True)
+
+        def fake_ci(_pipeline, path):
+            seen_targets.append(
+                (path.parts, path.name, path.with_name("c.test.yaml").exists())
+            )
+            return ValidationResult("ci", passed=True)
+
+        with (
+            patch.object(ValidatorPipeline, "_run_compile_check", fake_compile),
+            patch.object(ValidatorPipeline, "_run_ci", fake_ci),
+        ):
+            evaluate_artifact(
+                rulespec_file=generated,
+                policy_repo_root=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules",
+                source_text="No numeric values.",
+            )
+
+        assert len(seen_targets) == 2
+        for parts, name, companion_test_exists in seen_targets:
+            assert "rules-us-ny" in parts
+            assert name == "c.yaml"
+            assert companion_test_exists
+
     def test_uses_fallback_source_text_for_grounding(self, tmp_path):
         rulespec_file = tmp_path / "24" / "a.yaml"
         rulespec_file.parent.mkdir(parents=True)
@@ -747,6 +797,44 @@ rules:
             "appears 2 time(s), but only 1 named scalar definition(s)" in issue
             for issue in metrics.ci_issues
         )
+
+    def test_ignores_bracketed_superseded_numeric_source_text(self, tmp_path):
+        rulespec_file = tmp_path / "example.yaml"
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: As of October 1, [2024] 2025, the allowance is [$31] $32.
+rules:
+  - name: telephone_standard_allowance_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2025-10-01'
+        formula: 32
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules"),
+                source_text=(
+                    "As of October 1, [2024] 2025, the allowance is [$31] $32."
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert not any("31" in issue for issue in metrics.numeric_occurrence_issues)
 
     def test_accepts_pence_threshold_grounded_as_decimal_gbp(self, tmp_path):
         rulespec_file = tmp_path / "example.yaml"
@@ -3941,6 +4029,57 @@ class TestRepoAugmentedContext:
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
+    def test_prepare_eval_workspace_copies_existing_corpus_target(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "rules-us-ny"
+        target_file = (
+            policy_repo_root / "regulations" / "18-nycrr" / "387" / "12" / "f.yaml"
+        )
+        target_file.parent.mkdir(parents=True)
+        target_file.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: existing_provenance\n"
+            "    kind: source_relation\n"
+        )
+        target_file.with_name("f.test.yaml").write_text("- name: existing_case\n")
+
+        runner = parse_runner_spec("openai:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="us-ny/regulation/18-nycrr/387/12/f",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="Existing NY regulation text.",
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(target_file)]["kind"] == "existing_target"
+        assert copied_sources[str(target_file)]["import_path"] == (
+            "regulations/18-nycrr/387/12/f"
+        )
+        assert (
+            copied_sources[str(target_file.with_name("f.test.yaml"))]["kind"]
+            == "implementation_test_context"
+        )
+
+        prompt = _build_eval_prompt(
+            "us-ny/regulation/18-nycrr/387/12/f",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="f.yaml",
+            runner_backend="openai",
+        )
+        assert "existing_target" in prompt
+        assert "existing_provenance" in prompt
+        assert "preserve the legal/provenance edge" in prompt
+
     def test_select_context_files_excludes_target(self, tmp_path):
         policy_repo_root = tmp_path / "rules-us"
         section_dir = policy_repo_root / "statutes" / "26" / "24"
@@ -4418,6 +4557,9 @@ class TestSourceEval:
         prompt = mock_prompt_eval.call_args.args[2]
         assert ".test.yaml" in prompt
         assert "=== FILE:" in prompt
+        assert mock_evaluate_artifact.call_args.kwargs["policy_repo_root"] == (
+            policy_repo_root
+        )
 
     def test_run_source_eval_passes_oracle_settings_to_evaluate_artifact(
         self, tmp_path

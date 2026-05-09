@@ -198,14 +198,24 @@ def _run_has_issues(run: "EncodingRun") -> bool:
     reviews = getattr(review_results, "reviews", None)
     if isinstance(reviews, list):
         for review in reviews:
-            for field in ("critical_issues", "important_issues"):
-                issues = getattr(review, field, None)
-                if isinstance(issues, list) and issues:
+            critical_issues = getattr(review, "critical_issues", None)
+            if isinstance(critical_issues, list) and critical_issues:
+                return True
+            important_issues = getattr(review, "important_issues", None)
+            if isinstance(important_issues, list):
+                if any(
+                    not _is_non_blocking_review_note(issue)
+                    for issue in important_issues
+                ):
                     return True
             if getattr(review, "passed", True) is False:
                 return True
 
     return False
+
+
+def _is_non_blocking_review_note(issue: object) -> bool:
+    return isinstance(issue, str) and issue.lstrip().startswith("[non-blocking]")
 
 
 def _run_issue_note(run: "EncodingRun") -> str | None:

@@ -1993,8 +1993,10 @@ def cmd_encode(args):
     print(f"Mode: {args.mode}")
     print()
     print(f"{result.citation} [{result.runner}]")
+    apply_requested = getattr(args, "apply", False) is True
+    success_label = "standalone_success" if apply_requested else "success"
     print(
-        f"  success={result.success} duration_ms={result.duration_ms} cost_est=${result.estimated_cost_usd or 0:.4f}"
+        f"  {success_label}={result.success} duration_ms={result.duration_ms} cost_est=${result.estimated_cost_usd or 0:.4f}"
     )
     print(
         f"  tokens in={result.input_tokens} out={result.output_tokens} cache_read={result.cache_read_tokens} reasoning_out={result.reasoning_output_tokens}"
@@ -2009,7 +2011,6 @@ def cmd_encode(args):
     print(f"  trace={result.trace_file}")
     print(f"  manifest={result.context_manifest_file}")
     db_path = getattr(args, "db", DEFAULT_DB)
-    apply_requested = getattr(args, "apply", False) is True
     logged_run = _log_eval_result(
         result,
         db_path=db_path,
@@ -2063,6 +2064,10 @@ def cmd_encode(args):
         run=logged_run,
         outcome=outcome,
     )
+    if apply_requested:
+        print(
+            f"  outcome={outcome['status']} final_success={outcome['final_success']}"
+        )
     if repair_manifest and repair_manifest.exists():
         print(f"  repair_manifest={repair_manifest}")
     if getattr(args, "sync", True) is True:

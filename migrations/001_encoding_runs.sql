@@ -54,7 +54,7 @@ CREATE OR REPLACE FUNCTION encodings.get_encoding_runs(
 )
 RETURNS TABLE (
     id TEXT,
-    timestamp TIMESTAMPTZ,
+    "timestamp" TIMESTAMPTZ,
     citation TEXT,
     iterations JSONB,
     outcome JSONB,

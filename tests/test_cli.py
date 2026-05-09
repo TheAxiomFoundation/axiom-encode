@@ -2518,7 +2518,7 @@ class TestCmdEncode:
         ]
 
     def test_encode_apply_records_final_success_when_overlay_apply_passes(
-        self, tmp_path
+        self, capsys, tmp_path
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -2545,6 +2545,9 @@ class TestCmdEncode:
             cmd_encode(args)
 
         assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "standalone_success=False" in output
+        assert "outcome=apply_applied final_success=True" in output
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.iterations[0].success is False
         assert run.outcome["standalone_validation_success"] is False

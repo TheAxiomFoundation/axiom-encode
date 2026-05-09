@@ -212,6 +212,47 @@ class TestSyncRunToSupabase:
             == "Standalone validation failed; overlay apply succeeded."
         )
 
+    def test_final_apply_with_only_non_blocking_review_notes_has_no_issues(self):
+        mock_run = MagicMock()
+        mock_run.id = "test-123"
+        mock_run.timestamp = datetime.now()
+        mock_run.citation = "NY SNAP telephone standard"
+        mock_run.file_path = "policies/example.yaml"
+        mock_run.source_text = "source text"
+        mock_run.rulespec_content = "format: rulespec/v1"
+        mock_run.outcome = {
+            "standalone_validation_success": True,
+            "apply_requested": True,
+            "overlay_validation_success": True,
+            "apply_success": True,
+            "final_success": True,
+            "status": "apply_applied",
+        }
+        review = MagicMock()
+        review.critical_issues = []
+        review.important_issues = ["[non-blocking] add one more edge case"]
+        review.passed = True
+        mock_run.review_results = MagicMock(
+            reviews=[review],
+            policyengine_match=None,
+            taxsim_match=None,
+        )
+        mock_run.iterations = []
+
+        mock_client = MagicMock()
+        mock_client.schema.return_value.table.return_value.upsert.return_value.execute.return_value = MagicMock(
+            data=[{"id": "test-123"}]
+        )
+
+        result = sync_run_to_supabase(mock_run, "reviewer_agent", client=mock_client)
+
+        assert result is True
+        upsert_payload = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args.args[0]
+        )
+        assert upsert_payload["has_issues"] is False
+        assert "[non-blocking] add one more edge case" in upsert_payload["note"]
+
     def test_retries_without_outcome_when_remote_schema_rejects_it(self):
         mock_run = MagicMock()
         mock_run.id = "test-123"
