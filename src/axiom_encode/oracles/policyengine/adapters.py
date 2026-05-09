@@ -167,6 +167,7 @@ PE_US_VAR_ADAPTERS = (
                 "snap_excess_medical_expense_deduction",
                 "snap_excess_medical_expense_deduction",
             ),
+            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
         ),
         derived_spm_overrides=(
             (
@@ -386,6 +387,7 @@ PE_US_VAR_ADAPTERS = (
                 "snap_excess_medical_expense_deduction",
                 "snap_excess_medical_expense_deduction",
             ),
+            ("snap_utility_allowance_type", "snap_utility_allowance_type"),
         ),
         derived_spm_overrides=(
             (

@@ -704,6 +704,12 @@ mappings:
     mapping_type: not_comparable
     rationale: Colorado initial-month proration output; PolicyEngine SNAP does not expose Colorado initial-month proration.
 
+  - legal_id_prefix: us-ny:regulations/18-nycrr/387/14/a/1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: New York initial-month proration and final allotment outputs; PolicyEngine SNAP does not expose New York legal proration outputs.
+
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_joint_threshold
     country: us
     program: tax
@@ -1169,6 +1175,12 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: New York OTDA regulation outputs are source-specific state SNAP mechanics unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us-ny:policies/otda/snap/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: New York SNAP composition outputs assemble federal SNAP rules and New York utility choices; exact oracle comparisons should target imported provision-level outputs unless a specific composition output is mapped separately.
 
   - legal_id_prefix: us:policies/usda/snap/fy-2026-cola/
     country: us

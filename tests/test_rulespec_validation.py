@@ -15,6 +15,7 @@ from axiom_encode.harness.validator_pipeline import (
     _infer_us_state_code_from_rulespec_path,
     _normalize_us_tax_filing_status,
     _policyengine_period_string,
+    _policyengine_expected_float,
     _policyengine_us_snap_input_aliases,
     _tax_unit_member_aged_flags,
     extract_embedded_source_text,
@@ -751,6 +752,12 @@ def test_oracle_test_extraction_preserves_policyengine_only_inputs(tmp_path):
     }
 
 
+def test_policyengine_expected_float_normalizes_judgment_expectations():
+    assert _policyengine_expected_float("holds") == 1.0
+    assert _policyengine_expected_float("not_holds") == 0.0
+    assert _policyengine_expected_float(209) == 209.0
+
+
 def test_oracle_test_extraction_preserves_relation_list_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -917,6 +924,16 @@ def test_policyengine_registry_is_legal_id_keyed():
         ny_phone_allowance_mapping.policyengine_variable
         == "snap_individual_utility_allowance"
     )
+    ny_composition_mapping = registry.mapping_for_legal_id(
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_allotment",
+        country="us",
+    )
+    assert ny_composition_mapping.mapping_type == "not_comparable"
+    ny_initial_proration_mapping = registry.mapping_for_legal_id(
+        "us-ny:regulations/18-nycrr/387/14/a/1#snap_initial_month_prorated_allotment",
+        country="us",
+    )
+    assert ny_initial_proration_mapping.mapping_type == "not_comparable"
     assert (
         registry.mapping_for_legal_id(
             "us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_telephone_allowance_eligible",

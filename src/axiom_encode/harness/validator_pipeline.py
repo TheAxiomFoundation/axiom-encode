@@ -1028,6 +1028,17 @@ def _policyengine_us_snap_input_aliases(inputs: dict[str, Any]) -> dict[str, Any
     return {key: value for key, value in aliases.items() if key not in inputs}
 
 
+def _policyengine_expected_float(expected: Any) -> float:
+    """Normalize RuleSpec expected values for numeric PE result comparison."""
+    if isinstance(expected, str):
+        normalized = expected.strip().lower()
+        if normalized == "holds":
+            return 1.0
+        if normalized == "not_holds":
+            return 0.0
+    return float(expected)
+
+
 def _normalize_us_tax_filing_status(value: Any) -> str:
     """Normalize Axiom/RuleSpec filing-status test inputs to PE-US enum keys."""
     numeric_statuses = {
@@ -6317,10 +6328,15 @@ Output ONLY valid JSON:
                     "snap_limited_utility_allowance",
                     "snap_individual_utility_allowance",
                 }:
-                    inputs_with_period.setdefault(
-                        "snap_utility_allowance_type",
-                        _default_snap_utility_type_for_rule(pe_var),
-                    )
+                    default_utility_type = _default_snap_utility_type_for_rule(pe_var)
+                    if (
+                        inputs_with_period.get("snap_utility_allowance_type")
+                        in (None, "NONE")
+                        and default_utility_type is not None
+                    ):
+                        inputs_with_period["snap_utility_allowance_type"] = (
+                            default_utility_type
+                        )
                     if source_jurisdiction:
                         inputs_with_period.setdefault(
                             "snap_utility_region_str",
@@ -6378,7 +6394,7 @@ Output ONLY valid JSON:
                     pe_value = float(parts[1])
                     if mapping and mapping.result_multiplier is not None:
                         pe_value *= mapping.result_multiplier
-                    expected_float = float(expected)
+                    expected_float = _policyengine_expected_float(expected)
                     match = self._values_match(pe_value, expected_float, tolerance=0.02)
                     if match:
                         matches += 1
