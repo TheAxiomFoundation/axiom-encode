@@ -380,8 +380,11 @@ mappings:
   - legal_id: us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the employee Medicare payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.rate.employee
+    period: year
+    comparison: rate
+    rationale: Same statutory employee Medicare payroll tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3101/b/1#hospital_insurance_wage_tax
     country: us
@@ -481,14 +484,22 @@ mappings:
   - legal_id: us:statutes/26/3111/b#hospital_insurance_employer_tax_rate
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine stores the employer Medicare payroll tax rate as parameter data rather than exposing this statutory parameter as a variable.
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.rate.employer
+    period: year
+    comparison: rate
+    rationale: Same statutory employer Medicare payroll tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/3111/b#hospital_insurance_employer_tax
     country: us
     program: tax
-    mapping_type: not_comparable
-    rationale: PolicyEngine exposes the adjacent employer_medicare_tax variable, but its employer Medicare rate parameter is unavailable for the current 1986 RuleSpec tests.
+    mapping_type: direct_variable
+    policyengine_variable: employer_medicare_tax
+    entity: person
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same employer-side Medicare payroll tax on wages for current-year oracle cases.
 
   - legal_id: us:statutes/26/3111/c#employer_wages_exempt_under_section_3111_c
     country: us

@@ -812,6 +812,31 @@ def test_policyengine_registry_is_legal_id_keyed():
         == "gov.irs.payroll.social_security.rate.employee"
     )
     assert oasdi_rate_mapping.comparable is True
+    employee_medicare_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate",
+        country="us",
+    )
+    assert employee_medicare_rate_mapping.mapping_type == "parameter_value"
+    assert (
+        employee_medicare_rate_mapping.policyengine_parameter
+        == "gov.irs.payroll.medicare.rate.employee"
+    )
+    employer_medicare_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3111/b#hospital_insurance_employer_tax_rate",
+        country="us",
+    )
+    assert employer_medicare_rate_mapping.mapping_type == "parameter_value"
+    assert (
+        employer_medicare_rate_mapping.policyengine_parameter
+        == "gov.irs.payroll.medicare.rate.employer"
+    )
+    assert (
+        registry.mapping_for_legal_id(
+            "us:statutes/26/3111/b#hospital_insurance_employer_tax",
+            country="us",
+        ).policyengine_variable
+        == "employer_medicare_tax"
+    )
     assert (
         registry.mapping_for_legal_id(
             "us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount",
