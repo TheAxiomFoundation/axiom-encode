@@ -19,6 +19,15 @@ Hard requirements:
   explicit imported RuleSpec export. If you cannot build that proof, stop and
   emit a typed request such as `missing_claim`, `bundle_expansion_request`,
   `corpus_defect`, `segmentation_fix`, `stale_claim`, or `conflicting_claims`.
+- For imported proof support, put `import:` at the proof atom top level
+  (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
+  do not put imported RuleSpec targets under `source:`. Import proof atoms must
+  include `import.target`, `import.output`, and `import.hash` with a listed
+  `sha256:` hash; if no `sha256:` hash is provided, do not emit an import proof
+  atom.
+- Proof atom `kind` must be one of: `amount`, `condition`, `definition`,
+  `default`, `effective_period`, `exception`, `formula`, `import`, `ordering`,
+  `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.
 - Do not emit `source_url`; RuleSpec validation reads normalized corpus provisions,
   not raw PDFs or web pages.
 - Use `rules:` as a list of rule objects.
@@ -28,9 +37,50 @@ Hard requirements:
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
 - Use `kind: derived` for entity-scoped outputs.
+- If source text is a broad application, furnishing, administrative duty, or
+  purpose clause without a computable policy condition, preserve it in
+  `module.summary` but do not create an executable derived output just to
+  paraphrase it. Encode only the concrete conditions, exceptions, parameters,
+  and relations that affect computation.
+- Do not create an output for administrative clauses like "assistance shall be
+  furnished to all eligible households who make application." Unless the source
+  defines a calculable benefit, amount, condition, or exception, keep that text
+  documentary in `module.summary`.
+- Do not encode a pure pass-through rule whose formula is only one local fact.
+  If the source only names a preexisting fact without changing it, reference
+  the upstream rule when available or leave the phrase documentary.
+- If the target is an aggregate parent provision and child-fragment files already
+  encode subparagraphs, import those child outputs and compose them. Do not
+  redefine the child parameters, helper rules, or copied executable outputs in
+  the parent file.
+- If copied context listings include exported symbols as `import_target#name`,
+  use those exact references in `imports:` and proof atoms when composing from
+  context.
+- In formulas, reference imported exports by their bare local rule name after
+  adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
+- Do not create standalone small-number parameters just to restate prose such
+  as "one-time" or "more than one consecutive month" when the number only
+  qualifies a local factual condition. Encode the whole source-stated condition
+  as a fact predicate or derived condition unless the scalar is an independent
+  reusable amount, rate, threshold, cap, or limit.
+- Do not append citation or file suffixes like `_2014_a` to new local rule
+  names; the file path is already the legal ID. Keep names concise and
+  semantic unless a copied public interface must be preserved.
+- Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
+  `_d_2_C`, or `_2014_a`, are invalid.
+- Rule names must not collide with copied sibling files. For subparagraph/list
+  item child files, make the principal output name semantic to that branch
+  (for example `care_responsibility_exemption_applies`), not only the shared
+  parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
+- For subparagraph/list item child files, do not preserve an existing copied
+  target name that mainly describes the shared parent outcome rather than this
+  branch's source-stated condition; treat it as stale and rename it.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility,
   availability, applicability, entitlement, and other holds/not-holds style
   outputs, especially when the formula contains `not`.
+- Do not create derived `dtype: Boolean` helper rules with logical formulas.
+  Use `dtype: Judgment` for derived legal predicates, or leave simple local
+  facts as factual `#input.<fact>` keys consumed by formulas and tests.
 - Use `kind: data_relation` for executable runtime predicates such as
   `member_of_household`. Put arity under `data_relation.arity`.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If
@@ -80,6 +130,32 @@ Hard requirements:
   inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys
   referenced directly by formulas.
+- Every test case for a local derived formula must assign every local factual
+  `#input.<fact>` referenced by that formula, including facts that are false in
+  the case. Missing false inputs make the executable test invalid.
+- For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
+  companion tests for the positive path and the carve-out path so exclusions
+  cannot be silently dropped.
+- If a formula negates multiple exception predicates, include a separate
+  companion test for each predicate that sets that exception input true and
+  expects the directly affected Judgment rule to be `not_holds`.
+- Do not collapse a list of cited exceptions or cross-reference carve-outs into
+  one aggregate fact such as `sections_..._do_not_preclude...`. Encode or
+  import each cited exception separately, then combine them in a helper if
+  useful.
+- When an exception, exclusion, `unless`, or `notwithstanding` clause cites
+  another legal section or same-section subsection, do not create a local
+  `section_...` or `subsection_...` placeholder input for that cited source.
+  Import the cited RuleSpec source when it exists; if that upstream source is
+  required but unavailable, stop with a missing-upstream/dependency request
+  rather than encoding an opaque local fact.
+- If the cited same-section subsection is supplied in context as a RuleSpec
+  file, add an `imports:` entry for that file and reference its exported rule;
+  do not summarize the cited subsection into a local fact like
+  `person_meets_...requirements`.
+- Do not copy the body of a cited cross-reference provision into this module's
+  `summary` or re-encode that cited provision locally. Keep this module scoped
+  to the requested citation and import the cited provision instead.
 - If context files import the target file or reference target outputs, preserve
   the target file's public output names unless the source text proves the old
   interface was legally wrong. Do not rename an exported value just because a
@@ -112,6 +188,9 @@ Hard requirements:
   eligibility test.
 - Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==`, `and`, and `or`.
+- Formula strings must use bare identifiers only. If an imported rule is listed
+  as `us:statutes/...#example_rule`, add that exact target to `imports:` but
+  reference `example_rule` inside formula text.
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar
   formulas may use `if condition: value else: other`; do not use Python ternary
   syntax. Judgment formulas should usually be boolean expressions, not `if`
@@ -121,6 +200,12 @@ Hard requirements:
   compact `not A and not B` line.
 - Formula strings reference indexed parameter tables with `table_name[index_expr]`.
 - Every substantive numeric literal must be grounded in the supplied source text unless it is -1, 0, 1, 2, or 3.
+- Every substantive numeric occurrence in `./source.txt` must be represented by
+  a named scalar definition when it is a legal amount, rate, threshold, cap, or
+  limit.
+- If the same numeric value appears in separate numbered exceptions,
+  subparagraphs, or otherwise materially different legal roles, give those roles
+  distinct named scalars; reuse a named scalar only for the same legal role.
 
 Minimal shape:
 

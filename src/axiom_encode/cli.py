@@ -2036,22 +2036,30 @@ def cmd_encode(args):
     repair_manifest = None
     apply_passed = False
     if apply_requested:
-        can_apply, apply_issues, supplemental_files = (
-            _validate_generated_encoding_in_policy_overlay(
-                result,
-                output_root=args.output,
-                policy_repo_path=policy_repo_path,
-                axiom_rules_path=axiom_rules_path,
-            )
-        )
-        outcome["overlay_validation_success"] = bool(can_apply)
-        if not can_apply:
-            detail = apply_issues[0] if apply_issues else "generation_failed"
+        if not result.success:
+            detail = f"standalone_failed: {result.error or 'validation failed'}"
+            outcome["overlay_validation_success"] = False
             outcome["status"] = "apply_blocked_validation"
             outcome["apply_error"] = detail
             outcome["final_success"] = False
             print(f"  apply=blocked_validation:{detail}")
-        if can_apply:
+        else:
+            can_apply, apply_issues, supplemental_files = (
+                _validate_generated_encoding_in_policy_overlay(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                )
+            )
+            outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                detail = apply_issues[0] if apply_issues else "generation_failed"
+                outcome["status"] = "apply_blocked_validation"
+                outcome["apply_error"] = detail
+                outcome["final_success"] = False
+                print(f"  apply=blocked_validation:{detail}")
+        if result.success and can_apply:
             try:
                 applied = _apply_generated_encoding_result(
                     result,
@@ -2355,10 +2363,23 @@ def _validate_generated_encoding_in_policy_overlay(
             policy_repo_path=overlay_repo,
             axiom_rules_path=axiom_rules_path,
             enable_oracles=False,
+            require_policy_proofs=True,
         )
         dependents = _find_rulespec_dependents(overlay_repo, relative_output)
+        dependent_pipeline = (
+            ValidatorPipeline(
+                policy_repo_path=overlay_repo,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+            )
+            if dependents
+            else pipeline
+        )
         validations = _validate_overlay_files(
-            pipeline, overlay_target=overlay_target, dependents=dependents
+            pipeline,
+            dependent_pipeline=dependent_pipeline,
+            overlay_target=overlay_target,
+            dependents=dependents,
         )
         supplemental_files: dict[Path, str] = {}
         if not all(validation.all_passed for _, validation in validations):
@@ -2369,7 +2390,10 @@ def _validate_generated_encoding_in_policy_overlay(
             )
             if changed_tests:
                 validations = _validate_overlay_files(
-                    pipeline, overlay_target=overlay_target, dependents=dependents
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
                 )
                 supplemental_files = {
                     path.relative_to(overlay_repo): path.read_text()
@@ -2389,7 +2413,11 @@ def _validate_generated_encoding_in_policy_overlay(
 
 
 def _validate_overlay_files(
-    pipeline: ValidatorPipeline, *, overlay_target: Path, dependents: list[Path]
+    pipeline: ValidatorPipeline,
+    *,
+    dependent_pipeline: ValidatorPipeline,
+    overlay_target: Path,
+    dependents: list[Path],
 ) -> list[tuple[Path, object]]:
     validations = [
         (overlay_target, pipeline.validate(overlay_target, skip_reviewers=True))
@@ -2397,7 +2425,10 @@ def _validate_overlay_files(
     if validations[0][1].all_passed:
         for dependent in dependents:
             validations.append(
-                (dependent, pipeline.validate(dependent, skip_reviewers=True))
+                (
+                    dependent,
+                    dependent_pipeline.validate(dependent, skip_reviewers=True),
+                )
             )
     return validations
 

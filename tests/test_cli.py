@@ -2517,12 +2517,58 @@ class TestCmdEncode:
             "encode_issue",
         ]
 
-    def test_encode_apply_records_final_success_when_overlay_apply_passes(
+    def test_encode_apply_blocks_failed_standalone_validation_before_overlay(
         self, capsys, tmp_path
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
         result = self._make_eval_result(False)
+        output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        result.output_file = str(output_file)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+            ) as mock_overlay,
+            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "standalone_success=False" in output
+        assert "apply=blocked_validation:standalone_failed: failed" in output
+        mock_overlay.assert_not_called()
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.iterations[0].success is False
+        assert run.outcome["standalone_validation_success"] is False
+        assert run.outcome["overlay_validation_success"] is False
+        assert run.outcome["apply_success"] is False
+        assert run.outcome["final_success"] is False
+        assert run.outcome["status"] == "apply_blocked_validation"
+        assert run.outcome["apply_error"] == "standalone_failed: failed"
+        assert run.success is False
+        assert output_file.with_suffix(".repair.json").exists()
+        events = EncodingDB(args.db).get_session_events(run.session_id)
+        assert [event.event_type for event in events] == [
+            "encode_request",
+            "encode_result",
+            "encode_outcome",
+            "encode_issue",
+        ]
+
+    def test_encode_apply_records_final_success_when_overlay_apply_passes(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(True)
         output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
         output_file.parent.mkdir(parents=True)
         output_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -2546,11 +2592,11 @@ class TestCmdEncode:
 
         assert exc_info.value.code == 0
         output = capsys.readouterr().out
-        assert "standalone_success=False" in output
+        assert "standalone_success=True" in output
         assert "outcome=apply_applied final_success=True" in output
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
-        assert run.iterations[0].success is False
-        assert run.outcome["standalone_validation_success"] is False
+        assert run.iterations[0].success is True
+        assert run.outcome["standalone_validation_success"] is True
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["apply_success"] is True
         assert run.outcome["final_success"] is True
@@ -2817,6 +2863,39 @@ rules:
         assert len(issues) == 1
         assert issues[0].startswith("regulations/18-nycrr/387/12/f/3/v/c.yaml: ")
         assert "dropped existing source_relation" in issues[0]
+
+    def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rules-us"
+        generated = output_root / "codex-test-model" / "statutes/7/2014/a.yaml"
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir()
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        seen_require_policy_proofs: list[bool] = []
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                seen_require_policy_proofs.append(
+                    bool(kwargs.get("require_policy_proofs"))
+                )
+
+            def validate(self, _path, *, skip_reviewers):
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules",
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
+        assert seen_require_policy_proofs == [True]
 
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
         repo = tmp_path / "rules-us-ny"

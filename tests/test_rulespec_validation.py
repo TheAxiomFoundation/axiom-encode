@@ -22,10 +22,20 @@ from axiom_encode.harness.validator_pipeline import (
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
+    extract_numeric_occurrences_from_text,
+    find_aggregate_exception_predicate_issues,
+    find_broad_application_passthrough_issues,
+    find_copied_cross_reference_source_issues,
     find_deprecated_source_url_issues,
+    find_exception_test_coverage_issues,
+    find_formula_absolute_reference_issues,
+    find_missing_same_section_subsection_import_issues,
+    find_rule_name_path_suffix_issues,
+    find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
     find_source_verification_issues,
+    find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
 )
@@ -55,6 +65,69 @@ def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
     roots = pipeline._rulespec_compile_env()["AXIOM_RULE_REPO_ROOTS"].split(os.pathsep)
     assert roots[:2] == [str(policy_repo), str(repo_parent)]
     assert str(existing_root) in roots
+
+
+def test_formula_absolute_reference_rejects_import_targets_in_formula():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+imports:
+  - us:statutes/7/2015/d/2/A#title_iv_work_registration_exemption_applies
+rules:
+  - name: person_exempt_from_paragraph_1_work_requirements
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          us:statutes/7/2015/d/2/A#title_iv_work_registration_exemption_applies
+"""
+
+    issues = find_formula_absolute_reference_issues(content)
+
+    assert issues == [
+        "Formula absolute import reference: "
+        "`person_exempt_from_paragraph_1_work_requirements` contains "
+        "`us:statutes/7/2015/d/2/A#title_iv_work_registration_exemption_applies` "
+        "inside a formula. Add that target to `imports:` and reference the "
+        "imported rule by bare local name in formula text."
+    ]
+
+
+def test_same_section_subsection_import_accepts_transitive_child_import(tmp_path):
+    policy_repo = tmp_path / "rules-us"
+    child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        "format: rulespec/v1\n"
+        "imports:\n"
+        "  - us:statutes/7/2015/e\n"
+        "rules: []\n"
+    )
+    parent = policy_repo / "statutes" / "7" / "2015" / "d" / "2.yaml"
+    parent.parent.mkdir(parents=True, exist_ok=True)
+    parent.write_text("placeholder\n")
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A person shall be exempt if the person is a student, except that a person
+    enrolled in an institution of higher education is ineligible unless the
+    person meets the requirements of subsection (e) of this section.
+imports:
+  - us:statutes/7/2015/d/2/C
+rules: []
+"""
+
+    issues = find_missing_same_section_subsection_import_issues(
+        content,
+        rules_file=parent,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == []
 
 
 def _mock_corpus_source_text(monkeypatch, text: str) -> None:
@@ -2071,6 +2144,26 @@ rules:
     )
 
 
+def test_rulespec_grounding_accepts_cardinal_words_above_twelve():
+    content = """format: rulespec/v1
+rules:
+  - name: minimum_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 30
+"""
+
+    assert (
+        find_ungrounded_numeric_issues(
+            content,
+            source_text="Employed a minimum of thirty hours per week.",
+        )
+        == []
+    )
+
+
 def test_rulespec_grounding_treats_household_size_match_keys_as_structural():
     content = """format: rulespec/v1
 module:
@@ -2137,6 +2230,647 @@ rules:
         )
         == []
     )
+
+
+def test_numeric_occurrence_extraction_ignores_nested_subsection_references():
+    text = (
+        "Notwithstanding any other provisions except subsections (b), (d)(2), "
+        "(g), and (r) of section 2015 and section 2012(m)(4). "
+        "The criteria are comparable to those under subsection (c)(2). "
+        "A controlled substance is defined in section 802 of title 21."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == []
+
+
+def test_numeric_occurrence_extraction_ignores_parenthetical_subdivision_labels():
+    text = (
+        "(b) Fraud and misrepresentation; disqualification penalties. "
+        "(1) Any person shall become ineligible "
+        "(i) for a period of 1 year upon the first occasion."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [1.0]
+
+
+def test_broad_application_passthrough_rejects_furnishing_output():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Assistance under this program shall be furnished to all eligible households who make application for such participation.
+rules:
+  - name: snap_assistance_furnished_to_applicant_household
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: |-
+          household_is_eligible_to_participate_in_snap
+          and household_makes_application_for_snap_participation
+"""
+
+    issues = find_broad_application_passthrough_issues(content)
+
+    assert len(issues) == 1
+    assert "Broad application pass-through" in issues[0]
+    assert "snap_assistance_furnished_to_applicant_household" in issues[0]
+
+
+def test_exception_test_coverage_requires_each_negated_exception_input():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Notwithstanding section 1 and section 2, qualifying households shall be eligible.
+rules:
+  - name: eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_qualifies
+          and not section_1_exception_applies
+          and not section_2_exception_applies
+"""
+    test_cases = [
+        {
+            "name": "section_1_positive_companion",
+            "input": {
+                "us:statutes/7/2014/a#input.household_qualifies": True,
+                "us:statutes/7/2014/a#input.section_1_exception_applies": False,
+                "us:statutes/7/2014/a#input.section_2_exception_applies": False,
+            },
+            "output": {
+                "us:statutes/7/2014/a#eligibility": "holds",
+            },
+        },
+        {
+            "name": "section_1_blocks",
+            "input": {
+                "us:statutes/7/2014/a#input.household_qualifies": True,
+                "us:statutes/7/2014/a#input.section_1_exception_applies": True,
+                "us:statutes/7/2014/a#input.section_2_exception_applies": False,
+            },
+            "output": {
+                "us:statutes/7/2014/a#eligibility": "not_holds",
+            },
+        }
+    ]
+
+    issues = find_exception_test_coverage_issues(content, test_cases)
+
+    assert len(issues) == 1
+    assert "section_2_exception_applies" in issues[0]
+    assert "section_1_exception_applies" not in issues[0]
+
+
+def test_exception_test_coverage_rejects_vacuous_blocking_test():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Except section 1, qualifying households shall be eligible.
+rules:
+  - name: eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_qualifies
+          and not section_1_exception_applies
+"""
+    test_cases = [
+        {
+            "name": "positive_path",
+            "input": {
+                "us:statutes/7/2014/a#input.household_qualifies": True,
+                "us:statutes/7/2014/a#input.section_1_exception_applies": False,
+            },
+            "output": {
+                "us:statutes/7/2014/a#eligibility": "holds",
+            },
+        },
+        {
+            "name": "vacuous_exception_case",
+            "input": {
+                "us:statutes/7/2014/a#input.household_qualifies": False,
+                "us:statutes/7/2014/a#input.section_1_exception_applies": True,
+            },
+            "output": {
+                "us:statutes/7/2014/a#eligibility": "not_holds",
+            },
+        },
+    ]
+
+    issues = find_exception_test_coverage_issues(content, test_cases)
+
+    assert len(issues) == 1
+    assert "section_1_exception_applies" in issues[0]
+
+
+def test_exception_test_coverage_ignores_defined_exception_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A household is ineligible unless an exception applies.
+rules:
+  - name: exception_applies
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: exception_fact
+  - name: ineligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_subject_to_rule
+          and not exception_applies
+"""
+    test_cases = [
+        {
+            "name": "no_exception",
+            "input": {
+                "us:statutes/7/2015/e#input.exception_fact": False,
+                "us:statutes/7/2015/e#input.household_subject_to_rule": True,
+            },
+            "output": {
+                "us:statutes/7/2015/e#exception_applies": "not_holds",
+                "us:statutes/7/2015/e#ineligible": "holds",
+            },
+        },
+        {
+            "name": "exception",
+            "input": {
+                "us:statutes/7/2015/e#input.exception_fact": True,
+                "us:statutes/7/2015/e#input.household_subject_to_rule": True,
+            },
+            "output": {
+                "us:statutes/7/2015/e#exception_applies": "holds",
+                "us:statutes/7/2015/e#ineligible": "not_holds",
+            },
+        },
+    ]
+
+    assert find_exception_test_coverage_issues(content, test_cases) == []
+
+
+def test_test_input_assignment_requires_all_local_formula_inputs():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: |-
+    A household qualifies if it has income and no disqualifying condition.
+rules:
+  - name: household_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_has_income
+          and not disqualifying_condition
+"""
+    test_cases = [
+        {
+            "name": "eligible",
+            "input": {
+                "us:statutes/7/2014/a#input.household_has_income": True,
+            },
+            "output": {
+                "us:statutes/7/2014/a#household_eligible": "holds",
+            },
+        },
+    ]
+
+    issues = find_test_input_assignment_issues(content, test_cases)
+
+    assert len(issues) == 1
+    assert "disqualifying_condition" in issues[0]
+
+
+def test_test_input_assignment_ignores_imported_rule_outputs():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: household_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          imported_snap_household_has_elderly_or_disabled_member
+          and household_has_income
+"""
+    test_cases = [
+        {
+            "name": "eligible",
+            "input": {
+                "us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member": "holds",
+                "us:statutes/7/2014/a#input.household_has_income": True,
+            },
+            "output": {
+                "us:statutes/7/2014/a#household_eligible": "holds",
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
+def test_aggregate_exception_predicate_rejects_compressed_exception_list():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Notwithstanding any other provisions except subsections (b), (d)(2), (g), and (r) of section 2015 and section 2012(m)(4), qualifying households shall be eligible.
+rules:
+  - name: eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_qualifies
+          and section_2015_b_d_2_g_r_and_2012_m_4_do_not_preclude_eligibility
+"""
+
+    issues = find_aggregate_exception_predicate_issues(content)
+
+    assert len(issues) == 1
+    assert "Aggregate exception predicate" in issues[0]
+    assert "section_2015_b_d_2_g_r_and_2012_m_4_do_not_preclude_eligibility" in issues[0]
+
+
+def test_cross_reference_exception_placeholder_requires_import(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Notwithstanding section 2015(b), qualifying households shall be eligible.
+rules:
+  - name: eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_qualifies
+          and not section_2015_b_exception_applies
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Cross-reference placeholder" in issues[0]
+    assert "statutes/7/2015/b" in issues[0]
+
+
+def test_cross_reference_placeholder_requires_same_section_subsection_import(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    A student enrolled in an institution of higher education is ineligible unless the student meets the requirements of subsection (e) of this section.
+rules:
+  - name: higher_education_student_exempt
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          person_enrolled_in_institution_of_higher_education
+          and subsection_e_requirements_met
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Cross-reference" in issues[0]
+    assert "statutes/7/2015/e" in issues[0]
+
+
+def test_copied_cross_reference_source_rejects_cited_subsection_body(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    (2)(C) A bona fide student is exempt except that a higher education student is ineligible unless the student meets the requirements of subsection (e) of this section.
+    (e) Students No individual enrolled at least half-time in an institution of higher education shall be eligible unless an exception applies.
+rules:
+  - name: copied_subsection_e_locally
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: subsection_e_exception_applies
+"""
+    )
+
+    issues = find_copied_cross_reference_source_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Copied cross-reference source" in issues[0]
+    assert "statutes/7/2015/e" in issues[0]
+
+
+def test_copied_cross_reference_source_allows_bare_subsection_citation(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    A higher education student is ineligible unless the student meets the requirements of subsection (e) of this section.
+rules:
+  - name: local_rule
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: person_is_student
+"""
+    )
+
+    assert (
+        find_copied_cross_reference_source_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_same_section_subsection_reference_requires_import(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    A higher education student is ineligible unless the student meets the requirements of subsection (e) of this section.
+rules:
+  - name: higher_education_student_ineligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          person_is_higher_education_student
+          and not person_meets_higher_education_student_eligibility_requirements
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import missing" in issues[0]
+    assert "statutes/7/2015/e" in issues[0]
+
+
+def test_same_section_subsection_reference_allows_import(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    A higher education student is ineligible unless the student meets the requirements of subsection (e) of this section.
+imports:
+  - us:statutes/7/2015/e
+rules:
+  - name: higher_education_student_ineligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          person_is_higher_education_student
+          and not student_exception_to_higher_education_ineligibility_applies
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_rule_name_path_suffix_rejects_citation_fragments(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("")
+    content = """format: rulespec/v1
+rules:
+  - name: person_exempt_from_work_requirements_2_C
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+"""
+
+    issues = find_rule_name_path_suffix_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Rule name includes citation suffix" in issues[0]
+    assert "_2_c" in issues[0]
+
+
+def test_rule_name_path_suffix_allows_semantic_numbers(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2015" / "b" / "1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text("")
+    content = """format: rulespec/v1
+rules:
+  - name: first_occasion_ineligibility_period_years
+    kind: parameter
+    dtype: Count
+"""
+
+    assert (
+        find_rule_name_path_suffix_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_sibling_rule_name_collision_rejects_duplicate_exports(tmp_path):
+    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    sibling = rules_file.with_name("B.yaml")
+    rules_file.parent.mkdir(parents=True)
+    sibling.write_text(
+        """format: rulespec/v1
+rules:
+  - name: person_exempt_from_paragraph_1_work_requirements
+    kind: derived
+"""
+    )
+    content = """format: rulespec/v1
+rules:
+  - name: person_exempt_from_paragraph_1_work_requirements
+    kind: derived
+"""
+
+    issues = find_sibling_rule_name_collision_issues(content, rules_file)
+
+    assert len(issues) == 1
+    assert "Sibling rule name collision" in issues[0]
+    assert "B.yaml" in issues[0]
+
+
+def test_sibling_rule_name_collision_allows_unique_exports(tmp_path):
+    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    sibling = rules_file.with_name("B.yaml")
+    rules_file.parent.mkdir(parents=True)
+    sibling.write_text(
+        """format: rulespec/v1
+rules:
+  - name: care_responsibility_exemption_applies
+    kind: derived
+"""
+    )
+    content = """format: rulespec/v1
+rules:
+  - name: title_iv_or_unemployment_work_registration_exemption_applies
+    kind: derived
+"""
+
+    assert find_sibling_rule_name_collision_issues(content, rules_file) == []
+
+
+def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
+    repo = tmp_path / "rules-us"
+    rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Notwithstanding section 2015(b), qualifying households shall be eligible.
+imports:
+  - us:statutes/7/2015/b
+rules:
+  - name: eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_qualifies
+          and not section_2015_b_exception_applies
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
+
+
+def test_validate_rulespec_proofs_can_require_policy_proofs_without_module_flag():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2014
+rules:
+  - name: eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_qualifies
+"""
+
+    result = validate_rulespec_proofs(content, require_policy_proofs=True)
+
+    assert result.proof_required is True
+    assert any("Proof missing" in issue for issue in result.issues)
 
 
 def _write_rulespec_file(path: Path, content: str) -> Path:
@@ -2722,6 +3456,25 @@ def test_extract_json_object_repairs_trailing_commas():
 
     assert data["score"] == 8
     assert data["passed"] is True
+
+
+def test_extract_json_object_accepts_fullwidth_space_from_reviewer_output():
+    output = """```json
+{
+  "score": 7,
+  "passed": true,
+  "issues": [
+    "first issue",
+　"Inconsistent decomposition"
+  ],
+  "reasoning": "ok"
+}
+```"""
+
+    data = _extract_json_object(output)
+
+    assert data["passed"] is True
+    assert data["issues"] == ["first issue", "Inconsistent decomposition"]
 
 
 def test_extract_json_object_repairs_missing_terminal_object_brace():

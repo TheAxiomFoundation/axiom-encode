@@ -57,6 +57,7 @@ def validate_rulespec_proofs(
     content: str,
     *,
     validate_claim_records: bool = False,
+    require_policy_proofs: bool = False,
 ) -> ProofValidationResult:
     """Validate explicit proof trees in a RuleSpec YAML document.
 
@@ -89,7 +90,7 @@ def validate_rulespec_proofs(
         )
 
     module = payload.get("module")
-    proof_required = _module_requires_proofs(module)
+    proof_required = require_policy_proofs or _module_requires_proofs(module)
     source_paths = _module_source_paths(module, payload)
     source_value_keys = _module_source_value_keys(module, payload)
     declared_claims = _module_source_claim_ids(module)

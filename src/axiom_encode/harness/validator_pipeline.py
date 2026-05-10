@@ -65,7 +65,7 @@ from .dependency_stubs import (
     rulespec_file_has_stub_status,
 )
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
-from .proof_validator import find_rulespec_proof_issues
+from .proof_validator import find_rulespec_proof_issues, validate_rulespec_proofs
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +301,7 @@ def _strip_trailing_json_commas(text: str) -> str:
 
 def _decode_json_object_candidate(text: str) -> dict[str, Any] | None:
     """Decode a JSON object candidate with strict and reviewer-friendly modes."""
-    cleaned = text.strip()
+    cleaned = text.strip().replace("\u3000", " ")
     if not cleaned:
         return None
 
@@ -644,7 +644,7 @@ _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN = re.compile(
     r"^\s*For\s+[A-Za-z][A-Za-z .'-]*,\s+the\s+allowance\s+is\s+statewide\s+at\s+\$?\d+(?:\.\d+)?\.?\s*$",
     re.IGNORECASE,
 )
-_SOURCE_REFERENCE_TARGET_PATTERN = r"(?:\([^)]+\)|\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])|[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
+_SOURCE_REFERENCE_TARGET_PATTERN = r"(?:(?:\([^)]+\))+|\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])|[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
 _SOURCE_REFERENCE_SEQUENCE_PATTERN = (
     rf"{_SOURCE_REFERENCE_TARGET_PATTERN}"
     rf"(?:\s*(?:,|or|and)\s*{_SOURCE_REFERENCE_TARGET_PATTERN})*"
@@ -666,6 +666,10 @@ _SOURCE_REFERENCE_PATTERNS = (
     re.compile(
         r"\b(?:\d+\s+(?:U\.?\s*S\.?\s*C\.?|USC|C\.?\s*F\.?\s*R\.?|CFR|CCR)\s+)?"
         r"\d+[A-Za-z0-9./-]*(?:\([^)]+\))+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:of\s+)?title\s+\d+[A-Za-z0-9./-]*(?:\([^)]+\))*",
         re.IGNORECASE,
     ),
     re.compile(
@@ -692,6 +696,9 @@ _MONTH_NAME_DAY_PATTERN = re.compile(
 _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
     r"\b\d{1,2}(?:st|nd|rd|th)\s+day\s+of\s+(?:a|the)\s+month\b",
     re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|\d{1,2})\)"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -751,6 +758,21 @@ _CARDINAL_WORD_VALUES = {
     "ten": 10.0,
     "eleven": 11.0,
     "twelve": 12.0,
+    "thirteen": 13.0,
+    "fourteen": 14.0,
+    "fifteen": 15.0,
+    "sixteen": 16.0,
+    "seventeen": 17.0,
+    "eighteen": 18.0,
+    "nineteen": 19.0,
+    "twenty": 20.0,
+    "thirty": 30.0,
+    "forty": 40.0,
+    "fifty": 50.0,
+    "sixty": 60.0,
+    "seventy": 70.0,
+    "eighty": 80.0,
+    "ninety": 90.0,
 }
 _CARDINAL_WORD_PATTERN = re.compile(
     r"\b(" + "|".join(re.escape(word) for word in _CARDINAL_WORD_VALUES) + r")\b",
@@ -1490,6 +1512,7 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     cleaned = _SLASH_DATE_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_NAME_DAY_PATTERN.sub(" ", cleaned)
     cleaned = _MONTH_DAY_OF_MONTH_PATTERN.sub(" ", cleaned)
+    cleaned = _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN.sub(" ", cleaned)
     cleaned = _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN.sub(
         lambda match: f"above {match.group(1)} use the capped household rate",
         cleaned,
@@ -2828,6 +2851,897 @@ def find_source_condition_coverage_issues(
     return issues
 
 
+_BROAD_APPLICATION_FURNISHING_SOURCE_PATTERN = re.compile(
+    r"\b(?:shall|must|may)\s+(?:be\s+)?"
+    r"(?:furnished|provided|paid|made\s+available|granted|issued)\b"
+    r"(?:(?!\n\n).){0,240}\b(?:eligible|eligibility)\b"
+    r"(?:(?!\n\n).){0,160}\b(?:application|applicant|apply|applies)\b",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def find_broad_application_passthrough_issues(content: str) -> list[str]:
+    """Flag administrative furnishing/application clauses encoded as outputs."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    source_text = extract_embedded_source_text(content) or _extract_source_verification_text(
+        content
+    )
+    if not source_text or not _BROAD_APPLICATION_FURNISHING_SOURCE_PATTERN.search(
+        source_text
+    ):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        if not re.search(
+            r"\b(?:furnish|provid|paid|grant|issue|assistance|entitle|participat)",
+            name.replace("_", " "),
+            flags=re.IGNORECASE,
+        ):
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"judgment", "boolean", "bool"}:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            identifiers = _formula_local_identifiers(formula)
+            if not identifiers or len(identifiers) > 3:
+                continue
+            if not any("eligib" in identifier for identifier in identifiers):
+                continue
+            if not any(
+                re.search(r"applic|applicant|apply|applies", identifier)
+                for identifier in identifiers
+            ):
+                continue
+            issues.append(
+                "Broad application pass-through: "
+                f"`{name}` encodes an administrative furnishing/application clause as "
+                "a generic executable output. Keep that clause in `module.summary`; "
+                "encode only source-specific eligibility conditions, exceptions, "
+                "parameters, or source relations."
+            )
+            break
+    return issues
+
+
+def find_copied_cross_reference_source_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Reject copying cited same-section subsection bodies into this module."""
+    source_text = extract_embedded_source_text(content)
+    if not source_text:
+        return []
+
+    statute_path = _statute_path_parts_for_file(rules_file, policy_repo_path)
+    if statute_path is None:
+        return []
+    title, section, current_fragments = statute_path
+
+    issues: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)\s+of\s+this\s+section\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        subsection = match.group("subsection")
+        if subsection in current_fragments:
+            continue
+        if subsection in seen:
+            continue
+        copied_body_pattern = re.compile(
+            rf"(?:^|\s)\({re.escape(subsection)}\)\s+[A-Z][A-Za-z]"
+        )
+        if not copied_body_pattern.search(source_text):
+            continue
+        seen.add(subsection)
+        import_base = "/".join(["statutes", title, section, subsection])
+        issues.append(
+            "Copied cross-reference source: "
+            f"`{rules_file.name}` embeds the body of cited subsection "
+            f"`{import_base}` in its own source summary. Encode/import that "
+            "subsection separately instead of re-encoding it locally."
+        )
+    return issues
+
+
+def find_missing_same_section_subsection_import_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Require imports for cited same-section subsections used as carve-outs."""
+    source_text = extract_embedded_source_text(content)
+    if not source_text or not re.search(
+        r"\b(?:except|unless|notwithstanding)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
+    statute_path = _statute_path_parts_for_file(rules_file, policy_repo_path)
+    if statute_path is None:
+        return []
+    title, section, current_fragments = statute_path
+    imports = {
+        _normalize_rulespec_import_path_static(import_path)
+        for import_path in _extract_import_paths_from_content(content)
+    }
+
+    issues: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)\s+of\s+this\s+section\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        subsection = match.group("subsection")
+        if subsection in current_fragments or subsection in seen:
+            continue
+        import_base = "/".join(["statutes", title, section, subsection])
+        if _imports_cover_path_static(
+            imports,
+            import_base,
+        ) or _transitive_imports_cover_path_static(
+            imports,
+            import_base,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        ):
+            continue
+        seen.add(subsection)
+        issues.append(
+            "Same-section subsection import missing: "
+            f"source text cites subsection `{import_base}` in an exception/cross-reference "
+            "clause, but the file does not import it. Encode/import the cited "
+            "subsection instead of modeling its requirements as a local fact."
+        )
+    return issues
+
+
+def find_rule_name_path_suffix_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Reject rule names that append the file's legal path fragments."""
+    statute_path = _statute_path_parts_for_file(rules_file, policy_repo_path)
+    if statute_path is None:
+        return []
+    _title, section, fragments = statute_path
+    if not fragments:
+        return []
+
+    suffixes = _path_suffix_tokens_for_rule_name(section, fragments)
+    if not suffixes:
+        return []
+
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return []
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return []
+
+        issues: list[str] = []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            name = str(rule.get("name") or "").strip()
+            if not name:
+                continue
+            normalized = name.lower()
+            for suffix in suffixes:
+                if normalized.endswith(f"_{suffix}"):
+                    issues.append(
+                        "Rule name includes citation suffix: "
+                        f"rule `{name}` ends with `_{suffix}`. The file path is "
+                        "the legal ID; use a semantic rule name without path "
+                        "fragments."
+                    )
+                    break
+        return issues
+    return []
+
+
+def _path_suffix_tokens_for_rule_name(
+    section: str,
+    fragments: tuple[str, ...],
+) -> set[str]:
+    """Return path-fragment suffixes specific enough to avoid common words."""
+    normalized_fragments = tuple(_normalize_rule_name_suffix_token(item) for item in fragments)
+    normalized_fragments = tuple(item for item in normalized_fragments if item)
+    if not normalized_fragments:
+        return set()
+
+    suffixes: set[str] = set()
+    section_token = _normalize_rule_name_suffix_token(section)
+    if section_token:
+        suffixes.add("_".join((section_token, *normalized_fragments)))
+    if len(normalized_fragments) >= 2:
+        suffixes.add("_".join(normalized_fragments))
+        suffixes.add("_".join(normalized_fragments[-2:]))
+    return {suffix for suffix in suffixes if suffix}
+
+
+def _normalize_rule_name_suffix_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+
+
+def find_sibling_rule_name_collision_issues(content: str, rules_file: Path) -> list[str]:
+    """Reject exported rule names that collide with sibling child fragments."""
+    current_names = _rulespec_rule_names_from_content(content)
+    if not current_names:
+        return []
+
+    issues: list[str] = []
+    current_path = rules_file.resolve()
+    sibling_names: dict[str, Path] = {}
+    for sibling in sorted(rules_file.parent.glob("*.yaml")):
+        if sibling.name.endswith(".test.yaml") or sibling.resolve() == current_path:
+            continue
+        for name in _rulespec_rule_names_from_file(sibling):
+            sibling_names.setdefault(name, sibling)
+
+    for name in sorted(current_names & sibling_names.keys()):
+        sibling = sibling_names[name]
+        issues.append(
+            "Sibling rule name collision: "
+            f"rule `{name}` is also exported by sibling `{sibling.name}`. "
+            "Use semantic branch-specific names so aggregate parent provisions "
+            "can import sibling outputs without ambiguity."
+        )
+    return issues
+
+
+_FORMULA_ABSOLUTE_REFERENCE_PATTERN = re.compile(
+    r"\b[a-z][a-z0-9-]*:[A-Za-z0-9_./-]+#[A-Za-z_][A-Za-z0-9_]*\b"
+)
+
+
+def find_formula_absolute_reference_issues(content: str) -> list[str]:
+    """Reject absolute RuleSpec import references inside formula text."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return []
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return []
+
+        issues: list[str] = []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            name = str(rule.get("name") or "").strip()
+            if not name:
+                continue
+            versions = rule.get("versions")
+            if not isinstance(versions, list):
+                continue
+            seen: set[str] = set()
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                formula = version.get("formula")
+                if not isinstance(formula, str):
+                    continue
+                for match in _FORMULA_ABSOLUTE_REFERENCE_PATTERN.finditer(formula):
+                    target = match.group(0)
+                    if target in seen:
+                        continue
+                    seen.add(target)
+                    issues.append(
+                        "Formula absolute import reference: "
+                        f"`{name}` contains `{target}` inside a formula. Add "
+                        "that target to `imports:` and reference the imported "
+                        "rule by bare local name in formula text."
+                    )
+        return issues
+    return []
+
+
+def _rulespec_rule_names_from_file(path: Path) -> set[str]:
+    with contextlib.suppress(OSError):
+        return _rulespec_rule_names_from_content(path.read_text())
+    return set()
+
+
+def _rulespec_rule_names_from_content(content: str) -> set[str]:
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return set()
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return set()
+        return {
+            name
+            for rule in rules
+            if isinstance(rule, dict)
+            for name in [str(rule.get("name") or "").strip()]
+            if name
+        }
+    return set()
+
+
+def _statute_path_parts_for_file(
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> tuple[str, str, tuple[str, ...]] | None:
+    """Return title, section, and subsection fragments for a statute RuleSpec file."""
+    resolved_file = rules_file.resolve()
+    resolved_root = policy_repo_path.resolve()
+    relative_parts: tuple[str, ...] | None = None
+    with contextlib.suppress(ValueError):
+        relative_parts = resolved_file.relative_to(resolved_root).parts
+    if relative_parts is None:
+        parts = resolved_file.parts
+        with contextlib.suppress(ValueError):
+            statutes_index = parts.index("statutes")
+            relative_parts = tuple(parts[statutes_index:])
+    if not relative_parts or len(relative_parts) < 4 or relative_parts[0] != "statutes":
+        return None
+
+    title = relative_parts[1]
+    section = relative_parts[2]
+    fragments = list(relative_parts[3:-1])
+    stem = Path(relative_parts[-1]).stem
+    if stem not in {"index", "__init__"}:
+        fragments.append(stem)
+    return title, section, tuple(fragments)
+
+
+def _extract_import_paths_from_content(content: str) -> list[str]:
+    """Extract import file references from an imports block."""
+    paths: list[str] = []
+    in_imports = False
+    imports_indent = 0
+
+    for line in content.splitlines():
+        imports_match = re.match(r"^(\s*)imports:\s*$", line)
+        if imports_match:
+            in_imports = True
+            imports_indent = len(imports_match.group(1))
+            continue
+
+        if not in_imports:
+            continue
+
+        if not line.strip():
+            continue
+
+        indent = len(line) - len(line.lstrip())
+        if indent <= imports_indent:
+            in_imports = False
+            continue
+
+        item_match = IMPORT_ITEM_PATTERN.match(line)
+        if item_match:
+            item = item_match.group(2).strip()
+        else:
+            mapping_match = IMPORT_MAPPING_PATTERN.match(line)
+            if not mapping_match:
+                continue
+            item = mapping_match.group(2).strip()
+        import_target = item.split("#", 1)[0].strip()
+        if import_target:
+            paths.append(import_target)
+
+    return paths
+
+
+def _normalize_rulespec_import_path_static(import_path: str) -> str:
+    normalized = import_path.split("#", 1)[0].strip().strip("\"'")
+    if ":" in normalized:
+        _, tail = normalized.split(":", 1)
+        normalized = tail
+    return normalized.strip("/")
+
+
+def _imports_cover_path_static(imports: set[str], expected_path: str) -> bool:
+    expected = expected_path.strip("/")
+    for import_path in imports:
+        if import_path == expected:
+            return True
+        if import_path.startswith(expected + "/"):
+            return True
+        if expected.startswith(import_path + "/"):
+            return True
+    return False
+
+
+def _transitive_imports_cover_path_static(
+    imports: set[str],
+    expected_path: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> bool:
+    """Return whether imported RuleSpecs import an expected path."""
+    for import_path in imports:
+        import_file = _resolve_rulespec_import_file_static(
+            import_path,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if import_file is None:
+            continue
+        with contextlib.suppress(OSError):
+            nested_imports = {
+                _normalize_rulespec_import_path_static(path)
+                for path in _extract_import_paths_from_content(import_file.read_text())
+            }
+            if _imports_cover_path_static(nested_imports, expected_path):
+                return True
+    return False
+
+
+def _resolve_rulespec_import_file_static(
+    import_path: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> Path | None:
+    """Resolve a normalized import path to a local RuleSpec file."""
+    normalized = _normalize_rulespec_import_path_static(import_path)
+    if not normalized:
+        return None
+    candidate = policy_repo_path / f"{normalized}.yaml"
+    if candidate.exists():
+        return candidate
+
+    repo_prefix = _rulespec_import_prefix_static(import_path)
+    if repo_prefix:
+        candidate = (
+            policy_repo_path.parent
+            / f"rules-{repo_prefix}"
+            / f"{normalized}.yaml"
+        )
+        if candidate.exists():
+            return candidate
+
+    with contextlib.suppress(ValueError):
+        relative_parent = rules_file.parent.resolve().relative_to(
+            policy_repo_path.resolve()
+        )
+        candidate = policy_repo_path / relative_parent / f"{normalized}.yaml"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _rulespec_import_prefix_static(import_path: str) -> str | None:
+    normalized = import_path.split("#", 1)[0].strip().strip("\"'")
+    if ":" not in normalized:
+        return None
+    prefix, tail = normalized.split(":", 1)
+    if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) and tail:
+        return prefix
+    return None
+
+
+def _formula_local_identifiers(formula: str) -> set[str]:
+    """Return non-builtin identifiers referenced by a RuleSpec formula."""
+    return set(_RULESPEC_IDENTIFIER.findall(formula)) - _RULESPEC_FORMULA_BUILTINS
+
+
+def find_test_input_assignment_issues(
+    content: str,
+    test_cases: Any,
+) -> list[str]:
+    """Require tests to assign every local factual input used by formulas."""
+    if not isinstance(test_cases, list):
+        return []
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    module = payload.get("module")
+    proof_validation = module.get("proof_validation") if isinstance(module, dict) else {}
+    if not (
+        isinstance(proof_validation, dict)
+        and proof_validation.get("required") is True
+    ):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    defined_symbols = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    candidate_inputs: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            candidate_inputs.update(_formula_local_identifiers(formula) - defined_symbols)
+
+    if not candidate_inputs:
+        return []
+
+    imports_present = bool(payload.get("imports"))
+    assigned_input_names = _all_test_input_names(test_cases)
+    local_inputs = (
+        candidate_inputs & assigned_input_names if imports_present else candidate_inputs
+    )
+    if not local_inputs:
+        return []
+
+    issues: list[str] = []
+    for index, test_case in enumerate(test_cases, start=1):
+        if not isinstance(test_case, dict):
+            continue
+        test_name = str(test_case.get("name") or f"case {index}").strip()
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            issues.append(
+                "Test input assignment missing: "
+                f"`{test_name}` must provide an `input` mapping assigning every "
+                "local factual `#input.<fact>` referenced by this module's formulas."
+            )
+            continue
+        assigned = _input_names_from_mapping(inputs)
+        missing = sorted(local_inputs - assigned)
+        if not missing:
+            continue
+        missing_display = ", ".join(f"#input.{name}" for name in missing[:8])
+        if len(missing) > 8:
+            missing_display += f", and {len(missing) - 8} more"
+        issues.append(
+            "Test input assignment missing: "
+            f"`{test_name}` does not assign {missing_display}. Every test for a "
+            "proof-required RuleSpec module must set all local factual inputs, "
+            "including false facts, so tests cannot pass through implicit defaults."
+        )
+    return issues
+
+
+def _all_test_input_names(test_cases: list[Any]) -> set[str]:
+    names: set[str] = set()
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if isinstance(inputs, dict):
+            names.update(_input_names_from_mapping(inputs))
+    return names
+
+
+def _input_names_from_mapping(inputs: dict[Any, Any]) -> set[str]:
+    names: set[str] = set()
+    for key in inputs:
+        fragment = _test_reference_fragment(key)
+        if fragment.startswith("input."):
+            names.add(fragment.removeprefix("input."))
+    return names
+
+
+def find_exception_test_coverage_issues(
+    content: str,
+    test_cases: Any,
+) -> list[str]:
+    """Require each encoded exception predicate to have a blocking test."""
+    source_text = extract_embedded_source_text(content) or _extract_source_verification_text(
+        content
+    )
+    if not source_text or not re.search(
+        r"\b(?:except|unless|notwithstanding)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
+    if not isinstance(test_cases, list):
+        return []
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    defined_symbols = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"judgment", "boolean", "bool"}:
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not rule_name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        exception_inputs: set[str] = set()
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            exception_inputs.update(
+                _exception_formula_inputs(formula) - defined_symbols
+            )
+        for exception_input in sorted(exception_inputs):
+            if _has_exception_blocking_test(
+                test_cases,
+                rule_name=rule_name,
+                exception_input=exception_input,
+            ):
+                continue
+            issues.append(
+                "Exception test coverage missing: "
+                f"`{rule_name}` negates `{exception_input}`, but no companion test "
+                f"sets `#input.{exception_input}` true and expects `{rule_name}` "
+                "to be not_holds while an otherwise identical positive companion "
+                "sets that exception false and expects holds."
+            )
+    return issues
+
+
+def find_aggregate_exception_predicate_issues(content: str) -> list[str]:
+    """Flag source exception lists collapsed into one factual predicate."""
+    source_text = extract_embedded_source_text(content) or _extract_source_verification_text(
+        content
+    )
+    if not source_text or not re.search(
+        r"\b(?:except|unless|notwithstanding)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    defined_symbols = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip() or "<unnamed>"
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            for identifier in sorted(_formula_local_identifiers(formula)):
+                if identifier in defined_symbols:
+                    continue
+                if not _is_aggregate_exception_identifier(identifier):
+                    continue
+                issues.append(
+                    "Aggregate exception predicate: "
+                    f"`{rule_name}` references `{identifier}`, which collapses "
+                    "multiple cited exception/cross-reference carve-outs into one "
+                    "factual input. Encode or import each cited exception separately "
+                    "so each one can be tested independently."
+                )
+    return issues
+
+
+def _is_aggregate_exception_identifier(identifier: str) -> bool:
+    normalized = identifier.lower()
+    if "_and_" not in normalized:
+        return False
+    if "section" not in normalized and "subsection" not in normalized:
+        return False
+    return any(
+        token in normalized
+        for token in ("exception", "except", "preclude", "displace", "carve")
+    )
+
+
+def _exception_formula_inputs(formula: str) -> set[str]:
+    return {
+        match.group(1)
+        for match in re.finditer(r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", formula)
+        if _is_exception_identifier(match.group(1))
+    }
+
+
+def _is_exception_identifier(identifier: str) -> bool:
+    normalized = identifier.lower()
+    return any(
+        token in normalized
+        for token in ("exception", "except", "exclusion", "carve_out", "displace")
+    )
+
+
+def _has_exception_blocking_test(
+    test_cases: list[Any],
+    *,
+    rule_name: str,
+    exception_input: str,
+) -> bool:
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if not any(
+            _test_reference_fragment(key) == f"input.{exception_input}"
+            and _is_truthy_fact_value(value)
+            for key, value in inputs.items()
+        ):
+            continue
+        if not any(
+            _test_reference_fragment(key) == rule_name
+            and _is_negative_judgment_value(value)
+            for key, value in outputs.items()
+        ):
+            continue
+        if _has_exception_positive_companion_test(
+            test_cases,
+            rule_name=rule_name,
+            exception_input=exception_input,
+            negative_inputs=inputs,
+        ):
+            return True
+    return False
+
+
+def _has_exception_positive_companion_test(
+    test_cases: list[Any],
+    *,
+    rule_name: str,
+    exception_input: str,
+    negative_inputs: dict[Any, Any],
+) -> bool:
+    """Return true when a positive case proves the exception flips the outcome."""
+    expected_inputs = _normalized_test_inputs(
+        negative_inputs,
+        exclude_input=exception_input,
+    )
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if not any(
+            _test_reference_fragment(key) == f"input.{exception_input}"
+            and not _is_truthy_fact_value(value)
+            for key, value in inputs.items()
+        ):
+            continue
+        if not any(
+            _test_reference_fragment(key) == rule_name
+            and str(value).strip().lower().replace("-", "_") == "holds"
+            for key, value in outputs.items()
+        ):
+            continue
+        if (
+            _normalized_test_inputs(inputs, exclude_input=exception_input)
+            == expected_inputs
+        ):
+            return True
+    return False
+
+
+def _normalized_test_inputs(
+    inputs: dict[Any, Any],
+    *,
+    exclude_input: str,
+) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    excluded_fragment = f"input.{exclude_input}"
+    for key, value in inputs.items():
+        fragment = _test_reference_fragment(key)
+        if fragment == excluded_fragment:
+            continue
+        normalized[fragment] = _normalized_test_value(value)
+    return normalized
+
+
+def _normalized_test_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)) or value is None:
+        return str(value).strip().lower()
+    try:
+        return json.dumps(value, sort_keys=True)
+    except TypeError:
+        return str(value).strip()
+
+
+def _test_reference_fragment(key: Any) -> str:
+    key_text = str(key).strip()
+    return key_text.split("#", 1)[1].strip() if "#" in key_text else key_text
+
+
+def _is_truthy_fact_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "holds", "yes", "1"}
+
+
+def _is_negative_judgment_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return not value
+    return str(value).strip().lower() in {"not_holds", "false", "no", "0"}
+
+
 def _source_verification_block(payload: dict[str, Any]) -> dict[str, Any] | None:
     module = payload.get("module")
     if isinstance(module, dict) and isinstance(module.get("source_verification"), dict):
@@ -3988,6 +4902,7 @@ class ValidatorPipeline:
         session_id: Optional[str] = None,
         policyengine_country: str = "auto",
         policyengine_rule_hint: str | None = None,
+        require_policy_proofs: bool = False,
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
@@ -3998,6 +4913,7 @@ class ValidatorPipeline:
         self.session_id = session_id
         self.policyengine_country = policyengine_country
         self.policyengine_rule_hint = policyengine_rule_hint
+        self.require_policy_proofs = require_policy_proofs
         self.policyengine_registry = load_policyengine_registry()
 
     def _log_event(
@@ -5063,14 +5979,48 @@ class ValidatorPipeline:
         issues.extend(find_ungrounded_numeric_issues(content))
         issues.extend(find_deprecated_source_url_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
-        issues.extend(find_rulespec_proof_issues(content))
+        proof_issues = (
+            validate_rulespec_proofs(
+                content,
+                require_policy_proofs=self.require_policy_proofs,
+            ).issues
+            if self.require_policy_proofs
+            else find_rulespec_proof_issues(content)
+        )
+        issues.extend(proof_issues)
         issues.extend(find_structured_scale_parameter_issues(content))
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_broad_application_passthrough_issues(content))
+        issues.extend(find_formula_absolute_reference_issues(content))
+        issues.extend(
+            find_copied_cross_reference_source_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
+        issues.extend(
+            find_missing_same_section_subsection_import_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
+        issues.extend(find_aggregate_exception_predicate_issues(content))
+        issues.extend(self._check_cross_reference_exception_placeholders(rules_file))
         issues.extend(
             find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
         )
+        issues.extend(
+            find_rule_name_path_suffix_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
+        issues.extend(find_sibling_rule_name_collision_issues(content, rules_file))
 
         test_path = self._rulespec_test_path(rules_file)
         if issues:
@@ -5093,14 +6043,17 @@ class ValidatorPipeline:
                         issues.append("RuleSpec tests must be a YAML list of cases.")
                         payload = None
                 if isinstance(payload, list) and compiled_payload and compiled_path:
-                    issues.extend(
-                        self._run_rulespec_test_cases(
-                            rules_file=rules_file,
-                            compiled_path=compiled_path,
-                            compiled_payload=compiled_payload,
-                            cases=payload,
+                    issues.extend(find_test_input_assignment_issues(content, payload))
+                    issues.extend(find_exception_test_coverage_issues(content, payload))
+                    if not issues:
+                        issues.extend(
+                            self._run_rulespec_test_cases(
+                                rules_file=rules_file,
+                                compiled_path=compiled_path,
+                                compiled_payload=compiled_payload,
+                                cases=payload,
+                            )
                         )
-                    )
         elif not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
 
@@ -5314,6 +6267,138 @@ class ValidatorPipeline:
                 f"from {import_path}"
             )
         return issues
+
+    def _check_cross_reference_exception_placeholders(
+        self, rulespec_file: Path
+    ) -> list[str]:
+        """Reject local placeholder facts for cited exception sections."""
+        content = rulespec_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text or not re.search(
+            r"\b(?:except|unless|notwithstanding)\b",
+            source_text,
+            flags=re.IGNORECASE,
+        ):
+            return []
+
+        title = self._infer_title_from_rulespec_path(rulespec_file)
+        if not title:
+            return []
+        current_section = self._infer_section_from_rulespec_path(rulespec_file)
+
+        imports = {
+            self._normalize_rulespec_import_path(import_path)
+            for import_path in self._extract_import_paths(content)
+        }
+        issues: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        for block in self._extract_definition_blocks(content):
+            formula = "\n".join(str(line) for line in block["body_lines"])
+            identifiers = _formula_local_identifiers(formula)
+            identifiers.update(_exception_formula_inputs(formula))
+            for identifier in sorted(identifiers):
+                import_base = self._cross_reference_placeholder_import_base(
+                    identifier,
+                    title=title,
+                    current_section=current_section,
+                    source_text=source_text,
+                )
+                if not import_base:
+                    continue
+                if self._imports_cover_path(imports, import_base):
+                    continue
+                key = (str(block["name"]), identifier)
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(
+                    "Cross-reference placeholder: "
+                    f"`{block['name']}` uses local fact `{identifier}` "
+                    f"for a cited legal section. Encode the cited source and import "
+                    f"`{import_base}` instead of creating a local cross-reference input."
+                )
+        return issues
+
+    def _normalize_rulespec_import_path(self, import_path: str) -> str:
+        """Normalize a RuleSpec import path for repository-local comparison."""
+        normalized = import_path.split("#", 1)[0].strip().strip("\"'")
+        if ":" in normalized:
+            _, tail = normalized.split(":", 1)
+            normalized = tail
+        return normalized.strip("/")
+
+    def _imports_cover_path(self, imports: set[str], expected_path: str) -> bool:
+        """Return whether any import covers an expected repo-relative path."""
+        expected = expected_path.strip("/")
+        for import_path in imports:
+            if import_path == expected:
+                return True
+            if import_path.startswith(expected + "/"):
+                return True
+            if expected.startswith(import_path + "/"):
+                return True
+        return False
+
+    def _cross_reference_placeholder_import_base(
+        self,
+        identifier: str,
+        *,
+        title: str,
+        current_section: str | None,
+        source_text: str,
+    ) -> str | None:
+        """Infer the canonical imported path from a section/subsection placeholder."""
+        subsection_match = re.match(
+            r"^subsection_(?P<subsection>[A-Za-z0-9]+)(?:_(?P<tail>[A-Za-z0-9_]+))?$",
+            identifier,
+        )
+        if subsection_match and current_section:
+            subsection = subsection_match.group("subsection")
+            if re.search(
+                rf"\bsubsection\s+\({re.escape(subsection)}\)",
+                source_text,
+                flags=re.IGNORECASE,
+            ):
+                return "/".join(["statutes", title, current_section, subsection])
+
+        match = re.match(
+            r"^section_(?P<section>[0-9][A-Za-z0-9.-]*)(?:_(?P<tail>[A-Za-z0-9_]+))?$",
+            identifier,
+        )
+        if not match:
+            return None
+        if not (
+            _is_exception_identifier(identifier)
+            or re.search(
+                rf"\bsection\s+{re.escape(match.group('section'))}\b",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+        ):
+            return None
+        fragments: list[str] = []
+        for fragment in (match.group("tail") or "").split("_"):
+            if fragment in {
+                "exception",
+                "exceptions",
+                "except",
+                "exclusion",
+                "exclusions",
+                "carve",
+                "carveout",
+                "applies",
+                "apply",
+                "preclude",
+                "precludes",
+                "displace",
+                "displaces",
+                "requirements",
+                "met",
+            }:
+                break
+            if fragment:
+                fragments.append(fragment)
+        return "/".join(["statutes", title, match.group("section"), *fragments])
 
     def _check_resolved_defined_term_imports(self, rulespec_file: Path) -> list[str]:
         """Flag missing imports for known legally-defined terms mentioned in source text."""
@@ -5901,6 +6986,34 @@ class ValidatorPipeline:
             statutes_idx = parts.index("statutes")
             if statutes_idx + 1 < len(parts):
                 return parts[statutes_idx + 1]
+        return None
+
+    def _infer_section_from_rulespec_path(self, rulespec_file: Path) -> str | None:
+        """Infer the USC section from the RuleSpec file path."""
+        resolved_root = self.policy_repo_path.resolve()
+        resolved_file = rulespec_file.resolve()
+        with contextlib.suppress(ValueError):
+            relative = resolved_file.relative_to(resolved_root)
+            if (
+                len(relative.parts) >= 3
+                and relative.parts[0] == "statutes"
+                and re.fullmatch(r"[0-9A-Za-z.-]+", relative.parts[2])
+                and any(ch.isdigit() for ch in relative.parts[2])
+            ):
+                return relative.parts[2]
+            if (
+                len(relative.parts) >= 2
+                and re.fullmatch(r"[0-9A-Za-z.-]+", relative.parts[1])
+                and any(ch.isdigit() for ch in relative.parts[1])
+            ):
+                return relative.parts[1]
+            return None
+
+        parts = list(resolved_file.parts)
+        with contextlib.suppress(ValueError):
+            statutes_idx = parts.index("statutes")
+            if statutes_idx + 2 < len(parts):
+                return parts[statutes_idx + 2]
         return None
 
     def _run_reviewer(

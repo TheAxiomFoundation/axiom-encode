@@ -1388,6 +1388,16 @@ def prepare_eval_workspace(
 
     if mode == "repo-augmented":
         selected = _auto_select_context_files(citation, context_corpus_root)
+        selected.extend(
+            _select_child_fragment_context_files(citation, context_corpus_root)
+        )
+        selected.extend(
+            _select_same_section_subsection_context_files(
+                citation,
+                source_text,
+                context_corpus_root,
+            )
+        )
         for extra_path in extra_context_paths or []:
             path = Path(extra_path)
             if path.exists():
@@ -1410,9 +1420,7 @@ def prepare_eval_workspace(
                 EvalContextFile(
                     source_path=str(source_path),
                     workspace_path=str(workspace_relative_path),
-                    import_path=_relative_rulespec_path_to_import_target(
-                        relative_target
-                    ),
+                    import_path=_context_import_target(source_path, relative_target),
                     kind=kind,
                 )
             )
@@ -1642,6 +1650,56 @@ def _auto_select_context_files(citation: str, policy_root: Path) -> list[Path]:
         return []
 
 
+def _select_same_section_subsection_context_files(
+    citation: str,
+    source_text: str,
+    policy_root: Path,
+) -> list[Path]:
+    """Select existing RuleSpecs for same-section subsections cited by source text."""
+    try:
+        parts = parse_usc_citation(citation)
+    except Exception:
+        return []
+
+    target_rel = citation_to_relative_rulespec_path(parts)
+    selected: list[Path] = []
+    seen: set[Path] = set()
+    for match in re.finditer(
+        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)\s+of\s+this\s+section\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        subsection = match.group("subsection")
+        if subsection in parts.fragments:
+            continue
+        candidate_rel = citation_to_relative_rulespec_path(
+            CitationParts(parts.title, parts.section, (subsection,))
+        )
+        if candidate_rel == target_rel:
+            continue
+        candidate = policy_root / candidate_rel
+        resolved = candidate.resolve()
+        if candidate.exists() and resolved not in seen:
+            selected.append(candidate)
+            seen.add(resolved)
+    return selected
+
+
+def _select_child_fragment_context_files(citation: str, policy_root: Path) -> list[Path]:
+    """Select existing child RuleSpecs when encoding an aggregate parent fragment."""
+    target_rel = _target_rel_for_eval_identifier(citation)
+    if target_rel is None:
+        return []
+    child_root = policy_root / target_rel.with_suffix("")
+    if not child_root.is_dir():
+        return []
+    return sorted(
+        path
+        for path in child_root.glob("*.yaml")
+        if not path.name.endswith(".test.yaml")
+    )
+
+
 def _repo_augmented_context_root(policy_path: Path) -> Path:
     """Resolve the corpus root used for automatic repo-augmented context selection."""
     resolved = Path(policy_path).resolve()
@@ -1668,10 +1726,29 @@ def _context_import_relative_target(source_path: Path, policy_path: Path) -> Pat
     return Path("external") / resolved_source.name
 
 
-def _relative_rulespec_path_to_import_target(path: Path) -> str:
-    """Convert a relative RuleSpec file path into a bare import target."""
+def _context_import_target(source_path: Path, relative_target: Path) -> str:
+    """Return the canonical RuleSpec import target for a copied context file."""
+    prefix = _rulespec_repo_import_prefix(source_path)
+    return _relative_rulespec_path_to_import_target(relative_target, prefix=prefix)
+
+
+def _rulespec_repo_import_prefix(source_path: Path) -> str | None:
+    """Infer the absolute RuleSpec import prefix from a `rules-*` repo path."""
+    for parent in (source_path, *source_path.parents):
+        if parent.name.startswith("rules-") and len(parent.name) > len("rules-"):
+            return parent.name.removeprefix("rules-")
+    return None
+
+
+def _relative_rulespec_path_to_import_target(
+    path: Path,
+    *,
+    prefix: str | None = None,
+) -> str:
+    """Convert a relative RuleSpec file path into an import target."""
     normalized = path.with_suffix("") if path.suffix in {".yaml", ".yml"} else path
-    return normalized.as_posix()
+    target = normalized.as_posix()
+    return f"{prefix}:{target}" if prefix else target
 
 
 def _target_rel_for_eval_identifier(citation: str) -> Path | None:
@@ -1710,12 +1787,16 @@ def evaluate_artifact(
     with _rulespec_validation_target(
         rulespec_file, policy_repo_root
     ) as validation_file:
+        validation_policy_repo_root = _validation_policy_repo_root(
+            validation_file, policy_repo_root
+        )
         pipeline = ValidatorPipeline(
-            policy_repo_path=policy_repo_root,
+            policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
             enable_oracles=oracle != "none",
             policyengine_country=policyengine_country,
             policyengine_rule_hint=policyengine_rule_hint,
+            require_policy_proofs=True,
         )
         compile_result = pipeline._run_compile_check(validation_file)
         ci_result = pipeline._run_ci(validation_file)
@@ -1796,12 +1877,16 @@ def evaluate_artifact(
     numeric_source_text = extract_numeric_grounding_source_text(content)
     if not numeric_source_text and source_text:
         numeric_source_text = source_text
-    source_numbers = extract_numbers_from_text(numeric_source_text or "")
+    numeric_validation_source_text = embedded_source or numeric_source_text
+    source_numbers = extract_numbers_from_text(numeric_validation_source_text or "")
     source_numeric_occurrences = Counter(
-        extract_numeric_occurrences_from_text(numeric_source_text or "")
+        extract_numeric_occurrences_from_text(numeric_validation_source_text or "")
     )
     named_scalar_occurrences = Counter(
         item.value for item in extract_named_scalar_occurrences(content)
+    )
+    named_scalar_occurrences.update(
+        _imported_named_scalar_occurrences(content, policy_repo_root)
     )
 
     grounding_metrics: list[GroundingMetric] = []
@@ -1834,7 +1919,7 @@ def evaluate_artifact(
 
     ungrounded_numeric_issues = find_ungrounded_numeric_issues(
         content,
-        numeric_source_text,
+        numeric_validation_source_text,
     )
     ci_issues = []
     seen_ci_issues: set[str] = set()
@@ -1883,6 +1968,51 @@ def evaluate_artifact(
         taxsim_score=taxsim_result.score if taxsim_result is not None else None,
         taxsim_issues=taxsim_result.issues if taxsim_result is not None else [],
     )
+
+
+def _validation_policy_repo_root(
+    validation_file: Path, policy_repo_root: Path
+) -> Path:
+    """Return the repo root that contains the validation copy."""
+    repo_name = policy_repo_root.name
+    for parent in validation_file.parents:
+        if parent.name == repo_name:
+            return parent
+    return policy_repo_root
+
+
+def _imported_named_scalar_occurrences(
+    content: str,
+    policy_repo_root: Path,
+) -> Counter[float]:
+    """Count direct scalar definitions from imported RuleSpec files."""
+    occurrences: Counter[float] = Counter()
+    seen: set[Path] = set()
+    for import_target in _extract_import_targets(content):
+        for path in _candidate_import_rule_files(import_target, policy_repo_root):
+            resolved = path.resolve()
+            if resolved in seen or not path.exists():
+                continue
+            seen.add(resolved)
+            with contextlib.suppress(OSError):
+                occurrences.update(
+                    item.value for item in extract_named_scalar_occurrences(path.read_text())
+                )
+            break
+    return occurrences
+
+
+def _candidate_import_rule_files(
+    import_target: str,
+    policy_repo_root: Path,
+) -> list[Path]:
+    """Return possible local files for an import target."""
+    target_path = _import_target_to_path(import_target)
+    candidates = [policy_repo_root / target_path]
+    import_prefix = _import_target_prefix(import_target)
+    if import_prefix:
+        candidates.append(policy_repo_root.parent / f"rules-{import_prefix}" / target_path)
+    return candidates
 
 
 @contextlib.contextmanager
@@ -2270,17 +2400,30 @@ Resolved canonical concept files from this corpus are available below.
 {labels}
 import or re-export that exact canonical concept instead of duplicating it locally.
 """
+        branch_child_naming_section = _format_branch_child_naming_guidance(
+            context_files,
+            target_file_name=target_file_name,
+            target_ref_prefix=target_ref_prefix,
+        )
         context_section = f"""
 Context mode: `{mode}`.
 Context files are precedent and dependency context, not independent legal authority for new values:
 {listings}
 {inline_context}
 {resolved_guidance}
+{branch_child_naming_section}
 Import and context rules:
 - Use the listed import target rather than the `./context/...` inspection path.
 - do not wrap import targets in quotes.
 - Every import path must point to a file that is actually copied into the workspace.
 - If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
+- Copied context listings include exported symbols as `import_target#name`; use
+  those exact references in `imports:` and proof atoms when composing from context.
+- In formulas, reference imported exports by their bare local rule name after adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
+- If this target is an aggregate parent provision and copied child-fragment files
+  already encode subparagraphs, import those child outputs and compose them.
+  Do not redefine the child parameters, helper rules, or copied executable
+  outputs in the parent file.
 - If a copied context file for this target or a same-program sibling contains a `kind: source_relation` record, preserve the legal/provenance edge unless `./source.txt` proves it wrong; executable formula changes are not a reason to drop source graph context.
 - Do not fabricate same-instrument imports or `statutes/...#symbol` paths unless that exact `path#symbol` import target is listed.
 - do not fabricate sibling-file imports for uncopied same-instrument provisions.
@@ -2322,7 +2465,9 @@ Test file rules:
 - Supported mapping `period_kind` values are `tax_year` and `custom`; never use `period_kind: calendar_year`.
 - For annual tax tests, use an explicit tax-year mapping such as `period: {{period_kind: tax_year, start: '2024-01-01', end: '2024-12-31'}}`.
 - For non-tax annual periods, use `period: {{period_kind: custom, name: calendar_year, start: '2024-01-01', end: '2024-12-31'}}`.
-- Emit 1-4 cases unless `module.status` is `deferred` or `entity_not_supported`, in which case the test file may be empty.
+- Emit 1-4 cases unless a source-driven coverage rule below requires more. If
+  `module.status` is `deferred` or `entity_not_supported`, the test file may be
+  empty.
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - If a test needs an imported derived output to become true or false, mirror the copied companion test `input:` pattern. Usually this means setting the imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not shortcutting by setting the imported derived output itself. Only set an imported derived key in `input:` when a copied companion test also uses that exact derived key in `input:`.
@@ -2330,6 +2475,14 @@ Test file rules:
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
+- Every test case for a local derived formula must assign every local factual
+  `#input.<fact>` referenced by that formula, including facts that are false in
+  the case. Missing false inputs make the executable test invalid.
+- For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
+  companion tests for the positive path and the carve-out path so exclusions
+  cannot be silently dropped.
+- If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, preserve this file's public output names unless the source text proves the old interface was legally wrong. Do not rename an exported value just because a clearer friendly name is possible.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
@@ -2397,9 +2550,33 @@ RuleSpec requirements:
 - Include `module.summary: |-` containing the exact operative source text or an exact compact excerpt sufficient to audit all encoded rules.
 - Do not emit `source_url`; RuleSpec source verification reads `corpus.provisions`, not raw PDFs or web pages.
 {corpus_rulespec_requirement.rstrip()}
+- Include `module.proof_validation.required: true` and add
+  `metadata.proof.atoms` to every `parameter` and `derived` rule. Each atom
+  must point to the corpus source, an accepted claim, or an explicit imported
+  RuleSpec export supporting that rule's formula/value.
+- For imported proof support, put `import:` at the proof atom top level
+  (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
+  do not put imported RuleSpec targets under `source:`. Import proof atoms must
+  include `import.target`, `import.output`, and `import.hash` with the listed
+  context file `sha256:` hash. If no `sha256:` hash is listed for that import,
+  do not emit an import proof atom.
+- Proof atom `kind` must be one of: `amount`, `condition`, `definition`,
+  `default`, `effective_period`, `exception`, `formula`, `import`, `ordering`,
+  `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
+- If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
+- Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
+- Do not encode a pure pass-through rule whose formula is only one local fact. If the source only names a preexisting fact without changing it, reference the upstream rule when available or leave the phrase documentary.
+- Do not create standalone small-number parameters just to restate prose such as "one-time" or "more than one consecutive month" when the number only qualifies a local factual condition. Encode the whole source-stated condition as a fact predicate or derived condition unless the scalar is an independent reusable amount, rate, threshold, cap, or limit.
+- Do not append citation or file suffixes like `_2014_a` to new local rule names; the file path is already the legal ID. Keep names concise and semantic unless a copied public interface must be preserved.
+- Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
+  `_d_2_C`, or `_2014_a`, are invalid.
+- Rule names must not collide with copied sibling files. For subparagraph/list
+  item child files, make the principal output name semantic to that branch
+  (for example `care_responsibility_exemption_applies`), not only the shared
+  parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
 - Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
 - Do not invent new entities, periods, or dtypes.
@@ -2407,9 +2584,13 @@ RuleSpec requirements:
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
 - Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility, availability, applicability, entitlement, and other holds/not-holds style outputs, especially when the formula contains `not`.
+- Do not create derived `dtype: Boolean` helper rules with logical formulas. Use `dtype: Judgment` for derived legal predicates, or leave simple local facts as factual `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}` keys consumed by formulas and tests.
 - Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
 - Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
+- Formula strings must use bare identifiers only. If an imported rule is listed
+  as `us:statutes/...#example_rule`, add that exact target to `imports:` but
+  reference `example_rule` inside formula text.
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax. Judgment formulas should usually be boolean expressions, not `if` conditionals.
 - When using negated conjuncts, write them as a multiline formula with each `not <predicate>` term on its own line joined by `and`, rather than one compact `not A and not B` line.
 - Do not use Python inline ternaries like `x if cond else y`.
@@ -2420,7 +2601,9 @@ RuleSpec requirements:
 - Any substantive numeric literal in a formula must either appear in `./source.txt` or be one of -1, 0, 1, 2, or 3.
 - Every substantive numeric occurrence in `./source.txt` must be represented by a named scalar definition in RuleSpec when it is a legal amount, rate, threshold, cap, or limit.
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
-- If the same numeric value appears twice in materially different legal roles, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
+- If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
+- If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If `./source.txt` says someone is "aged 18 or over", "under 25", or similar, model the legal age predicate instead of inventing documentary age constants.
 - When source text uses amendment markup like `[old] new`, treat the bracketed value as superseded text. Encode the current unbracketed value/effective date unless the task explicitly asks for historical text.
 - If `./source.txt` makes an allowance, deduction, exemption, or eligibility branch conditional on billed, paid, incurred, anticipated, or other cost/expense facts, encode a positive fact predicate for that source-stated condition. Do not model availability solely as `not` other categories.
@@ -2438,6 +2621,14 @@ RuleSpec requirements:
 - Preserve existing or copied `kind: source_relation` records unless `./source.txt` proves the legal/provenance edge is wrong.
 - For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
 - When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
+- When the source uses `except`, `unless`, or `notwithstanding` with cited
+  sections or same-section subsections, do not create local `section_...` or
+  `subsection_...` inputs for those cited sources. Import the cited RuleSpec
+  source when it exists; if the target source is needed but unavailable, stop
+  with an explicit missing-upstream/dependency request instead of encoding an
+  opaque placeholder.
+- If the cited same-section subsection is supplied in context as a RuleSpec file, add an `imports:` entry for that file and reference its exported rule; do not summarize the cited subsection into a local fact like `person_meets_...requirements`.
+- Do not copy the body of a cited cross-reference provision into this module's `summary` or re-encode that cited provision locally. Keep this module scoped to the requested citation and import the cited provision instead.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
 {target_hint}
 Additional encoding guidance:
@@ -2447,6 +2638,8 @@ Minimal RuleSpec shape:
 ```yaml
 format: rulespec/v1
 module:
+  proof_validation:
+    required: true
   source_verification:
     corpus_citation_path: <corpus citation path from this prompt>
   summary: |-
@@ -2456,6 +2649,13 @@ rules:
     kind: parameter
     dtype: Money
     unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: <corpus citation path from this prompt>
     versions:
       - effective_from: '2024-01-01'
         formula: |-
@@ -2564,12 +2764,141 @@ def _format_context_file_listing(
     """Format one copied context file for prompt display."""
     details = f": {item.label or item.source_path}" if include_label else ""
     kind = f" (kind: {item.kind})"
+    context_hash = _context_file_hash(item.source_path)
+    hash_detail = f"; context hash `{context_hash}`" if context_hash else ""
+    export_detail = _context_file_export_detail(item)
     if item.workspace_path == item.import_path:
-        return f"- `{item.workspace_path}`{details}{kind}"
+        return f"- `{item.workspace_path}`{hash_detail}{export_detail}{details}{kind}"
     return (
         f"- inspect `{item.workspace_path}`; import target `{item.import_path}`"
-        f"{details}{kind}"
+        f"{hash_detail}{export_detail}{details}{kind}"
     )
+
+
+def _format_branch_child_naming_guidance(
+    context_files: list[EvalContextFile],
+    *,
+    target_file_name: str,
+    target_ref_prefix: str | None,
+) -> str:
+    """Warn child-fragment encoders about reserved sibling export names."""
+    target_key = _context_import_path_key(target_ref_prefix or target_file_name)
+    if target_key is None:
+        return ""
+    target_parent = _context_import_parent_key(target_key)
+
+    target_exports: set[str] = set()
+    sibling_exports: dict[str, str] = {}
+    sibling_count = 0
+    for item in context_files:
+        item_key = _context_import_path_key(item.import_path)
+        if item_key is None or _context_import_parent_key(item_key) != target_parent:
+            continue
+        exports = _context_file_exports(item.source_path)
+        if not exports:
+            continue
+        if item_key == target_key:
+            target_exports.update(exports)
+            continue
+        sibling_count += 1
+        for name in exports:
+            sibling_exports.setdefault(name, item.import_path)
+
+    if not sibling_exports or sibling_count == 0:
+        return ""
+
+    reserved = _format_rule_name_list(sorted(sibling_exports))
+    colliding = _format_rule_name_list(sorted(target_exports & sibling_exports.keys()))
+    collision_note = ""
+    if colliding:
+        collision_note = (
+            "\n- The copied target currently exports invalid colliding names: "
+            f"{colliding}; do not preserve those names."
+        )
+
+    return f"""
+Branch child naming for this target:
+- Copied sibling child files already reserve these exported names: {reserved}.
+{collision_note}
+- This target is a child branch. If the source states a shared parent
+  consequence such as "shall be exempt if (A) ...", define the condition in this branch, not the shared parent consequence. Use a concise semantic output
+  name based on this branch's condition.
+- If the copied target exports a name that mainly describes the shared parent outcome rather than this branch's source-stated condition, treat that name as stale and rename it even when no sibling currently collides with it.
+"""
+
+
+def _context_import_path_key(import_path: str) -> tuple[str | None, str] | None:
+    """Normalize an import target for sibling/target comparisons."""
+    normalized = import_path.strip().strip("\"'")
+    if not normalized:
+        return None
+    normalized = normalized.split("#", 1)[0].strip().strip("/")
+    prefix: str | None = None
+    if ":" in normalized:
+        maybe_prefix, rest = normalized.split(":", 1)
+        if re.fullmatch(r"[a-z][a-z0-9-]*", maybe_prefix) and rest:
+            prefix = maybe_prefix
+            normalized = rest.strip("/")
+    if normalized.endswith((".yaml", ".yml")):
+        normalized = normalized.rsplit(".", 1)[0]
+    normalized = normalized.strip("/")
+    return (prefix, normalized) if normalized else None
+
+
+def _context_import_parent_key(
+    key: tuple[str | None, str],
+) -> tuple[str | None, str]:
+    prefix, target = key
+    return prefix, Path(target).parent.as_posix()
+
+
+def _format_rule_name_list(names: list[str], *, limit: int = 12) -> str:
+    """Format a compact backticked list of rule names."""
+    visible = ", ".join(f"`{name}`" for name in names[:limit])
+    if len(names) > limit:
+        visible += ", ..."
+    return visible or "`<none>`"
+
+
+def _context_file_hash(source_path: str) -> str | None:
+    """Return the sha256 hash for a context file when it is readable."""
+    try:
+        digest = hashlib.sha256(Path(source_path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+    return f"sha256:{digest}"
+
+
+def _context_file_export_detail(item: EvalContextFile) -> str:
+    """Return a compact list of exported symbols for a context RuleSpec file."""
+    exports = _context_file_exports(item.source_path)
+    if not exports:
+        return ""
+    references = ", ".join(f"`{item.import_path}#{name}`" for name in exports[:8])
+    if len(exports) > 8:
+        references += ", ..."
+    return f"; exports {references}"
+
+
+def _context_file_exports(source_path: str) -> list[str]:
+    """Extract RuleSpec rule names exported by a copied context file."""
+    try:
+        payload = yaml.safe_load(Path(source_path).read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    exports: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            exports.append(name)
+    return exports
 
 
 def _collect_scaffold_dates(
@@ -2651,8 +2980,11 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
     """Resolve canonical import targets for one copied precedent file."""
     dependencies: list[Path] = []
     for import_target in _extract_import_targets(source_path.read_text()):
+        import_prefix = _import_target_prefix(import_target)
         target_path = _import_target_to_path(import_target)
         candidates = [policy_root / target_path]
+        if import_prefix:
+            candidates.append(policy_root.parent / f"rules-{import_prefix}" / target_path)
         if target_path.parts:
             first = target_path.parts[0]
             if first == policy_root.name:
@@ -2706,9 +3038,26 @@ def _extract_import_targets(content: str) -> list[str]:
 def _import_target_to_path(import_target: str) -> Path:
     """Convert an import target like 26/24/c#name into 26/24/c.yaml."""
     normalized = import_target.strip().strip('"').strip("'")
+    normalized = normalized.split("#", 1)[0].strip()
+    if ":" in normalized:
+        prefix, rest = normalized.split(":", 1)
+        if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) and rest:
+            normalized = rest
     if normalized.endswith((".yaml", ".yml")):
         return Path(normalized)
     return Path(f"{normalized}.yaml")
+
+
+def _import_target_prefix(import_target: str) -> str | None:
+    """Return the repo prefix from an absolute RuleSpec import target."""
+    normalized = import_target.strip().strip('"').strip("'")
+    normalized = normalized.split("#", 1)[0].strip()
+    if ":" not in normalized:
+        return None
+    prefix, rest = normalized.split(":", 1)
+    if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) and rest:
+        return prefix
+    return None
 
 
 def _is_under_root(path: Path, root: Path) -> bool:

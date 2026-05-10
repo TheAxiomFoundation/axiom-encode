@@ -1,5 +1,6 @@
 """Tests for model comparison eval helpers."""
 
+import hashlib
 import json
 import subprocess
 from datetime import date
@@ -670,17 +671,20 @@ class TestEvaluateArtifact:
         generated.write_text("format: rulespec/v1\nrules: []\n")
         generated.with_name("c.test.yaml").write_text("[]\n")
         seen_targets: list[tuple[tuple[str, ...], str, bool]] = []
+        seen_policy_repo_roots: list[tuple[str, ...]] = []
 
         def fake_compile(_pipeline, path):
             seen_targets.append(
                 (path.parts, path.name, path.with_name("c.test.yaml").exists())
             )
+            seen_policy_repo_roots.append(_pipeline.policy_repo_path.parts)
             return ValidationResult("compile", passed=True)
 
         def fake_ci(_pipeline, path):
             seen_targets.append(
                 (path.parts, path.name, path.with_name("c.test.yaml").exists())
             )
+            seen_policy_repo_roots.append(_pipeline.policy_repo_path.parts)
             return ValidationResult("ci", passed=True)
 
         with (
@@ -699,6 +703,9 @@ class TestEvaluateArtifact:
             assert "rules-us-ny" in parts
             assert name == "c.yaml"
             assert companion_test_exists
+        for parts in seen_policy_repo_roots:
+            assert "rules-us-ny" in parts
+            assert parts != policy_repo.parts
 
     def test_uses_fallback_source_text_for_grounding(self, tmp_path):
         rulespec_file = tmp_path / "24" / "a.yaml"
@@ -750,6 +757,155 @@ class TestEvaluateArtifact:
             "Ungrounded generated numeric literal" in issue and "2200" in issue
             for issue in metrics.ci_issues
         )
+
+    def test_numeric_occurrence_check_uses_embedded_operating_excerpt(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "statutes" / "7" / "2014" / "a.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2014
+  summary: |-
+    (a) Households in which each member receives qualifying public assistance shall be eligible.
+rules:
+  - name: snap_public_assistance_categorical_eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: each_member_receives_qualifying_public_assistance
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules"),
+                source_text=(
+                    "(a) Households in which each member receives qualifying public assistance shall be eligible.\n\n"
+                    "(e) The unrelated standard deduction is 8.31 percent, $144, and $246."
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 0
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_generated_numeric_grounding_uses_embedded_operating_excerpt(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "statutes" / "7" / "2014" / "a.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2014
+  summary: |-
+    (a) Households in which each member receives qualifying public assistance shall be eligible.
+rules:
+  - name: unrelated_standard_deduction_amount
+    kind: parameter
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 144
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules"),
+                source_text=(
+                    "(a) Households in which each member receives qualifying public assistance shall be eligible.\n\n"
+                    "(e) The unrelated standard deduction is $144."
+                ),
+            )
+
+        assert not metrics.ci_pass
+        assert metrics.ungrounded_numeric_count == 1
+        assert any("144" in issue for issue in metrics.ci_issues)
+
+    def test_numeric_occurrence_check_counts_imported_named_scalars(self, tmp_path):
+        policy_repo = tmp_path / "rules-us"
+        child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "B.yaml"
+        child.parent.mkdir(parents=True)
+        child.write_text(
+            """format: rulespec/v1
+rules:
+  - name: dependent_child_age_exemption_threshold_years
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2008-10-01'
+        formula: |-
+          6
+"""
+        )
+        parent = policy_repo / "statutes" / "7" / "2015" / "d" / "2.yaml"
+        parent.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    A household member with responsibility for care of a dependent child under age 6 is exempt.
+imports:
+  - us:statutes/7/2015/d/2/B
+rules:
+  - name: person_exempt_from_paragraph_1_work_requirements
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: care_responsibility_exemption_applies
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=parent,
+                policy_repo_root=policy_repo,
+                axiom_rules_path=Path("/tmp/axiom-rules"),
+                source_text="A household member with responsibility for care of a dependent child under age 6 is exempt.",
+            )
+
+        assert metrics.ci_pass
+        assert metrics.numeric_occurrence_issues == []
 
     def test_fails_ci_when_repeated_source_scalar_has_only_one_named_definition(
         self, tmp_path
@@ -2050,6 +2206,48 @@ class TestEvalPrompt:
             "Use chained `if condition: value else: other_value` expressions" in prompt
         )
         assert "Do not use bare year periods like `2024`" in prompt
+
+    def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="7 USC 2014(a)",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Participation in the supplemental nutrition assistance program "
+                "shall be limited to those households whose incomes and other "
+                "financial resources are determined to be a substantial limiting "
+                "factor in permitting them to obtain a more nutritious diet. "
+                "Assistance under this program shall be furnished to all eligible "
+                "households who make application for such participation."
+            ),
+            axiom_rules_path=tmp_path / "axiom-rules",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "7 USC 2014(a)",
+            "cold",
+            workspace,
+            [],
+            target_file_name="statutes/7/2014/a.yaml",
+            target_ref_prefix="us:statutes/7/2014/a",
+            include_tests=True,
+        )
+
+        assert "broad application, furnishing, administrative duty, or purpose clause" in prompt
+        assert "do not create an executable derived output just to paraphrase it" in prompt
+        assert "assistance shall be furnished to all eligible households" in prompt
+        assert "Do not encode a pure pass-through rule whose formula is only one local fact" in prompt
+        assert "one-time" in prompt
+        assert "more than one consecutive month" in prompt
+        assert "Do not append citation or file suffixes like `_2014_a`" in prompt
+        assert "For every encoded `except`, `unless`, or `notwithstanding` carve-out" in prompt
+        assert "sets that exception input true" in prompt
+        assert "Do not collapse a list of cited exceptions" in prompt
+        assert "Do not create derived `dtype: Boolean` helper rules" in prompt
 
     def test_build_eval_prompt_includes_supported_schema_enums(self, tmp_path):
         workspace = prepare_eval_workspace(
@@ -4025,7 +4223,7 @@ class TestRepoAugmentedContext:
         manifest = json.loads(workspace.manifest_file.read_text())
         assert manifest["mode"] == "repo-augmented"
         assert manifest["context_files"][0]["source_path"] == str(context_file)
-        assert manifest["context_files"][0]["import_path"] == "statutes/26/32/b/2/A"
+        assert manifest["context_files"][0]["import_path"] == "us:statutes/26/32/b/2/A"
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
@@ -4061,7 +4259,7 @@ class TestRepoAugmentedContext:
         }
         assert copied_sources[str(target_file)]["kind"] == "existing_target"
         assert copied_sources[str(target_file)]["import_path"] == (
-            "regulations/18-nycrr/387/12/f"
+            "us-ny:regulations/18-nycrr/387/12/f"
         )
         assert (
             copied_sources[str(target_file.with_name("f.test.yaml"))]["kind"]
@@ -4122,7 +4320,7 @@ class TestRepoAugmentedContext:
         assert manifest["mode"] == "repo-augmented"
         assert manifest["source_text_file"] == "source.txt"
         assert manifest["context_files"][0]["source_path"] == str(context_file)
-        assert manifest["context_files"][0]["import_path"] == "statutes/26/24/b"
+        assert manifest["context_files"][0]["import_path"] == "us:statutes/26/24/b"
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
@@ -4164,6 +4362,83 @@ class TestRepoAugmentedContext:
             workspace.root / copied_sources[str(context_test)]["workspace_path"]
         )
         assert copied_test.read_text() == "- name: context_case\n  period: 2026-01\n"
+
+    def test_prepare_eval_workspace_adds_same_section_subsection_context(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root.mkdir(parents=True)
+        statute_root = repo_root / "rules-us" / "statutes" / "7" / "2015"
+        statute_root.mkdir(parents=True)
+        context_file = statute_root / "e.yaml"
+        context_test = statute_root / "e.test.yaml"
+        context_file.write_text("format: rulespec/v1\nrules: []\n")
+        context_test.write_text("- name: student_exception_case\n  period: 2026-01\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="7 USC 2015(d)(2)(C)",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=(
+                    "A higher education student is ineligible unless the student "
+                    "meets the requirements of subsection (e) of this section."
+                ),
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
+        assert copied_sources[str(context_file)]["import_path"] == "us:statutes/7/2015/e"
+        assert (
+            copied_sources[str(context_test)]["kind"]
+            == "implementation_test_context"
+        )
+
+    def test_prepare_eval_workspace_adds_child_fragment_context(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root.mkdir(parents=True)
+        child_root = repo_root / "rules-us" / "statutes" / "7" / "2015" / "d" / "2"
+        child_root.mkdir(parents=True)
+        child_files = []
+        for fragment in ("A", "B", "C", "D", "E", "F"):
+            child_file = child_root / f"{fragment}.yaml"
+            child_file.write_text("format: rulespec/v1\nrules: []\n")
+            child_files.append(child_file)
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="7 USC 2015(d)(2)",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text="A person shall be exempt if subparagraphs (A) through (F) apply.",
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        for child_file in child_files:
+            assert copied_sources[str(child_file)]["kind"] == "implementation_precedent"
+            assert copied_sources[str(child_file)]["import_path"] == (
+                f"us:statutes/7/2015/d/2/{child_file.stem}"
+            )
 
     def test_prepare_eval_workspace_materializes_corpus_source_metadata(self, tmp_path):
         runner = parse_runner_spec("openai:gpt-5.4")
@@ -4238,8 +4513,18 @@ class TestRepoAugmentedContext:
 
         assert (
             "inspect `context/regulation/9-CCR-2503-6/3.606.1/F.yaml`; "
-            "import target `regulation/9-CCR-2503-6/3.606.1/F`"
+            "import target `us-co:regulation/9-CCR-2503-6/3.606.1/F`"
         ) in prompt
+        expected_hash = "sha256:" + hashlib.sha256(
+            external_file.read_bytes()
+        ).hexdigest()
+        assert f"context hash `{expected_hash}`" in prompt
+        assert (
+            "exports `us-co:regulation/9-CCR-2503-6/3.606.1/F#grant_standard_for_assistance_unit`"
+            in prompt
+        )
+        assert "import.output" in prompt
+        assert "import.hash" in prompt
         assert "do not wrap import targets in quotes" in prompt
         assert (
             "Use the listed import target rather than the `./context/...` inspection path"
@@ -4261,6 +4546,67 @@ class TestRepoAugmentedContext:
             "Do not assert an exact zero imported standard, grant, or threshold unless that exact imported row is visible in the copied chart file"
             in prompt
         )
+        assert (
+            "In formulas, reference imported exports by their bare local rule name"
+            in prompt
+        )
+        assert "never write an absolute `us:...#rule_name` reference inside a formula" in prompt
+
+    def test_build_eval_prompt_flags_child_branch_sibling_name_collisions(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root.mkdir(parents=True)
+        child_root = repo_root / "rules-us" / "statutes" / "7" / "2015" / "d" / "2"
+        child_root.mkdir(parents=True)
+        for fragment in ("A", "B"):
+            child_file = child_root / f"{fragment}.yaml"
+            child_file.write_text(
+                "format: rulespec/v1\n"
+                "rules:\n"
+                "  - name: person_exempt_from_paragraph_1_work_requirements\n"
+                "    kind: derived\n"
+                "    entity: Person\n"
+                "    dtype: Judgment\n"
+                "    period: Month\n"
+            )
+
+        workspace = prepare_eval_workspace(
+            citation="7 USC 2015(d)(2)(A)",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "A person otherwise required to comply with paragraph (1) shall be "
+                "exempt if the person is subject to and complying with any work "
+                "registration requirement under title IV or the Federal-State "
+                "unemployment compensation system."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "7 USC 2015(d)(2)(A)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="A.yaml",
+            target_ref_prefix="us:statutes/7/2015/d/2/A",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Branch child naming for this target" in prompt
+        assert "`person_exempt_from_paragraph_1_work_requirements`" in prompt
+        assert "copied target currently exports invalid colliding names" in prompt
+        assert "do not preserve those names" in prompt
+        assert (
+            "define the condition in this branch, not the shared parent consequence"
+            in prompt
+        )
+        assert "treat that name as stale and rename it" in prompt
 
     def test_hydrate_eval_root_copies_context_into_import_tree(self, tmp_path):
         repo_root = tmp_path / "repos"
@@ -4319,8 +4665,8 @@ class TestRepoAugmentedContext:
         selected.write_text(
             "format: rulespec/v1\n"
             "imports:\n"
-            "  - statutes/26/24/c/2#ctc_meets_citizenship_requirement\n"
-            "  - statutes/26/152/c#qualifying_child_of_taxpayer\n"
+            "  - us:statutes/26/24/c/2#ctc_meets_citizenship_requirement\n"
+            "  - us:statutes/26/152/c#qualifying_child_of_taxpayer\n"
             "rules:\n"
             "  - name: qualifying_child_count\n"
             "    kind: derived\n"
@@ -4386,8 +4732,8 @@ class TestRepoAugmentedContext:
         selected.write_text(
             "format: rulespec/v1\n"
             "imports:\n"
-            "  - statutes/7/2014/2014#snap_household_has_elderly_or_disabled_member\n"
-            "  - statutes/7/2014/d#snap_gross_income\n"
+            "  - us:statutes/7/2014/2014#snap_household_has_elderly_or_disabled_member\n"
+            "  - us:statutes/7/2014/d#snap_gross_income\n"
             "rules:\n"
             "  - name: snap_net_income\n"
             "    kind: derived\n"
