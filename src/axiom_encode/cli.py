@@ -496,7 +496,7 @@ def main():
 
     snap_ecps_compare_parser = subparsers.add_parser(
         "snap-ecps-compare",
-        help="Compare SNAP RuleSpec output against PolicyEngine enhanced CPS",
+        help="Compare SNAP RuleSpec output against PolicyEngine ECPS",
     )
     configure_snap_ecps_compare_parser(snap_ecps_compare_parser)
 

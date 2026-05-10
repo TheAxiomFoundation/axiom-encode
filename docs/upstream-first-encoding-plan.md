@@ -382,7 +382,7 @@ earned-income deductions, or statutory elderly/disabled definitions.
 - Run the planner over federal SNAP and Colorado SNAP sources.
 - Delete SNAP-specific upstream fallback checks once equivalent RuleSpec
   relation checks catch the same failures.
-- Validate full CO SNAP calculation parity against PolicyEngine US on eCPS and
+- Validate full CO SNAP calculation parity against PolicyEngine US on ECPS and
   targeted household cases.
 
 ## Acceptance Criteria

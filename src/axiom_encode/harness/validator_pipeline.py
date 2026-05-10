@@ -6714,7 +6714,7 @@ Output ONLY valid JSON:
     ) -> ValidationResult:
         """Benchmark RuleSpec encoding against PolicyEngine using CPS microdata.
 
-        Runs PE Microsimulation on the enhanced CPS, extracts the target
+        Runs PE Microsimulation on ECPS, extracts the target
         variable for all tax units, and reports the benchmark. This establishes
         the PE baseline that RuleSpec must match as inputs get wired up.
 

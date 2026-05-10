@@ -1,10 +1,10 @@
-"""Compare SNAP RuleSpec output against PolicyEngine enhanced CPS.
+"""Compare SNAP RuleSpec output against PolicyEngine ECPS.
 
-The comparator projects PolicyEngine enhanced CPS SPM-unit records into a
+The comparator projects PolicyEngine ECPS (enhanced CPS) SPM-unit records into a
 jurisdiction's SNAP composition input surface, including related member facts,
 runs Axiom Rules over the projected records, and compares regular monthly SNAP
 allotments against PolicyEngine's normal allotment. It uses these targets
-because enhanced CPS records do not include application dates for initial-month
+because ECPS records do not include application dates for initial-month
 proration, and PolicyEngine's top-level ``snap`` microsimulation value includes
 take-up adjustments.
 
@@ -426,13 +426,13 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         "--sample-size",
         type=int,
         default=None,
-        help="Limit after state filtering. Omit to run all matching eCPS SPM units.",
+        help="Limit after state filtering. Omit to run all matching ECPS SPM units.",
     )
     parser.add_argument(
         "--positive-snap-only",
         action="store_true",
         help=(
-            "Only compare eCPS SPM units where PolicyEngine normal allotment "
+            "Only compare ECPS SPM units where PolicyEngine normal allotment "
             "is positive."
         ),
     )
@@ -441,8 +441,8 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         choices=("raw-expenses", "policyengine-type"),
         default="raw-expenses",
         help=(
-            "How to project eCPS utility facts. raw-expenses uses itemized "
-            "utility expenses from eCPS. policyengine-type maps "
+            "How to project ECPS utility facts. raw-expenses uses itemized "
+            "utility expenses from ECPS. policyengine-type maps "
             "PolicyEngine's utility-allowance type into jurisdiction utility "
             "facts for oracle parity."
         ),
@@ -848,7 +848,7 @@ def load_policyengine_cases(
             "snap-ecps-compare"
         ) from exc
 
-    print("Loading PolicyEngine enhanced CPS...")
+    print("Loading PolicyEngine ECPS...")
     sim = Microsimulation()
 
     period_label = period.label
@@ -877,10 +877,10 @@ def load_policyengine_cases(
     if sample_size is not None:
         indices = indices[:sample_size]
 
-    print(f"Projecting {len(indices):,} {state} eCPS SPM units...")
+    print(f"Projecting {len(indices):,} {state} ECPS SPM units...")
     if skipped_empty_units:
         print(
-            f"Skipped {skipped_empty_units:,} {state} eCPS SPM units "
+            f"Skipped {skipped_empty_units:,} {state} ECPS SPM units "
             "with SNAP unit size < 1."
         )
 
@@ -1392,7 +1392,7 @@ def print_summary(
     diffs = sorted(rows, key=lambda row: row["absolute_difference"], reverse=True)
     mean_abs = sum(row["absolute_difference"] for row in rows) / total if total else 0.0
     print()
-    print(f"Compared {total:,} PolicyEngine eCPS SPM units")
+    print(f"Compared {total:,} PolicyEngine ECPS SPM units")
     print(f"Tolerance: ${tolerance:,.2f}")
     print(
         f"Matches: {matches:,}/{total:,} ({matches / total:.1%})"
@@ -1450,14 +1450,14 @@ def main(args: argparse.Namespace | None = None) -> int:
         utility_projection=args.utility_projection,
     )
     if not cases:
-        print("No matching eCPS SPM units.")
+        print("No matching ECPS SPM units.")
         return 1
 
     with tempfile.TemporaryDirectory(prefix=config.temp_prefix) as temp_dir:
         artifact = Path(temp_dir) / "program.compiled.json"
         print(f"Compiling {config.display_name} RuleSpec composition...")
         compile_program(axiom_binary, program, artifact, env=env)
-        print("Running Axiom Rules over projected eCPS records...")
+        print("Running Axiom Rules over projected ECPS records...")
         results = run_axiom_cases(
             binary=axiom_binary,
             artifact=artifact,
