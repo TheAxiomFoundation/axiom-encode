@@ -102,10 +102,7 @@ def test_same_section_subsection_import_accepts_transitive_child_import(tmp_path
     child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     child.parent.mkdir(parents=True)
     child.write_text(
-        "format: rulespec/v1\n"
-        "imports:\n"
-        "  - us:statutes/7/2015/e\n"
-        "rules: []\n"
+        "format: rulespec/v1\nimports:\n  - us:statutes/7/2015/e\nrules: []\n"
     )
     parent = policy_repo / "statutes" / "7" / "2015" / "d" / "2.yaml"
     parent.parent.mkdir(parents=True, exist_ok=True)
@@ -2318,7 +2315,7 @@ rules:
             "output": {
                 "us:statutes/7/2014/a#eligibility": "not_holds",
             },
-        }
+        },
     ]
 
     issues = find_exception_test_coverage_issues(content, test_cases)
@@ -2521,7 +2518,9 @@ rules:
 
     assert len(issues) == 1
     assert "Aggregate exception predicate" in issues[0]
-    assert "section_2015_b_d_2_g_r_and_2012_m_4_do_not_preclude_eligibility" in issues[0]
+    assert (
+        "section_2015_b_d_2_g_r_and_2012_m_4_do_not_preclude_eligibility" in issues[0]
+    )
 
 
 def test_cross_reference_exception_placeholder_requires_import(tmp_path):
@@ -2775,7 +2774,9 @@ rules:
 
 
 def test_sibling_rule_name_collision_rejects_duplicate_exports(tmp_path):
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    rules_file = (
+        tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    )
     sibling = rules_file.with_name("B.yaml")
     rules_file.parent.mkdir(parents=True)
     sibling.write_text(
@@ -2799,7 +2800,9 @@ rules:
 
 
 def test_sibling_rule_name_collision_allows_unique_exports(tmp_path):
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    rules_file = (
+        tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    )
     sibling = rules_file.with_name("B.yaml")
     rules_file.parent.mkdir(parents=True)
     sibling.write_text(

@@ -758,9 +758,7 @@ class TestEvaluateArtifact:
             for issue in metrics.ci_issues
         )
 
-    def test_numeric_occurrence_check_uses_embedded_operating_excerpt(
-        self, tmp_path
-    ):
+    def test_numeric_occurrence_check_uses_embedded_operating_excerpt(self, tmp_path):
         rulespec_file = tmp_path / "statutes" / "7" / "2014" / "a.yaml"
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
@@ -2237,14 +2235,25 @@ class TestEvalPrompt:
             include_tests=True,
         )
 
-        assert "broad application, furnishing, administrative duty, or purpose clause" in prompt
-        assert "do not create an executable derived output just to paraphrase it" in prompt
+        assert (
+            "broad application, furnishing, administrative duty, or purpose clause"
+            in prompt
+        )
+        assert (
+            "do not create an executable derived output just to paraphrase it" in prompt
+        )
         assert "assistance shall be furnished to all eligible households" in prompt
-        assert "Do not encode a pure pass-through rule whose formula is only one local fact" in prompt
+        assert (
+            "Do not encode a pure pass-through rule whose formula is only one local fact"
+            in prompt
+        )
         assert "one-time" in prompt
         assert "more than one consecutive month" in prompt
         assert "Do not append citation or file suffixes like `_2014_a`" in prompt
-        assert "For every encoded `except`, `unless`, or `notwithstanding` carve-out" in prompt
+        assert (
+            "For every encoded `except`, `unless`, or `notwithstanding` carve-out"
+            in prompt
+        )
         assert "sets that exception input true" in prompt
         assert "Do not collapse a list of cited exceptions" in prompt
         assert "Do not create derived `dtype: Boolean` helper rules" in prompt
@@ -4363,7 +4372,9 @@ class TestRepoAugmentedContext:
         )
         assert copied_test.read_text() == "- name: context_case\n  period: 2026-01\n"
 
-    def test_prepare_eval_workspace_adds_same_section_subsection_context(self, tmp_path):
+    def test_prepare_eval_workspace_adds_same_section_subsection_context(
+        self, tmp_path
+    ):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "axiom-rules"
         policy_repo_root.mkdir(parents=True)
@@ -4397,10 +4408,11 @@ class TestRepoAugmentedContext:
             item["source_path"]: item for item in manifest["context_files"]
         }
         assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
-        assert copied_sources[str(context_file)]["import_path"] == "us:statutes/7/2015/e"
         assert (
-            copied_sources[str(context_test)]["kind"]
-            == "implementation_test_context"
+            copied_sources[str(context_file)]["import_path"] == "us:statutes/7/2015/e"
+        )
+        assert (
+            copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
     def test_prepare_eval_workspace_adds_child_fragment_context(self, tmp_path):
@@ -4515,9 +4527,9 @@ class TestRepoAugmentedContext:
             "inspect `context/regulation/9-CCR-2503-6/3.606.1/F.yaml`; "
             "import target `us-co:regulation/9-CCR-2503-6/3.606.1/F`"
         ) in prompt
-        expected_hash = "sha256:" + hashlib.sha256(
-            external_file.read_bytes()
-        ).hexdigest()
+        expected_hash = (
+            "sha256:" + hashlib.sha256(external_file.read_bytes()).hexdigest()
+        )
         assert f"context hash `{expected_hash}`" in prompt
         assert (
             "exports `us-co:regulation/9-CCR-2503-6/3.606.1/F#grant_standard_for_assistance_unit`"
@@ -4550,7 +4562,10 @@ class TestRepoAugmentedContext:
             "In formulas, reference imported exports by their bare local rule name"
             in prompt
         )
-        assert "never write an absolute `us:...#rule_name` reference inside a formula" in prompt
+        assert (
+            "never write an absolute `us:...#rule_name` reference inside a formula"
+            in prompt
+        )
 
     def test_build_eval_prompt_flags_child_branch_sibling_name_collisions(
         self, tmp_path

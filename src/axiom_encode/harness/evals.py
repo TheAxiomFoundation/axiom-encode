@@ -1685,7 +1685,9 @@ def _select_same_section_subsection_context_files(
     return selected
 
 
-def _select_child_fragment_context_files(citation: str, policy_root: Path) -> list[Path]:
+def _select_child_fragment_context_files(
+    citation: str, policy_root: Path
+) -> list[Path]:
     """Select existing child RuleSpecs when encoding an aggregate parent fragment."""
     target_rel = _target_rel_for_eval_identifier(citation)
     if target_rel is None:
@@ -1970,9 +1972,7 @@ def evaluate_artifact(
     )
 
 
-def _validation_policy_repo_root(
-    validation_file: Path, policy_repo_root: Path
-) -> Path:
+def _validation_policy_repo_root(validation_file: Path, policy_repo_root: Path) -> Path:
     """Return the repo root that contains the validation copy."""
     repo_name = policy_repo_root.name
     for parent in validation_file.parents:
@@ -1996,7 +1996,8 @@ def _imported_named_scalar_occurrences(
             seen.add(resolved)
             with contextlib.suppress(OSError):
                 occurrences.update(
-                    item.value for item in extract_named_scalar_occurrences(path.read_text())
+                    item.value
+                    for item in extract_named_scalar_occurrences(path.read_text())
                 )
             break
     return occurrences
@@ -2011,7 +2012,9 @@ def _candidate_import_rule_files(
     candidates = [policy_repo_root / target_path]
     import_prefix = _import_target_prefix(import_target)
     if import_prefix:
-        candidates.append(policy_repo_root.parent / f"rules-{import_prefix}" / target_path)
+        candidates.append(
+            policy_repo_root.parent / f"rules-{import_prefix}" / target_path
+        )
     return candidates
 
 
@@ -2984,7 +2987,9 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
         target_path = _import_target_to_path(import_target)
         candidates = [policy_root / target_path]
         if import_prefix:
-            candidates.append(policy_root.parent / f"rules-{import_prefix}" / target_path)
+            candidates.append(
+                policy_root.parent / f"rules-{import_prefix}" / target_path
+            )
         if target_path.parts:
             first = target_path.parts[0]
             if first == policy_root.name:

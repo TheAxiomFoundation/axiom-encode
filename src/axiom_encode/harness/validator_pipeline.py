@@ -2869,9 +2869,9 @@ def find_broad_application_passthrough_issues(content: str) -> list[str]:
     if not isinstance(payload, dict):
         return []
 
-    source_text = extract_embedded_source_text(content) or _extract_source_verification_text(
+    source_text = extract_embedded_source_text(
         content
-    )
+    ) or _extract_source_verification_text(content)
     if not source_text or not _BROAD_APPLICATION_FURNISHING_SOURCE_PATTERN.search(
         source_text
     ):
@@ -3080,7 +3080,9 @@ def _path_suffix_tokens_for_rule_name(
     fragments: tuple[str, ...],
 ) -> set[str]:
     """Return path-fragment suffixes specific enough to avoid common words."""
-    normalized_fragments = tuple(_normalize_rule_name_suffix_token(item) for item in fragments)
+    normalized_fragments = tuple(
+        _normalize_rule_name_suffix_token(item) for item in fragments
+    )
     normalized_fragments = tuple(item for item in normalized_fragments if item)
     if not normalized_fragments:
         return set()
@@ -3099,7 +3101,9 @@ def _normalize_rule_name_suffix_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
 
-def find_sibling_rule_name_collision_issues(content: str, rules_file: Path) -> list[str]:
+def find_sibling_rule_name_collision_issues(
+    content: str, rules_file: Path
+) -> list[str]:
     """Reject exported rule names that collide with sibling child fragments."""
     current_names = _rulespec_rule_names_from_content(content)
     if not current_names:
@@ -3325,9 +3329,7 @@ def _resolve_rulespec_import_file_static(
     repo_prefix = _rulespec_import_prefix_static(import_path)
     if repo_prefix:
         candidate = (
-            policy_repo_path.parent
-            / f"rules-{repo_prefix}"
-            / f"{normalized}.yaml"
+            policy_repo_path.parent / f"rules-{repo_prefix}" / f"{normalized}.yaml"
         )
         if candidate.exists():
             return candidate
@@ -3372,10 +3374,11 @@ def find_test_input_assignment_issues(
         return []
 
     module = payload.get("module")
-    proof_validation = module.get("proof_validation") if isinstance(module, dict) else {}
+    proof_validation = (
+        module.get("proof_validation") if isinstance(module, dict) else {}
+    )
     if not (
-        isinstance(proof_validation, dict)
-        and proof_validation.get("required") is True
+        isinstance(proof_validation, dict) and proof_validation.get("required") is True
     ):
         return []
 
@@ -3403,7 +3406,9 @@ def find_test_input_assignment_issues(
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            candidate_inputs.update(_formula_local_identifiers(formula) - defined_symbols)
+            candidate_inputs.update(
+                _formula_local_identifiers(formula) - defined_symbols
+            )
 
     if not candidate_inputs:
         return []
@@ -3470,9 +3475,9 @@ def find_exception_test_coverage_issues(
     test_cases: Any,
 ) -> list[str]:
     """Require each encoded exception predicate to have a blocking test."""
-    source_text = extract_embedded_source_text(content) or _extract_source_verification_text(
+    source_text = extract_embedded_source_text(
         content
-    )
+    ) or _extract_source_verification_text(content)
     if not source_text or not re.search(
         r"\b(?:except|unless|notwithstanding)\b",
         source_text,
@@ -3542,9 +3547,9 @@ def find_exception_test_coverage_issues(
 
 def find_aggregate_exception_predicate_issues(content: str) -> list[str]:
     """Flag source exception lists collapsed into one factual predicate."""
-    source_text = extract_embedded_source_text(content) or _extract_source_verification_text(
+    source_text = extract_embedded_source_text(
         content
-    )
+    ) or _extract_source_verification_text(content)
     if not source_text or not re.search(
         r"\b(?:except|unless|notwithstanding)\b",
         source_text,

@@ -92,9 +92,7 @@ def project_payload(case: Any, *, state: str) -> dict[str, Any]:
         ),
         "all_citizens": True,
         "resources": amount(outputs.get("snap_assets", 0)),
-        "dependent_care_costs": amount(
-            outputs.get("snap_dependent_care_deduction", 0)
-        ),
+        "dependent_care_costs": amount(outputs.get("snap_dependent_care_deduction", 0)),
         "medical_expenses_for_elderly_or_disabled": medical_expenses_for_deduction(
             amount(outputs.get("snap_excess_medical_expense_deduction", 0))
         ),
@@ -129,9 +127,8 @@ def snapscreener_state_key(state: str, outputs: dict[str, Any]) -> str:
     else:
         area = "ONY"
 
-    if (
-        amount(outputs.get("snap_dependent_care_deduction", 0)) > 0
-        or bool(outputs.get("has_usda_elderly_disabled", False))
+    if amount(outputs.get("snap_dependent_care_deduction", 0)) > 0 or bool(
+        outputs.get("has_usda_elderly_disabled", False)
     ):
         suffix = "DC"
     elif amount(outputs.get("snap_earned_income", 0)) > 0:

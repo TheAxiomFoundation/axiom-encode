@@ -1498,9 +1498,7 @@ def print_snapscreener_summary(
         for row in comparable_rows
         if bool(row["pe_snap_eligible"]) != (row["axiom_snap_eligible"] == "holds")
     ]
-    axiom_matches = sum(
-        1 for row in comparable_rows if row["axiom_snapscreener_match"]
-    )
+    axiom_matches = sum(1 for row in comparable_rows if row["axiom_snapscreener_match"])
     pe_matches = sum(1 for row in comparable_rows if row["pe_snapscreener_match"])
     disagreement_axiom_matches = sum(
         1 for row in disagreement_rows if row["axiom_snapscreener_match"]
