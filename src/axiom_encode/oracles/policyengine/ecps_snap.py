@@ -31,6 +31,8 @@ from typing import Any
 
 import yaml
 
+from axiom_encode.oracles import snapscreener
+
 try:
     import numpy as np
 except ImportError:  # pragma: no cover - exercised only without optional oracle deps
@@ -497,6 +499,31 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         help="Workspace containing axiom-rules and rules-* repos.",
     )
     parser.add_argument("--write-csv", type=Path, default=None)
+    parser.add_argument(
+        "--external-oracle",
+        choices=("snapscreener",),
+        action="append",
+        default=[],
+        help=(
+            "Run an additional diagnostic external oracle. SnapScreener is "
+            "fetched as public browser JavaScript and recorded by SHA256."
+        ),
+    )
+    parser.add_argument(
+        "--snapscreener-api-js",
+        type=Path,
+        default=None,
+        help=(
+            "Use a local SnapScreener api.js bundle instead of fetching "
+            "https://tools.snapscreener.com/api.js."
+        ),
+    )
+    parser.add_argument(
+        "--snapscreener-cache-dir",
+        type=Path,
+        default=None,
+        help="Directory for the fetched SnapScreener api.js bundle.",
+    )
     return parser
 
 
@@ -1010,6 +1037,8 @@ def load_policyengine_cases(
         member_inputs["snap_member_is_elderly_or_disabled"] = bool(
             values["has_usda_elderly_disabled"][idx]
         )
+        pe_outputs = {name: native(values[name][idx]) for name in values}
+        pe_outputs["snap_utility_region_str"] = utility_region
         cases.append(
             ProjectedCase(
                 spm_unit_id=spm_id,
@@ -1021,7 +1050,7 @@ def load_policyengine_cases(
                         member_input_ref_by_name,
                     )
                 ],
-                pe_outputs={name: native(values[name][idx]) for name in values},
+                pe_outputs=pe_outputs,
             )
         )
 
@@ -1384,6 +1413,41 @@ def compare(
     return rows
 
 
+def add_snapscreener_results(
+    rows: list[dict[str, Any]],
+    payloads: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    tolerance: float,
+) -> None:
+    for row, payload, result in zip(rows, payloads, results, strict=True):
+        row["snapscreener_state_key"] = payload["state_or_territory"]
+        row["snapscreener_status"] = result.get("status")
+        errors = result.get("errors") or []
+        row["snapscreener_error"] = "; ".join(str(error) for error in errors)
+        row["snapscreener_comparable"] = primary_oracles_find_eligible(row)
+        if result.get("status") != "OK":
+            row["snapscreener_snap"] = None
+            row["snapscreener_eligible"] = None
+            row["axiom_snapscreener_difference"] = None
+            row["pe_snapscreener_difference"] = None
+            row["axiom_snapscreener_match"] = False
+            row["pe_snapscreener_match"] = False
+            continue
+        snapscreener_snap = float(result.get("estimated_monthly_benefit") or 0)
+        axiom_difference = row["axiom_snap_allotment"] - snapscreener_snap
+        pe_difference = row["pe_snap"] - snapscreener_snap
+        row["snapscreener_snap"] = snapscreener_snap
+        row["snapscreener_eligible"] = bool(result.get("estimated_eligibility"))
+        row["axiom_snapscreener_difference"] = axiom_difference
+        row["pe_snapscreener_difference"] = pe_difference
+        row["axiom_snapscreener_match"] = abs(axiom_difference) <= tolerance
+        row["pe_snapscreener_match"] = abs(pe_difference) <= tolerance
+
+
+def primary_oracles_find_eligible(row: dict[str, Any]) -> bool:
+    return bool(row["pe_snap_eligible"]) or row["axiom_snap_eligible"] == "holds"
+
+
 def print_summary(
     rows: list[dict[str, Any]], tolerance: float, max_differences: int
 ) -> None:
@@ -1414,6 +1478,82 @@ def print_summary(
             f"gross PE=${row['pe_gross_income']:.2f} Axiom=${row['axiom_gross_income']:.2f} "
             f"net PE=${row['pe_net_income']:.2f} Axiom=${row['axiom_net_income']:.2f} "
             f"utility PE=${row['pe_utility_allowance']:.2f} Axiom=${row['axiom_utility_allowance']:.2f}"
+        )
+
+
+def print_snapscreener_summary(
+    rows: list[dict[str, Any]], tolerance: float, max_differences: int
+) -> None:
+    if not rows or "snapscreener_status" not in rows[0]:
+        return
+    valid_rows = [row for row in rows if row["snapscreener_status"] == "OK"]
+    comparable_rows = [row for row in valid_rows if row["snapscreener_comparable"]]
+    noncomparable_positive = [
+        row
+        for row in valid_rows
+        if not row["snapscreener_comparable"] and row["snapscreener_snap"] > 0
+    ]
+    disagreement_rows = [
+        row
+        for row in comparable_rows
+        if bool(row["pe_snap_eligible"]) != (row["axiom_snap_eligible"] == "holds")
+    ]
+    axiom_matches = sum(
+        1 for row in comparable_rows if row["axiom_snapscreener_match"]
+    )
+    pe_matches = sum(1 for row in comparable_rows if row["pe_snapscreener_match"])
+    disagreement_axiom_matches = sum(
+        1 for row in disagreement_rows if row["axiom_snapscreener_match"]
+    )
+    disagreement_pe_matches = sum(
+        1 for row in disagreement_rows if row["pe_snapscreener_match"]
+    )
+    print()
+    print("SnapScreener diagnostic oracle")
+    print(f"Rows: {len(valid_rows):,}/{len(rows):,} OK")
+    print(
+        f"Comparable rows: {len(comparable_rows):,} "
+        "(PolicyEngine or Axiom marks SNAP eligible)"
+    )
+    if noncomparable_positive:
+        print(
+            f"Excluded {len(noncomparable_positive):,} row(s) where PE and Axiom "
+            "both mark ineligible but SnapScreener estimates a positive benefit."
+        )
+    print(f"Tolerance: ${tolerance:,.2f}")
+    if comparable_rows:
+        print(
+            f"Axiom matches SnapScreener: "
+            f"{axiom_matches:,}/{len(comparable_rows):,} "
+            f"({axiom_matches / len(comparable_rows):.1%})"
+        )
+        print(
+            f"PolicyEngine matches SnapScreener: "
+            f"{pe_matches:,}/{len(comparable_rows):,} "
+            f"({pe_matches / len(comparable_rows):.1%})"
+        )
+    if disagreement_rows:
+        print(
+            f"On PE/Axiom eligibility disagreements: "
+            f"Axiom {disagreement_axiom_matches:,}/{len(disagreement_rows):,}, "
+            f"PolicyEngine {disagreement_pe_matches:,}/{len(disagreement_rows):,} "
+            "match SnapScreener."
+        )
+    diffs = sorted(
+        comparable_rows,
+        key=lambda row: abs(row["axiom_snapscreener_difference"]),
+        reverse=True,
+    )
+    print(f"Top {min(max_differences, len(diffs))} Axiom/SnapScreener differences:")
+    for row in diffs[:max_differences]:
+        print(
+            "  "
+            f"spm={row['spm_unit_id']} state={row['snapscreener_state_key']} "
+            f"SnapScreener=${row['snapscreener_snap']:.2f} "
+            f"Axiom=${row['axiom_snap_allotment']:.2f} "
+            f"PE=${row['pe_snap']:.2f} "
+            f"AxiomDiff=${row['axiom_snapscreener_difference']:.2f} "
+            f"PEDiff=${row['pe_snapscreener_difference']:.2f}"
         )
 
 
@@ -1474,7 +1614,28 @@ def main(args: argparse.Namespace | None = None) -> int:
         output_id_by_label=config.output_id_by_label,
         utility_allowance_labels=config.utility_allowance_labels,
     )
+    if "snapscreener" in args.external_oracle:
+        bundle = snapscreener.ensure_api_js(
+            api_js=args.snapscreener_api_js,
+            cache_dir=args.snapscreener_cache_dir,
+        )
+        print(
+            "Running SnapScreener diagnostic oracle "
+            f"({bundle.url}, sha256={bundle.sha256})..."
+        )
+        snapscreener_payloads = snapscreener.project_payloads(cases, state=state)
+        snapscreener_results = snapscreener.run_payloads(
+            snapscreener_payloads,
+            api_js=bundle.path,
+        )
+        add_snapscreener_results(
+            rows,
+            snapscreener_payloads,
+            snapscreener_results,
+            args.tolerance,
+        )
     print_summary(rows, args.tolerance, args.max_differences)
+    print_snapscreener_summary(rows, args.tolerance, args.max_differences)
     if args.write_csv is not None:
         write_csv(args.write_csv, rows)
         print(f"Wrote {args.write_csv}")

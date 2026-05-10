@@ -135,6 +135,12 @@ add `--fail-on-mismatch` in CI when exact parity is expected, or
 `--min-match-rate` when a documented upstream oracle gap makes a population
 threshold more appropriate.
 
+Add `--external-oracle snapscreener` for a diagnostic comparison against the
+public SnapScreener browser calculator. The command fetches or uses a local
+`api.js`, records its SHA256 in stdout, and adds SnapScreener result columns to
+`--write-csv`. This is a cross-check for implementation disagreements, not a
+vendored dependency or legal source.
+
 ## Methods and paper notes
 
 The repo now keeps paper-oriented internal documentation for benchmark-relevant
