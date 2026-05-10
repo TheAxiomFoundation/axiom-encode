@@ -139,9 +139,7 @@ AXIOM_MEMBER_INPUT_ID_BY_LABEL = {
     "snap_member_is_elderly_or_disabled": (
         "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
     ),
-    "member_is_us_citizen": (
-        "us:regulations/7-cfr/273/4#input.member_is_us_citizen"
-    ),
+    "member_is_us_citizen": ("us:regulations/7-cfr/273/4#input.member_is_us_citizen"),
     "member_is_us_noncitizen_national": (
         "us:regulations/7-cfr/273/4#input.member_is_us_noncitizen_national"
     ),
@@ -220,9 +218,7 @@ AXIOM_MEMBER_INPUT_ID_BY_LABEL = {
     "student_physically_or_mentally_unfit": (
         "us:regulations/7-cfr/273/5#input.student_physically_or_mentally_unfit"
     ),
-    "student_receives_tanf": (
-        "us:regulations/7-cfr/273/5#input.student_receives_tanf"
-    ),
+    "student_receives_tanf": ("us:regulations/7-cfr/273/5#input.student_receives_tanf"),
     "enrolled_through_jobs_or_successor_program": (
         "us:regulations/7-cfr/273/5#input.enrolled_through_jobs_or_successor_program"
     ),
@@ -235,9 +231,7 @@ AXIOM_MEMBER_INPUT_ID_BY_LABEL = {
     "student_self_employment_weekly_earnings": (
         "us:regulations/7-cfr/273/5#input.student_self_employment_weekly_earnings"
     ),
-    "federal_minimum_wage": (
-        "us:regulations/7-cfr/273/5#input.federal_minimum_wage"
-    ),
+    "federal_minimum_wage": ("us:regulations/7-cfr/273/5#input.federal_minimum_wage"),
     "state_agency_averaged_student_work_hours_meet_twenty_per_week": (
         "us:regulations/7-cfr/273/5#input.state_agency_averaged_student_work_hours_meet_twenty_per_week"
     ),
@@ -1009,7 +1003,9 @@ def load_policyengine_cases(
         )
         member_inputs.update(SSN_MEMBER_INPUT_DEFAULTS)
         member_inputs.update(
-            project_work_member_inputs(bool(values["meets_snap_work_requirements"][idx]))
+            project_work_member_inputs(
+                bool(values["meets_snap_work_requirements"][idx])
+            )
         )
         member_inputs["snap_member_is_elderly_or_disabled"] = bool(
             values["has_usda_elderly_disabled"][idx]
@@ -1096,7 +1092,9 @@ def project_raw_utility_inputs(
         "household_pays_water_utility_cost": bool(values["water_expense"][idx] > 0),
         "household_pays_sewer_utility_cost": bool(values["sewage_expense"][idx] > 0),
         "household_pays_trash_utility_cost": bool(values["trash_expense"][idx] > 0),
-        "household_pays_cooking_fuel_utility_cost": bool(values["gas_expense"][idx] > 0),
+        "household_pays_cooking_fuel_utility_cost": bool(
+            values["gas_expense"][idx] > 0
+        ),
         "household_pays_telephone_service_cost": bool(values["phone_expense"][idx] > 0),
     }
 
@@ -1111,7 +1109,9 @@ def project_utility_allowance_type(
                 "household_incurred_or_anticipated_heating_or_cooling_costs_separate_from_rent_or_mortgage"
             ] = True
         elif utility_type in {"BUA", "LUA"}:
-            inputs["household_billed_separately_for_non_telephone_standard_utility"] = True
+            inputs["household_billed_separately_for_non_telephone_standard_utility"] = (
+                True
+            )
         elif utility_type in {"TUA", "IUA"}:
             inputs[
                 "household_incurred_or_anticipated_basic_service_cost_for_one_telephone"
@@ -1482,8 +1482,7 @@ def main(args: argparse.Namespace | None = None) -> int:
     match_rate = sum(1 for row in rows if row["match"]) / len(rows) if rows else 0
     if args.min_match_rate is not None and match_rate < args.min_match_rate:
         print(
-            f"Match rate {match_rate:.1%} is below required "
-            f"{args.min_match_rate:.1%}"
+            f"Match rate {match_rate:.1%} is below required {args.min_match_rate:.1%}"
         )
         return 1
     if args.fail_on_mismatch and not all(row["match"] for row in rows):

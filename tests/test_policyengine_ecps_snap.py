@@ -25,9 +25,7 @@ def test_new_york_projector_uses_federal_income_and_resource_inputs():
         "snap_assets": [999],
     }
 
-    projected = project_income_resource_inputs(
-        JURISDICTION_CONFIGS["us-ny"], values, 0
-    )
+    projected = project_income_resource_inputs(JURISDICTION_CONFIGS["us-ny"], values, 0)
 
     assert projected == {
         "snap_countable_earned_income": 123.45,
