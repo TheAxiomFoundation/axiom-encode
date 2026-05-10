@@ -63,6 +63,7 @@ from .oracles.policyengine.ecps_snap import (
 from .oracles.policyengine.ecps_snap import (
     main as run_snap_ecps_compare,
 )
+from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .repo_routing import find_policy_repo_root
 
 # Default DB path - can be overridden with --db
@@ -499,6 +500,26 @@ def main():
         help="Compare SNAP RuleSpec output against PolicyEngine ECPS",
     )
     configure_snap_ecps_compare_parser(snap_ecps_compare_parser)
+
+    snap_readiness_parser = subparsers.add_parser(
+        "snap-readiness",
+        help="Report SNAP corpus, RuleSpec, and ECPS oracle readiness by state repo",
+    )
+    snap_readiness_parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rules-us-* repos",
+    )
+    snap_readiness_parser.add_argument(
+        "--corpus-root",
+        type=Path,
+        default=None,
+        help="Axiom corpus checkout containing data/corpus/provisions",
+    )
+    snap_readiness_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
 
     # calibration command
     calibration_parser = subparsers.add_parser(
@@ -1040,6 +1061,8 @@ def main():
         cmd_oracle_candidates(args)
     elif args.command == "snap-ecps-compare":
         sys.exit(run_snap_ecps_compare(args))
+    elif args.command == "snap-readiness":
+        cmd_snap_readiness(args)
     elif args.command == "calibration":
         cmd_calibration(args)
     elif args.command == "runs":
@@ -1632,6 +1655,41 @@ def cmd_oracle_candidates(args):
             print(f"  - ... {len(items) - args.limit} more")
 
     sys.exit(0)
+
+
+def cmd_snap_readiness(args):
+    """Report SNAP corpus, RuleSpec, and ECPS oracle readiness."""
+    root = (args.root or _default_rulespec_inventory_root()).resolve()
+    corpus_root = (
+        args.corpus_root.resolve() if args.corpus_root else root / "axiom-corpus"
+    )
+    report = build_snap_readiness_report(root, corpus_root=corpus_root)
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+
+    print("SNAP encoding readiness")
+    print(f"Root: {report['root']}")
+    print(f"Corpus: {report['corpus_root']}")
+    print(f"Repos: {report['total_repos']}")
+    print(f"Status: {_format_counter(report['status_counts'])}")
+    print()
+
+    for item in report["items"]:
+        blockers = item.get("blockers") or []
+        blocker_suffix = f" blockers={'; '.join(blockers)}" if blockers else ""
+        print(
+            f"{item['repo']}: "
+            f"status={item['status']} "
+            f"corpus={item['corpus_snap_provisions']} "
+            f"files={item['rulespec_files']} "
+            f"outputs={item['executable_outputs']} "
+            f"tests={item['companion_test_files']} "
+            f"ecps_config={str(item['policyengine_ecps_configured']).lower()} "
+            f"program_module={str(item['program_module_exists']).lower()}"
+            f"{blocker_suffix}"
+        )
 
 
 def cmd_calibration(args):
