@@ -57,6 +57,12 @@ from .oracles.policyengine.coverage import (
     build_policyengine_candidate_report,
     build_policyengine_coverage_report,
 )
+from .oracles.policyengine.ecps_snap import (
+    configure_parser as configure_snap_ecps_compare_parser,
+)
+from .oracles.policyengine.ecps_snap import (
+    main as run_snap_ecps_compare,
+)
 from .repo_routing import find_policy_repo_root
 
 # Default DB path - can be overridden with --db
@@ -487,6 +493,12 @@ def main():
     oracle_candidates_parser.add_argument(
         "--json", action="store_true", help="Output as JSON"
     )
+
+    snap_ecps_compare_parser = subparsers.add_parser(
+        "snap-ecps-compare",
+        help="Compare SNAP RuleSpec output against PolicyEngine enhanced CPS",
+    )
+    configure_snap_ecps_compare_parser(snap_ecps_compare_parser)
 
     # calibration command
     calibration_parser = subparsers.add_parser(
@@ -1026,6 +1038,8 @@ def main():
         cmd_oracle_coverage(args)
     elif args.command == "oracle-candidates":
         cmd_oracle_candidates(args)
+    elif args.command == "snap-ecps-compare":
+        sys.exit(run_snap_ecps_compare(args))
     elif args.command == "calibration":
         cmd_calibration(args)
     elif args.command == "runs":

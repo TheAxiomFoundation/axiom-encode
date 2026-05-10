@@ -115,6 +115,26 @@ suite output tree into a durable local registry under `artifacts/eval-suites`
 by default, rewrites archived JSON/JSONL artifact paths away from `/tmp`, and
 appends a record to `artifacts/eval-suites/index.jsonl`.
 
+## PolicyEngine population oracles
+
+Use `snap-ecps-compare` to compare a SNAP composition module against
+PolicyEngine enhanced CPS records:
+
+```bash
+uv run --with policyengine-us --with numpy \
+  axiom-encode snap-ecps-compare \
+  --jurisdiction us-ny \
+  --utility-projection policyengine-type \
+  --positive-snap-only
+```
+
+The command runs `axiom-rules` once over projected enhanced CPS records and
+compares `us:statutes/7/2017/a#snap_regular_month_allotment` to PolicyEngine
+`snap_normal_allotment`. Use `--jurisdiction us-co` or `--jurisdiction us-ny`;
+add `--fail-on-mismatch` in CI when exact parity is expected, or
+`--min-match-rate` when a documented upstream oracle gap makes a population
+threshold more appropriate.
+
 ## Methods and paper notes
 
 The repo now keeps paper-oriented internal documentation for benchmark-relevant
