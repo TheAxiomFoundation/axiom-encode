@@ -29,8 +29,10 @@ from axiom_encode.harness.validator_pipeline import (
     find_deprecated_source_url_issues,
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
+    find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
     find_rule_name_path_suffix_issues,
+    find_rule_source_metadata_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
@@ -95,6 +97,161 @@ rules:
         "inside a formula. Add that target to `imports:` and reference the "
         "imported rule by bare local name in formula text."
     ]
+
+
+def test_rule_source_metadata_rejects_executable_rules_without_rule_source():
+    content = """format: rulespec/v1
+module:
+  summary: The standard is 20 hours.
+  source_verification:
+    corpus_citation_path: us/statute/7/2015
+rules:
+  - name: minimum_hours
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '20'
+  - name: runtime_membership
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: restates_upstream
+    kind: source_relation
+    source_relation:
+      type: restates
+      target: us:statutes/7/2015#minimum_hours
+"""
+
+    issues = find_rule_source_metadata_issues(content)
+
+    assert issues == [
+        "Rule source metadata required: `minimum_hours` is an executable rule "
+        "and must include `source:` with the legal citation/span supporting it."
+    ]
+
+
+def test_rule_source_metadata_rejects_missing_module_source_locator():
+    content = """format: rulespec/v1
+module:
+  summary: The standard is 20 hours.
+rules:
+  - name: minimum_hours
+    kind: parameter
+    dtype: Count
+    source: 7 USC 2015(e)(4)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '20'
+"""
+
+    issues = find_rule_source_metadata_issues(content)
+
+    assert issues == [
+        "Rule source locator required: module.source_verification must include "
+        "`corpus_citation_path` or `corpus_citation_paths` when executable "
+        "rules are present."
+    ]
+
+
+def test_missing_derived_companion_output_rejects_uncovered_derived_rule(tmp_path):
+    policy_repo = tmp_path / "rules-us"
+    rules_file = policy_repo / "statutes" / "7" / "2015" / "e.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: student_age_exception_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 USC 2015(e)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: person_age_years < 18
+  - name: student_single_parent_exception_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 USC 2015(e)(8)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: person_is_single_parent
+"""
+    cases = [
+        {
+            "name": "age_exception",
+            "period": "2026-01",
+            "input": {"us:statutes/7/2015/e#input.person_age_years": 17},
+            "output": {"us:statutes/7/2015/e#student_age_exception_applies": "holds"},
+        }
+    ]
+
+    issues = find_missing_derived_companion_output_issues(
+        content,
+        cases,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == [
+        "Derived rule missing companion output coverage: "
+        "`us:statutes/7/2015/e#student_single_parent_exception_applies` "
+        "is not asserted by the companion `.test.yaml` file."
+    ]
+
+
+def test_test_input_assignment_scopes_inputs_to_asserted_outputs():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: table_value
+    kind: parameter
+    dtype: Money
+    indexed_by: household_size
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 209
+          2: 209
+  - name: deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: table_value[household_size]
+  - name: asset_limit_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '3000'
+  - name: asset_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: asset_limit_amount
+"""
+    cases = [
+        {
+            "name": "asset_limit_does_not_need_household_size",
+            "period": "2026-01",
+            "input": {},
+            "output": {
+                "us:policies/usda/snap/fy-2026-cola/deductions#asset_limit": 3000
+            },
+        }
+    ]
+
+    assert find_test_input_assignment_issues(content, cases) == []
 
 
 def test_same_section_subsection_import_accepts_transitive_child_import(tmp_path):
@@ -314,6 +471,7 @@ rules:
         policy_repo_path=tmp_path / "rules-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     result = pipeline._run_ci(rules_file)
@@ -362,6 +520,7 @@ rules:
         policy_repo_path=tmp_path / "rules-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     result = pipeline._run_ci(rules_file)
@@ -410,6 +569,7 @@ rules:
         policy_repo_path=tmp_path / "rules-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     result = pipeline._run_ci(rules_file)
@@ -505,6 +665,7 @@ rules:
         policy_repo_path=tmp_path / "rules-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     result = pipeline._run_ci(rules_file)
@@ -549,6 +710,7 @@ rules:
         policy_repo_path=tmp_path / "rules-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     result = pipeline._run_ci(rules_file)
@@ -703,6 +865,7 @@ rules:
         policy_repo_path=tmp_path / "rules-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
+        enforce_repository_layout=False,
     )
 
     result = pipeline._run_ci(rules_file)

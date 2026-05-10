@@ -2585,6 +2585,55 @@ def _is_executable_rulespec_rule(rule: Any) -> bool:
     return str(rule.get("kind") or "").strip().lower() in {"parameter", "derived"}
 
 
+def _has_module_source_locator(payload: dict[str, Any]) -> bool:
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    source_verification = module.get("source_verification")
+    if not isinstance(source_verification, dict):
+        return False
+    if source_verification.get("corpus_citation_path"):
+        return True
+    citation_paths = source_verification.get("corpus_citation_paths")
+    return isinstance(citation_paths, list) and any(citation_paths)
+
+
+def find_rule_source_metadata_issues(content: str) -> list[str]:
+    """Require source metadata for executable RuleSpec records."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    executable_rules = [rule for rule in rules if _is_executable_rulespec_rule(rule)]
+    if not executable_rules:
+        return []
+
+    issues: list[str] = []
+    if not _has_module_source_locator(payload):
+        issues.append(
+            "Rule source locator required: module.source_verification must include "
+            "`corpus_citation_path` or `corpus_citation_paths` when executable "
+            "rules are present."
+        )
+
+    for rule in executable_rules:
+        name = _rulespec_rule_name(rule)
+        if not rule.get("source"):
+            issues.append(
+                "Rule source metadata required: "
+                f"`{name}` is an executable rule and must include `source:` "
+                "with the legal citation/span supporting it."
+            )
+
+    return issues
+
+
 def _rulespec_rule_name(rule: dict[str, Any]) -> str:
     return str(rule.get("name") or "<unknown>").strip() or "<unknown>"
 
@@ -2600,6 +2649,94 @@ def _canonical_rulespec_target(
     if relative.suffix in {".yaml", ".yml"}:
         relative = relative.with_suffix("")
     return f"{prefix}:{relative.as_posix()}#{symbol}"
+
+
+def _canonical_rulespec_file_target(
+    *,
+    policy_repo_path: Path | None,
+    rules_file: Path,
+    symbol: str,
+) -> str | None:
+    repo_root = (
+        Path(policy_repo_path)
+        if policy_repo_path is not None
+        and Path(policy_repo_path).name.startswith("rules-")
+        else _rulespec_repo_root(rules_file)
+    )
+    if repo_root is None:
+        return None
+    try:
+        return _canonical_rulespec_target(
+            prefix=_rulespec_repo_prefix(repo_root),
+            repo_root=repo_root,
+            rules_file=rules_file,
+            symbol=symbol,
+        )
+    except ValueError:
+        return None
+
+
+def _strict_rules_repo_layout_checks_enabled(
+    *,
+    policy_repo_path: Path | None,
+    rules_file: Path,
+) -> bool:
+    if policy_repo_path is None:
+        return False
+    repo_root = Path(policy_repo_path)
+    if not repo_root.name.startswith("rules-"):
+        return False
+    try:
+        rules_file.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def find_missing_derived_companion_output_issues(
+    content: str,
+    cases: list[Any],
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
+    """Require companion tests to assert every local derived output."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    covered_outputs: set[str] = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        outputs = case.get("output")
+        if isinstance(outputs, dict):
+            covered_outputs.update(str(name) for name in outputs)
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "derived":
+            continue
+        name = _rulespec_rule_name(rule)
+        target = _canonical_rulespec_file_target(
+            policy_repo_path=policy_repo_path,
+            rules_file=rules_file,
+            symbol=name,
+        )
+        if target is None or target in covered_outputs:
+            continue
+        issues.append(
+            "Derived rule missing companion output coverage: "
+            f"`{target}` is not asserted by the companion `.test.yaml` file."
+        )
+
+    return issues
 
 
 def _rulespec_executable_signature(rule: dict[str, Any]) -> str | None:
@@ -3386,39 +3523,46 @@ def find_test_input_assignment_issues(
     if not isinstance(rules, list):
         return []
 
-    defined_symbols = {
-        str(rule.get("name") or "").strip()
-        for rule in rules
-        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
-    }
-    candidate_inputs: set[str] = set()
+    defined_symbols = _defined_rulespec_symbols(rules)
+    symbol_inputs: dict[str, set[str]] = {}
+    symbol_dependencies: dict[str, set[str]] = {}
     for rule in rules:
         if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not rule_name:
+            continue
+        if str(rule.get("kind") or "").strip().lower() == "parameter":
+            symbol_inputs[rule_name] = _indexed_by_input_names(rule.get("indexed_by"))
+            symbol_dependencies[rule_name] = set()
             continue
         if str(rule.get("kind") or "").strip().lower() != "derived":
             continue
         versions = rule.get("versions")
         if not isinstance(versions, list):
             continue
+        formula_identifiers: set[str] = set()
         for version in versions:
             if not isinstance(version, dict):
                 continue
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            candidate_inputs.update(
-                _formula_local_identifiers(formula) - defined_symbols
-            )
+            formula_identifiers.update(_formula_local_identifiers(formula))
+        symbol_inputs[rule_name] = formula_identifiers - defined_symbols
+        symbol_dependencies[rule_name] = formula_identifiers & defined_symbols
 
-    if not candidate_inputs:
+    if not symbol_inputs:
         return []
 
     imports_present = bool(payload.get("imports"))
     assigned_input_names = _all_test_input_names(test_cases)
-    local_inputs = (
-        candidate_inputs & assigned_input_names if imports_present else candidate_inputs
+    globally_local_inputs = (
+        set().union(*symbol_inputs.values()) if symbol_inputs else set()
     )
-    if not local_inputs:
+    if imports_present:
+        globally_local_inputs &= assigned_input_names
+    if not globally_local_inputs:
         return []
 
     issues: list[str] = []
@@ -3426,6 +3570,14 @@ def find_test_input_assignment_issues(
         if not isinstance(test_case, dict):
             continue
         test_name = str(test_case.get("name") or f"case {index}").strip()
+        required_inputs = _required_inputs_for_test_outputs(
+            test_case.get("output"),
+            symbol_inputs=symbol_inputs,
+            symbol_dependencies=symbol_dependencies,
+        )
+        local_inputs = required_inputs & globally_local_inputs
+        if not local_inputs:
+            continue
         inputs = test_case.get("input")
         if not isinstance(inputs, dict):
             issues.append(
@@ -3448,6 +3600,69 @@ def find_test_input_assignment_issues(
             "including false facts, so tests cannot pass through implicit defaults."
         )
     return issues
+
+
+def _defined_rulespec_symbols(rules: list[Any]) -> set[str]:
+    return {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+
+def _indexed_by_input_names(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {value.strip()} if value.strip() else set()
+    if isinstance(value, list):
+        return {str(item).strip() for item in value if str(item).strip()}
+    return set()
+
+
+def _required_inputs_for_test_outputs(
+    outputs: Any,
+    *,
+    symbol_inputs: dict[str, set[str]],
+    symbol_dependencies: dict[str, set[str]],
+) -> set[str]:
+    if not isinstance(outputs, dict):
+        return set().union(*symbol_inputs.values()) if symbol_inputs else set()
+
+    required: set[str] = set()
+    for output_name in outputs:
+        fragment = _test_reference_fragment(output_name)
+        if fragment in symbol_inputs:
+            required.update(
+                _required_inputs_for_symbol(
+                    fragment,
+                    symbol_inputs=symbol_inputs,
+                    symbol_dependencies=symbol_dependencies,
+                    seen=set(),
+                )
+            )
+    return required
+
+
+def _required_inputs_for_symbol(
+    symbol: str,
+    *,
+    symbol_inputs: dict[str, set[str]],
+    symbol_dependencies: dict[str, set[str]],
+    seen: set[str],
+) -> set[str]:
+    if symbol in seen:
+        return set()
+    seen.add(symbol)
+    required = set(symbol_inputs.get(symbol, set()))
+    for dependency in symbol_dependencies.get(symbol, set()):
+        required.update(
+            _required_inputs_for_symbol(
+                dependency,
+                symbol_inputs=symbol_inputs,
+                symbol_dependencies=symbol_dependencies,
+                seen=seen,
+            )
+        )
+    return required
 
 
 def _all_test_input_names(test_cases: list[Any]) -> set[str]:
@@ -4908,6 +5123,7 @@ class ValidatorPipeline:
         policyengine_country: str = "auto",
         policyengine_rule_hint: str | None = None,
         require_policy_proofs: bool = False,
+        enforce_repository_layout: bool = True,
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
@@ -4919,6 +5135,7 @@ class ValidatorPipeline:
         self.policyengine_country = policyengine_country
         self.policyengine_rule_hint = policyengine_rule_hint
         self.require_policy_proofs = require_policy_proofs
+        self.enforce_repository_layout = enforce_repository_layout
         self.policyengine_registry = load_policyengine_registry()
 
     def _log_event(
@@ -6026,11 +6243,18 @@ class ValidatorPipeline:
             )
         )
         issues.extend(find_sibling_rule_name_collision_issues(content, rules_file))
+        strict_layout_checks = (
+            _strict_rules_repo_layout_checks_enabled(
+                policy_repo_path=self.policy_repo_path,
+                rules_file=rules_file,
+            )
+            and self.enforce_repository_layout
+        )
+        if strict_layout_checks:
+            issues.extend(find_rule_source_metadata_issues(content))
 
         test_path = self._rulespec_test_path(rules_file)
-        if issues:
-            pass
-        elif test_path.exists():
+        if test_path.exists():
             try:
                 payload = yaml.safe_load(test_path.read_text())
             except (yaml.YAMLError, ValueError) as exc:
@@ -6048,9 +6272,19 @@ class ValidatorPipeline:
                         issues.append("RuleSpec tests must be a YAML list of cases.")
                         payload = None
                 if isinstance(payload, list) and compiled_payload and compiled_path:
+                    pre_test_issue_count = len(issues)
+                    if strict_layout_checks:
+                        issues.extend(
+                            find_missing_derived_companion_output_issues(
+                                content,
+                                payload,
+                                rules_file=rules_file,
+                                policy_repo_path=self.policy_repo_path,
+                            )
+                        )
                     issues.extend(find_test_input_assignment_issues(content, payload))
                     issues.extend(find_exception_test_coverage_issues(content, payload))
-                    if not issues:
+                    if len(issues) == pre_test_issue_count:
                         issues.extend(
                             self._run_rulespec_test_cases(
                                 rules_file=rules_file,
@@ -6059,7 +6293,7 @@ class ValidatorPipeline:
                                 cases=payload,
                             )
                         )
-        elif not self._is_nonassertable_rulespec_artifact(rules_file):
+        elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
 
         duration = int((time.time() - start) * 1000)

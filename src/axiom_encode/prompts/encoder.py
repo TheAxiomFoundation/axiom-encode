@@ -31,6 +31,10 @@ Hard requirements:
 - Do not emit `source_url`; RuleSpec validation reads normalized corpus provisions,
   not raw PDFs or web pages.
 - Use `rules:` as a list of rule objects.
+- Every executable `parameter` and `derived` rule must include a `source:`
+  field with the legal citation/span that directly supports that rule. Keep
+  `source:` short and local to the rule; use `module.source_verification` for
+  the corpus locator.
 - Use `kind: parameter` for source-stated amounts, rates, thresholds, caps, and limits.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated
   numeric tables/scales keyed by household size, family size, income band,
@@ -68,6 +72,9 @@ Hard requirements:
   semantic unless a copied public interface must be preserved.
 - Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
   `_d_2_C`, or `_2014_a`, are invalid.
+- If an existing copied output name violates the no-citation/path-suffix rule,
+  do not preserve it. Rename it to a concise semantic name and update the
+  companion tests.
 - Rule names must not collide with copied sibling files. For subparagraph/list
   item child files, make the principal output name semantic to that branch
   (for example `care_responsibility_exemption_applies`), not only the shared
@@ -109,6 +116,9 @@ Hard requirements:
   consumed by that file, `<jurisdiction>:<repo-path>#relation.<name>` for
   relation inputs, and `<jurisdiction>:<repo-path>#<rule_or_parameter>` for
   executable outputs or imported legal values. Never use bare friendly keys.
+- Every local `kind: derived` rule must appear at least once under an `output:`
+  block in the companion `.test.yaml`; do not leave helper derived rules
+  unasserted.
 - If a test needs an imported derived output to become true or false, mirror the
   copied companion test `input:` pattern. Usually this means setting the
   imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not
@@ -158,8 +168,9 @@ Hard requirements:
   to the requested citation and import the cited provision instead.
 - If context files import the target file or reference target outputs, preserve
   the target file's public output names unless the source text proves the old
-  interface was legally wrong. Do not rename an exported value just because a
-  clearer friendly name is possible.
+  interface was legally wrong or the name violates the no-citation/path-suffix
+  rule. Do not rename an exported value just because a clearer friendly name is
+  possible.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
 - When source text uses amendment markup like `[old] new`, treat the bracketed
@@ -220,6 +231,7 @@ rules:
     kind: parameter
     dtype: Money
     unit: USD
+    source: <legal citation/span>
     metadata:
       proof:
         atoms:
@@ -251,6 +263,7 @@ rules:
     dtype: Money
     period: Month
     unit: USD
+    source: <legal citation/span>
     versions:
       - effective_from: '2025-10-01'
         formula: example_amount_by_household_size[household_size]

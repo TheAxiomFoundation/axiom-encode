@@ -957,7 +957,7 @@ mappings:
     comparison: money
     rationale: Same employer-side Medicare payroll tax on wages for current-year oracle cases.
 
-  - legal_id: us:statutes/26/3111/c#employer_wages_exempt_under_section_3111_c
+  - legal_id: us:statutes/26/3111/c#wages_exempt_by_international_social_security_agreement
     country: us
     program: tax
     mapping_type: not_comparable
@@ -1200,6 +1200,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: SNAP elderly-or-disabled household predicates are statutory Axiom outputs and require predicate-specific oracle adapters unless exactly mapped.
 
+  - legal_id_prefix: us:statutes/7/2012/m/4#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: SNAP household-composition anti-duplication predicates are statutory Axiom outputs and are not exposed as one-to-one PolicyEngine variables.
+
   - legal_id_prefix: us:statutes/7/2014/e/2#
     country: us
     program: snap
@@ -1211,6 +1217,30 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: SNAP net-income statutory intermediates are not one-to-one PolicyEngine outputs unless exactly mapped.
+
+  - legal_id_prefix: us:statutes/7/2015/b/1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: SNAP intentional-program-violation disqualification outputs are statutory enforcement predicates and periods, not one-to-one PolicyEngine benefit calculation variables.
+
+  - legal_id_prefix: us:statutes/7/2015/d/2#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: SNAP work-requirement exemption outputs are statutory predicates and thresholds; PolicyEngine does not expose these provision-level branches as exact variables.
+
+  - legal_id_prefix: us:statutes/7/2015/d/2/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: SNAP work-requirement exemption branch outputs are statutory predicates and thresholds; PolicyEngine does not expose these provision-level branches as exact variables.
+
+  - legal_id_prefix: us:statutes/7/2015/e#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: SNAP student eligibility outputs are statutory exception predicates and thresholds; PolicyEngine's student variable is adjacent and mapped at the regulatory level.
 
   - legal_id_prefix: us:statutes/7/2017/a#
     country: us

@@ -2365,12 +2365,23 @@ def _validate_generated_encoding_in_policy_overlay(
             enable_oracles=False,
             require_policy_proofs=True,
         )
-        dependents = _find_rulespec_dependents(overlay_repo, relative_output)
+        # Applying one generated file can be part of a clean multi-file migration
+        # where dependents are regenerated later in the same batch. Keep apply
+        # target-strict and leave full dependent consistency to repository tests.
+        validate_dependents = (
+            os.getenv("AXIOM_ENCODE_VALIDATE_DEPENDENTS_ON_APPLY") == "1"
+        )
+        dependents = (
+            _find_rulespec_dependents(overlay_repo, relative_output)
+            if validate_dependents
+            else []
+        )
         dependent_pipeline = (
             ValidatorPipeline(
                 policy_repo_path=overlay_repo,
                 axiom_rules_path=axiom_rules_path,
                 enable_oracles=False,
+                enforce_repository_layout=False,
             )
             if dependents
             else pipeline

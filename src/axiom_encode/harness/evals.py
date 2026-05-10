@@ -2569,6 +2569,10 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
+- Every executable `parameter` and `derived` rule must include a `source:`
+  field with the legal citation/span that directly supports that rule. Keep
+  `source:` short and local to the rule; use `module.source_verification` for
+  the corpus locator.
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
 - Do not encode a pure pass-through rule whose formula is only one local fact. If the source only names a preexisting fact without changing it, reference the upstream rule when available or leave the phrase documentary.
@@ -2576,6 +2580,9 @@ RuleSpec requirements:
 - Do not append citation or file suffixes like `_2014_a` to new local rule names; the file path is already the legal ID. Keep names concise and semantic unless a copied public interface must be preserved.
 - Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
   `_d_2_C`, or `_2014_a`, are invalid.
+- If an existing copied output name violates the no-citation/path-suffix rule,
+  do not preserve it. Rename it to a concise semantic name and update the
+  companion tests.
 - Rule names must not collide with copied sibling files. For subparagraph/list
   item child files, make the principal output name semantic to that branch
   (for example `care_responsibility_exemption_applies`), not only the shared
@@ -2606,6 +2613,9 @@ RuleSpec requirements:
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- Every local `kind: derived` rule must appear at least once under an `output:`
+  block in the companion `.test.yaml`; do not leave helper derived rules
+  unasserted.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If `./source.txt` says someone is "aged 18 or over", "under 25", or similar, model the legal age predicate instead of inventing documentary age constants.
 - When source text uses amendment markup like `[old] new`, treat the bracketed value as superseded text. Encode the current unbracketed value/effective date unless the task explicitly asks for historical text.
@@ -2652,6 +2662,7 @@ rules:
     kind: parameter
     dtype: Money
     unit: USD
+    source: <legal citation/span>
     metadata:
       proof:
         atoms:
@@ -2669,6 +2680,7 @@ rules:
     dtype: Money
     period: Month
     unit: USD
+    source: <legal citation/span>
     versions:
       - effective_from: '2024-01-01'
         formula: |-

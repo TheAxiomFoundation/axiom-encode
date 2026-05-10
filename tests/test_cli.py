@@ -2897,6 +2897,44 @@ rules:
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
 
+    def test_apply_overlay_validation_does_not_block_on_dependents_by_default(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rules-us"
+        generated = output_root / "codex-test-model" / "statutes/7/2015/d/2/C.yaml"
+        dependent = policy_repo / "statutes/7/2015/d/2.yaml"
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        dependent.write_text(
+            "format: rulespec/v1\nimports:\n  - us:statutes/7/2015/d/2/C\nrules: []\n"
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        validated_paths: list[Path] = []
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                validated_paths.append(Path(path))
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules",
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
+        assert [path.name for path in validated_paths] == ["C.yaml"]
+
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
         repo = tmp_path / "rules-us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
