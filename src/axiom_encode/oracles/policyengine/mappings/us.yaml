@@ -1594,6 +1594,330 @@ mappings:
     comparison: money
     rationale: Same federal taxable income after exemptions and taxable-income deductions.
 
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.amount
+    parameter_keys:
+      - JOINT
+      - SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT exemption amount for joint returns and surviving spouses.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_unmarried
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.amount
+    parameter_keys:
+      - SINGLE
+      - HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT exemption amount for unmarried individuals other than surviving spouses.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.amount
+    parameter_key: SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT exemption amount for married individuals filing separately.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_estate_trust
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine US's individual income-tax model does not expose estate or trust AMT parameters.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_base_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.amount
+    parameter_key_input: filing_status
+    parameter_key_map:
+      "0": SINGLE
+      "1": JOINT
+      "2": SEPARATE
+      "3": HEAD_OF_HOUSEHOLD
+      "4": SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected IRS AMT exemption amount.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_twenty_eight_percent_threshold_all_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.brackets.thresholds
+    parameter_key_path:
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT 28-percent threshold for taxpayers other than married individuals filing separately.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_twenty_eight_percent_threshold_separate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine represents the married-filing-separately AMT rate threshold as the all-other threshold multiplied by the separate-return AMT multiplier, not as this published row.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_twenty_eight_percent_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the AMT rate threshold and filing-status multiplier separately rather than exposing this selected threshold.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_phaseout_start_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.phase_out.start
+    parameter_keys:
+      - JOINT
+      - SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT exemption phaseout threshold for joint returns and surviving spouses.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_phaseout_start_unmarried
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.phase_out.start
+    parameter_keys:
+      - SINGLE
+      - HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT exemption phaseout threshold for unmarried individuals other than surviving spouses.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_phaseout_start_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.phase_out.start
+    parameter_key: SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT exemption phaseout threshold for married individuals filing separately.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_phaseout_start_estate_trust
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine US's individual income-tax model does not expose estate or trust AMT parameters.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.phase_out.start
+    parameter_key_input: filing_status
+    parameter_key_map:
+      "0": SINGLE
+      "1": JOINT
+      "2": SEPARATE
+      "3": HEAD_OF_HOUSEHOLD
+      "4": SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected IRS AMT exemption phaseout threshold.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_complete_phaseout_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.separate_limit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS AMT exemption complete-phaseout amount for married individuals filing separately.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_kiddie_tax_exemption_addition
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.child.amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS child AMT exemption addition for children subject to section 1(g).
+
+  - legal_id: us:statutes/26/55#amt_lower_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.brackets.rates
+    parameter_key_path:
+      - 0
+    period: year
+    comparison: rate
+    rationale: Same statutory lower AMT rate.
+
+  - legal_id: us:statutes/26/55#amt_higher_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.brackets.rates
+    parameter_key_path:
+      - 1
+    period: year
+    comparison: rate
+    rationale: Same statutory higher AMT rate.
+
+  - legal_id: us:statutes/26/55#amt_exemption_phaseout_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.amt.exemption.phase_out.rate
+    period: year
+    comparison: rate
+    rationale: Same post-2017 statutory AMT exemption phaseout rate.
+
+  - legal_id: us:statutes/26/55#amt_excluded_deductions
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_excluded_deductions
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same AMT addback for standard deduction or PE-supported itemized deductions.
+
+  - legal_id: us:statutes/26/55#amt_separate_addition
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_separate_addition
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same married-filing-separately AMT income addition.
+
+  - legal_id: us:statutes/26/55#amt_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same AMT income after PE-supported section 56 adjustments.
+
+  - legal_id: us:statutes/26/55#amt_exemption_phaseout
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes AMT exemption phaseout inside amt_exemption and does not expose this subtotal.
+
+  - legal_id: us:statutes/26/55#amt_exemption_before_kiddie_tax_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes this AMT exemption subtotal inside amt_exemption and does not expose it separately.
+
+  - legal_id: us:statutes/26/55#amt_kiddie_tax_exemption_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine applies the child AMT exemption cap inside amt_exemption and does not expose this limit separately.
+
+  - legal_id: us:statutes/26/55#amt_exemption
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_exemption
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final AMT exemption amount for supported current-law individual cases.
+
+  - legal_id: us:statutes/26/55#amt_income_for_exemption_offset
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the kiddie-tax AMT exemption offset base; PolicyEngine uses the same branch inside amt_income_less_exemptions.
+
+  - legal_id: us:statutes/26/55#amt_income_less_exemptions
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_income_less_exemptions
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same AMT taxable excess after exemption.
+
+  - legal_id: us:statutes/26/55#amt_lower_base_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_lower_base_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same lower-rate AMT base tax amount.
+
+  - legal_id: us:statutes/26/55#amt_higher_base_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_higher_base_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same higher-rate AMT base tax amount.
+
+  - legal_id: us:statutes/26/55#amt_base_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: amt_base_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same AMT base tax before foreign-tax-credit and regular-tax offsets for cases not requiring the capital-gain worksheet.
+
+  - legal_id: us:statutes/26/55#amt_tax_before_foreign_tax_credit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine selects this AMT subtotal inside alternative_minimum_tax and does not expose the pre-foreign-tax-credit amount separately.
+
+  - legal_id: us:statutes/26/55#alternative_minimum_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: alternative_minimum_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final alternative minimum tax for supported current-law individual cases.
+
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single
     country: us
     program: tax

@@ -1628,6 +1628,56 @@ def test_policyengine_oracle_compares_nested_parameter_key_path(tmp_path):
     assert 'key_paths = [["1", "SINGLE"]]' in scripts[0]
 
 
+def test_policyengine_oracle_compares_integer_parameter_key_path(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: amt_lower_rate
+  period: 2026
+  input: {}
+  output:
+    us:statutes/26/55#amt_lower_rate: 0.26
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:statutes/26/55#amt_lower_rate": PolicyEngineMapping(
+                legal_id="us:statutes/26/55#amt_lower_rate",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.irs.income.amt.brackets.rates",
+                parameter_key_path=(0,),
+                period="year",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:0.26\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert "gov.irs.income.amt.brackets.rates" in scripts[0]
+    assert "key_paths = [[0]]" in scripts[0]
+
+
 def test_policyengine_oracle_compares_parameter_scale_calc_input(tmp_path):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text("format: rulespec/v1\n")
@@ -1994,6 +2044,45 @@ def test_policyengine_tax_scenario_builds_taxable_income_deduction_inputs(tmp_pa
     assert "'qualified_business_income_deduction': {'2026': 2000}" in script
     assert "'wagering_losses_deduction': {'2026': 500}" in script
     assert "'tip_income_deduction': {'2026': 500}" in script
+
+
+def test_policyengine_tax_scenario_builds_amt_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "alternative_minimum_tax",
+        {
+            "period": "2026",
+            "filing_status": 2,
+            "taxable_income": 650000,
+            "standard_deduction": 16100,
+            "tax_unit_itemizes": False,
+            "exemptions": 0,
+            "regular_tax_before_credits": 160000,
+            "capital_gains_tax": 0,
+            "amt_part_iii_required": False,
+            "amt_tax_including_capital_gains": 0,
+            "alternative_minimum_tax_foreign_tax_credit": 0,
+            "form_4972_lumpsum_distributions": 0,
+            "amt_kiddie_tax_applies": False,
+        },
+        "2026",
+    )
+
+    assert "'taxable_income': {'2026': 650000}" in script
+    assert "'standard_deduction': {'2026': 16100}" in script
+    assert "'tax_unit_itemizes': {'2026': False}" in script
+    assert "'regular_tax_before_credits': {'2026': 160000}" in script
+    assert "'capital_gains_tax': {'2026': 0}" in script
+    assert "'amt_part_iii_required': {'2026': False}" in script
+    assert "'amt_tax_including_cg': {'2026': 0}" in script
+    assert "'foreign_tax_credit_potential': {'2026': 0}" in script
+    assert "'form_4972_lumpsum_distributions': {'2026': 0}" in script
+    assert "'amt_kiddie_tax_applies': {'2026': False}" in script
 
 
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):

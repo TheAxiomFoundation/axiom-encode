@@ -7725,7 +7725,7 @@ Output ONLY valid JSON:
         self, script: str, pe_python: str
     ) -> OracleSubprocessResult:
         """Run a Python script using the PE-capable interpreter with stderr."""
-        timeout = int(os.getenv("AXIOM_ENCODE_POLICYENGINE_TIMEOUT_SECONDS", "120"))
+        timeout = int(os.getenv("AXIOM_ENCODE_POLICYENGINE_TIMEOUT_SECONDS", "300"))
         try:
             idle_timeout = min(
                 timeout,
@@ -9137,7 +9137,24 @@ print("BENCHMARK:" + json.dumps(result))
         "additional_senior_deduction": "additional_senior_deduction",
         "auto_loan_interest_deduction": "auto_loan_interest_deduction",
         "exemptions": "exemptions",
+        "salt_deduction": "salt_deduction",
+        "misc_deduction": "misc_deduction",
+        "amt_income": "amt_income",
+        "amt_excluded_deductions": "amt_excluded_deductions",
+        "amt_separate_addition": "amt_separate_addition",
+        "amt_exemption": "amt_exemption",
+        "amt_income_less_exemptions": "amt_income_less_exemptions",
+        "amt_lower_base_tax": "amt_lower_base_tax",
+        "amt_higher_base_tax": "amt_higher_base_tax",
+        "amt_base_tax": "amt_base_tax",
+        "amt_part_iii_required": "amt_part_iii_required",
+        "amt_tax_including_capital_gains": "amt_tax_including_cg",
+        "amt_kiddie_tax_applies": "amt_kiddie_tax_applies",
+        "alternative_minimum_tax_foreign_tax_credit": "foreign_tax_credit_potential",
+        "foreign_tax_credit_potential": "foreign_tax_credit_potential",
+        "form_4972_lumpsum_distributions": "form_4972_lumpsum_distributions",
         "regular_tax_before_credits": "regular_tax_before_credits",
+        "capital_gains_tax": "capital_gains_tax",
         "income_tax_before_credits": "income_tax_before_credits",
         "income_tax_before_refundable_credits": (
             "income_tax_before_refundable_credits"
@@ -9717,13 +9734,13 @@ print(f'RESULT:{{float(value)}}')
         self,
         mapping: PolicyEngineMapping,
         inputs: dict,
-    ) -> list[list[str]]:
+    ) -> list[list[Any]]:
         if not mapping.parameter_key_path:
             return []
-        resolved_path: list[str] = []
+        resolved_path: list[Any] = []
         for part in mapping.parameter_key_path:
             if not isinstance(part, dict):
-                resolved_path.append(str(part))
+                resolved_path.append(part)
                 continue
             input_name = part.get("input")
             if not input_name:
