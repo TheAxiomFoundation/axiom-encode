@@ -2136,6 +2136,35 @@ def test_policyengine_tax_scenario_builds_nonrefundable_credit_inputs(tmp_path):
     assert "'qualified_retirement_penalty': {'2026': 100}" in script
 
 
+def test_policyengine_tax_scenario_builds_refundable_credit_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "income_tax",
+        {
+            "period": "2026",
+            "income_tax_before_refundable_credits": 3100,
+            "eitc": 1000,
+            "refundable_american_opportunity_credit": 500,
+            "refundable_ctc": 1200,
+            "recovery_rebate_credit": 0,
+            "refundable_payroll_tax_credit": 100,
+        },
+        "2026",
+    )
+
+    assert "'income_tax_before_refundable_credits': {'2026': 3100}" in script
+    assert "'eitc': {'2026': 1000}" in script
+    assert "'refundable_american_opportunity_credit': {'2026': 500}" in script
+    assert "'refundable_ctc': {'2026': 1200}" in script
+    assert "'recovery_rebate_credit': {'2026': 0}" in script
+    assert "'refundable_payroll_tax_credit': {'2026': 100}" in script
+
+
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,

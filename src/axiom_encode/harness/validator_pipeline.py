@@ -9198,6 +9198,11 @@ print("BENCHMARK:" + json.dumps(result))
         "loss_limited_net_capital_gains": "loss_limited_net_capital_gains",
         "excess_payroll_tax_withheld": "excess_payroll_tax_withheld",
         "refundable_ctc": "refundable_ctc",
+        "refundable_american_opportunity_credit": (
+            "refundable_american_opportunity_credit"
+        ),
+        "recovery_rebate_credit": "recovery_rebate_credit",
+        "refundable_payroll_tax_credit": "refundable_payroll_tax_credit",
         "eitc": "eitc",
     }
     _PE_US_PERSON_OVERRIDE_INPUTS = {

@@ -2104,6 +2104,28 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine implements dependent standard deduction inside basic_standard_deduction when dependency status is supplied; it is not exposed as a separate variable.
 
+  - legal_id: us:statutes/26/6401#income_tax_refundable_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same current-law aggregate of federal refundable income tax credits.
+
+  - legal_id: us:statutes/26/6401#income_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same federal income tax after refundable credits for supported current-law cases.
+
   - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_earned_income_amounts
     country: us
     program: tax
