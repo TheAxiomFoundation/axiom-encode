@@ -1986,6 +1986,33 @@ def test_policyengine_tax_scenario_applies_tax_unit_overrides(tmp_path):
     assert "'regular_tax_before_credits':" not in script
 
 
+def test_policyengine_tax_scenario_applies_cdcc_overrides(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "cdcc",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "tax_unit_childcare_expenses": 5000,
+            "min_head_spouse_earned": 20000,
+            "income_tax_before_credits": 4000,
+            "foreign_tax_credit": 1000,
+        },
+        "2026",
+    )
+
+    assert "'tax_unit_childcare_expenses': {'2026': 5000}" in script
+    assert "'min_head_spouse_earned': {'2026': 20000}" in script
+    assert "'income_tax_before_credits': {'2026': 4000}" in script
+    assert "'foreign_tax_credit': {'2026': 1000}" in script
+    assert "'cdcc':" not in script
+
+
 def test_policyengine_tax_scenario_applies_ctc_refundability_overrides(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -2013,6 +2040,38 @@ def test_policyengine_tax_scenario_applies_ctc_refundability_overrides(tmp_path)
     assert "'employee_medicare_tax': {'2026': 300}" in script
     assert "'self_employment_tax_ald': {'2026': 500}" in script
     assert "'excess_payroll_tax_withheld': {'2026': 100}" in script
+
+
+def test_policyengine_tax_scenario_preserves_relation_member_ages(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "count_cdcc_eligible",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "us:statutes/26/21#relation.cdcc_member_of_tax_unit": [
+                {
+                    "us:statutes/26/21#input.is_tax_unit_dependent": True,
+                    "us:statutes/26/21#input.age": 14,
+                },
+                {
+                    "us:statutes/26/21#input.is_tax_unit_dependent": True,
+                    "us:statutes/26/21#input.age": 30,
+                    "us:statutes/26/21#input.is_incapable_of_self_care": True,
+                },
+            ],
+        },
+        "2026",
+    )
+
+    assert "'child0': {'age': {'2026': 14}" in script
+    assert "'adult_dep0': {'age': {'2026': 30}" in script
+    assert "'is_incapable_of_self_care': {'2026': True}" in script
 
 
 def test_policyengine_tax_scenario_builds_ctc_dependents_from_relation_rows(tmp_path):
@@ -2043,7 +2102,7 @@ def test_policyengine_tax_scenario_builds_ctc_dependents_from_relation_rows(tmp_
     )
 
     assert "'child0': {'age': {'2026': 8}, 'is_tax_unit_dependent': {'2026': True}}" in script
-    assert "'adult_dep0': {'age': {'2026': 30}, 'is_tax_unit_dependent': {'2026': True}}" in script
+    assert "'adult_dep0': {'age': {'2026': 19}, 'is_tax_unit_dependent': {'2026': True}}" in script
     assert "'adjusted_gross_income': {'2026': 50000}" in script
 
 

@@ -9075,6 +9075,9 @@ print("BENCHMARK:" + json.dumps(result))
         "income_tax_before_refundable_credits": (
             "income_tax_before_refundable_credits"
         ),
+        "foreign_tax_credit": "foreign_tax_credit",
+        "tax_unit_childcare_expenses": "tax_unit_childcare_expenses",
+        "min_head_spouse_earned": "min_head_spouse_earned",
         "filer_adjusted_earnings": "filer_adjusted_earnings",
         "eitc_relevant_investment_income": "eitc_relevant_investment_income",
         "ctc": "ctc",
@@ -9697,8 +9700,11 @@ print(f'RESULT:{{float(value)}}')
                 with contextlib.suppress(TypeError, ValueError):
                     explicit_child_count = max(0, int(value))
                     break
-        relation_child_count, relation_adult_dependent_count = (
-            self._us_tax_ctc_dependent_counts_from_relation_inputs(inputs)
+        relation_child_rows, relation_adult_dependent_rows = (
+            self._us_tax_dependent_member_rows_from_relation_inputs(inputs)
+        )
+        relation_child_count = (
+            len(relation_child_rows) if relation_child_rows is not None else None
         )
 
         household_children = 0
@@ -9713,7 +9719,11 @@ print(f'RESULT:{{float(value)}}')
             if relation_child_count is not None
             else household_children
         )
-        num_adult_dependents = relation_adult_dependent_count or 0
+        num_adult_dependents = (
+            len(relation_adult_dependent_rows)
+            if relation_child_rows is not None
+            else 0
+        )
         dependent_care_keys = (
             "snap_dependent_care_actual_costs",
             "snap_dependent_care_deduction",
@@ -9826,15 +9836,44 @@ print(f'RESULT:{{float(value)}}')
             people_parts.append(f"'spouse': {{'age': {{'{year}': {spouse_age}}}}}")
             members.append("'spouse'")
 
-        # Add children based on explicit qualifying-child counts or household size.
-        for i in range(num_children):
+        if explicit_child_count is None and relation_child_rows is not None:
+            child_rows = relation_child_rows
+            adult_dependent_rows = relation_adult_dependent_rows
+        else:
+            child_rows = [{} for _ in range(num_children)]
+            adult_dependent_rows = [{} for _ in range(num_adult_dependents)]
+
+        # Add children based on explicit qualifying-child counts, relation rows, or household size.
+        for i, row in enumerate(child_rows):
+            age = self._us_tax_relation_member_age(row, 8)
+            child_attrs = [
+                f"'age': {{'{year}': {age}}}",
+                f"'is_tax_unit_dependent': {{'{year}': True}}",
+            ]
+            incapable = self._rulespec_test_input_value(row, "is_incapable_of_self_care")
+            if incapable is not None:
+                child_attrs.append(
+                    f"'is_incapable_of_self_care': "
+                    f"{{'{year}': {pe_literal(bool(incapable))}}}"
+                )
             people_parts.append(
-                f"'child{i}': {{'age': {{'{year}': 8}}, 'is_tax_unit_dependent': {{'{year}': True}}}}"
+                f"'child{i}': {{{', '.join(child_attrs)}}}"
             )
             members.append(f"'child{i}'")
-        for i in range(num_adult_dependents):
+        for i, row in enumerate(adult_dependent_rows):
+            age = self._us_tax_relation_member_age(row, 30)
+            adult_dep_attrs = [
+                f"'age': {{'{year}': {age}}}",
+                f"'is_tax_unit_dependent': {{'{year}': True}}",
+            ]
+            incapable = self._rulespec_test_input_value(row, "is_incapable_of_self_care")
+            if incapable is not None:
+                adult_dep_attrs.append(
+                    f"'is_incapable_of_self_care': "
+                    f"{{'{year}': {pe_literal(bool(incapable))}}}"
+                )
             people_parts.append(
-                f"'adult_dep{i}': {{'age': {{'{year}': 30}}, 'is_tax_unit_dependent': {{'{year}': True}}}}"
+                f"'adult_dep{i}': {{{', '.join(adult_dep_attrs)}}}"
             )
             members.append(f"'adult_dep{i}'")
 
@@ -10021,17 +10060,27 @@ print(f'RESULT:{{val}}')
 """
         return script
 
-    def _us_tax_ctc_dependent_counts_from_relation_inputs(
+    @staticmethod
+    def _us_tax_relation_member_age(row: dict, default: int) -> int:
+        age_value = ValidatorPipeline._rulespec_test_input_value(row, "age")
+        with contextlib.suppress(TypeError, ValueError):
+            return int(age_value)
+        return default
+
+    def _us_tax_dependent_member_rows_from_relation_inputs(
         self,
         inputs: dict,
-    ) -> tuple[int | None, int]:
+    ) -> tuple[list[dict] | None, list[dict]]:
         """Infer PE dependent composition from RuleSpec member relation rows."""
-        child_count = 0
-        adult_dependent_count = 0
+        child_rows: list[dict] = []
+        adult_dependent_rows: list[dict] = []
         saw_relation = False
         for key, rows in inputs.items():
             key_text = str(key).lower()
-            if not key_text.endswith("#relation.member_of_tax_unit"):
+            if "#relation." not in key_text:
+                continue
+            relation_name = key_text.rsplit("#relation.", 1)[1]
+            if not relation_name.endswith("member_of_tax_unit"):
                 continue
             if not isinstance(rows, list):
                 continue
@@ -10053,18 +10102,21 @@ print(f'RESULT:{{val}}')
                 if dependent is not True and not is_eitc_qualifying_child:
                     continue
                 if is_eitc_qualifying_child:
-                    child_count += 1
+                    child_rows.append(row)
                     continue
                 age_value = self._rulespec_test_input_value(row, "age")
+                if age_value is None:
+                    child_rows.append(row)
+                    continue
                 with contextlib.suppress(TypeError, ValueError):
                     age = int(age_value)
                     if age < 17:
-                        child_count += 1
+                        child_rows.append(row)
                     else:
-                        adult_dependent_count += 1
+                        adult_dependent_rows.append(row)
         if not saw_relation:
-            return None, 0
-        return child_count, adult_dependent_count
+            return None, []
+        return child_rows, adult_dependent_rows
 
     def _build_pe_uk_scenario_script(
         self, pe_var: str, inputs: dict, year: str, rule_name: str | None = None

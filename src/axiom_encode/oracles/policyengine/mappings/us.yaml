@@ -1944,6 +1944,313 @@ mappings:
     comparison: money
     rationale: Same maximum refundable CTC before phase-in and tax-liability limits.
 
+  - legal_id: us:statutes/26/21#cdcc_child_age_limit
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.eligibility.child_age
+    period: year
+    comparison: count
+    rationale: Same statutory age limit for a child qualifying individual.
+
+  - legal_id: us:statutes/26/21#cdcc_max_qualifying_individuals
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.eligibility.max
+    period: year
+    comparison: count
+    rationale: Same maximum number of qualifying individuals used in the section 21(c) dollar limit.
+
+  - legal_id: us:statutes/26/21#cdcc_max_expenses_per_individual
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.max
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory maximum employment-related expenses per qualifying individual.
+
+  - legal_id: us:statutes/26/21#cdcc_max_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.max
+    period: year
+    comparison: rate
+    rationale: Same starting CDCC applicable percentage.
+
+  - legal_id: us:statutes/26/21#cdcc_first_phaseout_floor
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.min
+    period: year
+    comparison: rate
+    rationale: Same first phaseout floor for the applicable percentage.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_floor
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.amended_structure.second_min
+    period: year
+    comparison: rate
+    rationale: Same second phaseout floor for the current-law applicable percentage.
+
+  - legal_id: us:statutes/26/21#cdcc_phaseout_rate_reduction
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.rate
+    period: year
+    comparison: rate
+    rationale: Same one-percentage-point reduction per full or partial increment.
+
+  - legal_id: us:statutes/26/21#cdcc_first_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.start
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same first AGI phaseout threshold.
+
+  - legal_id: us:statutes/26/21#cdcc_phaseout_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.increment
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same first phaseout income increment.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_start_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.amended_structure.second_start
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-return second phaseout threshold.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_start_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.amended_structure.second_start
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same non-joint second phaseout threshold.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_increment_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.amended_structure.second_increment
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-return second phaseout income increment.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_increment_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.amended_structure.second_increment
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same non-joint second phaseout income increment.
+
+  - legal_id: us:statutes/26/21#cdcc_qualifying_individual
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes CDCC qualifying status as a broader person-level proxy; current oracle comparisons target tax-unit outputs.
+
+  - legal_id: us:statutes/26/21#count_cdcc_eligible
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: count_cdcc_eligible
+    entity: tax_unit
+    period: year
+    comparison: count
+    rationale: Same tax-unit count of CDCC qualifying individuals for supported relation-row cases.
+
+  - legal_id: us:statutes/26/21#capped_count_cdcc_eligible
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: capped_count_cdcc_eligible
+    entity: tax_unit
+    period: year
+    comparison: count
+    rationale: Same two-person cap on CDCC qualifying individuals.
+
+  - legal_id: us:statutes/26/21#cdcc_limit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: cdcc_limit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same CDCC expense limit for cases without section 129 excluded dependent-care assistance.
+
+  - legal_id: us:statutes/26/21#cdcc_relevant_expenses
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: cdcc_relevant_expenses
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same expenses after section 21(c) and earned-income limits for cases without section 129 excluded dependent-care assistance.
+
+  - legal_id: us:statutes/26/21#cdcc_first_phaseout_excess
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the first CDCC phaseout excess inside cdcc_rate and does not expose it separately.
+
+  - legal_id: us:statutes/26/21#cdcc_first_phaseout_increments
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the first CDCC phaseout increment count inside cdcc_rate and does not expose it separately.
+
+  - legal_id: us:statutes/26/21#cdcc_first_phaseout_reduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the first CDCC phaseout percentage reduction inside cdcc_rate and does not expose it separately.
+
+  - legal_id: us:statutes/26/21#cdcc_first_phaseout_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes only the final CDCC rate after both phaseouts.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.amended_structure.second_start
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+      4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected second CDCC phaseout threshold.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.cdcc.phase_out.amended_structure.second_increment
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+      4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected second CDCC phaseout increment.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_excess
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the second CDCC phaseout excess inside cdcc_rate and does not expose it separately.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_increments
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the second CDCC phaseout increment count inside cdcc_rate and does not expose it separately.
+
+  - legal_id: us:statutes/26/21#cdcc_second_phaseout_reduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the second CDCC phaseout percentage reduction inside cdcc_rate and does not expose it separately.
+
+  - legal_id: us:statutes/26/21#cdcc_rate
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: cdcc_rate
+    entity: tax_unit
+    period: year
+    comparison: rate
+    rationale: Same final CDCC applicable percentage.
+
+  - legal_id: us:statutes/26/21#cdcc_potential
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: cdcc_potential
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same potential CDCC before the nonrefundable credit limitation for cases without section 129 excluded dependent-care assistance.
+
+  - legal_id: us:statutes/26/21#cdcc_credit_limit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: cdcc_credit_limit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 26(a)-style CDCC credit limit for cases with no alternative minimum tax.
+
+  - legal_id: us:statutes/26/21#cdcc_married_filing_status_eligible
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 21 married-filing-separately eligibility gate separately.
+
+  - legal_id: us:statutes/26/21#cdcc_claim_requirements_satisfied
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 21 claim-identification and related-party gates separately.
+
+  - legal_id: us:statutes/26/21#cdcc
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: cdcc
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final child and dependent care credit for supported current-law cases.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
