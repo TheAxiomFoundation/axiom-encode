@@ -1363,10 +1363,9 @@ def cmd_test(args):
             print(message)
         sys.exit(1)
 
-    axiom_rules_path = (
-        getattr(args, "axiom_rules_path", None)
-        or _resolve_runtime_axiom_rules_checkout(root)
-    )
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(root)
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
@@ -1430,9 +1429,7 @@ def _discover_rulespec_test_files(paths: list[Path], *, root: Path) -> list[Path
             path = (root / path).resolve()
         if path.is_dir():
             test_files.extend(
-                file
-                for file in path.rglob("*.test.yaml")
-                if ".git" not in file.parts
+                file for file in path.rglob("*.test.yaml") if ".git" not in file.parts
             )
             test_files.extend(
                 file for file in path.rglob("*.test.yml") if ".git" not in file.parts
@@ -1628,10 +1625,14 @@ def _execute_rulespec_test_case(
 
     expected = case.get("output") or {}
     parameter_expected = {
-        str(key): value for key, value in expected.items() if str(key) in parameter_by_id
+        str(key): value
+        for key, value in expected.items()
+        if str(key) in parameter_by_id
     }
     derived_expected = {
-        str(key): value for key, value in expected.items() if str(key) not in parameter_by_id
+        str(key): value
+        for key, value in expected.items()
+        if str(key) not in parameter_by_id
     }
 
     for output, expected_value in parameter_expected.items():
@@ -1669,7 +1670,9 @@ def _execute_rulespec_test_case(
             }
         )
     derived_expected = {
-        output: value for output, value in derived_expected.items() if output in derived_ids
+        output: value
+        for output, value in derived_expected.items()
+        if output in derived_ids
     }
     if not derived_expected:
         return failures
@@ -1759,7 +1762,11 @@ def _rulespec_period_spec(value) -> dict[str, str]:
             "end": end.isoformat(),
         }
     if isinstance(value, date):
-        return {"period_kind": "day", "start": value.isoformat(), "end": value.isoformat()}
+        return {
+            "period_kind": "day",
+            "start": value.isoformat(),
+            "end": value.isoformat(),
+        }
     raise ValueError(f"unsupported period shorthand: {value!r}")
 
 
