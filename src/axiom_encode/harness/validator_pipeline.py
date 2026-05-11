@@ -9160,6 +9160,9 @@ print("BENCHMARK:" + json.dumps(result))
         "income_tax_before_refundable_credits": (
             "income_tax_before_refundable_credits"
         ),
+        "net_investment_income_tax": "net_investment_income_tax",
+        "recapture_of_investment_credit": "recapture_of_investment_credit",
+        "qualified_retirement_penalty": "qualified_retirement_penalty",
         "foreign_tax_credit": "foreign_tax_credit",
         "cdcc": "cdcc",
         "non_refundable_american_opportunity_credit": (

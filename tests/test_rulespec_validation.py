@@ -2110,6 +2110,10 @@ def test_policyengine_tax_scenario_builds_nonrefundable_credit_inputs(tmp_path):
             "new_clean_vehicle_credit": 1000,
             "used_clean_vehicle_credit": 400,
             "non_refundable_ctc": 2000,
+            "net_investment_income_tax": 380,
+            "recapture_of_investment_credit": 50,
+            "unreported_payroll_tax": 20,
+            "qualified_retirement_penalty": 100,
         },
         "2026",
     )
@@ -2126,6 +2130,10 @@ def test_policyengine_tax_scenario_builds_nonrefundable_credit_inputs(tmp_path):
     assert "'new_clean_vehicle_credit': {'2026': 1000}" in script
     assert "'used_clean_vehicle_credit': {'2026': 400}" in script
     assert "'non_refundable_ctc': {'2026': 2000}" in script
+    assert "'net_investment_income_tax': {'2026': 380}" in script
+    assert "'recapture_of_investment_credit': {'2026': 50}" in script
+    assert "'unreported_payroll_tax': {'2026': 20}" in script
+    assert "'qualified_retirement_penalty': {'2026': 100}" in script
 
 
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):

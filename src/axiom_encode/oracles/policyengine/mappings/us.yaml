@@ -3571,6 +3571,17 @@ mappings:
     comparison: money
     rationale: Same allowed nonrefundable-credit aggregate after the section 26 income-tax cap.
 
+  - legal_id: us:statutes/26/26#income_tax_before_refundable_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax_before_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same federal income tax after nonrefundable credits and modeled additional income-tax amounts, before refundable credits.
+
   - legal_id: us:statutes/26/1411#niit_rate
     country: us
     program: tax
