@@ -1929,6 +1929,36 @@ def test_policyengine_tax_scenario_builds_net_investment_income_inputs(tmp_path)
     assert "'loss_limited_net_capital_gains': {'2026': 4000}" in script
 
 
+def test_policyengine_tax_scenario_builds_capital_gains_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "capital_gains_tax",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "taxable_income": 100000,
+            "long_term_capital_gains": 40000,
+            "short_term_capital_gains": 0,
+            "qualified_dividend_income": 5000,
+            "unrecaptured_section_1250_gain": 10000,
+            "capital_gains_28_percent_rate_gain": 2000,
+        },
+        "2026",
+    )
+
+    assert "'taxable_income': {'2026': 100000}" in script
+    assert "'unrecaptured_section_1250_gain': {'2026': 10000}" in script
+    assert "'capital_gains_28_percent_rate_gain': {'2026': 2000}" in script
+    assert "'long_term_capital_gains': {'2026': 40000}" in script
+    assert "'short_term_capital_gains': {'2026': 0}" in script
+    assert "'qualified_dividend_income': {'2026': 5000}" in script
+
+
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -4841,6 +4871,57 @@ rules:
                 "net investment income or the excess modified adjusted gross income."
             )
         },
+    )
+
+    assert issues == []
+
+
+def test_source_verification_accepts_decimal_rate_values_as_hyphenated_percentages():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+    values:
+      capital_gains_twenty_percent_rate: 0.20
+rules:
+  - name: capital_gains_twenty_percent_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.20'
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/statute/26/1": (
+                "The amount of tax shall be increased by 20-percent of the "
+                "adjusted net capital gain above the applicable threshold."
+            )
+        },
+    )
+
+    assert issues == []
+
+
+def test_numeric_grounding_accepts_decimal_rate_values_as_hyphenated_percentages():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+rules:
+  - name: capital_gains_twenty_percent_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.20'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="The tax is increased by 20-percent of the applicable amount.",
     )
 
     assert issues == []

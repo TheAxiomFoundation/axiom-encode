@@ -1239,6 +1239,306 @@ mappings:
     comparison: rate
     rationale: Same IRS seventh income tax bracket rate, stored in PE as parameter data.
 
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_zero_rate_threshold_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '1'
+      - JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum zero-rate amount for joint and surviving-spouse returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_zero_rate_threshold_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '1'
+      - SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum zero-rate amount for married-filing-separately returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_zero_rate_threshold_head_of_household
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '1'
+      - HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum zero-rate amount for head-of-household returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_zero_rate_threshold_single
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '1'
+      - SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum zero-rate amount for single and other individual returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_fifteen_percent_threshold_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '2'
+      - JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum 15-percent-rate amount for joint and surviving-spouse returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_fifteen_percent_threshold_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '2'
+      - SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum 15-percent-rate amount for married-filing-separately returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_fifteen_percent_threshold_head_of_household
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '2'
+      - HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum 15-percent-rate amount for head-of-household returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_fifteen_percent_threshold_single
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '2'
+      - SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum 15-percent-rate amount for single and other individual returns.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_zero_rate_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '1'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same selected IRS maximum zero-rate amount by filing status.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/capital-gains#capital_gains_fifteen_percent_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.thresholds
+    parameter_key_path:
+      - '2'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same selected IRS maximum 15-percent-rate amount by filing status.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_zero_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.rates
+    parameter_key: '1'
+    period: year
+    comparison: rate
+    rationale: Same statutory zero-percent capital-gains rate.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_fifteen_percent_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.rates
+    parameter_key: '2'
+    period: year
+    comparison: rate
+    rationale: Same statutory 15-percent capital-gains rate.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_twenty_percent_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.rates
+    parameter_key: '3'
+    period: year
+    comparison: rate
+    rationale: Same statutory 20-percent capital-gains rate.
+
+  - legal_id: us:statutes/26/1/h#unrecaptured_section_1250_gain_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.unrecaptured_s_1250_rate
+    period: year
+    comparison: rate
+    rationale: Same statutory maximum rate for unrecaptured section 1250 gain.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_28_percent_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.capital_gains.other_cg_rate
+    period: year
+    comparison: rate
+    rationale: Same statutory maximum rate for 28-percent-rate gain.
+
+  - legal_id: us:statutes/26/1/h#net_capital_gain
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: net_capital_gain
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1(h) net-capital-gain amount for supported inputs.
+
+  - legal_id: us:statutes/26/1/h#adjusted_net_capital_gain
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: adjusted_net_capital_gain
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1(h)(3) adjusted net capital gain for supported inputs.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_excluded_from_taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: capital_gains_excluded_from_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same amount removed from ordinary-rate taxable income under section 1(h)(1)(A).
+
+  - legal_id: us:statutes/26/1/h#adjusted_net_capital_gain_limited
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes this section 1(h) worksheet helper; PolicyEngine uses the same calculation inside capital_gains_tax without exposing it separately.
+
+  - legal_id: us:statutes/26/1/h#non_capital_gain_taxable_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the ordinary-income base for section 1(h); PolicyEngine folds it into capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#income_less_adjusted_net_capital_gain
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes this section 1(h) worksheet helper; PolicyEngine does not expose it separately.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_in_zero_rate_bracket
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the capital-gain amount taxed at the zero rate; PolicyEngine folds it into capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_in_fifteen_percent_bracket
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the capital-gain amount taxed at 15 percent; PolicyEngine folds it into capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_in_twenty_percent_bracket
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the capital-gain amount taxed at 20 percent; PolicyEngine folds it into capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#main_capital_gains_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the zero/15/20-percent subtotal before special gain rates; PolicyEngine exposes only the final capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#taxable_unrecaptured_section_1250_gain
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the section 1250 taxable-gain helper; PolicyEngine folds it into capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#unrecaptured_section_1250_gain_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the section 1250 gain tax subtotal; PolicyEngine folds it into capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_28_percent_rate_gain_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the 28-percent-rate gain tax subtotal; PolicyEngine folds it into capital_gains_tax.
+
+  - legal_id: us:statutes/26/1/h#capital_gains_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: capital_gains_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final preferential-rate capital-gains tax for supported section 1(h) cases.
+
+  - legal_id: us:statutes/26/1/j#ordinary_taxable_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the section 1(j) ordinary-rate base after section 1(h) capital-gain exclusion; PolicyEngine computes it inside income_tax_main_rates.
+
   - legal_id: us:statutes/26/1/j#income_tax_main_rates
     country: us
     program: tax
@@ -1248,7 +1548,7 @@ mappings:
     period: year
     unit: USD
     comparison: money
-    rationale: Same section 1 main-rate income tax calculation for ordinary taxable income.
+    rationale: Same section 1 main-rate income tax calculation after excluding section 1(h) capital-gain income from ordinary rates.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single
     country: us

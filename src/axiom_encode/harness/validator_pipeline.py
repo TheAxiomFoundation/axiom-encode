@@ -644,7 +644,12 @@ _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN = re.compile(
     r"^\s*For\s+[A-Za-z][A-Za-z .'-]*,\s+the\s+allowance\s+is\s+statewide\s+at\s+\$?\d+(?:\.\d+)?\.?\s*$",
     re.IGNORECASE,
 )
-_SOURCE_REFERENCE_TARGET_PATTERN = r"(?:(?:\([^)]+\))+|\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])|[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
+_SOURCE_REFERENCE_TARGET_PATTERN = (
+    r"(?:(?:\([^)]+\))+|"
+    r"\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])"
+    r"(?!\s*(?:percent|per\s*cent(?:um)?))|"
+    r"[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
+)
 _SOURCE_REFERENCE_SEQUENCE_PATTERN = (
     rf"{_SOURCE_REFERENCE_TARGET_PATTERN}"
     rf"(?:\s*(?:,|or|and)\s*{_SOURCE_REFERENCE_TARGET_PATTERN})*"
@@ -1479,7 +1484,10 @@ def _iter_normalized_special_numeric_matches(
     matches: list[tuple[tuple[int, int], float]] = []
 
     for pattern in (
-        re.compile(r"(\d+(?:\.\d+)?)\s+(?:percent|per\s*cent(?:um)?)", re.IGNORECASE),
+        re.compile(
+            r"(\d+(?:\.\d+)?)(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
+            re.IGNORECASE,
+        ),
         re.compile(r"(\d+(?:\.\d+)?)\s*%"),
     ):
         for match in pattern.finditer(text):
@@ -4455,6 +4463,7 @@ def _source_verification_numeric_texts(value: Any) -> tuple[str, ...]:
             texts.append(percent_text)
             texts.append(f"{percent_text}%")
             texts.append(f"{percent_text} percent")
+            texts.append(f"{percent_text}-percent")
             texts.append(f"{percent_text} per cent")
             if float(percent).is_integer():
                 percent_word = _CARDINAL_VALUE_WORDS.get(int(percent))
@@ -9140,6 +9149,8 @@ print("BENCHMARK:" + json.dumps(result))
         "unreported_payroll_tax": "unreported_payroll_tax",
         "self_employment_tax_ald": "self_employment_tax_ald",
         "additional_medicare_tax": "additional_medicare_tax",
+        "unrecaptured_section_1250_gain": "unrecaptured_section_1250_gain",
+        "capital_gains_28_percent_rate_gain": "capital_gains_28_percent_rate_gain",
         "taxable_net_gain_from_dispositions": "loss_limited_net_capital_gains",
         "loss_limited_net_capital_gains": "loss_limited_net_capital_gains",
         "excess_payroll_tax_withheld": "excess_payroll_tax_withheld",
@@ -9149,6 +9160,9 @@ print("BENCHMARK:" + json.dumps(result))
     _PE_US_PERSON_OVERRIDE_INPUTS = {
         "taxable_interest_income": "taxable_interest_income",
         "dividend_income": "dividend_income",
+        "long_term_capital_gains": "long_term_capital_gains",
+        "short_term_capital_gains": "short_term_capital_gains",
+        "qualified_dividend_income": "qualified_dividend_income",
         "rental_income": "rental_income",
         "employee_social_security_tax": "employee_social_security_tax",
         "employee_medicare_tax": "employee_medicare_tax",
