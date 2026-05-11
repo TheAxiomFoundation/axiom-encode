@@ -1677,6 +1677,126 @@ mappings:
     comparison: money
     rationale: Same IRS maximum refundable child tax credit amount per qualifying child.
 
+  - legal_id: us:statutes/26/24/d#ctc_refundable_phase_in_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.refundable.phase_in.rate
+    period: year
+    unit: /1
+    comparison: rate
+    rationale: Same Additional Child Tax Credit earned-income phase-in rate.
+
+  - legal_id: us:statutes/26/24/d#ctc_refundable_phase_in_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.refundable.phase_in.threshold
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same current-law Additional Child Tax Credit earned-income phase-in threshold.
+
+  - legal_id: us:statutes/26/24/d#ctc_refundable_min_children_for_ss_excess
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.refundable.phase_in.min_children_for_ss_taxes_minus_eitc
+    period: year
+    comparison: count
+    rationale: Same threshold count for using Social Security taxes minus EITC in the refundable CTC phase-in.
+
+  - legal_id: us:statutes/26/24/d#ctc_phase_in_relevant_earnings
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_phase_in_relevant_earnings
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same earned-income phase-in amount for refundable CTC.
+
+  - legal_id: us:statutes/26/24/d#ctc_social_security_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_social_security_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Social Security tax amount considered for refundable CTC.
+
+  - legal_id: us:statutes/26/24/d#ctc_social_security_excess
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the Social Security tax minus EITC excess as a helper; PolicyEngine folds it into ctc_phase_in.
+
+  - legal_id: us:statutes/26/24/d#ctc_phase_in
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_phase_in
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same refundable CTC phase-in amount after the 3-child Social Security tax rule.
+
+  - legal_id: us:statutes/26/24/d#ctc_refundable_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the lesser of total CTC and refundable maximum as a helper; PolicyEngine computes it inside refundable_ctc.
+
+  - legal_id: us:statutes/26/24/d#ctc_tax_limited
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the section 26(a)-limited CTC helper; PolicyEngine computes the same intermediate inside refundable_ctc.
+
+  - legal_id: us:statutes/26/24/d#ctc_tax_limited_with_phase_in
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the section 26(a)-limited CTC after increasing the limitation; PolicyEngine computes it inside refundable_ctc.
+
+  - legal_id: us:statutes/26/24/d#ctc_refundable_tax_increase
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the amount by which the section 26(a)-limited CTC would increase; PolicyEngine computes it inside refundable_ctc.
+
+  - legal_id: us:statutes/26/24/d#ctc_refundable_foreign_income_eligible
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine's current refundable CTC formula does not expose the section 24(d)(3) foreign-earned-income exclusion gate as a separate variable.
+
+  - legal_id: us:statutes/26/24/d#refundable_ctc
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: refundable_ctc
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same current-law refundable child tax credit for cases without a section 911 foreign earned income exclusion.
+
+  - legal_id: us:statutes/26/24/d#non_refundable_ctc
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: non_refundable_ctc
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same child tax credit portion remaining after the refundable CTC split.
+
   - legal_id: us:statutes/26/24/h#ctc_qualifying_child_age_limit
     country: us
     program: tax

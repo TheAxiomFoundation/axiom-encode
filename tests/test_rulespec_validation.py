@@ -1986,6 +1986,35 @@ def test_policyengine_tax_scenario_applies_tax_unit_overrides(tmp_path):
     assert "'regular_tax_before_credits':" not in script
 
 
+def test_policyengine_tax_scenario_applies_ctc_refundability_overrides(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "refundable_ctc",
+        {
+            "period": "2026",
+            "filer_adjusted_earnings": 20000,
+            "ctc_limiting_tax_liability": 1000,
+            "employee_social_security_tax": 1200,
+            "employee_medicare_tax": 300,
+            "self_employment_tax_ald": 500,
+            "excess_payroll_tax_withheld": 100,
+        },
+        "2026",
+    )
+
+    assert "'filer_adjusted_earnings': {'2026': 20000}" in script
+    assert "'ctc_limiting_tax_liability': {'2026': 1000}" in script
+    assert "'employee_social_security_tax': {'2026': 1200}" in script
+    assert "'employee_medicare_tax': {'2026': 300}" in script
+    assert "'self_employment_tax_ald': {'2026': 500}" in script
+    assert "'excess_payroll_tax_withheld': {'2026': 100}" in script
+
+
 def test_policyengine_tax_scenario_builds_ctc_dependents_from_relation_rows(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -4634,6 +4663,38 @@ rules:
             "us/statute/example/rates": (
                 "The credit percentage is determined as follows: "
                 "1 qualifying child 34; no qualifying children 7.65."
+            )
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_condition_coverage_ignores_credit_allowed_paid_tax_language():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/24
+rules:
+  - name: ctc_refundable_foreign_income_eligible
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: not excludes_foreign_earned_income
+"""
+
+    issues = find_source_condition_coverage_issues(
+        content,
+        source_texts={
+            "us/statute/26/24": (
+                "The aggregate credits allowed to a taxpayer shall be increased "
+                "by the lesser of the credit which would be allowed under this "
+                "section or social security taxes paid during the taxable year. "
+                "Paragraph (1) shall not apply if the taxpayer elects to exclude "
+                "foreign earned income."
             )
         },
     )

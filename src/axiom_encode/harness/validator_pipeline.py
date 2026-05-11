@@ -2942,9 +2942,9 @@ def find_source_verification_issues(
 
 _COST_AVAILABILITY_SOURCE_PATTERN = re.compile(
     r"\b(available|allowed|eligible|entitled)\b.{0,180}"
-    r"\b(billed|cost|costs|expense|expenses|incur|incurs|incurred|paid|pay|pays)\b"
+    r"\b(billed|cost|costs|expense|expenses|incur|incurs|incurred)\b"
     r"|"
-    r"\b(billed|cost|costs|expense|expenses|incur|incurs|incurred|paid|pay|pays)\b"
+    r"\b(billed|cost|costs|expense|expenses|incur|incurs|incurred)\b"
     r".{0,180}\b(available|allowed|eligible|entitled)\b",
     flags=re.IGNORECASE | re.DOTALL,
 )
@@ -9075,10 +9075,21 @@ print("BENCHMARK:" + json.dumps(result))
         "income_tax_before_refundable_credits": (
             "income_tax_before_refundable_credits"
         ),
+        "filer_adjusted_earnings": "filer_adjusted_earnings",
         "eitc_relevant_investment_income": "eitc_relevant_investment_income",
         "ctc": "ctc",
+        "ctc_limiting_tax_liability": "ctc_limiting_tax_liability",
+        "ctc_social_security_tax": "ctc_social_security_tax",
+        "unreported_payroll_tax": "unreported_payroll_tax",
+        "self_employment_tax_ald": "self_employment_tax_ald",
+        "additional_medicare_tax": "additional_medicare_tax",
+        "excess_payroll_tax_withheld": "excess_payroll_tax_withheld",
         "refundable_ctc": "refundable_ctc",
         "eitc": "eitc",
+    }
+    _PE_US_PERSON_OVERRIDE_INPUTS = {
+        "employee_social_security_tax": "employee_social_security_tax",
+        "employee_medicare_tax": "employee_medicare_tax",
     }
 
     # PE variables at spm_unit level (need spm_units in situation)
@@ -9739,6 +9750,11 @@ print(f'RESULT:{{float(value)}}')
         )
         if earned:
             adult_attrs.append(f"'employment_income': {{'{year}': {earned}}}")
+        for rule_key, pe_key in self._PE_US_PERSON_OVERRIDE_INPUTS.items():
+            value = self._rulespec_test_input_value(inputs, rule_key)
+            if value is None:
+                continue
+            adult_attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
 
         if adapter is not None:
             for rule_key, pe_attr in adapter.annualized_person_inputs:
