@@ -1420,6 +1420,21 @@ def cmd_test(args):
     sys.exit(0 if not failures else 1)
 
 
+_RULESPEC_TEST_DISCOVERY_IGNORED_PARTS = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "__pycache__",
+        "_axiom",
+        "axiom-rules-engine",
+        "node_modules",
+    }
+)
+
+
 def _discover_rulespec_test_files(paths: list[Path], *, root: Path) -> list[Path]:
     candidates = paths or [root]
     test_files: list[Path] = []
@@ -1429,14 +1444,28 @@ def _discover_rulespec_test_files(paths: list[Path], *, root: Path) -> list[Path
             path = (root / path).resolve()
         if path.is_dir():
             test_files.extend(
-                file for file in path.rglob("*.test.yaml") if ".git" not in file.parts
+                file
+                for file in path.rglob("*.test.yaml")
+                if not _is_ignored_rulespec_test_discovery_path(file, root=root)
             )
             test_files.extend(
-                file for file in path.rglob("*.test.yml") if ".git" not in file.parts
+                file
+                for file in path.rglob("*.test.yml")
+                if not _is_ignored_rulespec_test_discovery_path(file, root=root)
             )
-        elif _is_rulespec_test_file(path):
+        elif _is_rulespec_test_file(
+            path
+        ) and not _is_ignored_rulespec_test_discovery_path(path, root=root):
             test_files.append(path)
     return sorted(set(test_files))
+
+
+def _is_ignored_rulespec_test_discovery_path(path: Path, *, root: Path) -> bool:
+    try:
+        parts = path.resolve().relative_to(root.resolve()).parts
+    except ValueError:
+        parts = path.parts
+    return any(part in _RULESPEC_TEST_DISCOVERY_IGNORED_PARTS for part in parts)
 
 
 def _is_rulespec_test_file(path: Path) -> bool:

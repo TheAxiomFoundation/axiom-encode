@@ -18,6 +18,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _apply_generated_encoding_result,
+    _discover_rulespec_test_files,
     _effective_runner_specs,
     _find_rulespec_dependents,
     _insert_false_input_default,
@@ -1931,6 +1932,20 @@ rules:
         output = json.loads(capsys.readouterr().out)
         assert output["success"] is False
         assert "expected 16" in output["failures"][0]["message"]
+
+    def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
+        root = tmp_path / "workspace"
+        valid_test = root / "statutes/1/1.test.yaml"
+        vendored_test = root / "_axiom/axiom-rules-engine/tests/fixtures/bad.test.yaml"
+        sibling_fixture_test = root / "axiom-rules-engine/tests/fixtures/bad.test.yaml"
+        valid_test.parent.mkdir(parents=True)
+        vendored_test.parent.mkdir(parents=True)
+        sibling_fixture_test.parent.mkdir(parents=True)
+        valid_test.write_text("[]\n")
+        vendored_test.write_text("[]\n")
+        sibling_fixture_test.write_text("[]\n")
+
+        assert _discover_rulespec_test_files([], root=root) == [valid_test]
 
 
 # =========================================================================
