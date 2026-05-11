@@ -9116,9 +9116,27 @@ print("BENCHMARK:" + json.dumps(result))
         "modified_adjusted_gross_income": "adjusted_gross_income",
         "taxable_income": "taxable_income",
         "taxable_income_deductions": "taxable_income_deductions",
+        "taxable_income_deductions_if_itemizing": (
+            "taxable_income_deductions_if_itemizing"
+        ),
+        "taxable_income_deductions_if_not_itemizing": (
+            "taxable_income_deductions_if_not_itemizing"
+        ),
+        "tax_unit_itemizes": "tax_unit_itemizes",
+        "itemized_taxable_income_deductions": "itemized_taxable_income_deductions",
         "standard_deduction": "standard_deduction",
         "basic_standard_deduction": "basic_standard_deduction",
         "additional_standard_deduction": "additional_standard_deduction",
+        "qualified_business_income_deduction": "qualified_business_income_deduction",
+        "wagering_losses_deduction": "wagering_losses_deduction",
+        "charitable_deduction_for_non_itemizers": (
+            "charitable_deduction_for_non_itemizers"
+        ),
+        "tip_income_deduction": "tip_income_deduction",
+        "overtime_income_deduction": "overtime_income_deduction",
+        "additional_senior_deduction": "additional_senior_deduction",
+        "auto_loan_interest_deduction": "auto_loan_interest_deduction",
+        "exemptions": "exemptions",
         "regular_tax_before_credits": "regular_tax_before_credits",
         "income_tax_before_credits": "income_tax_before_credits",
         "income_tax_before_refundable_credits": (

@@ -1550,6 +1550,50 @@ mappings:
     comparison: money
     rationale: Same section 1 main-rate income tax calculation after excluding section 1(h) capital-gain income from ordinary rates.
 
+  - legal_id: us:statutes/26/63#taxable_income_deductions_if_itemizing
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: taxable_income_deductions_if_itemizing
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 63 taxable-income deduction sum for itemizers, using upstream deduction amounts.
+
+  - legal_id: us:statutes/26/63#taxable_income_deductions_if_not_itemizing
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: taxable_income_deductions_if_not_itemizing
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 63 taxable-income deduction sum for non-itemizers, including the standard deduction and upstream non-itemizer deductions.
+
+  - legal_id: us:statutes/26/63#taxable_income_deductions
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: taxable_income_deductions
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 63 itemizer/non-itemizer taxable-income deduction selector.
+
+  - legal_id: us:statutes/26/63#taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same federal taxable income after exemptions and taxable-income deductions.
+
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single
     country: us
     program: tax

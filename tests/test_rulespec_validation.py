@@ -1959,6 +1959,43 @@ def test_policyengine_tax_scenario_builds_capital_gains_inputs(tmp_path):
     assert "'qualified_dividend_income': {'2026': 5000}" in script
 
 
+def test_policyengine_tax_scenario_builds_taxable_income_deduction_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "taxable_income",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "adjusted_gross_income": 80000,
+            "exemptions": 0,
+            "tax_unit_itemizes": True,
+            "itemized_taxable_income_deductions": 30000,
+            "standard_deduction": 15000,
+            "qualified_business_income_deduction": 2000,
+            "wagering_losses_deduction": 500,
+            "charitable_deduction_for_non_itemizers": 1000,
+            "tip_income_deduction": 500,
+            "overtime_income_deduction": 600,
+            "additional_senior_deduction": 700,
+            "auto_loan_interest_deduction": 800,
+        },
+        "2026",
+    )
+
+    assert "'adjusted_gross_income': {'2026': 80000}" in script
+    assert "'exemptions': {'2026': 0}" in script
+    assert "'tax_unit_itemizes': {'2026': True}" in script
+    assert "'itemized_taxable_income_deductions': {'2026': 30000}" in script
+    assert "'qualified_business_income_deduction': {'2026': 2000}" in script
+    assert "'wagering_losses_deduction': {'2026': 500}" in script
+    assert "'tip_income_deduction': {'2026': 500}" in script
+
+
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
