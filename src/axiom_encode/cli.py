@@ -2723,30 +2723,26 @@ def cmd_encode(args):
     repair_manifest = None
     apply_passed = False
     if apply_requested:
-        if not result.success:
-            detail = f"standalone_failed: {result.error or 'validation failed'}"
-            outcome["overlay_validation_success"] = False
+        can_apply, apply_issues, supplemental_files = (
+            _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=args.output,
+                policy_repo_path=policy_repo_path,
+                axiom_rules_path=axiom_rules_path,
+            )
+        )
+        outcome["overlay_validation_success"] = bool(can_apply)
+        if not can_apply:
+            detail = (
+                apply_issues[0]
+                if apply_issues
+                else f"standalone_failed: {result.error or 'validation failed'}"
+            )
             outcome["status"] = "apply_blocked_validation"
             outcome["apply_error"] = detail
             outcome["final_success"] = False
             print(f"  apply=blocked_validation:{detail}")
-        else:
-            can_apply, apply_issues, supplemental_files = (
-                _validate_generated_encoding_in_policy_overlay(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                    axiom_rules_path=axiom_rules_path,
-                )
-            )
-            outcome["overlay_validation_success"] = bool(can_apply)
-            if not can_apply:
-                detail = apply_issues[0] if apply_issues else "generation_failed"
-                outcome["status"] = "apply_blocked_validation"
-                outcome["apply_error"] = detail
-                outcome["final_success"] = False
-                print(f"  apply=blocked_validation:{detail}")
-        if result.success and can_apply:
+        if can_apply:
             try:
                 applied = _apply_generated_encoding_result(
                     result,

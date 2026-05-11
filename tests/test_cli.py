@@ -2707,7 +2707,7 @@ class TestCmdEncode:
             "encode_issue",
         ]
 
-    def test_encode_apply_blocks_failed_standalone_validation_before_overlay(
+    def test_encode_apply_allows_overlay_to_rescue_failed_standalone_validation(
         self, capsys, tmp_path
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
@@ -2717,40 +2717,43 @@ class TestCmdEncode:
         output_file.parent.mkdir(parents=True)
         output_file.write_text("format: rulespec/v1\nrules: []\n")
         result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "regulations/example.yaml"
 
         with (
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
             ) as mock_overlay,
-            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
             patch.dict(os.environ, {}, clear=True),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_encode(args)
 
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == 0
         output = capsys.readouterr().out
         assert "standalone_success=False" in output
-        assert "apply=blocked_validation:standalone_failed: failed" in output
-        mock_overlay.assert_not_called()
-        mock_apply.assert_not_called()
+        assert "outcome=apply_applied final_success=True" in output
+        mock_overlay.assert_called_once()
+        mock_apply.assert_called_once()
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.iterations[0].success is False
         assert run.outcome["standalone_validation_success"] is False
-        assert run.outcome["overlay_validation_success"] is False
-        assert run.outcome["apply_success"] is False
-        assert run.outcome["final_success"] is False
-        assert run.outcome["status"] == "apply_blocked_validation"
-        assert run.outcome["apply_error"] == "standalone_failed: failed"
-        assert run.success is False
-        assert output_file.with_suffix(".repair.json").exists()
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["apply_success"] is True
+        assert run.outcome["final_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+        assert run.success is True
+        assert not output_file.with_suffix(".repair.json").exists()
         events = EncodingDB(args.db).get_session_events(run.session_id)
         assert [event.event_type for event in events] == [
             "encode_request",
             "encode_result",
             "encode_outcome",
-            "encode_issue",
         ]
 
     def test_encode_apply_records_final_success_when_overlay_apply_passes(
