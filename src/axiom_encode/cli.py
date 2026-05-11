@@ -2033,7 +2033,9 @@ def cmd_encode(args):
     model = args.model or DEFAULT_OPENAI_MODEL
     runner = f"{args.backend}:{model}"
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
+        "axiom-rules-engine"
+    )
     policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rulespec-us")
 
     if not corpus_path.exists():
@@ -3048,7 +3050,9 @@ def cmd_eval(args):
         args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
+        "axiom-rules-engine"
+    )
     policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rulespec-us")
 
     if not corpus_path.exists():
@@ -3318,7 +3322,9 @@ def cmd_eval_suite(args):
     """Run a manifest-driven benchmark suite and evaluate readiness gates."""
     manifest = load_eval_suite_manifest(args.manifest)
     effective_runners = _effective_runner_specs(args.runner or manifest.runners, args)
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
+        "axiom-rules-engine"
+    )
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
 
     if not axiom_rules_path.exists():
@@ -3499,7 +3505,9 @@ def cmd_eval_suite_revalidate(args):
         sys.exit(1)
 
     manifest = load_eval_suite_manifest(manifest_path)
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout(
+        "axiom-rules-engine"
+    )
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
     if not axiom_rules_path.exists():
         print(f"axiom-rules-engine repo not found: {axiom_rules_path}")

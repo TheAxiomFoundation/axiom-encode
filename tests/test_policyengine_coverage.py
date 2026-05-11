@@ -103,7 +103,11 @@ rules:
         content,
     )
     _write_rulespec_file(
-        tmp_path / "rulespec-us" / "_axiom" / "rulespec-us" / "statutes/7/2014/e/2.yaml",
+        tmp_path
+        / "rulespec-us"
+        / "_axiom"
+        / "rulespec-us"
+        / "statutes/7/2014/e/2.yaml",
         content,
     )
 

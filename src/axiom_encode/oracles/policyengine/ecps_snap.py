@@ -548,7 +548,9 @@ def resolve_workspace_root(override: Path | None = None) -> Path:
     if override is not None:
         return override.resolve()
     for candidate in _workspace_candidates():
-        if (candidate / "axiom-rules-engine").exists() or any(candidate.glob("rulespec-*")):
+        if (candidate / "axiom-rules-engine").exists() or any(
+            candidate.glob("rulespec-*")
+        ):
             return candidate.resolve()
         if (candidate / "_axiom" / "axiom-rules-engine").exists():
             return candidate.resolve()
@@ -576,9 +578,23 @@ def resolve_axiom_binary(workspace_root: Path, override: Path | None) -> Path:
     if override is not None:
         return override.resolve()
     candidates = [
-        workspace_root / "axiom-rules-engine" / "target" / "debug" / "axiom-rules-engine",
-        workspace_root / "_axiom" / "axiom-rules-engine" / "target" / "debug" / "axiom-rules-engine",
-        Path.cwd() / "_axiom" / "axiom-rules-engine" / "target" / "debug" / "axiom-rules-engine",
+        workspace_root
+        / "axiom-rules-engine"
+        / "target"
+        / "debug"
+        / "axiom-rules-engine",
+        workspace_root
+        / "_axiom"
+        / "axiom-rules-engine"
+        / "target"
+        / "debug"
+        / "axiom-rules-engine",
+        Path.cwd()
+        / "_axiom"
+        / "axiom-rules-engine"
+        / "target"
+        / "debug"
+        / "axiom-rules-engine",
     ]
     for candidate in candidates:
         if candidate.exists():

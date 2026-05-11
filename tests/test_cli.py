@@ -1714,7 +1714,9 @@ class TestCmdValidate:
 
 class TestCmdCompile:
     def _require_axiom_rules_path(self) -> Path:
-        axiom_rules_path = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
+        axiom_rules_path = Path(
+            "/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"
+        )
         binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
         if not binary.exists():
             pytest.skip("local axiom-rules-engine binary is not built")
@@ -2055,7 +2057,11 @@ rules:
         )
 
         relation_file = (
-            tmp_path / "rulespec-us-co" / "regulations" / "10-ccr-2506-1" / "4.407.1.yaml"
+            tmp_path
+            / "rulespec-us-co"
+            / "regulations"
+            / "10-ccr-2506-1"
+            / "4.407.1.yaml"
         )
         relation_file.parent.mkdir(parents=True)
         relation_file.write_text(

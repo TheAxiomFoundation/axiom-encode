@@ -6195,7 +6195,9 @@ class ValidatorPipeline:
                 compiled_payload = payload
                 raw_output = self._rulespec_compile_success_output(payload)
             else:
-                issues.append("Axiom rules engine compile did not return an artifact payload.")
+                issues.append(
+                    "Axiom rules engine compile did not return an artifact payload."
+                )
         except Exception as exc:
             issues.append(f"Axiom rules engine compile failed: {exc}")
 
@@ -6512,8 +6514,10 @@ class ValidatorPipeline:
 
     def _rulespec_import_target_exists(self, import_path: str) -> bool:
         """Return whether a canonical statute import target exists locally."""
-        target = self.policy_repo_path / "statutes" / self._import_to_relative_rulespec_path(
-            import_path
+        target = (
+            self.policy_repo_path
+            / "statutes"
+            / self._import_to_relative_rulespec_path(import_path)
         )
         if target.exists():
             return True
