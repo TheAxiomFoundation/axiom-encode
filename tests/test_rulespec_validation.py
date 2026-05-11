@@ -40,6 +40,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
+    find_versioned_derived_formula_issues,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -131,6 +132,38 @@ rules:
         "inside a formula. Add that target to `imports:` and reference the "
         "imported rule by bare local name in formula text."
     ]
+
+
+def test_versioned_derived_formula_rejects_multiple_formula_versions():
+    content = """format: rulespec/v1
+rules:
+  - name: savers_credit_gross_contributions
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: qualified_retirement_contributions
+      - effective_from: '2027-01-01'
+        formula: able_account_contributions
+  - name: inflation_adjusted_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '50000'
+      - effective_from: '2027-01-01'
+        formula: '52000'
+"""
+
+    issues = find_versioned_derived_formula_issues(content)
+
+    assert len(issues) == 1
+    assert "savers_credit_gross_contributions has 2 formula versions" in issues[0]
+    assert "Versioned derived formula unsupported" in issues[0]
 
 
 def test_rule_source_metadata_rejects_executable_rules_without_rule_source():
@@ -3132,6 +3165,15 @@ def test_numeric_occurrence_extraction_ignores_nested_subsection_references():
         "(g), and (r) of section 2015 and section 2012(m)(4). "
         "The criteria are comparable to those under subsection (c)(2). "
         "A controlled substance is defined in section 802 of title 21."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == []
+
+
+def test_numeric_occurrence_extraction_ignores_comma_conjoined_section_references():
+    text = (
+        "Adjusted gross income shall be determined without regard to "
+        "sections 911, 931, and 933."
     )
 
     assert extract_numeric_occurrences_from_text(text) == []

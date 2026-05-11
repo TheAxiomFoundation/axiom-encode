@@ -28,6 +28,12 @@ Hard requirements:
 - Proof atom `kind` must be one of: `amount`, `condition`, `definition`,
   `default`, `effective_period`, `exception`, `formula`, `import`, `ordering`,
   `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.
+- A `kind: table_cell` proof atom must include
+  `source.table.header`, `source.table.row`, and `source.table.column`.
+  A `kind: parameter_table` proof atom with `source.table` must include
+  `source.table.header` and row/column keys. If you cannot identify table
+  coordinates, use a direct proof kind such as `amount`, `parameter`, or
+  `formula` instead of `table_cell`.
 - Do not emit `source_url`; RuleSpec validation reads normalized corpus provisions,
   not raw PDFs or web pages.
 - Use `rules:` as a list of rule objects.
@@ -198,7 +204,20 @@ Hard requirements:
   state-residency input unless the provision itself is encoding a residency
   eligibility test.
 - Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Do not emit more than one `versions:` entry for `kind: derived`; the runtime
+  does not yet support period-selecting versioned formulas. Use a single
+  source-faithful conditional formula when the provision itself defines a
+  temporal branch, or encode only the currently applicable provision after
+  resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==`, `and`, and `or`.
+- Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and
+  `ceil(x)`. Do not use Python-only functions such as `round(...)`; express
+  nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for
+  nonnegative amounts.
+- If a conditional is embedded inside arithmetic or another larger expression,
+  wrap the whole conditional in parentheses, such as
+  `amount + (if condition: extra else: 0)`. Do not write
+  `amount + if condition: extra else: 0`.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
@@ -217,6 +236,9 @@ Hard requirements:
 - If the same numeric value appears in separate numbered exceptions,
   subparagraphs, or otherwise materially different legal roles, give those roles
   distinct named scalars; reuse a named scalar only for the same legal role.
+- Adjacent bracket thresholds repeated as both an upper bound and the next
+  bracket's lower bound are separate source-stated legal roles; define distinct
+  semantic scalars for those occurrences and use them in the branch conditions.
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
      or limit has a named `parameter`, and derived formulas reference the name

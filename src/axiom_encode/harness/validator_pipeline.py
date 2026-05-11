@@ -650,9 +650,10 @@ _SOURCE_REFERENCE_TARGET_PATTERN = (
     r"(?!\s*(?:percent|per\s*cent(?:um)?))|"
     r"[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
 )
+_SOURCE_REFERENCE_SEPARATOR_PATTERN = r"(?:,\s*(?:(?:and|or)\s+)?|(?:and|or)\s+)"
 _SOURCE_REFERENCE_SEQUENCE_PATTERN = (
     rf"{_SOURCE_REFERENCE_TARGET_PATTERN}"
-    rf"(?:\s*(?:,|or|and)\s*{_SOURCE_REFERENCE_TARGET_PATTERN})*"
+    rf"(?:\s*{_SOURCE_REFERENCE_SEPARATOR_PATTERN}{_SOURCE_REFERENCE_TARGET_PATTERN})*"
 )
 _SOURCE_REFERENCE_PATTERNS = (
     re.compile(
@@ -2240,6 +2241,46 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
                     "then reference it with table lookup syntax."
                 )
                 break
+    return issues
+
+
+def find_versioned_derived_formula_issues(content: str) -> list[str]:
+    """Flag derived rules that rely on unsupported period-selected formulas."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        formula_versions = [
+            version
+            for version in versions
+            if isinstance(version, dict)
+            and isinstance(version.get("formula"), str)
+            and version["formula"].strip()
+        ]
+        if len(formula_versions) <= 1:
+            continue
+        name = str(rule.get("name") or "<unknown>")
+        issues.append(
+            "Versioned derived formula unsupported: "
+            f"{name} has {len(formula_versions)} formula versions. "
+            "Use a single source-faithful conditional formula or resolve the "
+            "currently applicable source context before encoding."
+        )
     return issues
 
 
@@ -6345,6 +6386,7 @@ class ValidatorPipeline:
         )
         issues.extend(proof_issues)
         issues.extend(find_structured_scale_parameter_issues(content))
+        issues.extend(find_versioned_derived_formula_issues(content))
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))

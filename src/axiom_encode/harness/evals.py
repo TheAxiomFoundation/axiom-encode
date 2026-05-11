@@ -2569,6 +2569,7 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
+- A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header` and row/column keys. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell`.
 - Every executable `parameter` and `derived` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
@@ -2597,7 +2598,10 @@ RuleSpec requirements:
 - Do not create derived `dtype: Boolean` helper rules with logical formulas. Use `dtype: Judgment` for derived legal predicates, or leave simple local facts as factual `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}` keys consumed by formulas and tests.
 - Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
 - Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
+- Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
+- If a conditional is embedded inside arithmetic or another larger expression, wrap the whole conditional in parentheses, such as `amount + (if condition: extra else: 0)`. Do not write `amount + if condition: extra else: 0`.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
@@ -2612,6 +2616,7 @@ RuleSpec requirements:
 - Every substantive numeric occurrence in `./source.txt` must be represented by a named scalar definition in RuleSpec when it is a legal amount, rate, threshold, cap, or limit.
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
+- Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
 - Every local `kind: derived` rule must appear at least once under an `output:`
   block in the companion `.test.yaml`; do not leave helper derived rules
