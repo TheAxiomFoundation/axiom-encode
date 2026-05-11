@@ -1902,6 +1902,51 @@ def test_policyengine_tax_filing_status_normalization(value, expected):
     assert _normalize_us_tax_filing_status(value) == expected
 
 
+def test_policyengine_tax_scenario_builds_net_investment_income_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "net_investment_income_tax",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "adjusted_gross_income": 205000,
+            "taxable_interest_income": 1000,
+            "dividend_income": 2000,
+            "rental_income": 3000,
+            "taxable_net_gain_from_dispositions": 4000,
+        },
+        "2026",
+    )
+
+    assert "'taxable_interest_income': {'2026': 1000}" in script
+    assert "'dividend_income': {'2026': 2000}" in script
+    assert "'rental_income': {'2026': 3000}" in script
+    assert "'loss_limited_net_capital_gains': {'2026': 4000}" in script
+
+
+def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    mappable, reason = pipeline._is_pe_test_mappable(
+        "us",
+        "net_investment_income_tax",
+        {"annuity_income": 100},
+        pe_var="net_investment_income_tax",
+    )
+
+    assert not mappable
+    assert "section 1411(c)/(d)" in (reason or "")
+
+
 def test_policyengine_period_string_normalizes_rulespec_period_dicts():
     assert (
         _policyengine_period_string(
@@ -4765,6 +4810,35 @@ rules:
         source_texts={
             "us/statute/26/25A": (
                 "Forty percent of so much of the credit shall be treated as refundable."
+            )
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_verification_accepts_fractional_decimal_rate_values_as_word_percentages():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1411
+    values:
+      niit_rate: 0.038
+rules:
+  - name: niit_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.038'
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/statute/26/1411": (
+                "There is hereby imposed a tax equal to 3.8 percent of the lesser of "
+                "net investment income or the excess modified adjusted gross income."
             )
         },
     )

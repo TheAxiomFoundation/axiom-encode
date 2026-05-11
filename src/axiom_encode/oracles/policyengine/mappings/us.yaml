@@ -2848,6 +2848,114 @@ mappings:
     comparison: money
     rationale: Same nonrefundable education tax credits total for supported current-law cases.
 
+  - legal_id: us:statutes/26/1411#niit_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.investment.net_investment_income_tax.rate
+    comparison: rate
+    rationale: Same statutory Net Investment Income Tax rate.
+
+  - legal_id: us:statutes/26/1411#niit_threshold_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.investment.net_investment_income_tax.threshold
+    parameter_key: JOINT
+    unit: USD
+    comparison: money
+    rationale: Same section 1411(b)(1) threshold for joint and surviving-spouse returns.
+
+  - legal_id: us:statutes/26/1411#niit_threshold_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.investment.net_investment_income_tax.threshold
+    parameter_key: SEPARATE
+    unit: USD
+    comparison: money
+    rationale: Same section 1411(b)(2) married-filing-separately threshold.
+
+  - legal_id: us:statutes/26/1411#niit_threshold_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.investment.net_investment_income_tax.threshold
+    parameter_keys:
+      - SINGLE
+      - HEAD_OF_HOUSEHOLD
+    unit: USD
+    comparison: money
+    rationale: Same section 1411(b)(3) threshold for non-joint, non-separate returns.
+
+  - legal_id: us:statutes/26/1411#niit_threshold_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.investment.net_investment_income_tax.threshold
+    parameter_key_input: filing_status
+    parameter_key_map:
+      "0": SINGLE
+      "1": JOINT
+      "2": SEPARATE
+      "3": HEAD_OF_HOUSEHOLD
+      "4": SURVIVING_SPOUSE
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected section 1411(b) threshold.
+
+  - legal_id: us:statutes/26/1411#niit_modified_adjusted_gross_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine applies adjusted gross income directly and does not expose the section 1411(d) modified-AGI addback as a standalone variable.
+
+  - legal_id: us:statutes/26/1411#net_investment_income_gross_items
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the final net investment income variable, not this section 1411(c)(1)(A) gross-items subtotal.
+
+  - legal_id: us:statutes/26/1411#net_investment_income_excluded_items
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 1411(c)(5) and 1411(c)(6) excluded-item subtotal.
+
+  - legal_id: us:statutes/26/1411#net_investment_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: net_investment_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final net investment income amount for PE-supported source components.
+
+  - legal_id: us:statutes/26/1411#niit_excess_modified_adjusted_gross_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes excess AGI inside net_investment_income_tax and does not expose it separately.
+
+  - legal_id: us:statutes/26/1411#niit_tax_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the lesser-of base inside net_investment_income_tax and does not expose it separately.
+
+  - legal_id: us:statutes/26/1411#net_investment_income_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: net_investment_income_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final Net Investment Income Tax for PE-supported individual cases.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us

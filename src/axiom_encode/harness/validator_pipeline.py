@@ -4454,6 +4454,8 @@ def _source_verification_numeric_texts(value: Any) -> tuple[str, ...]:
             )
             texts.append(percent_text)
             texts.append(f"{percent_text}%")
+            texts.append(f"{percent_text} percent")
+            texts.append(f"{percent_text} per cent")
             if float(percent).is_integer():
                 percent_word = _CARDINAL_VALUE_WORDS.get(int(percent))
                 if percent_word:
@@ -9138,11 +9140,16 @@ print("BENCHMARK:" + json.dumps(result))
         "unreported_payroll_tax": "unreported_payroll_tax",
         "self_employment_tax_ald": "self_employment_tax_ald",
         "additional_medicare_tax": "additional_medicare_tax",
+        "taxable_net_gain_from_dispositions": "loss_limited_net_capital_gains",
+        "loss_limited_net_capital_gains": "loss_limited_net_capital_gains",
         "excess_payroll_tax_withheld": "excess_payroll_tax_withheld",
         "refundable_ctc": "refundable_ctc",
         "eitc": "eitc",
     }
     _PE_US_PERSON_OVERRIDE_INPUTS = {
+        "taxable_interest_income": "taxable_interest_income",
+        "dividend_income": "dividend_income",
+        "rental_income": "rental_income",
         "employee_social_security_tax": "employee_social_security_tax",
         "employee_medicare_tax": "employee_medicare_tax",
         "pension_annuity_disability_benefits_received": "pension_income",
@@ -9201,6 +9208,42 @@ print("BENCHMARK:" + json.dumps(result))
                     return (
                         False,
                         "PolicyEngine does not model the section 25A(i) kiddie-tax refundability exception",
+                    )
+            if pe_var_name in {"net_investment_income", "net_investment_income_tax"}:
+                unsupported_niit_inputs = {
+                    "annuity_income",
+                    "royalty_income",
+                    "passive_activity_business_income",
+                    "financial_trading_business_income",
+                    "allocable_investment_deductions",
+                    "qualified_plan_distributions",
+                    "self_employment_income_subject_to_1401_b",
+                    "section_911_excluded_gross_income",
+                    "section_911_disallowed_deductions_and_exclusions",
+                }
+
+                def has_nonzero_input(name: str) -> bool:
+                    value = self._rulespec_test_input_value(inputs, name)
+                    if value is None:
+                        return False
+                    with contextlib.suppress(TypeError, ValueError):
+                        return float(value) != 0
+                    return bool(value)
+
+                nonzero_unsupported = sorted(
+                    name for name in unsupported_niit_inputs if has_nonzero_input(name)
+                )
+                if nonzero_unsupported:
+                    return (
+                        False,
+                        "PolicyEngine does not expose all section 1411(c)/(d) net-investment-income and modified-AGI components",
+                    )
+                if pe_var_name == "net_investment_income_tax" and self._rulespec_test_input_value(
+                    inputs, "is_nonresident_alien"
+                ):
+                    return (
+                        False,
+                        "PolicyEngine does not model the section 1411(e)(1) nonresident-alien exclusion",
                     )
             if pe_var_name == "elderly_disabled_credit":
                 if self._rulespec_test_input_value(inputs, "is_nonresident_alien"):
