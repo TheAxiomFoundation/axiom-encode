@@ -2532,12 +2532,23 @@ class TestCmdEncode:
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = "prompt-sha"
         Path(result.context_manifest_file).write_text("{}\n")
         Path(result.trace_file).write_text("{}\n")
 
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": False,
+                },
+            ),
         ):
             applied = _apply_generated_encoding_result(
                 result,
@@ -2557,6 +2568,12 @@ class TestCmdEncode:
         assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
         assert payload["tool"] == "axiom-encode encode --apply"
         assert payload["run_id"] == "run-123"
+        assert payload["generation_prompt_sha256"] == "prompt-sha"
+        assert payload["axiom_encode_git"] == {
+            "root": "/repo/axiom-encode",
+            "commit": "abc123",
+            "dirty_tracked": False,
+        }
         assert payload["signature"]["algorithm"] == "hmac-sha256"
         assert payload["applied_files"] == [
             {

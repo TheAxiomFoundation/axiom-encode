@@ -2598,6 +2598,41 @@ def _applied_encoding_manifest_signature_issue(
     return None
 
 
+def _axiom_encode_repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _git_repo_provenance(path: Path) -> dict[str, object] | None:
+    """Return exact git provenance for manifest auditing."""
+    repo = Path(path)
+    try:
+        root = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        commit = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return {
+        "root": root,
+        "commit": commit,
+        "dirty_tracked": bool(status.strip()),
+    }
+
+
 # =========================================================================
 # Encode Command
 # =========================================================================
@@ -2831,6 +2866,10 @@ def _write_applied_encoding_manifest(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tool": "axiom-encode encode --apply",
         "axiom_encode_version": __version__,
+        "axiom_encode_git": _git_repo_provenance(_axiom_encode_repo_root()),
+        "generation_prompt_sha256": getattr(
+            result, "generation_prompt_sha256", None
+        ),
         "run_id": run_id,
         "citation": str(getattr(result, "citation", "") or ""),
         "runner": str(getattr(result, "runner", "") or ""),
