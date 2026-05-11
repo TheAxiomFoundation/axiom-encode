@@ -2156,6 +2156,49 @@ def test_policyengine_tax_scenario_builds_ctc_dependents_from_relation_rows(tmp_
     assert "'adjusted_gross_income': {'2026': 50000}" in script
 
 
+def test_policyengine_tax_scenario_builds_education_credit_students_from_relation_rows(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "american_opportunity_credit",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "modified_adjusted_gross_income": 50000,
+            "us:statutes/26/25A#relation.education_credit_member_of_tax_unit": [
+                {
+                    "us:statutes/26/25A#input.is_tax_unit_dependent": True,
+                    "us:statutes/26/25A#input.is_taxpayer": False,
+                    "us:statutes/26/25A#input.is_spouse": False,
+                    "us:statutes/26/25A#input.qualified_tuition_and_related_expenses": 5000,
+                    "us:statutes/26/25A#input.excludable_educational_assistance": 500,
+                    "us:statutes/26/25A#input.meets_higher_education_act_student_requirements": True,
+                    "us:statutes/26/25A#input.at_least_half_time_student": True,
+                    "us:statutes/26/25A#input.aotc_prior_year_election_count": 0,
+                    "us:statutes/26/25A#input.completed_first_four_years_postsecondary_before_year": False,
+                    "us:statutes/26/25A#input.has_felony_drug_conviction": False,
+                    "us:statutes/26/25A#input.aotc_election_in_effect": True,
+                    "us:statutes/26/25A#input.education_credit_identification_requirements_met": True,
+                    "us:statutes/26/25A#input.institution_employer_identification_number_included": True,
+                    "us:statutes/26/25A#input.payee_statement_received": True,
+                    "us:statutes/26/25A#input.aotc_disallowance_period_applies": False,
+                }
+            ],
+        },
+        "2026",
+    )
+
+    assert "'qualified_tuition_expenses': {'2026': 4500.0}" in script
+    assert "'is_eligible_for_american_opportunity_credit': {'2026': True}" in script
+    assert "'adjusted_gross_income': {'2026': 50000}" in script
+
+
 def test_reviewer_score_below_threshold_fails_even_if_declared_passed(
     monkeypatch, tmp_path
 ):
@@ -4695,6 +4738,34 @@ rules:
                 "The standard allowance for telephone is $32 per month for households "
                 "that do not qualify for the heating/cooling or utilities allowances."
             ),
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_verification_accepts_decimal_rate_values_as_word_percentages():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/25A
+    values:
+      aotc_refundable_rate: 0.40
+rules:
+  - name: aotc_refundable_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.40'
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/statute/26/25A": (
+                "Forty percent of so much of the credit shall be treated as refundable."
+            )
         },
     )
 

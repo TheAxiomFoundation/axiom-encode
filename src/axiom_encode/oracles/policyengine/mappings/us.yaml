@@ -2516,6 +2516,338 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose this under-65 qualified-individual helper separately.
 
+  - legal_id: us:statutes/26/25A#aotc_first_expense_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the American Opportunity Credit expense schedule as a marginal tax scale, not as separate scalar threshold and rate outputs in the current oracle adapter.
+
+  - legal_id: us:statutes/26/25A#aotc_first_expense_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the American Opportunity Credit expense schedule as a marginal tax scale, not as separate scalar threshold and rate outputs in the current oracle adapter.
+
+  - legal_id: us:statutes/26/25A#aotc_second_expense_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the American Opportunity Credit expense schedule as a marginal tax scale, not as separate scalar threshold and rate outputs in the current oracle adapter.
+
+  - legal_id: us:statutes/26/25A#aotc_second_expense_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the American Opportunity Credit expense schedule as a marginal tax scale, not as separate scalar threshold and rate outputs in the current oracle adapter.
+
+  - legal_id: us:statutes/26/25A#aotc_prior_year_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine accepts American Opportunity Credit eligibility as a person-level input and does not expose the four-prior-year statutory limit as a separate variable.
+
+  - legal_id: us:statutes/26/25A#llc_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.lifetime_learning_credit.rate
+    period: year
+    comparison: rate
+    rationale: Same Lifetime Learning Credit rate.
+
+  - legal_id: us:statutes/26/25A#llc_expense_limit
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.lifetime_learning_credit.expense_limit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Lifetime Learning Credit expense cap.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_start_single
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.phase_out.start.single
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same non-joint education-credit phaseout start.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_start_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.phase_out.start.joint
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-return education-credit phaseout start.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_length_single
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.phase_out.length.single
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same non-joint education-credit phaseout length.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_length_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.phase_out.length.joint
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-return education-credit phaseout length.
+
+  - legal_id: us:statutes/26/25A#aotc_refundable_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.american_opportunity_credit.refundability
+    period: year
+    comparison: rate
+    rationale: Same refundable portion of the American Opportunity Credit.
+
+  - legal_id: us:statutes/26/25A#education_credit_adjusted_expenses
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Person-level adjusted education expenses are supplied to PolicyEngine as qualified_tuition_expenses after RuleSpec scholarship adjustments, not exposed as a separate PE output.
+
+  - legal_id: us:statutes/26/25A#education_credit_person_eligible_relationship
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine represents education-credit tax-unit membership through its entity graph rather than as a section-specific predicate.
+
+  - legal_id: us:statutes/26/25A#aotc_eligible_student
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine accepts American Opportunity Credit eligibility as a direct person-level input and does not expose this statutory subpredicate.
+
+  - legal_id: us:statutes/26/25A#aotc_student_year_eligible
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine accepts American Opportunity Credit eligibility as a direct person-level input and does not expose this statutory subpredicate.
+
+  - legal_id: us:statutes/26/25A#aotc_claim_allowed
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: is_eligible_for_american_opportunity_credit
+    rationale: Axiom derives the person-level AOTC claim predicate from section 25A facts; PolicyEngine treats the equivalent eligibility as an input.
+
+  - legal_id: us:statutes/26/25A#aotc_student_first_band_expenses
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the per-student American Opportunity Credit marginal schedule internally and does not expose this band amount.
+
+  - legal_id: us:statutes/26/25A#aotc_student_second_band_expenses
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the per-student American Opportunity Credit marginal schedule internally and does not expose this band amount.
+
+  - legal_id: us:statutes/26/25A#aotc_student_potential
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes per-student American Opportunity Credit amounts internally and exposes the tax-unit total.
+
+  - legal_id: us:statutes/26/25A#american_opportunity_credit_before_phaseout
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes American Opportunity Credit after the section 25A(d) phaseout, not the pre-phaseout tax-unit subtotal.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.phase_out.start
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: single
+      1: joint
+      2: single
+      3: single
+      4: single
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected education-credit phaseout start for supported filing statuses.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_length
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.education.phase_out.length
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: single
+      1: joint
+      2: single
+      3: single
+      4: single
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected education-credit phaseout length for supported filing statuses.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_excess
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the education-credit phaseout excess inside education_credit_phase_out and does not expose it separately.
+
+  - legal_id: us:statutes/26/25A#education_credit_phaseout_rate
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: education_credit_phase_out
+    entity: tax_unit
+    period: year
+    comparison: rate
+    rationale: Same fraction of the American Opportunity and Lifetime Learning credits phased out by income.
+
+  - legal_id: us:statutes/26/25A#education_credit_claim_requirements_satisfied
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 25A married-filing, nonresident-alien, and claim-documentation gates as a separate predicate.
+
+  - legal_id: us:statutes/26/25A#american_opportunity_credit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: american_opportunity_credit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same American Opportunity Credit for supported current-law cases.
+
+  - legal_id: us:statutes/26/25A#refundable_american_opportunity_credit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: refundable_american_opportunity_credit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same refundable American Opportunity Credit for supported cases not subject to the section 1(g) child exception.
+
+  - legal_id: us:statutes/26/25A#non_refundable_american_opportunity_credit_potential
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: non_refundable_american_opportunity_credit_potential
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same nonrefundable portion of the American Opportunity Credit before the section 26(a)-style limit for supported cases.
+
+  - legal_id: us:statutes/26/25A#non_refundable_american_opportunity_credit_credit_limit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: non_refundable_american_opportunity_credit_credit_limit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Schedule 3 nonrefundable-credit ordering limit for the American Opportunity Credit.
+
+  - legal_id: us:statutes/26/25A#non_refundable_american_opportunity_credit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: non_refundable_american_opportunity_credit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same allowed nonrefundable American Opportunity Credit for supported cases.
+
+  - legal_id: us:statutes/26/25A#llc_eligible_person
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine represents Lifetime Learning Credit eligibility through qualified tuition expenses and the AOTC eligibility input, not as a separate person predicate.
+
+  - legal_id: us:statutes/26/25A#llc_expenses_before_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the Lifetime Learning Credit expense subtotal inside lifetime_learning_credit_potential and does not expose it separately.
+
+  - legal_id: us:statutes/26/25A#llc_capped_expenses
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the capped Lifetime Learning Credit expenses inside lifetime_learning_credit_potential and does not expose them separately.
+
+  - legal_id: us:statutes/26/25A#lifetime_learning_credit_potential
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: lifetime_learning_credit_potential
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Lifetime Learning Credit before the nonrefundable credit limit for supported current-law cases.
+
+  - legal_id: us:statutes/26/25A#lifetime_learning_credit_credit_limit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: lifetime_learning_credit_credit_limit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Schedule 3 nonrefundable-credit ordering limit for the Lifetime Learning Credit.
+
+  - legal_id: us:statutes/26/25A#lifetime_learning_credit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: lifetime_learning_credit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same allowed Lifetime Learning Credit for supported current-law cases.
+
+  - legal_id: us:statutes/26/25A#education_credit_before_refund_split
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the refundable AOTC and nonrefundable education-credit totals separately, not this pre-refund-split section 25A subtotal.
+
+  - legal_id: us:statutes/26/25A#education_tax_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: education_tax_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same nonrefundable education tax credits total for supported current-law cases.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us

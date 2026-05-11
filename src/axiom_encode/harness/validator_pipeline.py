@@ -778,6 +778,11 @@ _CARDINAL_WORD_PATTERN = re.compile(
     r"\b(" + "|".join(re.escape(word) for word in _CARDINAL_WORD_VALUES) + r")\b",
     re.IGNORECASE,
 )
+_CARDINAL_VALUE_WORDS = {
+    int(value): word
+    for word, value in _CARDINAL_WORD_VALUES.items()
+    if float(value).is_integer()
+}
 _DATE_DECOMPOSITION_CUE_TOKENS = {
     "date",
     "birthday",
@@ -4377,6 +4382,7 @@ def _source_text_contains_indexed_value(text: str, *, index: str, value: Any) ->
         re.search(
             rf"(?<!\d){index_text}\s+\$?{re.escape(value_text)}(?!\d)",
             text,
+            re.IGNORECASE,
         )
         for value_text in value_texts
     )
@@ -4387,7 +4393,11 @@ def _source_text_contains_scalar_value(text: str, value: Any) -> bool:
     if not value_texts:
         return str(value).strip() in text
     return any(
-        re.search(rf"(?:\$|\+)?{re.escape(value_text)}(?!\d)", text)
+        re.search(
+            rf"(?:\$|\+)?{re.escape(value_text)}(?!\d)",
+            text,
+            re.IGNORECASE,
+        )
         for value_text in value_texts
     )
 
@@ -4415,7 +4425,7 @@ def _source_text_contains_table_value_multiset(
 
 def _source_text_value_occurrence_count(text: str, value_text: str) -> int:
     value_pattern = re.escape(value_text)
-    return len(re.findall(rf"(?:\$|\+)?{value_pattern}(?!\d)", text))
+    return len(re.findall(rf"(?:\$|\+)?{value_pattern}(?!\d)", text, re.IGNORECASE))
 
 
 def _source_verification_numeric_text(value: Any) -> str | None:
@@ -4444,6 +4454,11 @@ def _source_verification_numeric_texts(value: Any) -> tuple[str, ...]:
             )
             texts.append(percent_text)
             texts.append(f"{percent_text}%")
+            if float(percent).is_integer():
+                percent_word = _CARDINAL_VALUE_WORDS.get(int(percent))
+                if percent_word:
+                    texts.append(f"{percent_word} percent")
+                    texts.append(f"{percent_word} per cent")
     return tuple(dict.fromkeys(texts))
 
 
@@ -9152,6 +9167,41 @@ print("BENCHMARK:" + json.dumps(result))
         rule_name_lower = rule_name.lower()
         if country == "us":
             pe_var_name = pe_var or rule_name
+            education_credit_vars = {
+                "american_opportunity_credit",
+                "refundable_american_opportunity_credit",
+                "non_refundable_american_opportunity_credit_potential",
+                "non_refundable_american_opportunity_credit_credit_limit",
+                "non_refundable_american_opportunity_credit",
+                "lifetime_learning_credit_potential",
+                "lifetime_learning_credit_credit_limit",
+                "lifetime_learning_credit",
+                "education_tax_credits",
+            }
+            if pe_var_name in education_credit_vars:
+                filing_status = _normalize_us_tax_filing_status(
+                    self._rulespec_test_input_value(inputs, "filing_status")
+                )
+                if filing_status == "SEPARATE":
+                    return (
+                        False,
+                        "PolicyEngine does not model the section 25A(g)(6) married-filing-separately disallowance",
+                    )
+                if self._rulespec_test_input_value(inputs, "is_nonresident_alien") and not bool(
+                    self._rulespec_test_input_value(
+                        inputs,
+                        "section_6013_resident_alien_election",
+                    )
+                ):
+                    return (
+                        False,
+                        "PolicyEngine does not model the section 25A(g)(7) nonresident-alien disallowance",
+                    )
+                if self._rulespec_test_input_value(inputs, "taxpayer_is_section_1_g_child"):
+                    return (
+                        False,
+                        "PolicyEngine does not model the section 25A(i) kiddie-tax refundability exception",
+                    )
             if pe_var_name == "elderly_disabled_credit":
                 if self._rulespec_test_input_value(inputs, "is_nonresident_alien"):
                     return (
@@ -9944,6 +9994,12 @@ print(f'RESULT:{{float(value)}}')
                     f"'is_incapable_of_self_care': "
                     f"{{'{year}': {pe_literal(bool(incapable))}}}"
                 )
+            child_attrs.extend(
+                self._us_tax_person_attrs_from_relation_row(
+                    row,
+                    year,
+                )
+            )
             people_parts.append(
                 f"'child{i}': {{{', '.join(child_attrs)}}}"
             )
@@ -9960,6 +10016,12 @@ print(f'RESULT:{{float(value)}}')
                     f"'is_incapable_of_self_care': "
                     f"{{'{year}': {pe_literal(bool(incapable))}}}"
                 )
+            adult_dep_attrs.extend(
+                self._us_tax_person_attrs_from_relation_row(
+                    row,
+                    year,
+                )
+            )
             people_parts.append(
                 f"'adult_dep{i}': {{{', '.join(adult_dep_attrs)}}}"
             )
@@ -10261,6 +10323,44 @@ print(f'RESULT:{{val}}')
                 continue
             attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
 
+        education_expenses = self._rulespec_test_input_value(
+            row,
+            "qualified_tuition_and_related_expenses",
+        )
+        if education_expenses is None:
+            education_expenses = self._rulespec_test_input_value(
+                row,
+                "qualified_tuition_expenses",
+            )
+        if education_expenses is not None:
+            excluded_assistance = self._rulespec_test_input_value(
+                row,
+                "excludable_educational_assistance",
+            )
+            try:
+                adjusted_expenses = max(
+                    0.0,
+                    float(education_expenses) - float(excluded_assistance or 0),
+                )
+            except (TypeError, ValueError):
+                adjusted_expenses = education_expenses
+            attrs.append(
+                f"'qualified_tuition_expenses': "
+                f"{{'{year}': {pe_literal(adjusted_expenses)}}}"
+            )
+
+        aotc_eligible = self._rulespec_test_input_value(
+            row,
+            "is_eligible_for_american_opportunity_credit",
+        )
+        if aotc_eligible is None:
+            aotc_eligible = self._pe_aotc_eligible_from_relation_row(row)
+        if aotc_eligible is not None:
+            attrs.append(
+                f"'is_eligible_for_american_opportunity_credit': "
+                f"{{'{year}': {pe_literal(bool(aotc_eligible))}}}"
+            )
+
         retired_on_total_disability = self._rulespec_test_input_value(
             row,
             "retired_on_total_disability",
@@ -10301,6 +10401,77 @@ print(f'RESULT:{{val}}')
                 f"{{'{year}': {pe_literal(bool(retired_on_total_disability))}}}"
             )
         return attrs
+
+    def _pe_aotc_eligible_from_relation_row(self, row: dict) -> bool | None:
+        """Derive PE's AOTC eligibility input from section 25A relation facts."""
+
+        def fact(name: str) -> Any:
+            return self._rulespec_test_input_value(row, name)
+
+        direct_claim_allowed = fact("aotc_claim_allowed")
+        if direct_claim_allowed is not None:
+            return bool(direct_claim_allowed)
+
+        relationship_facts = (
+            fact("is_taxpayer"),
+            fact("is_spouse"),
+            fact("is_tax_unit_dependent"),
+        )
+        if all(value is None for value in relationship_facts):
+            relationship_allowed = None
+        else:
+            relationship_allowed = any(bool(value) for value in relationship_facts)
+
+        prior_year_count = fact("aotc_prior_year_election_count")
+        prior_year_ok = None
+        if prior_year_count is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                prior_year_ok = float(prior_year_count) < 4
+
+        required_facts = {
+            "aotc_election_in_effect": fact("aotc_election_in_effect"),
+            "relationship_allowed": relationship_allowed,
+            "meets_higher_education_act_student_requirements": fact(
+                "meets_higher_education_act_student_requirements"
+            ),
+            "at_least_half_time_student": fact("at_least_half_time_student"),
+            "prior_year_ok": prior_year_ok,
+            "completed_first_four_years_postsecondary_before_year": fact(
+                "completed_first_four_years_postsecondary_before_year"
+            ),
+            "has_felony_drug_conviction": fact("has_felony_drug_conviction"),
+            "education_credit_identification_requirements_met": fact(
+                "education_credit_identification_requirements_met"
+            ),
+            "institution_employer_identification_number_included": fact(
+                "institution_employer_identification_number_included"
+            ),
+            "payee_statement_received": fact("payee_statement_received"),
+            "aotc_disallowance_period_applies": fact(
+                "aotc_disallowance_period_applies"
+            ),
+        }
+        if any(value is None for value in required_facts.values()):
+            return None
+        return (
+            bool(required_facts["aotc_election_in_effect"])
+            and bool(required_facts["relationship_allowed"])
+            and bool(
+                required_facts["meets_higher_education_act_student_requirements"]
+            )
+            and bool(required_facts["at_least_half_time_student"])
+            and bool(required_facts["prior_year_ok"])
+            and not bool(
+                required_facts["completed_first_four_years_postsecondary_before_year"]
+            )
+            and not bool(required_facts["has_felony_drug_conviction"])
+            and bool(required_facts["education_credit_identification_requirements_met"])
+            and bool(
+                required_facts["institution_employer_identification_number_included"]
+            )
+            and bool(required_facts["payee_statement_received"])
+            and not bool(required_facts["aotc_disallowance_period_applies"])
+        )
 
     def _build_pe_uk_scenario_script(
         self, pe_var: str, inputs: dict, year: str, rule_name: str | None = None
