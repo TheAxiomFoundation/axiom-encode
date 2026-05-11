@@ -993,6 +993,263 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not currently expose the section 45A Indian employment credit rate as a variable.
 
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_rates
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key_input: bracket
+    period: year
+    comparison: rate
+    rationale: Same IRS income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_thresholds_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - input: bracket
+      - JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS joint-return income tax bracket threshold, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_thresholds_head_of_household
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - input: bracket
+      - HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS head-of-household income tax bracket threshold, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_thresholds_single
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - input: bracket
+      - SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS single-filer income tax bracket threshold, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_thresholds_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - input: bracket
+      - SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS married-filing-separately income tax bracket threshold, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_1_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - '1'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS first income tax bracket threshold selected by filing status, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_2_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - '2'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS second income tax bracket threshold selected by filing status, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_3_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - '3'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS third income tax bracket threshold selected by filing status, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_4_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - '4'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS fourth income tax bracket threshold selected by filing status, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_5_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - '5'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS fifth income tax bracket threshold selected by filing status, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_6_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.thresholds
+    parameter_key_path:
+      - '6'
+      - input: filing_status
+        key_map:
+          0: SINGLE
+          1: JOINT
+          2: SEPARATE
+          3: HEAD_OF_HOUSEHOLD
+          4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS sixth income tax bracket threshold selected by filing status, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_1_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key: '1'
+    period: year
+    comparison: rate
+    rationale: Same IRS first income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_2_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key: '2'
+    period: year
+    comparison: rate
+    rationale: Same IRS second income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_3_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key: '3'
+    period: year
+    comparison: rate
+    rationale: Same IRS third income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_4_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key: '4'
+    period: year
+    comparison: rate
+    rationale: Same IRS fourth income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_5_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key: '5'
+    period: year
+    comparison: rate
+    rationale: Same IRS fifth income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_6_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key: '6'
+    period: year
+    comparison: rate
+    rationale: Same IRS sixth income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_7_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.bracket.rates
+    parameter_key: '7'
+    period: year
+    comparison: rate
+    rationale: Same IRS seventh income tax bracket rate, stored in PE as parameter data.
+
+  - legal_id: us:statutes/26/1/j#income_tax_main_rates
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax_main_rates
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1 main-rate income tax calculation for ordinary taxable income.
+
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single
     country: us
     program: tax
@@ -1156,6 +1413,174 @@ mappings:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine implements dependent standard deduction inside basic_standard_deduction when dependency status is supplied; it is not exposed as a separate variable.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/child-tax-credit#ctc_child_maximum_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.amount.base
+    parameter_calc_value: 0
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS child tax credit amount for a child under the statutory age limit, stored in PE as a scale parameter.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/child-tax-credit#ctc_refundable_child_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.refundable.individual_max
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum refundable child tax credit amount per qualifying child.
+
+  - legal_id: us:statutes/26/24/h#ctc_qualifying_child_age_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores this age limit as the terminal threshold in the CTC amount scale rather than as a standalone parameter.
+
+  - legal_id: us:statutes/26/24/h#ctc_qualifying_child
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes this as a person-level variable; the current Axiom oracle compares tax-unit outputs.
+
+  - legal_id: us:statutes/26/24/h#ctc_qualifying_children
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_qualifying_children
+    entity: tax_unit
+    period: year
+    comparison: count
+    rationale: Same tax-unit count of CTC qualifying children.
+
+  - legal_id: us:statutes/26/24/h#ctc_other_dependent
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine models the other-dependent credit through person-level CTC maximum components rather than this boolean predicate.
+
+  - legal_id: us:statutes/26/24/h#ctc_other_dependents
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose a tax-unit count of CTC other dependents as a separate variable.
+
+  - legal_id: us:statutes/26/24/h#ctc_other_dependent_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.amount.adult_dependent
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same other-dependent child tax credit amount.
+
+  - legal_id: us:statutes/26/24/h#ctc_maximum
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_maximum
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same pre-phaseout maximum child tax credit.
+
+  - legal_id: us:statutes/26/24/h#ctc_joint_phase_out_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.phase_out.threshold
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-return CTC phaseout threshold.
+
+  - legal_id: us:statutes/26/24/h#ctc_other_phase_out_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.phase_out.threshold
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same non-joint CTC phaseout threshold.
+
+  - legal_id: us:statutes/26/24/h#ctc_phase_out_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.phase_out.threshold
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+      4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected CTC phaseout threshold.
+
+  - legal_id: us:statutes/26/24/h#ctc_phase_out_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.phase_out.amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same CTC phaseout reduction amount per increment.
+
+  - legal_id: us:statutes/26/24/h#ctc_phase_out_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.phase_out.increment
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same CTC phaseout income increment.
+
+  - legal_id: us:statutes/26/24/h#ctc_phase_out
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_phase_out
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same CTC income-based phaseout amount.
+
+  - legal_id: us:statutes/26/24/h#ctc
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same total child tax credit before splitting refundable and nonrefundable portions.
+
+  - legal_id: us:statutes/26/24/h#ctc_refundable_maximum
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_refundable_maximum
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same maximum refundable CTC before phase-in and tax-liability limits.
 
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/

@@ -1570,6 +1570,116 @@ def test_policyengine_oracle_passes_through_parameter_key_input(tmp_path):
     assert 'keys = ["1"]' in scripts[0]
 
 
+def test_policyengine_oracle_compares_nested_parameter_key_path(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: single_first_bracket_threshold
+  period: 2026
+  input:
+    us:policies/irs/rev-proc-2025-32/income-tax-brackets#input.filing_status: 0
+  output:
+    us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_1_threshold: 12400
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_1_threshold": PolicyEngineMapping(
+                legal_id="us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_1_threshold",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.irs.income.bracket.thresholds",
+                parameter_key_path=(
+                    "1",
+                    {
+                        "input": "filing_status",
+                        "key_map": {"0": "SINGLE", "1": "JOINT"},
+                    },
+                ),
+                period="year",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:12400\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert "gov.irs.income.bracket.thresholds" in scripts[0]
+    assert 'key_paths = [["1", "SINGLE"]]' in scripts[0]
+
+
+def test_policyengine_oracle_compares_parameter_scale_calc_input(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: child_ctc_amount
+  period: 2026
+  input:
+    us:statutes/26/24/h#input.age: 8
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#ctc_child_amount: 2200
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:policies/irs/rev-proc-2025-32/child-tax-credit#ctc_child_amount": PolicyEngineMapping(
+                legal_id="us:policies/irs/rev-proc-2025-32/child-tax-credit#ctc_child_amount",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.irs.credits.ctc.amount.base",
+                parameter_calc_input="age",
+                period="year",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:2200\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert "gov.irs.credits.ctc.amount.base" in scripts[0]
+    assert "calc_values = [8]" in scripts[0]
+    assert "value.calc(calc_value)" in scripts[0]
+
+
 def test_policyengine_oracle_applies_result_multiplier(tmp_path):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text("format: rulespec/v1\n")
@@ -1851,6 +1961,61 @@ def test_policyengine_tax_scenario_uses_tax_unit_status_and_aged_flags(tmp_path)
     assert "'filing_status': {'2026': 'JOINT'}" in script
     assert "'adult': {'age': {'2026': 65}}" in script
     assert "'spouse': {'age': {'2026': 30}}" in script
+
+
+def test_policyengine_tax_scenario_applies_tax_unit_overrides(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "regular_tax_before_credits",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "taxable_income": 50000,
+            "adjusted_gross_income": 65000,
+        },
+        "2026",
+    )
+
+    assert "'taxable_income': {'2026': 50000}" in script
+    assert "'adjusted_gross_income': {'2026': 65000}" in script
+    assert "'regular_tax_before_credits':" not in script
+
+
+def test_policyengine_tax_scenario_builds_ctc_dependents_from_relation_rows(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "ctc",
+        {
+            "period": "2026",
+            "filing_status": 0,
+            "adjusted_gross_income": 50000,
+            "us:statutes/26/24#relation.member_of_tax_unit": [
+                {
+                    "us:statutes/26/24#input.is_tax_unit_dependent": True,
+                    "us:statutes/26/24#input.age": 8,
+                },
+                {
+                    "us:statutes/26/24#input.is_tax_unit_dependent": True,
+                    "us:statutes/26/24#input.age": 19,
+                },
+            ],
+        },
+        "2026",
+    )
+
+    assert "'child0': {'age': {'2026': 8}, 'is_tax_unit_dependent': {'2026': True}}" in script
+    assert "'adult_dep0': {'age': {'2026': 30}, 'is_tax_unit_dependent': {'2026': True}}" in script
+    assert "'adjusted_gross_income': {'2026': 50000}" in script
 
 
 def test_reviewer_score_below_threshold_fails_even_if_declared_passed(
@@ -2382,6 +2547,44 @@ rules:
         find_ungrounded_numeric_issues(
             content,
             source_text="The deduction amounts are 209, 223, 261, and 299.",
+        )
+        == []
+    )
+
+
+def test_rulespec_grounding_treats_table_lookup_keys_as_structural():
+    content = """format: rulespec/v1
+module:
+  summary: The tax rates are 10%, 12%, 22%, 24%, 32%, 35%, and 37%.
+rules:
+  - name: income_tax_bracket_rates
+    kind: parameter
+    dtype: Rate
+    indexed_by: bracket
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.10
+          2: 0.12
+          3: 0.22
+          4: 0.24
+          5: 0.32
+          6: 0.35
+          7: 0.37
+  - name: income_tax_bracket_5_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_tax_bracket_rates[5]
+"""
+
+    assert (
+        find_ungrounded_numeric_issues(
+            content,
+            source_text="The tax rates are 10%, 12%, 22%, 24%, 32%, 35%, and 37%.",
         )
         == []
     )
@@ -3991,6 +4194,36 @@ rules:
     assert pipeline._run_ci(rules_file).passed is True
 
 
+def test_rulespec_legal_input_reference_accepts_parameter_index_slot(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "policies" / "irs" / "brackets.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: income_tax_bracket_rates
+    kind: parameter
+    dtype: Rate
+    indexed_by: bracket
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.10
+"""
+    )
+
+    issue = validator_pipeline._rulespec_absolute_test_reference_issue(
+        "us:policies/irs/brackets#input.bracket",
+        label="input",
+        policy_repo_path=repo,
+        allow_input_slots=True,
+        allow_relations=False,
+        allow_outputs=False,
+    )
+
+    assert issue is None
+
+
 def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
@@ -4185,6 +4418,39 @@ rules:
             "us/guidance/irs/rev-proc-2025-32/page-18": (
                 "For taxable years beginning in 2026, the standard deduction "
                 "for unmarried individuals is $16,100."
+            )
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_verification_accepts_decimal_rate_values_as_percentages():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-10
+    values:
+      income_tax_bracket_rates:
+        1: 0.10
+        2: 0.12
+rules:
+  - name: income_tax_bracket_rates
+    kind: parameter
+    dtype: Rate
+    indexed_by: bracket
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.10
+          2: 0.12
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/guidance/irs/rev-proc-2025-32/page-10": (
+                "The applicable rates are 10% and 12%."
             )
         },
     )

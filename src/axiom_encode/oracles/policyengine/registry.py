@@ -34,6 +34,9 @@ class PolicyEngineMapping:
     parameter_keys: tuple[str, ...] = ()
     parameter_key_input: str | None = None
     parameter_key_map: dict[str, str] = field(default_factory=dict)
+    parameter_key_path: tuple[Any, ...] = ()
+    parameter_calc_input: str | None = None
+    parameter_calc_value: Any | None = None
     program: str | None = None
     entity: str | None = None
     period: str | None = None
@@ -167,17 +170,35 @@ class PolicyEngineOracleRegistry:
                 bool(mapping.parameter_key),
                 bool(mapping.parameter_keys),
                 bool(mapping.parameter_key_input),
+                bool(mapping.parameter_key_path),
+                bool(mapping.parameter_calc_input),
+                mapping.parameter_calc_value is not None,
             ]
             if sum(key_selectors) > 1:
                 issues.append(
                     "PolicyEngine parameter mapping must use only one of "
-                    f"parameter_key, parameter_keys, or parameter_key_input: {legal_id}"
+                    "parameter_key, parameter_keys, parameter_key_input, "
+                    "parameter_key_path, parameter_calc_input, or "
+                    f"parameter_calc_value: {legal_id}"
                 )
             if mapping.parameter_key_map and not mapping.parameter_key_input:
                 issues.append(
                     "PolicyEngine parameter_key_map requires "
                     f"parameter_key_input: {legal_id}"
                 )
+            for index, part in enumerate(mapping.parameter_key_path):
+                if isinstance(part, dict):
+                    if "input" not in part:
+                        issues.append(
+                            "PolicyEngine parameter_key_path dict entries require "
+                            f"input: {legal_id}[{index}]"
+                        )
+                    key_map = part.get("parameter_key_map") or part.get("key_map")
+                    if key_map is not None and not isinstance(key_map, dict):
+                        issues.append(
+                            "PolicyEngine parameter_key_path key_map must be a "
+                            f"mapping: {legal_id}[{index}]"
+                        )
             if mapping.mapping_type == "not_comparable" and not mapping.rationale:
                 issues.append(
                     f"PolicyEngine not_comparable mapping missing rationale: {legal_id}"
@@ -247,6 +268,11 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
         parameter_keys = ()
     if isinstance(parameter_keys, str):
         parameter_keys = (parameter_keys,)
+    parameter_key_path = payload.get("parameter_key_path", ())
+    if parameter_key_path is None:
+        parameter_key_path = ()
+    if isinstance(parameter_key_path, (str, int, float)):
+        parameter_key_path = (parameter_key_path,)
     legal_id = payload.get("legal_id", payload.get("legal_id_prefix"))
     if legal_id is None:
         raise ValueError("PolicyEngine mapping missing legal_id")
@@ -268,6 +294,9 @@ def _mapping_from_payload(payload: dict[str, Any]) -> PolicyEngineMapping:
             str(key): str(value)
             for key, value in (payload.get("parameter_key_map") or {}).items()
         },
+        parameter_key_path=tuple(parameter_key_path),
+        parameter_calc_input=payload.get("parameter_calc_input"),
+        parameter_calc_value=payload.get("parameter_calc_value"),
         program=payload.get("program"),
         entity=payload.get("entity"),
         period=payload.get("period"),

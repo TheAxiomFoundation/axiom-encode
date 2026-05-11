@@ -1191,6 +1191,8 @@ def _extract_formula_grounding_values(
         raw = match.group(1).replace(",", "")
         if raw == "0.5" and _is_half_up_rounding_expression(cleaned):
             continue
+        if _is_structural_table_key_literal(cleaned, raw):
+            continue
         if _is_structural_schedule_index_literal(cleaned, raw):
             continue
         if _is_structural_enum_index_literal(cleaned, raw):
@@ -1219,6 +1221,24 @@ def _is_half_up_rounding_helper_scalar(symbol_name: str, value: float) -> bool:
         return True
     return "half_up" in normalized and (
         "rounding" in normalized or "offset" in normalized
+    )
+
+
+def _is_structural_table_key_literal(expression: str, literal: str) -> bool:
+    """Return true when a small integer only selects a parameter-table row."""
+    if literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
+        return False
+    if not re.fullmatch(r"\d+(?:\.0+)?", literal):
+        return False
+    with contextlib.suppress(ValueError):
+        numeric_value = float(literal)
+        if not numeric_value.is_integer() or not (0 <= int(numeric_value) <= 20):
+            return False
+    return bool(
+        re.search(
+            rf"\[[ \t]*{re.escape(literal)}[ \t]*\]",
+            expression,
+        )
     )
 
 
@@ -4310,20 +4330,27 @@ def _normalize_source_verification_text(text: str) -> str:
 
 
 def _source_text_contains_indexed_value(text: str, *, index: str, value: Any) -> bool:
-    value_text = _source_verification_numeric_text(value)
-    if value_text is None:
+    value_texts = _source_verification_numeric_texts(value)
+    if not value_texts:
         return False
     index_text = re.escape(str(index).replace(",", ""))
-    value_pattern = re.escape(value_text)
-    return bool(re.search(rf"(?<!\d){index_text}\s+\${value_pattern}(?!\d)", text))
+    return any(
+        re.search(
+            rf"(?<!\d){index_text}\s+\$?{re.escape(value_text)}(?!\d)",
+            text,
+        )
+        for value_text in value_texts
+    )
 
 
 def _source_text_contains_scalar_value(text: str, value: Any) -> bool:
-    value_text = _source_verification_numeric_text(value)
-    if value_text is None:
+    value_texts = _source_verification_numeric_texts(value)
+    if not value_texts:
         return str(value).strip() in text
-    value_pattern = re.escape(value_text)
-    return bool(re.search(rf"(?:\$|\+)?{value_pattern}(?!\d)", text))
+    return any(
+        re.search(rf"(?:\$|\+)?{re.escape(value_text)}(?!\d)", text)
+        for value_text in value_texts
+    )
 
 
 def _source_text_contains_table_value_multiset(
@@ -4332,14 +4359,18 @@ def _source_text_contains_table_value_multiset(
 ) -> bool:
     expected_counts: Counter[str] = Counter()
     for value in values:
-        value_text = _source_verification_numeric_text(value)
-        if value_text is None:
+        value_texts = _source_verification_numeric_texts(value)
+        if not value_texts:
             return False
-        expected_counts[value_text] += 1
+        expected_counts["\0".join(value_texts)] += 1
 
     return all(
-        _source_text_value_occurrence_count(text, value_text) >= expected_count
-        for value_text, expected_count in expected_counts.items()
+        max(
+            _source_text_value_occurrence_count(text, value_text)
+            for value_text in value_texts_key.split("\0")
+        )
+        >= expected_count
+        for value_texts_key, expected_count in expected_counts.items()
     )
 
 
@@ -4349,13 +4380,31 @@ def _source_text_value_occurrence_count(text: str, value_text: str) -> int:
 
 
 def _source_verification_numeric_text(value: Any) -> str | None:
+    texts = _source_verification_numeric_texts(value)
+    return texts[0] if texts else None
+
+
+def _source_verification_numeric_texts(value: Any) -> tuple[str, ...]:
     numeric = _numeric_rule_value(value)
     if numeric is None:
-        return None
+        return ()
     raw, number = numeric
+    texts: list[str] = []
     if float(number).is_integer():
-        return str(int(number))
-    return raw.replace(",", "")
+        texts.append(str(int(number)))
+    else:
+        texts.append(raw.replace(",", ""))
+    with contextlib.suppress(TypeError, ValueError):
+        numeric_float = float(number)
+        if 0 < abs(numeric_float) <= 1:
+            percent = numeric_float * 100
+            percent_text = (
+                str(int(percent))
+                if float(percent).is_integer()
+                else f"{percent:g}"
+            )
+            texts.append(f"{percent_text}%")
+    return tuple(dict.fromkeys(texts))
 
 
 @dataclass(frozen=True)
@@ -4948,6 +4997,15 @@ def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
                 relations.add(name)
 
     formula_identifiers = _rulespec_formula_identifiers(payload)
+    if isinstance(rules, list):
+        for rule in rules:
+            if (
+                isinstance(rule, dict)
+                and str(rule.get("kind") or "").lower() == "parameter"
+            ):
+                formula_identifiers.update(
+                    _indexed_by_input_names(rule.get("indexed_by"))
+                )
     input_slots = formula_identifiers - derived - parameters - relations
     return _RuleSpecReferenceSummary(
         derived=frozenset(derived),
@@ -8980,6 +9038,24 @@ print("BENCHMARK:" + json.dumps(result))
         "tanf",
     } | PE_US_MONTHLY_VAR_NAMES
 
+    _PE_US_TAX_UNIT_OVERRIDE_INPUTS = {
+        "adjusted_gross_income": "adjusted_gross_income",
+        "modified_adjusted_gross_income": "adjusted_gross_income",
+        "taxable_income": "taxable_income",
+        "taxable_income_deductions": "taxable_income_deductions",
+        "standard_deduction": "standard_deduction",
+        "basic_standard_deduction": "basic_standard_deduction",
+        "additional_standard_deduction": "additional_standard_deduction",
+        "regular_tax_before_credits": "regular_tax_before_credits",
+        "income_tax_before_credits": "income_tax_before_credits",
+        "income_tax_before_refundable_credits": (
+            "income_tax_before_refundable_credits"
+        ),
+        "ctc": "ctc",
+        "refundable_ctc": "refundable_ctc",
+        "eitc": "eitc",
+    }
+
     # PE variables at spm_unit level (need spm_units in situation)
     _PE_SPM_VARS = set(PE_US_SPM_VAR_NAMES)
 
@@ -9269,11 +9345,31 @@ print("BENCHMARK:" + json.dumps(result))
                 mapping.parameter_key
                 or ",".join(mapping.parameter_keys)
                 or mapping.parameter_key_input
+                or ValidatorPipeline._format_pe_parameter_key_path(
+                    mapping.parameter_key_path
+                )
+                or mapping.parameter_calc_input
+                or (
+                    str(mapping.parameter_calc_value)
+                    if mapping.parameter_calc_value is not None
+                    else ""
+                )
                 or ""
             )
             multiplier = mapping.result_multiplier or 1.0
             return f"parameter:{mapping.policyengine_parameter}:{key}:{multiplier}"
         return mapping.expression
+
+    @staticmethod
+    def _format_pe_parameter_key_path(parameter_key_path: tuple[Any, ...]) -> str:
+        """Return a stable display key for a nested PolicyEngine parameter path."""
+        parts: list[str] = []
+        for part in parameter_key_path:
+            if isinstance(part, dict):
+                parts.append(str(part.get("input", "")))
+            else:
+                parts.append(str(part))
+        return "/".join(part for part in parts if part)
 
     def _build_pe_scenario_script(
         self,
@@ -9307,6 +9403,11 @@ print("BENCHMARK:" + json.dumps(result))
             raise ValueError("PolicyEngine parameter mapping is missing a path")
 
         parameter_keys = self._resolve_pe_parameter_keys(mapping, inputs)
+        parameter_key_paths = self._resolve_pe_parameter_key_paths(mapping, inputs)
+        parameter_calc_values = self._resolve_pe_parameter_calc_values(
+            mapping,
+            inputs,
+        )
         period = self._normalize_monthly_pe_period(
             inputs.get("period"),
             year,
@@ -9317,6 +9418,8 @@ print("BENCHMARK:" + json.dumps(result))
 
         parameter_path = json.dumps(mapping.policyengine_parameter)
         parameter_keys_literal = json.dumps(parameter_keys)
+        parameter_key_paths_literal = json.dumps(parameter_key_paths)
+        parameter_calc_values_literal = json.dumps(parameter_calc_values)
         period_literal = json.dumps(period)
         return f"""
 from policyengine_us import CountryTaxBenefitSystem
@@ -9331,10 +9434,22 @@ system = CountryTaxBenefitSystem()
 params = system.parameters({period_literal})
 value = get_parameter(params, {parameter_path})
 keys = {parameter_keys_literal}
-if keys:
-    values = [float(value[key]) for key in keys]
+key_paths = {parameter_key_paths_literal} or [[key] for key in keys]
+calc_values = {parameter_calc_values_literal}
+if calc_values:
+    values = [float(value.calc(calc_value)) for calc_value in calc_values]
     if any(item != values[0] for item in values):
-        raise ValueError(f'Parameter keys disagree: {{dict(zip(keys, values))}}')
+        raise ValueError(f'Parameter calc values disagree: {{dict(zip(calc_values, values))}}')
+    value = values[0]
+elif key_paths:
+    values = []
+    for key_path in key_paths:
+        selected = value
+        for key in key_path:
+            selected = selected[key]
+        values.append(float(selected))
+    if any(item != values[0] for item in values):
+        raise ValueError(f'Parameter keys disagree: {{dict(zip(key_paths, values))}}')
     value = values[0]
 print(f'RESULT:{{float(value)}}')
 """
@@ -9348,6 +9463,10 @@ print(f'RESULT:{{float(value)}}')
             return [mapping.parameter_key]
         if mapping.parameter_keys:
             return list(mapping.parameter_keys)
+        if mapping.parameter_key_path:
+            return []
+        if mapping.parameter_calc_input or mapping.parameter_calc_value is not None:
+            return []
         if not mapping.parameter_key_input:
             return []
         input_value = self._rulespec_test_input_value(
@@ -9368,6 +9487,64 @@ print(f'RESULT:{{float(value)}}')
                 f"`{mapping.parameter_key_input}={raw_key}`"
             )
         return [raw_key]
+
+    def _resolve_pe_parameter_key_paths(
+        self,
+        mapping: PolicyEngineMapping,
+        inputs: dict,
+    ) -> list[list[str]]:
+        if not mapping.parameter_key_path:
+            return []
+        resolved_path: list[str] = []
+        for part in mapping.parameter_key_path:
+            if not isinstance(part, dict):
+                resolved_path.append(str(part))
+                continue
+            input_name = part.get("input")
+            if not input_name:
+                raise ValueError(
+                    "PolicyEngine parameter_key_path entries with mappings need "
+                    "an input name"
+                )
+            input_value = self._rulespec_test_input_value(inputs, str(input_name))
+            if input_value is None:
+                raise ValueError(
+                    "PolicyEngine parameter mapping needs input "
+                    f"`{input_name}`"
+                )
+            key_map = part.get("parameter_key_map") or part.get("key_map") or {}
+            key_map = {str(key): str(value) for key, value in key_map.items()}
+            raw_key = str(input_value)
+            if raw_key in key_map:
+                resolved_path.append(key_map[raw_key])
+            elif key_map:
+                raise ValueError(
+                    "PolicyEngine parameter mapping has no key for "
+                    f"`{input_name}={raw_key}`"
+                )
+            else:
+                resolved_path.append(raw_key)
+        return [resolved_path]
+
+    def _resolve_pe_parameter_calc_values(
+        self,
+        mapping: PolicyEngineMapping,
+        inputs: dict,
+    ) -> list[Any]:
+        if mapping.parameter_calc_value is not None:
+            return [mapping.parameter_calc_value]
+        if not mapping.parameter_calc_input:
+            return []
+        input_value = self._rulespec_test_input_value(
+            inputs,
+            mapping.parameter_calc_input,
+        )
+        if input_value is None:
+            raise ValueError(
+                "PolicyEngine parameter scale mapping needs input "
+                f"`{mapping.parameter_calc_input}`"
+            )
+        return [input_value]
 
     @staticmethod
     def _rulespec_test_input_value(inputs: dict, name: str) -> Any:
@@ -9450,6 +9627,17 @@ print(f'RESULT:{{float(value)}}')
         filing_status = _normalize_us_tax_filing_status(
             inputs.get("filing_status", "SINGLE")
         )
+        tax_unit_parts = [
+            f"'filing_status': {{'{year}': {repr(filing_status)}}}",
+        ]
+        for rule_key, pe_key in self._PE_US_TAX_UNIT_OVERRIDE_INPUTS.items():
+            if pe_key == pe_var:
+                continue
+            value = self._rulespec_test_input_value(inputs, rule_key)
+            if value is None:
+                continue
+            tax_unit_parts.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
+        tax_unit_extra = ", ".join(tax_unit_parts)
         joint_filing = filing_status == "JOINT"
         num_adults = 2 if joint_filing else 1
         aged_flags = _tax_unit_member_aged_flags(inputs)
@@ -9473,6 +9661,9 @@ print(f'RESULT:{{float(value)}}')
                 with contextlib.suppress(TypeError, ValueError):
                     explicit_child_count = max(0, int(value))
                     break
+        relation_child_count, relation_adult_dependent_count = (
+            self._us_tax_ctc_dependent_counts_from_relation_inputs(inputs)
+        )
 
         household_children = 0
         if household_size is not None:
@@ -9482,8 +9673,11 @@ print(f'RESULT:{{float(value)}}')
         num_children = (
             explicit_child_count
             if explicit_child_count is not None
+            else relation_child_count
+            if relation_child_count is not None
             else household_children
         )
+        num_adult_dependents = relation_adult_dependent_count or 0
         dependent_care_keys = (
             "snap_dependent_care_actual_costs",
             "snap_dependent_care_deduction",
@@ -9593,6 +9787,11 @@ print(f'RESULT:{{float(value)}}')
                 f"'child{i}': {{'age': {{'{year}': 8}}, 'is_tax_unit_dependent': {{'{year}': True}}}}"
             )
             members.append(f"'child{i}'")
+        for i in range(num_adult_dependents):
+            people_parts.append(
+                f"'adult_dep{i}': {{'age': {{'{year}': 30}}, 'is_tax_unit_dependent': {{'{year}': True}}}}"
+            )
+            members.append(f"'adult_dep{i}'")
 
         members_str = "[" + ", ".join(members) + "]"
         people_str = "{" + ", ".join(people_parts) + "}"
@@ -9763,7 +9962,7 @@ from policyengine_us import Simulation
 
 situation = {{
     'people': {people_str},
-    'tax_units': {{'tu': {{'members': {members_str}, 'filing_status': {{'{year}': {repr(filing_status)}}}}}}},
+    'tax_units': {{'tu': {{'members': {members_str}, {tax_unit_extra}}}}},
     'spm_units': {{'spm': {{'members': {members_str}{spm_extra}}}}},
     'households': {{'hh': {{'members': {members_str}, {household_extra}}}}},
     'families': {{'fam': {{'members': {members_str}}}}},
@@ -9776,6 +9975,41 @@ val = float(result[0]) if hasattr(result, '__len__') and len(result) > 0 else fl
 print(f'RESULT:{{val}}')
 """
         return script
+
+    def _us_tax_ctc_dependent_counts_from_relation_inputs(
+        self,
+        inputs: dict,
+    ) -> tuple[int | None, int]:
+        """Infer PE dependent composition from RuleSpec member relation rows."""
+        child_count = 0
+        adult_dependent_count = 0
+        saw_relation = False
+        for key, rows in inputs.items():
+            key_text = str(key).lower()
+            if not key_text.endswith("#relation.member_of_tax_unit"):
+                continue
+            if not isinstance(rows, list):
+                continue
+            saw_relation = True
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                dependent = self._rulespec_test_input_value(
+                    row,
+                    "is_tax_unit_dependent",
+                )
+                if dependent is not True:
+                    continue
+                age_value = self._rulespec_test_input_value(row, "age")
+                with contextlib.suppress(TypeError, ValueError):
+                    age = int(age_value)
+                    if age < 17:
+                        child_count += 1
+                    else:
+                        adult_dependent_count += 1
+        if not saw_relation:
+            return None, 0
+        return child_count, adult_dependent_count
 
     def _build_pe_uk_scenario_script(
         self, pe_var: str, inputs: dict, year: str, rule_name: str | None = None
