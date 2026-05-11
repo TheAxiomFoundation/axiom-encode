@@ -324,7 +324,7 @@ class TestCmdEvalSuite:
             runner=None,
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             json=False,
             gpt_backend="codex",
             resume=False,
@@ -405,7 +405,7 @@ class TestCmdEvalSuite:
             runner=None,
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             json=False,
             gpt_backend="codex",
             resume=True,
@@ -480,7 +480,7 @@ class TestCmdEvalSuite:
             runner=None,
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             json=False,
             gpt_backend="codex",
             resume=False,
@@ -561,7 +561,7 @@ class TestCmdEvalSuite:
             runner=None,
             output=tmp_path / "out",
             corpus_path=tmp_path / "axiom-corpus",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             json=False,
             gpt_backend="codex",
             resume=False,
@@ -908,7 +908,7 @@ class TestCmdEvalSuiteRevalidate:
         args = SimpleNamespace(
             source_output=source_output,
             manifest=None,
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             corpus_path=tmp_path / "axiom-corpus",
             json=True,
         )
@@ -1714,10 +1714,10 @@ class TestCmdValidate:
 
 class TestCmdCompile:
     def _require_axiom_rules_path(self) -> Path:
-        axiom_rules_path = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
-        binary = axiom_rules_path / "target" / "debug" / "axiom-rules"
+        axiom_rules_path = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
+        binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
         if not binary.exists():
-            pytest.skip("local axiom-rules binary is not built")
+            pytest.skip("local axiom-rules-engine binary is not built")
         return axiom_rules_path
 
     def _rulespec_file(self, tmp_path: Path, content: str | None = None) -> Path:
@@ -2014,7 +2014,7 @@ class TestCmdStats:
 
 class TestCmdInventory:
     def test_inventory_counts_rulespec_files_and_kinds(self, capsys, tmp_path):
-        statute_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+        statute_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
         statute_file.parent.mkdir(parents=True)
         statute_file.write_text(
             """
@@ -2036,7 +2036,7 @@ cases:
 
         composition_file = (
             tmp_path
-            / "rules-us-co"
+            / "rulespec-us-co"
             / "policies"
             / "cdhs"
             / "snap"
@@ -2055,7 +2055,7 @@ rules:
         )
 
         relation_file = (
-            tmp_path / "rules-us-co" / "regulations" / "10-ccr-2506-1" / "4.407.1.yaml"
+            tmp_path / "rulespec-us-co" / "regulations" / "10-ccr-2506-1" / "4.407.1.yaml"
         )
         relation_file.parent.mkdir(parents=True)
         relation_file.write_text(
@@ -2083,7 +2083,7 @@ rules:
         }
         assert output["repos"] == [
             {
-                "repo": "rules-us",
+                "repo": "rulespec-us",
                 "files": 1,
                 "source_provision_files": 1,
                 "composition_files": 0,
@@ -2092,7 +2092,7 @@ rules:
                 "kinds": {"derived": 1, "parameter": 1},
             },
             {
-                "repo": "rules-us-co",
+                "repo": "rulespec-us-co",
                 "files": 2,
                 "source_provision_files": 1,
                 "composition_files": 1,
@@ -2103,7 +2103,7 @@ rules:
         ]
 
     def test_inventory_prints_human_summary(self, capsys, tmp_path):
-        rulespec_file = tmp_path / "rules-us" / "policies" / "usda" / "cola.yaml"
+        rulespec_file = tmp_path / "rulespec-us" / "policies" / "usda" / "cola.yaml"
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
             """
@@ -2121,7 +2121,7 @@ rules:
         assert "RuleSpec inventory" in output
         assert "Files: 1 total; 1 source/provision; 0 composition" in output
         assert "Kinds: parameter=1" in output
-        assert "rules-us: files=1" in output
+        assert "rulespec-us: files=1" in output
 
 
 # =========================================================================
@@ -2247,8 +2247,8 @@ class TestCmdEncode:
     def _make_args(self, tmp_path, **overrides):
         """Helper to create args with sensible defaults."""
         corpus_path = tmp_path / "axiom-corpus"
-        axiom_rules_path = tmp_path / "axiom-rules"
-        policy_repo_path = tmp_path / "rules-us"
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us"
         corpus_path.mkdir(exist_ok=True)
         axiom_rules_path.mkdir(exist_ok=True)
         policy_repo_path.mkdir(exist_ok=True)
@@ -2397,7 +2397,7 @@ class TestCmdEncode:
 
     def test_apply_generated_encoding_writes_manifest(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rules-us-ny"
+        policy_repo = tmp_path / "rulespec-us-ny"
         generated = (
             output_root
             / "codex-test-model"
@@ -2457,7 +2457,7 @@ class TestCmdEncode:
 
     def test_apply_generated_encoding_requires_signing_key(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rules-us-ny"
+        policy_repo = tmp_path / "rulespec-us-ny"
         generated = (
             output_root
             / "codex-test-model"
@@ -2825,7 +2825,7 @@ rules:
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rules-us-ny"
+        policy_repo = tmp_path / "rulespec-us-ny"
         target = policy_repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         generated = (
             output_root
@@ -2855,7 +2855,7 @@ rules:
             result,
             output_root=output_root,
             policy_repo_path=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
         )
 
         assert ok is False
@@ -2866,7 +2866,7 @@ rules:
 
     def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rules-us"
+        policy_repo = tmp_path / "rulespec-us"
         generated = output_root / "codex-test-model" / "statutes/7/2014/a.yaml"
         generated.parent.mkdir(parents=True)
         policy_repo.mkdir()
@@ -2889,7 +2889,7 @@ rules:
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo,
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
             )
 
         assert ok is True
@@ -2901,7 +2901,7 @@ rules:
         self, tmp_path
     ):
         output_root = tmp_path / "out"
-        policy_repo = tmp_path / "rules-us"
+        policy_repo = tmp_path / "rulespec-us"
         generated = output_root / "codex-test-model" / "statutes/7/2015/d/2/C.yaml"
         dependent = policy_repo / "statutes/7/2015/d/2.yaml"
         generated.parent.mkdir(parents=True)
@@ -2927,7 +2927,7 @@ rules:
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo,
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
             )
 
         assert ok is True
@@ -2936,7 +2936,7 @@ rules:
         assert [path.name for path in validated_paths] == ["C.yaml"]
 
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
-        repo = tmp_path / "rules-us-ny"
+        repo = tmp_path / "rulespec-us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         dependent = repo / "policies/otda/snap/fy-2026-benefit-calculation.yaml"
         unrelated = repo / "policies/otda/snap/other.yaml"
@@ -3269,13 +3269,13 @@ class TestTranscriptSyncCommands:
 
 class TestCmdValidateEdgeCases:
     def test_validate_rules_us_found_in_path(self, capsys, tmp_path):
-        """Test validate when file is inside a rules-us directory (line 350)."""
-        rules_us = tmp_path / "rules-us" / "statutes" / "26" / "1"
+        """Test validate when file is inside a rulespec-us directory (line 350)."""
+        rules_us = tmp_path / "rulespec-us" / "statutes" / "26" / "1"
         rules_us.mkdir(parents=True)
         rulespec_file = rules_us / "test.yaml"
         rulespec_file.write_text("# test")
-        # Create axiom-rules sibling
-        axiom_rules_path = tmp_path / "axiom-rules"
+        # Create axiom-rules-engine sibling
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
         axiom_rules_path.mkdir(parents=True)
 
         args = MagicMock()
@@ -3303,16 +3303,16 @@ class TestCmdValidateEdgeCases:
             with pytest.raises(SystemExit) as exc_info:
                 cmd_validate(args)
             assert exc_info.value.code == 0
-            # Verify axiom_rules_path was resolved via rules_us.parent / "axiom-rules"
+            # Verify axiom_rules_path was resolved via rules_us.parent / "axiom-rules-engine"
             call_kwargs = mock_pipeline_cls.call_args[1]
-            assert "rules-us" in str(call_kwargs["policy_repo_path"])
+            assert "rulespec-us" in str(call_kwargs["policy_repo_path"])
 
     def test_validate_uses_enclosing_non_federal_policy_repo(self, tmp_path):
-        policy_repo = tmp_path / "rules-us-tn" / "sources"
+        policy_repo = tmp_path / "rulespec-us-tn" / "sources"
         policy_repo.mkdir(parents=True)
         rulespec_file = policy_repo / "test.yaml"
         rulespec_file.write_text("format: rulespec/v1\n")
-        (tmp_path / "axiom-rules").mkdir()
+        (tmp_path / "axiom-rules-engine").mkdir()
 
         args = MagicMock()
         args.file = rulespec_file
@@ -3341,16 +3341,16 @@ class TestCmdValidateEdgeCases:
             assert exc_info.value.code == 0
 
         call_kwargs = mock_pipeline_cls.call_args[1]
-        assert call_kwargs["policy_repo_path"] == tmp_path / "rules-us-tn"
-        assert call_kwargs["axiom_rules_path"] == tmp_path / "axiom-rules"
+        assert call_kwargs["policy_repo_path"] == tmp_path / "rulespec-us-tn"
+        assert call_kwargs["axiom_rules_path"] == tmp_path / "axiom-rules-engine"
 
     def test_validate_fallback_prefers_workspace_repo_roots(self, tmp_path):
         rulespec_file = tmp_path / "generated" / "test.yaml"
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text("# test")
         workspace_root = tmp_path / "workspace"
-        rules_us_path = workspace_root / "rules-us"
-        axiom_rules_path = workspace_root / "axiom-rules"
+        rules_us_path = workspace_root / "rulespec-us"
+        axiom_rules_path = workspace_root / "axiom-rules-engine"
         rules_us_path.mkdir(parents=True)
         axiom_rules_path.mkdir()
 

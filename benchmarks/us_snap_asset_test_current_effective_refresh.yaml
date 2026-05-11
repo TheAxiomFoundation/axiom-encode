@@ -16,7 +16,7 @@ cases:
     source_id: USDA SNAP FY2026 maximum asset limits
     corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-2
     allow_context:
-      - ../../rules-us/policies/usda/snap/fy-2026-cola/deductions.yaml
+      - ../../rulespec-us/policies/usda/snap/fy-2026-cola/deductions.yaml
     oracle: policyengine
     policyengine_country: auto
     policyengine_rule_hint: meets_snap_asset_test

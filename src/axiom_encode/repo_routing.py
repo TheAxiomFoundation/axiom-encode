@@ -1,4 +1,4 @@
-"""Helpers for resolving jurisdiction policy repos versus the core Axiom Rules runtime."""
+"""Helpers for resolving jurisdiction RuleSpec repos versus the rules engine."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from pathlib import Path
 
 
 def is_policy_repo_root(path: Path) -> bool:
-    """Return True when a path is the root of a jurisdiction-specific policy repo."""
+    """Return True when a path is the root of a jurisdiction RuleSpec repo."""
     name = Path(path).resolve().name
-    return name.startswith("rules-")
+    return name.startswith("rulespec-")
 
 
 def find_policy_repo_root(path: Path) -> Path | None:

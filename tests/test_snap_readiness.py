@@ -66,7 +66,7 @@ def test_snap_readiness_reports_ready_to_encode_when_corpus_exists_without_rules
 ):
     root = tmp_path / "workspace"
     corpus_root = root / "axiom-corpus"
-    (root / "rules-us-tn").mkdir(parents=True)
+    (root / "rulespec-us-tn").mkdir(parents=True)
     _write_corpus_provision(corpus_root, "us-tn/regulation/demo/snap")
 
     report = build_snap_readiness_report(root, corpus_root=corpus_root)
@@ -80,7 +80,7 @@ def test_snap_readiness_reports_ready_to_encode_when_corpus_exists_without_rules
 def test_snap_readiness_reports_ecps_ready_for_configured_program_module(tmp_path):
     root = tmp_path / "workspace"
     corpus_root = root / "axiom-corpus"
-    repo = root / "rules-us-co"
+    repo = root / "rulespec-us-co"
     _write_rulespec(repo, "policies/cdhs/snap/fy-2026-benefit-calculation.yaml")
     _write_corpus_provision(corpus_root, "us-co/regulation/demo/snap")
 
@@ -97,7 +97,7 @@ def test_snap_readiness_reports_ecps_ready_for_configured_program_module(tmp_pat
 def test_snap_readiness_flags_rules_without_policyengine_config(tmp_path):
     root = tmp_path / "workspace"
     corpus_root = root / "axiom-corpus"
-    repo = root / "rules-us-tn"
+    repo = root / "rulespec-us-tn"
     _write_rulespec(repo, "policies/tdhs/snap/fy-2026-benefit-calculation.yaml")
     _write_corpus_provision(corpus_root, "us-tn/regulation/demo/snap")
 
@@ -114,7 +114,7 @@ def test_snap_readiness_flags_rules_without_policyengine_config(tmp_path):
 def test_snap_readiness_distinguishes_empty_repo_without_corpus(tmp_path):
     root = tmp_path / "workspace"
     corpus_root = root / "axiom-corpus"
-    (root / "rules-us-al").mkdir(parents=True)
+    (root / "rulespec-us-al").mkdir(parents=True)
 
     report = build_snap_readiness_report(root, corpus_root=corpus_root)
 

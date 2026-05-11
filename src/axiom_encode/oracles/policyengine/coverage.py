@@ -182,10 +182,10 @@ def _iter_policyengine_coverage_items(
     registry,
 ) -> list[PolicyEngineCoverageItem]:
     items: list[PolicyEngineCoverageItem] = []
-    for repo in sorted(root.glob("rules-*")):
+    for repo in sorted(root.glob("rulespec-*")):
         if not repo.is_dir():
             continue
-        prefix = repo.name.removeprefix("rules-")
+        prefix = repo.name.removeprefix("rulespec-")
         for rulespec_file in sorted(repo.rglob("*.y*ml")):
             if rulespec_file.name.endswith(".test.yaml"):
                 continue

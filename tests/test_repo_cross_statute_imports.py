@@ -7,12 +7,12 @@ from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 
 def _repo_roots() -> tuple[Path, Path]:
     foundation_root = Path(__file__).resolve().parents[2]
-    policy_repo_path = foundation_root / "rules-us"
-    axiom_rules_path = foundation_root / "axiom-rules"
+    policy_repo_path = foundation_root / "rulespec-us"
+    axiom_rules_path = foundation_root / "axiom-rules-engine"
     if not policy_repo_path.exists():
-        pytest.skip("rules-us repo not present")
+        pytest.skip("rulespec-us repo not present")
     if not axiom_rules_path.exists():
-        pytest.skip("axiom-rules repo not present")
+        pytest.skip("axiom-rules-engine repo not present")
     return policy_repo_path, axiom_rules_path
 
 
@@ -20,7 +20,7 @@ def test_repo_cross_statute_definitions_are_imported():
     policy_repo_path, axiom_rules_path = _repo_roots()
     statutes_root = policy_repo_path / "statutes"
     if not statutes_root.exists():
-        pytest.skip("rules-us/statutes repo not present")
+        pytest.skip("rulespec-us/statutes repo not present")
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,

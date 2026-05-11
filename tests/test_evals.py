@@ -131,7 +131,7 @@ class TestCorpusSourceResolution:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="Section text states 6.2 percent.",
-            axiom_rules_path=tmp_path / "rules-us",
+            axiom_rules_path=tmp_path / "rulespec-us",
             mode="cold",
             source_metadata_payload={
                 "corpus_citation_path": "us/statute/26/3101",
@@ -162,7 +162,7 @@ class TestCorpusSourceResolution:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="Section text states 6.2 percent.",
-            axiom_rules_path=tmp_path / "rules-us",
+            axiom_rules_path=tmp_path / "rulespec-us",
             mode="cold",
             source_metadata_payload={
                 "source_name": "Federal Insurance Contributions Act",
@@ -216,7 +216,7 @@ class TestCorpusSourceResolution:
                 source_text="source",
                 runner_specs=["codex:gpt-5.4"],
                 output_root=tmp_path / "out",
-                policy_path=tmp_path / "rules-us",
+                policy_path=tmp_path / "rulespec-us",
                 mode="cold",
             )
 
@@ -470,7 +470,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
             runner=runner,
             output_root=tmp_path / "out",
             source_text="nil amount",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -553,7 +553,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
             runner=runner,
             output_root=tmp_path / "out",
             source_text="maximum disregard",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -599,7 +599,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
             runner=runner,
             output_root=tmp_path / "out",
             source_text="self-employment expenses",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -652,7 +652,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
 
 class TestEvaluateArtifact:
     def test_validates_generated_artifact_inside_policy_repo_overlay(self, tmp_path):
-        policy_repo = tmp_path / "repos" / "rules-us-ny"
+        policy_repo = tmp_path / "repos" / "rulespec-us-ny"
         policy_repo.mkdir(parents=True)
         generated = (
             tmp_path
@@ -694,17 +694,17 @@ class TestEvaluateArtifact:
             evaluate_artifact(
                 rulespec_file=generated,
                 policy_repo_root=policy_repo,
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 source_text="No numeric values.",
             )
 
         assert len(seen_targets) == 2
         for parts, name, companion_test_exists in seen_targets:
-            assert "rules-us-ny" in parts
+            assert "rulespec-us-ny" in parts
             assert name == "c.yaml"
             assert companion_test_exists
         for parts in seen_policy_repo_roots:
-            assert "rules-us-ny" in parts
+            assert "rulespec-us-ny" in parts
             assert parts != policy_repo.parts
 
     def test_uses_fallback_source_text_for_grounding(self, tmp_path):
@@ -742,7 +742,7 @@ class TestEvaluateArtifact:
             metrics = evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
                     "(a) Allowance of credit There shall be allowed a credit of $1,000."
                 ),
@@ -792,7 +792,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
                     "(a) Households in which each member receives qualifying public assistance shall be eligible.\n\n"
                     "(e) The unrelated standard deduction is 8.31 percent, $144, and $246."
@@ -839,7 +839,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
                     "(a) Households in which each member receives qualifying public assistance shall be eligible.\n\n"
                     "(e) The unrelated standard deduction is $144."
@@ -851,7 +851,7 @@ rules:
         assert any("144" in issue for issue in metrics.ci_issues)
 
     def test_numeric_occurrence_check_counts_imported_named_scalars(self, tmp_path):
-        policy_repo = tmp_path / "rules-us"
+        policy_repo = tmp_path / "rulespec-us"
         child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "B.yaml"
         child.parent.mkdir(parents=True)
         child.write_text(
@@ -898,7 +898,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=parent,
                 policy_repo_root=policy_repo,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text="A household member with responsibility for care of a dependent child under age 6 is exempt.",
             )
 
@@ -938,7 +938,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
                     "2A. Where earnings are less than £20 in any week and "
                     "would not exceed £20."
@@ -981,7 +981,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
                     "As of October 1, [2024] 2025, the allowance is [$31] $32."
                 ),
@@ -1040,7 +1040,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text=(
                     "Where the amount of state pension credit payable is less than "
                     "10 pence per week, the credit shall not be payable."
@@ -1091,7 +1091,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text="Provision text with £10.",
             )
 
@@ -1151,7 +1151,7 @@ rules:
             evaluate_artifact(
                 rulespec_file=rulespec_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text="On the first day of the next benefit week.",
             )
 
@@ -1173,7 +1173,7 @@ rules:
                 "week to commence on or after the day on which the income increases "
                 "or decreases."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1204,7 +1204,7 @@ rules:
                 "(b)\n\n"
                 "for the date on which the increase is to be paid; and"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1236,7 +1236,7 @@ rules:
             source_text=(
                 "the last four payments if the last two payments are less than one month apart; or"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1280,7 +1280,7 @@ rules:
                 "where the period in respect of which a payment is made exceeds a week, "
                 "and in a case where that period is three months, the amount is calculated ..."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1317,7 +1317,7 @@ rules:
                 "(ii)\n\n"
                 "in a case where that period is three months, by multiplying the amount of the payment by 4 and dividing the product by 52;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1353,7 +1353,7 @@ rules:
                 "(a)\n\n"
                 "any bonus or commission;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1393,7 +1393,7 @@ rules:
                 "of which a payment is made does not exceed a week, the whole of that "
                 "payment shall be included in the claimant's weekly income."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1430,7 +1430,7 @@ rules:
                 "Except where paragraph (2) and (4) apply, the amount to be included "
                 "shall be determined—"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1465,7 +1465,7 @@ rules:
                 "statutory sick pay and statutory maternity pay payable by the "
                 "employer under the 1992 Act;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1494,7 +1494,7 @@ rules:
                 "the claimant's regular pattern of work is such that he does not "
                 "work the same hours every week;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1526,7 +1526,7 @@ rules:
                 "statutory sick pay and statutory maternity pay payable by the "
                 "employer under the 1992 Act;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1558,7 +1558,7 @@ rules:
                 "(b)\n\n"
                 "ends on the first increased payment date,"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1593,7 +1593,7 @@ rules:
                 "where the benefit is paid in arrears, on the last day of the benefit week "
                 "in which the benefit is payable."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1634,7 +1634,7 @@ rules:
                 "in respect of any retired pay or pension granted in respect of disablement, where such payment "
                 "does not fall within paragraph (b) of that definition;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1675,7 +1675,7 @@ rules:
                 "royalties or other sums received as a consideration for the use of, or the "
                 "right to use, any copyright, design, patent or trade mark;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1712,7 +1712,7 @@ rules:
                 "office (including elective office) with emoluments chargeable to income "
                 "tax under Schedule E."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -1754,7 +1754,7 @@ rules:
                 "(a)\n\n"
                 "£1 for each £500 in excess of £10,000; and"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2075,7 +2075,7 @@ rules:
         self, tmp_path
     ):
         output_file = (
-            tmp_path / "rules-us" / "policies" / "usda" / "snap" / "homeless.yaml"
+            tmp_path / "rulespec-us" / "policies" / "usda" / "snap" / "homeless.yaml"
         )
         response = """=== FILE: homeless.yaml ===
 format: rulespec/v1
@@ -2156,7 +2156,7 @@ rules:
             metrics = evaluate_artifact(
                 rulespec_file=rules_file,
                 policy_repo_root=tmp_path,
-                axiom_rules_path=Path("/tmp/axiom-rules"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text="The enhanced rate is £26.05 from 2025-04-07.",
                 oracle="policyengine",
                 policyengine_country="uk",
@@ -2177,7 +2177,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="Grant standard is 165 for one child.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2220,7 +2220,7 @@ class TestEvalPrompt:
                 "Assistance under this program shall be furnished to all eligible "
                 "households who make application for such participation."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2264,7 +2264,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="2. Rate of child benefit ... 25.60 ... 16.95",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2296,7 +2296,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="(a) cease to be in force",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2331,7 +2331,7 @@ class TestEvalPrompt:
                 "(c)\n\n"
                 ". . . . . . . . . . . . . . . . . . . . . . . ."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2357,7 +2357,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="2. Rate of child benefit ... 26.05",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2382,7 +2382,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="2. Rate of child benefit ... 26.05",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2409,7 +2409,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="The percentage prescribed is 60 per cent.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2448,7 +2448,7 @@ class TestEvalPrompt:
                 "The weekly rate of child benefit payable in respect of a child "
                 "or qualifying young person shall be 26.05."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2483,7 +2483,7 @@ class TestEvalPrompt:
                 "the credit shall not be payable unless the claimant is in receipt of another "
                 "benefit payable with the credit."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2515,7 +2515,7 @@ class TestEvalPrompt:
                 "£20 is disregarded if the claimant or, if he has a partner, his partner "
                 "is in receipt of Scottish adult disability living allowance."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2560,7 +2560,7 @@ class TestEvalPrompt:
                 "if there is a recognised cycle of work, by reference to his average "
                 "weekly income over the period of the complete cycle; or"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2628,7 +2628,7 @@ class TestEvalPrompt:
                 "the amounts specified in paragraph (5) shall be treated as though "
                 "they were earnings."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2663,7 +2663,7 @@ class TestEvalPrompt:
                 "in any other case, by multiplying the amount of the payment by 7 and dividing "
                 "the product by the number of days in the period in respect of which it is made."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2699,7 +2699,7 @@ class TestEvalPrompt:
                 "applies, the amount of that payment shall be treated as if made in "
                 "respect of a period of a year."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2740,7 +2740,7 @@ class TestEvalPrompt:
                 "travelling expenses incurred by the claimant between his home and place "
                 "of employment;"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2775,7 +2775,7 @@ class TestEvalPrompt:
                 "subsequent supersession under section 10 of the Social Security Act 1998, "
                 "the last payments before the date of the supersession."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2813,7 +2813,7 @@ class TestEvalPrompt:
                 "account for the purpose of calculating a person's income, there shall "
                 "be disregarded any amount payable by way of tax."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2849,7 +2849,7 @@ class TestEvalPrompt:
                 "employment as an employed earner, means any remuneration or profit "
                 "derived from that employment and includes any payment by way of a retainer."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2891,7 +2891,7 @@ class TestEvalPrompt:
                 "13 of the Computation of Earnings Regulations, as having effect in the "
                 "case of state pension credit."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2965,7 +2965,7 @@ class TestEvalPrompt:
                 "shall be determined by multiplying the resulting figure by the number "
                 "of days in the part-week."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -2991,7 +2991,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("claude:opus"),
             output_root=tmp_path / "out",
             source_text="Editorial note: current text valid from 2025-04-07.\n26.05",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3023,7 +3023,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("openai:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="(a) 332.95 per week in the case of a claimant who has a partner.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3054,7 +3054,7 @@ class TestEvalPrompt:
                 "Where the young person is aged 19, he or she must have started the education "
                 "or training before reaching that age."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3080,7 +3080,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("openai:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="(a) ... only person or elder or eldest person ... £26.05.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3113,7 +3113,7 @@ class TestEvalPrompt:
                 "Element | Amount for each assessment period\n"
                 "single claimant aged under 25 | £316.98"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3157,7 +3157,7 @@ class TestEvalPrompt:
                 "A non-dependant aged 18 or over is treated differently. "
                 "See section 3(4)."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3204,7 +3204,7 @@ class TestEvalPrompt:
             runner=parse_runner_spec("openai:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="A person who is a member of a mixed-age couple is not entitled.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3227,7 +3227,7 @@ class TestEvalPrompt:
     def test_prepare_eval_workspace_copies_resolved_canonical_concept_file(
         self, tmp_path
     ):
-        policy_repo_root = tmp_path / "rules-us-co"
+        policy_repo_root = tmp_path / "rulespec-us-co"
         concept_file = policy_repo_root / "statutes" / "crs" / "26-2-703" / "12.yaml"
         concept_file.parent.mkdir(parents=True, exist_ok=True)
         concept_file.write_text(
@@ -3277,7 +3277,7 @@ rules:
             runner=parse_runner_spec("openai:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="A person who is a member of a mixed-age couple is not entitled.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3308,7 +3308,7 @@ rules:
             runner=parse_runner_spec("openai:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="A person who is a member of a mixed-age couple is not entitled.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3346,7 +3346,7 @@ rules:
     def test_build_eval_prompt_includes_resolved_canonical_concept_guidance(
         self, tmp_path
     ):
-        policy_repo_root = tmp_path / "rules-us-co"
+        policy_repo_root = tmp_path / "rulespec-us-co"
         concept_file = policy_repo_root / "statutes" / "crs" / "26-2-703" / "12.yaml"
         concept_file.parent.mkdir(parents=True, exist_ok=True)
         concept_file.write_text(
@@ -3405,7 +3405,7 @@ rules:
             runner=parse_runner_spec("codex:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text='The term "qualifying child" means a qualifying child as defined in section 152(c).',
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3434,7 +3434,7 @@ rules:
             runner=parse_runner_spec("openai:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="(a) except where paragraph (b) applies, £81.50 per week if paragraph 1(1)(a), (b) or (c) of Part I of Schedule I is satisfied.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3459,7 +3459,7 @@ rules:
             runner=parse_runner_spec("openai:gpt-5.4"),
             output_root=tmp_path / "out",
             source_text="Editorial note: current text valid from 2025-04-07.\n26.05",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3490,7 +3490,7 @@ rules:
                 "Applications received will be certified for six (6) consecutive months "
                 "beginning the first month the assistance unit is found eligible for basic cash assistance."
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -3631,7 +3631,7 @@ cases:
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=tmp_path / "out",
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
             )
 
@@ -3674,7 +3674,7 @@ cases:
             run_eval_suite(
                 manifest=manifest,
                 output_root=output_root,
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
             )
 
@@ -3693,9 +3693,9 @@ cases:
         assert "active_case" not in final_state
 
     def test_run_eval_suite_routes_source_case_to_enclosing_policy_repo(self, tmp_path):
-        policy_repo = tmp_path / "rules-us-tn"
+        policy_repo = tmp_path / "rulespec-us-tn"
         policy_repo.mkdir()
-        runtime_axiom_rules = tmp_path / "axiom-rules"
+        runtime_axiom_rules = tmp_path / "axiom-rules-engine"
         runtime_axiom_rules.mkdir()
         corpus_path = tmp_path / "axiom-corpus"
         corpus_path.mkdir()
@@ -3778,7 +3778,7 @@ cases:
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=tmp_path / "out",
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
             )
 
@@ -3813,7 +3813,7 @@ cases:
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=tmp_path / "out",
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
             )
 
@@ -3849,7 +3849,7 @@ cases:
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=tmp_path / "out",
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
             )
 
@@ -3895,7 +3895,7 @@ cases:
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=output_root,
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
             )
 
@@ -3942,7 +3942,7 @@ cases:
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=tmp_path / "out",
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
             )
 
@@ -4016,7 +4016,7 @@ cases:
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=output_root,
-                axiom_rules_path=tmp_path / "axiom-rules",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
                 corpus_path=_write_test_corpus_provision(tmp_path),
                 resume_existing=True,
             )
@@ -4210,10 +4210,10 @@ class TestRepoAugmentedContext:
         self, tmp_path
     ):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
         context_file = (
-            repo_root / "rules-us" / "statutes" / "26" / "32" / "b" / "2" / "A.yaml"
+            repo_root / "rulespec-us" / "statutes" / "26" / "32" / "b" / "2" / "A.yaml"
         )
         context_file.parent.mkdir(parents=True)
         context_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -4238,7 +4238,7 @@ class TestRepoAugmentedContext:
 
     def test_prepare_eval_workspace_copies_existing_corpus_target(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "rules-us-ny"
+        policy_repo_root = repo_root / "rulespec-us-ny"
         target_file = (
             policy_repo_root / "regulations" / "18-nycrr" / "387" / "12" / "f.yaml"
         )
@@ -4288,7 +4288,7 @@ class TestRepoAugmentedContext:
         assert "preserve the legal/provenance edge" in prompt
 
     def test_select_context_files_excludes_target(self, tmp_path):
-        policy_repo_root = tmp_path / "rules-us"
+        policy_repo_root = tmp_path / "rulespec-us"
         section_dir = policy_repo_root / "statutes" / "26" / "24"
         section_dir.mkdir(parents=True)
         (section_dir / "a.yaml").write_text("target")
@@ -4303,9 +4303,9 @@ class TestRepoAugmentedContext:
 
     def test_prepare_eval_workspace_writes_manifest_and_context(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        statute_root = repo_root / "rules-us" / "statutes" / "26" / "24"
+        statute_root = repo_root / "rulespec-us" / "statutes" / "26" / "24"
         statute_root.mkdir(parents=True)
         context_file = statute_root / "b.yaml"
         context_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -4335,9 +4335,9 @@ class TestRepoAugmentedContext:
 
     def test_prepare_eval_workspace_copies_context_companion_tests(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        statute_root = repo_root / "rules-us" / "statutes" / "26" / "24"
+        statute_root = repo_root / "rulespec-us" / "statutes" / "26" / "24"
         statute_root.mkdir(parents=True)
         context_file = statute_root / "b.yaml"
         context_test = statute_root / "b.test.yaml"
@@ -4376,9 +4376,9 @@ class TestRepoAugmentedContext:
         self, tmp_path
     ):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        statute_root = repo_root / "rules-us" / "statutes" / "7" / "2015"
+        statute_root = repo_root / "rulespec-us" / "statutes" / "7" / "2015"
         statute_root.mkdir(parents=True)
         context_file = statute_root / "e.yaml"
         context_test = statute_root / "e.test.yaml"
@@ -4417,9 +4417,9 @@ class TestRepoAugmentedContext:
 
     def test_prepare_eval_workspace_adds_child_fragment_context(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        child_root = repo_root / "rules-us" / "statutes" / "7" / "2015" / "d" / "2"
+        child_root = repo_root / "rulespec-us" / "statutes" / "7" / "2015" / "d" / "2"
         child_root.mkdir(parents=True)
         child_files = []
         for fragment in ("A", "B", "C", "D", "E", "F"):
@@ -4459,7 +4459,7 @@ class TestRepoAugmentedContext:
             runner=runner,
             output_root=tmp_path / "out",
             source_text="Tennessee source text",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             source_metadata_payload={
                 "relations": [
@@ -4484,11 +4484,11 @@ class TestRepoAugmentedContext:
 
     def test_build_eval_prompt_lists_canonical_context_import_target(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
         external_file = (
             repo_root
-            / "rules-us-co"
+            / "rulespec-us-co"
             / "regulation"
             / "9-CCR-2503-6"
             / "3.606.1"
@@ -4571,9 +4571,9 @@ class TestRepoAugmentedContext:
         self, tmp_path
     ):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        child_root = repo_root / "rules-us" / "statutes" / "7" / "2015" / "d" / "2"
+        child_root = repo_root / "rulespec-us" / "statutes" / "7" / "2015" / "d" / "2"
         child_root.mkdir(parents=True)
         for fragment in ("A", "B"):
             child_file = child_root / f"{fragment}.yaml"
@@ -4625,9 +4625,9 @@ class TestRepoAugmentedContext:
 
     def test_hydrate_eval_root_copies_context_into_import_tree(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        statute_root = repo_root / "rules-us" / "statutes" / "26" / "24"
+        statute_root = repo_root / "rulespec-us" / "statutes" / "26" / "24"
         statute_root.mkdir(parents=True)
         context_file = statute_root / "c.yaml"
         context_file.write_text(
@@ -4658,10 +4658,10 @@ class TestRepoAugmentedContext:
 
     def test_prepare_eval_workspace_expands_transitive_context_imports(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
 
-        section_root = repo_root / "rules-us" / "statutes" / "26" / "24"
+        section_root = repo_root / "rulespec-us" / "statutes" / "26" / "24"
         section_root.mkdir(parents=True)
         aggregator = section_root / "24.yaml"
         aggregator.write_text(
@@ -4695,7 +4695,7 @@ class TestRepoAugmentedContext:
         dep_local.write_text("format: rulespec/v1\nrules: []\n")
 
         dep_cross_section = (
-            repo_root / "rules-us" / "statutes" / "26" / "152" / "c.yaml"
+            repo_root / "rulespec-us" / "statutes" / "26" / "152" / "c.yaml"
         )
         dep_cross_section.parent.mkdir(parents=True)
         dep_cross_section.write_text("format: rulespec/v1\nrules: []\n")
@@ -4738,9 +4738,9 @@ class TestRepoAugmentedContext:
         self, tmp_path
     ):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        statute_root = repo_root / "rules-us" / "statutes" / "7" / "2014"
+        statute_root = repo_root / "rulespec-us" / "statutes" / "7" / "2014"
         statute_root.mkdir(parents=True)
 
         selected = statute_root / "e.yaml"
@@ -4790,9 +4790,9 @@ class TestRepoAugmentedContext:
 
     def test_prompt_includes_scaffold_dates_from_context(self, tmp_path):
         repo_root = tmp_path / "repos"
-        policy_repo_root = repo_root / "axiom-rules"
+        policy_repo_root = repo_root / "axiom-rules-engine"
         policy_repo_root.mkdir(parents=True)
-        statute_root = repo_root / "rules-us" / "statutes" / "26" / "24"
+        statute_root = repo_root / "rulespec-us" / "statutes" / "26" / "24"
         statute_root.mkdir(parents=True)
         context_file = statute_root / "b.yaml"
         context_file.write_text(
@@ -4853,7 +4853,7 @@ class TestSourceEval:
     def test_run_source_eval_uses_explicit_context_without_statute_lookup(
         self, tmp_path
     ):
-        policy_repo_root = tmp_path / "axiom-rules"
+        policy_repo_root = tmp_path / "axiom-rules-engine"
         policy_repo_root.mkdir()
         context_file = tmp_path / "examples" / "piecewise.yaml"
         context_file.parent.mkdir(parents=True)
@@ -4925,7 +4925,7 @@ class TestSourceEval:
     def test_run_source_eval_passes_oracle_settings_to_evaluate_artifact(
         self, tmp_path
     ):
-        policy_repo_root = tmp_path / "axiom-rules"
+        policy_repo_root = tmp_path / "axiom-rules-engine"
         policy_repo_root.mkdir()
 
         with (
@@ -4981,7 +4981,7 @@ class TestSourceEval:
     def test_run_source_eval_passes_policyengine_rule_hint_to_evaluate_artifact(
         self, tmp_path
     ):
-        policy_repo_root = tmp_path / "axiom-rules"
+        policy_repo_root = tmp_path / "axiom-rules-engine"
         policy_repo_root.mkdir()
 
         with (
@@ -5044,7 +5044,7 @@ class TestSourceEval:
             runner=runner,
             output_root=tmp_path / "out",
             source_text="317.82",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )
@@ -5089,7 +5089,7 @@ class TestSourceEval:
             runner=runner,
             output_root=tmp_path / "out",
             source_text="The SUA is $451, effective October 1, 2025.",
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             source_metadata_payload={
                 "relations": [
@@ -5163,7 +5163,7 @@ class TestSourceEval:
                 "Relevant element | Maximum annual rate\n"
                 "Severe disability element | £1734\n"
             ),
-            axiom_rules_path=tmp_path / "axiom-rules",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
             extra_context_paths=[],
         )

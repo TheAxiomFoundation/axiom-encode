@@ -71,7 +71,7 @@ def test_iter_manifest_queue_candidates_includes_federal_rules_us(
             "manifest": str(manifest),
             "corpus_citation_path": "us/statute/7/2017/a",
             "corpus_source_sha256": "corpus-source-sha",
-            "source_repo": "rules-us",
+            "source_repo": "rulespec-us",
         }
     ]
 
@@ -102,7 +102,7 @@ def test_sync_queue_with_manifests_skips_requeue_on_tracking_version_migration(
                 "manifest": "/tmp/demo.yaml",
                 "corpus_citation_path": "us/statute/7/2017/a",
                 "corpus_source_sha256": "new-source-sha",
-                "source_repo": "rules-us-demo",
+                "source_repo": "rulespec-us-demo",
             }
         ],
     )
@@ -149,7 +149,7 @@ def test_sync_queue_with_manifests_requeues_on_source_change_after_tracking_set(
                 "manifest": "/tmp/demo.yaml",
                 "corpus_citation_path": "us/statute/7/2017/a",
                 "corpus_source_sha256": "new-source-sha",
-                "source_repo": "rules-us-demo",
+                "source_repo": "rulespec-us-demo",
             }
         ],
     )

@@ -93,12 +93,12 @@ def _resolve_repo_checkout(name: str) -> Path:
 def _resolve_runtime_axiom_rules_checkout(
     policy_repo_root: Path | None = None,
 ) -> Path:
-    """Resolve the Axiom Rules runtime checkout, preferring a sibling repo."""
+    """Resolve the Axiom rules engine checkout, preferring a sibling repo."""
     if policy_repo_root is not None:
-        sibling = Path(policy_repo_root).resolve().parent / "axiom-rules"
+        sibling = Path(policy_repo_root).resolve().parent / "axiom-rules-engine"
         if sibling.exists():
             return sibling.resolve()
-    return _resolve_repo_checkout("axiom-rules")
+    return _resolve_repo_checkout("axiom-rules-engine")
 
 
 def _resolve_policy_repo_for_corpus_source(
@@ -108,14 +108,14 @@ def _resolve_policy_repo_for_corpus_source(
     if override is not None:
         return override
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
-    repo_name = "rules-us" if jurisdiction == "us" else f"rules-{jurisdiction}"
+    repo_name = f"rulespec-{jurisdiction}"
     return _resolve_repo_checkout(repo_name)
 
 
 def _resolve_validation_repo_roots(rulespec_file: Path) -> tuple[Path, Path]:
-    """Resolve the policy repo root plus the Axiom Rules runtime for validation."""
+    """Resolve the policy repo root plus the Axiom rules engine for validation."""
     policy_repo_root = find_policy_repo_root(rulespec_file) or _resolve_repo_checkout(
-        "rules-us"
+        "rulespec-us"
     )
     return policy_repo_root, _resolve_runtime_axiom_rules_checkout(policy_repo_root)
 
@@ -205,9 +205,9 @@ def _utc_now_iso() -> str:
 
 
 def _default_rulespec_inventory_root() -> Path:
-    """Resolve the workspace root that contains rules-* repos."""
+    """Resolve the workspace root that contains rulespec-* repos."""
     workspace_root = Path(__file__).resolve().parents[3]
-    if any(workspace_root.glob("rules-*")):
+    if any(workspace_root.glob("rulespec-*")):
         return workspace_root
     return Path.home() / "TheAxiomFoundation"
 
@@ -255,7 +255,7 @@ def _is_composition_rulespec(payload: dict) -> bool:
 
 
 def build_rulespec_inventory(root: Path | None = None) -> dict:
-    """Build a RuleSpec inventory across sibling rules-* repos."""
+    """Build a RuleSpec inventory across sibling rulespec-* repos."""
     inventory_root = (root or _default_rulespec_inventory_root()).resolve()
     repo_summaries = []
     total_kind_counts: Counter[str] = Counter()
@@ -264,7 +264,7 @@ def build_rulespec_inventory(root: Path | None = None) -> dict:
     total_composition_files = 0
     total_rules = 0
 
-    for repo in sorted(inventory_root.glob("rules-*")):
+    for repo in sorted(inventory_root.glob("rulespec-*")):
         if not repo.is_dir():
             continue
 
@@ -412,13 +412,13 @@ def main():
 
     # inventory command
     inventory_parser = subparsers.add_parser(
-        "inventory", help="Show RuleSpec inventory across rules-* repos"
+        "inventory", help="Show RuleSpec inventory across rulespec-* repos"
     )
     inventory_parser.add_argument(
         "--root",
         type=Path,
         default=None,
-        help="Workspace root containing rules-* repos",
+        help="Workspace root containing rulespec-* repos",
     )
     inventory_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -431,7 +431,7 @@ def main():
         "--root",
         type=Path,
         default=None,
-        help="Workspace root containing rules-* repos",
+        help="Workspace root containing rulespec-* repos",
     )
     oracle_coverage_parser.add_argument(
         "--oracle",
@@ -472,7 +472,7 @@ def main():
         "--root",
         type=Path,
         default=None,
-        help="Workspace root containing rules-* repos",
+        help="Workspace root containing rulespec-* repos",
     )
     oracle_candidates_parser.add_argument(
         "--oracle",
@@ -509,7 +509,7 @@ def main():
         "--root",
         type=Path,
         default=None,
-        help="Workspace root containing rules-us-* repos",
+        help="Workspace root containing rulespec-us-* repos",
     )
     snap_readiness_parser.add_argument(
         "--corpus-root",
@@ -564,7 +564,7 @@ def main():
 
     # compile command
     compile_parser = subparsers.add_parser(
-        "compile", help="Compile a RuleSpec YAML file with Axiom Rules"
+        "compile", help="Compile a RuleSpec YAML file with the Axiom rules engine"
     )
     compile_parser.add_argument("file", type=Path, help="Path to RuleSpec YAML file")
     compile_parser.add_argument(
@@ -579,10 +579,12 @@ def main():
         help="Deprecated; execution is not part of RuleSpec compile",
     )
     compile_parser.add_argument(
-        "--axiom-rules-path",
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
         type=Path,
         default=None,
-        help="Path to axiom-rules repo (defaults to sibling checkout)",
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
     # encode command - run the current RuleSpec generation path
@@ -624,18 +626,18 @@ def main():
         help="Path to axiom-corpus repo (defaults to sibling checkout)",
     )
     encode_parser.add_argument(
-        "--axiom-rules-path",
+        "--axiom-rules-engine-path",
         dest="axiom_rules_path",
-        metavar="AXIOM_RULES_PATH",
+        metavar="AXIOM_RULES_ENGINE_PATH",
         type=Path,
         default=None,
-        help="Path to axiom-rules repo (defaults to sibling checkout)",
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
     encode_parser.add_argument(
         "--policy-repo-path",
         type=Path,
         default=None,
-        help="Path to jurisdiction rules repo (defaults to sibling rules-us checkout)",
+        help="Path to jurisdiction RuleSpec repo (defaults to sibling rulespec-us checkout)",
     )
     encode_parser.add_argument(
         "--mode",
@@ -697,18 +699,18 @@ def main():
         help="Path to axiom-corpus repo (defaults to sibling repo checkout)",
     )
     eval_parser.add_argument(
-        "--axiom-rules-path",
+        "--axiom-rules-engine-path",
         dest="axiom_rules_path",
-        metavar="AXIOM_RULES_PATH",
+        metavar="AXIOM_RULES_ENGINE_PATH",
         type=Path,
         default=None,
-        help="Path to axiom-rules repo (defaults to sibling checkout)",
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
     eval_parser.add_argument(
         "--policy-repo-path",
         type=Path,
         default=None,
-        help="Path to jurisdiction rules repo (defaults to sibling rules-us checkout)",
+        help="Path to jurisdiction RuleSpec repo (defaults to sibling rulespec-us checkout)",
     )
     eval_parser.add_argument(
         "--mode",
@@ -755,12 +757,12 @@ def main():
         help="Directory for eval artifacts and traces",
     )
     eval_source_parser.add_argument(
-        "--axiom-rules-path",
+        "--axiom-rules-engine-path",
         dest="axiom_rules_path",
-        metavar="AXIOM_RULES_PATH",
+        metavar="AXIOM_RULES_ENGINE_PATH",
         type=Path,
         default=None,
-        help="Path to axiom-rules repo (defaults to sibling checkout)",
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
     eval_source_parser.add_argument(
         "--corpus-path",
@@ -772,7 +774,7 @@ def main():
         "--policy-repo-path",
         type=Path,
         default=None,
-        help="Path to jurisdiction rules repo (defaults from corpus jurisdiction)",
+        help="Path to jurisdiction RuleSpec repo (defaults from corpus jurisdiction)",
     )
     eval_source_parser.add_argument(
         "--mode",
@@ -844,12 +846,12 @@ def main():
         help="Path to axiom-corpus repo (needed for citation cases; defaults to sibling repo checkout)",
     )
     eval_suite_parser.add_argument(
-        "--axiom-rules-path",
+        "--axiom-rules-engine-path",
         dest="axiom_rules_path",
-        metavar="AXIOM_RULES_PATH",
+        metavar="AXIOM_RULES_ENGINE_PATH",
         type=Path,
         default=None,
-        help="Path to axiom-rules repo (defaults to sibling checkout)",
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
     eval_suite_parser.add_argument(
         "--json",
@@ -873,12 +875,12 @@ def main():
         help="Optional manifest override (defaults to the manifest path recorded in suite-run.json)",
     )
     eval_suite_revalidate_parser.add_argument(
-        "--axiom-rules-path",
+        "--axiom-rules-engine-path",
         dest="axiom_rules_path",
-        metavar="AXIOM_RULES_PATH",
+        metavar="AXIOM_RULES_ENGINE_PATH",
         type=Path,
         default=None,
-        help="Path to axiom-rules repo (defaults to sibling checkout)",
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
     eval_suite_revalidate_parser.add_argument(
         "--corpus-path",
@@ -1311,7 +1313,7 @@ def cmd_proof_validate(args):
 
 
 def cmd_compile(args):
-    """Compile a RuleSpec YAML file with Axiom Rules."""
+    """Compile a RuleSpec YAML file with the Axiom rules engine."""
     if not args.file.exists():
         print(f"File not found: {args.file}")
         sys.exit(1)
@@ -1370,7 +1372,7 @@ def cmd_compile(args):
             print(json.dumps(output, indent=2, default=str))
         else:
             print(f"Compiled: {args.file}")
-            print(f"Axiom Rules: {axiom_rules_path}")
+            print(f"Axiom rules engine: {axiom_rules_path}")
             print(f"Rules: {len(rule_names)}")
             for name in rule_names:
                 print(f"  - {name}")
@@ -1519,7 +1521,7 @@ def cmd_stats(args):
 
 
 def cmd_inventory(args):
-    """Show RuleSpec inventory across rules-* repos."""
+    """Show RuleSpec inventory across rulespec-* repos."""
     inventory = build_rulespec_inventory(args.root)
 
     if args.json:
@@ -1550,7 +1552,7 @@ def cmd_inventory(args):
 
 
 def cmd_oracle_coverage(args):
-    """Show oracle coverage classification across rules-* repos."""
+    """Show oracle coverage classification across rulespec-* repos."""
     if args.oracle != "policyengine":
         print(f"Unsupported oracle: {args.oracle}")
         sys.exit(2)
@@ -2031,14 +2033,14 @@ def cmd_encode(args):
     model = args.model or DEFAULT_OPENAI_MODEL
     runner = f"{args.backend}:{model}"
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules")
-    policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rules-us")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
+    policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rulespec-us")
 
     if not corpus_path.exists():
         print(f"Axiom Corpus repo not found: {corpus_path}")
         sys.exit(1)
     if not axiom_rules_path.exists():
-        print(f"axiom-rules repo not found: {axiom_rules_path}")
+        print(f"axiom-rules-engine repo not found: {axiom_rules_path}")
         sys.exit(1)
     if not policy_repo_path.exists():
         print(f"Policy repo not found: {policy_repo_path}")
@@ -2059,7 +2061,7 @@ def cmd_encode(args):
     result = results[0]
     print(f"Output root: {args.output}")
     print(f"Axiom Corpus: {corpus_path}")
-    print(f"Axiom Rules: {axiom_rules_path}")
+    print(f"Axiom rules engine: {axiom_rules_path}")
     print(f"Policy repo: {policy_repo_path}")
     print(f"Runner: {runner}")
     print(f"Mode: {args.mode}")
@@ -2399,7 +2401,7 @@ def _validate_generated_encoding_in_policy_overlay(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         overlay_parent = Path(tmpdir)
-        for sibling in policy_repo_path.parent.glob("rules-*"):
+        for sibling in policy_repo_path.parent.glob("rulespec-*"):
             if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
                 continue
             sibling_target = overlay_parent / sibling.name
@@ -2607,10 +2609,8 @@ def _relative_rulespec_import_target(relative_output: Path) -> str:
 
 def _repo_jurisdiction_prefix(policy_repo_path: Path) -> str:
     name = policy_repo_path.name
-    if name == "rules-us":
-        return "us"
-    if name.startswith("rules-"):
-        return name.removeprefix("rules-")
+    if name.startswith("rulespec-"):
+        return name.removeprefix("rulespec-")
     return name
 
 
@@ -3048,14 +3048,14 @@ def cmd_eval(args):
         args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules")
-    policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rules-us")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
+    policy_repo_path = args.policy_repo_path or _resolve_repo_checkout("rulespec-us")
 
     if not corpus_path.exists():
         print(f"Axiom Corpus repo not found: {corpus_path}")
         sys.exit(1)
     if not axiom_rules_path.exists():
-        print(f"axiom-rules repo not found: {axiom_rules_path}")
+        print(f"axiom-rules-engine repo not found: {axiom_rules_path}")
         sys.exit(1)
     if not policy_repo_path.exists():
         print(f"Policy repo not found: {policy_repo_path}")
@@ -3078,7 +3078,7 @@ def cmd_eval(args):
 
     print(f"Output root: {args.output}")
     print(f"Axiom Corpus: {corpus_path}")
-    print(f"Axiom Rules: {axiom_rules_path}")
+    print(f"Axiom rules engine: {axiom_rules_path}")
     print(f"Policy repo: {policy_repo_path}")
     print(f"Mode: {args.mode}")
     print()
@@ -3129,7 +3129,7 @@ def cmd_eval_source(args):
         print(f"Policy repo not found: {policy_repo_path}")
         sys.exit(1)
     if not runtime_axiom_rules_path.exists():
-        print(f"axiom-rules repo not found: {runtime_axiom_rules_path}")
+        print(f"axiom-rules-engine repo not found: {runtime_axiom_rules_path}")
         sys.exit(1)
 
     results = run_source_eval(
@@ -3156,7 +3156,7 @@ def cmd_eval_source(args):
     print(f"Output root: {args.output}")
     print(f"Axiom Corpus: {corpus_path}")
     print(f"Policy repo: {policy_repo_path}")
-    print(f"Axiom Rules: {runtime_axiom_rules_path}")
+    print(f"Axiom rules engine: {runtime_axiom_rules_path}")
     print(f"Corpus source: {source_unit.citation_path} ({source_unit.source})")
     if args.policyengine_rule_hint:
         print(f"PolicyEngine rule hint: {args.policyengine_rule_hint}")
@@ -3318,11 +3318,11 @@ def cmd_eval_suite(args):
     """Run a manifest-driven benchmark suite and evaluate readiness gates."""
     manifest = load_eval_suite_manifest(args.manifest)
     effective_runners = _effective_runner_specs(args.runner or manifest.runners, args)
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
 
     if not axiom_rules_path.exists():
-        print(f"axiom-rules repo not found: {axiom_rules_path}")
+        print(f"axiom-rules-engine repo not found: {axiom_rules_path}")
         sys.exit(1)
 
     has_corpus_case = any(
@@ -3421,7 +3421,7 @@ def cmd_eval_suite(args):
     print(f"Suite: {manifest.name}")
     print(f"Output root: {args.output}")
     print(f"Runners: {', '.join(effective_runners)}")
-    print(f"Axiom Rules: {axiom_rules_path}")
+    print(f"Axiom rules engine: {axiom_rules_path}")
     if has_corpus_case:
         print(f"Axiom Corpus: {corpus_path}")
     print()
@@ -3499,10 +3499,10 @@ def cmd_eval_suite_revalidate(args):
         sys.exit(1)
 
     manifest = load_eval_suite_manifest(manifest_path)
-    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules")
+    axiom_rules_path = args.axiom_rules_path or _resolve_repo_checkout("axiom-rules-engine")
     corpus_path = args.corpus_path or _resolve_repo_checkout("axiom-corpus")
     if not axiom_rules_path.exists():
-        print(f"axiom-rules repo not found: {axiom_rules_path}")
+        print(f"axiom-rules-engine repo not found: {axiom_rules_path}")
         sys.exit(1)
     if not corpus_path.exists():
         print(f"Axiom Corpus repo not found: {corpus_path}")

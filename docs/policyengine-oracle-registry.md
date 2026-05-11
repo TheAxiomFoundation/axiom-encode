@@ -2,7 +2,7 @@
 
 RuleSpec is the executable legal computation layer. PolicyEngine mappings are
 oracle-adapter data, so they live in `axiom-encode`, outside RuleSpec and outside
-`rules-*` repositories.
+`rulespec-*` repositories.
 
 ## Boundary
 
@@ -129,7 +129,7 @@ batch lands:
 axiom-encode oracle-coverage --root /path/to/workspace --program snap
 ```
 
-The report scans sibling `rules-*` repositories, constructs canonical legal IDs
+The report scans sibling `rulespec-*` repositories, constructs canonical legal IDs
 for every executable `kind: parameter` and `kind: derived` output, and classifies
 each output as:
 

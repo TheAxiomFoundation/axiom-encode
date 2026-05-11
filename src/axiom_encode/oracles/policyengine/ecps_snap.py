@@ -2,7 +2,7 @@
 
 The comparator projects PolicyEngine ECPS (enhanced CPS) SPM-unit records into a
 jurisdiction's SNAP composition input surface, including related member facts,
-runs Axiom Rules over the projected records, and compares regular monthly SNAP
+runs the Axiom rules engine over the projected records, and compares regular monthly SNAP
 allotments against PolicyEngine's normal allotment. It uses these targets
 because ECPS records do not include application dates for initial-month
 proration, and PolicyEngine's top-level ``snap`` microsimulation value includes
@@ -75,7 +75,7 @@ JURISDICTION_CONFIGS = {
     "us-co": JurisdictionConfig(
         jurisdiction="us-co",
         state_code="CO",
-        repo_name="rules-us-co",
+        repo_name="rulespec-us-co",
         program_relative_path=Path(
             "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
         ),
@@ -109,7 +109,7 @@ JURISDICTION_CONFIGS = {
     "us-ny": JurisdictionConfig(
         jurisdiction="us-ny",
         state_code="NY",
-        repo_name="rules-us-ny",
+        repo_name="rulespec-us-ny",
         program_relative_path=Path(
             "policies/otda/snap/fy-2026-benefit-calculation.yaml"
         ),
@@ -490,13 +490,13 @@ def configure_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
         "--axiom-binary",
         type=Path,
         default=None,
-        help="Path to the axiom-rules binary. Defaults to a sibling checkout.",
+        help="Path to the axiom-rules-engine binary. Defaults to a sibling checkout.",
     )
     parser.add_argument(
         "--workspace-root",
         type=Path,
         default=None,
-        help="Workspace containing axiom-rules and rules-* repos.",
+        help="Workspace containing axiom-rules-engine and rulespec-* repos.",
     )
     parser.add_argument("--write-csv", type=Path, default=None)
     parser.add_argument(
@@ -548,9 +548,9 @@ def resolve_workspace_root(override: Path | None = None) -> Path:
     if override is not None:
         return override.resolve()
     for candidate in _workspace_candidates():
-        if (candidate / "axiom-rules").exists() or any(candidate.glob("rules-*")):
+        if (candidate / "axiom-rules-engine").exists() or any(candidate.glob("rulespec-*")):
             return candidate.resolve()
-        if (candidate / "_axiom" / "axiom-rules").exists():
+        if (candidate / "_axiom" / "axiom-rules-engine").exists():
             return candidate.resolve()
     return (Path.home() / "TheAxiomFoundation").resolve()
 
@@ -576,9 +576,9 @@ def resolve_axiom_binary(workspace_root: Path, override: Path | None) -> Path:
     if override is not None:
         return override.resolve()
     candidates = [
-        workspace_root / "axiom-rules" / "target" / "debug" / "axiom-rules",
-        workspace_root / "_axiom" / "axiom-rules" / "target" / "debug" / "axiom-rules",
-        Path.cwd() / "_axiom" / "axiom-rules" / "target" / "debug" / "axiom-rules",
+        workspace_root / "axiom-rules-engine" / "target" / "debug" / "axiom-rules-engine",
+        workspace_root / "_axiom" / "axiom-rules-engine" / "target" / "debug" / "axiom-rules-engine",
+        Path.cwd() / "_axiom" / "axiom-rules-engine" / "target" / "debug" / "axiom-rules-engine",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -589,22 +589,22 @@ def resolve_axiom_binary(workspace_root: Path, override: Path | None) -> Path:
 def axiom_rules_env(program: Path, workspace_root: Path) -> dict[str, str]:
     env = os.environ.copy()
     roots = [
-        workspace_root / "rules-us",
-        workspace_root / "_axiom" / "rules-us",
+        workspace_root / "rulespec-us",
+        workspace_root / "_axiom" / "rulespec-us",
         program.parent,
         program.parent.parent,
     ]
     current_repo = program.resolve()
     for parent in current_repo.parents:
-        if parent.name.startswith("rules-"):
+        if parent.name.startswith("rulespec-"):
             roots.append(parent)
             break
-    roots.extend(sorted(workspace_root.glob("rules-*")))
-    roots.extend(sorted((workspace_root / "_axiom").glob("rules-*")))
+    roots.extend(sorted(workspace_root.glob("rulespec-*")))
+    roots.extend(sorted((workspace_root / "_axiom").glob("rulespec-*")))
     existing = [path.resolve() for path in roots if path.exists()]
     configured = [
         Path(path).resolve()
-        for path in env.get("AXIOM_RULE_REPO_ROOTS", "").split(":")
+        for path in env.get("AXIOM_RULESPEC_REPO_ROOTS", "").split(":")
         if path
     ]
     unique_roots = []
@@ -614,7 +614,7 @@ def axiom_rules_env(program: Path, workspace_root: Path) -> dict[str, str]:
             continue
         seen.add(path)
         unique_roots.append(path)
-    env["AXIOM_RULE_REPO_ROOTS"] = ":".join(str(path) for path in unique_roots)
+    env["AXIOM_RULESPEC_REPO_ROOTS"] = ":".join(str(path) for path in unique_roots)
     return env
 
 
@@ -1595,7 +1595,7 @@ def main(args: argparse.Namespace | None = None) -> int:
         artifact = Path(temp_dir) / "program.compiled.json"
         print(f"Compiling {config.display_name} RuleSpec composition...")
         compile_program(axiom_binary, program, artifact, env=env)
-        print("Running Axiom Rules over projected ECPS records...")
+        print("Running the Axiom rules engine over projected ECPS records...")
         results = run_axiom_cases(
             binary=axiom_binary,
             artifact=artifact,

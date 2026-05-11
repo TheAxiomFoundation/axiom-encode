@@ -104,7 +104,7 @@ POLICYENGINE_US_PYTHON_CANDIDATES = [
 ]
 WORKSPACES = [
     AXIOM_ENCODE_ROOT,
-    *sorted(path for path in AXIOM_ENCODE_ROOT.parent.glob("rules-*") if path.is_dir()),
+    *sorted(path for path in AXIOM_ENCODE_ROOT.parent.glob("rulespec-*") if path.is_dir()),
 ]
 RETRYABLE_PATTERNS = (
     "usage limit",
@@ -275,7 +275,7 @@ def infer_repo(corpus_citation_path: str | None) -> str:
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0]
     if not jurisdiction:
         return "none"
-    return "rules-us" if jurisdiction == "us" else f"rules-{jurisdiction}"
+    return "rulespec-us" if jurisdiction == "us" else f"rulespec-{jurisdiction}"
 
 
 def resolve_manifest_case_corpus_citation_path(

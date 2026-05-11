@@ -807,7 +807,8 @@ _PE_UNSUPPORTED_ERROR_PATTERNS = (
 )
 _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
     r"(?:as defined in|defined in|meaning given in|within the meaning of|described in)\s+"
-    r"section\s+([0-9A-Za-z.-]+(?:\([^)]+\))*)",
+    r"section\s+(?P<section>[0-9A-Za-z.-]+(?:\([^)]+\))*)"
+    r"(?:\s+of\s+title\s+(?P<title>[0-9A-Za-z.-]+))?",
     re.IGNORECASE,
 )
 
@@ -879,7 +880,7 @@ def _infer_us_state_code_from_rulespec_path(
 ) -> str | None:
     """Infer a US state code from canonical RuleSpec repo paths or legal ids."""
     path_text = rulespec_file.as_posix().lower()
-    match = re.search(r"(?:^|/)rules-us-([a-z]{2})(?:/|$)", path_text)
+    match = re.search(r"(?:^|/)rulespec-us-([a-z]{2})(?:/|$)", path_text)
     if match:
         return match.group(1).upper()
 
@@ -2496,13 +2497,13 @@ def _rulespec_repo_root(rules_file: Path) -> Path | None:
     path = Path(rules_file).resolve()
     search = path if path.is_dir() else path.parent
     for candidate in (search, *search.parents):
-        if candidate.name.startswith("rules-"):
+        if candidate.name.startswith("rulespec-"):
             return candidate
     return None
 
 
 def _rulespec_repo_prefix(repo_root: Path) -> str:
-    return repo_root.name.removeprefix("rules-")
+    return repo_root.name.removeprefix("rulespec-")
 
 
 def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
@@ -2517,9 +2518,9 @@ def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
     prefix_parts = _rulespec_repo_prefix(repo_root).split("-")
     for length in range(len(prefix_parts) - 1, 0, -1):
         ancestor_prefix = "-".join(prefix_parts[:length])
-        add(repo_root.parent / f"rules-{ancestor_prefix}")
-        add(repo_root / "_axiom" / f"rules-{ancestor_prefix}")
-        add(repo_root.parent / "_axiom" / f"rules-{ancestor_prefix}")
+        add(repo_root.parent / f"rulespec-{ancestor_prefix}")
+        add(repo_root / "_axiom" / f"rulespec-{ancestor_prefix}")
+        add(repo_root.parent / "_axiom" / f"rulespec-{ancestor_prefix}")
 
     unique: list[Path] = []
     seen: set[Path] = set()
@@ -2660,7 +2661,7 @@ def _canonical_rulespec_file_target(
     repo_root = (
         Path(policy_repo_path)
         if policy_repo_path is not None
-        and Path(policy_repo_path).name.startswith("rules-")
+        and Path(policy_repo_path).name.startswith("rulespec-")
         else _rulespec_repo_root(rules_file)
     )
     if repo_root is None:
@@ -2684,7 +2685,7 @@ def _strict_rules_repo_layout_checks_enabled(
     if policy_repo_path is None:
         return False
     repo_root = Path(policy_repo_path)
-    if not repo_root.name.startswith("rules-"):
+    if not repo_root.name.startswith("rulespec-"):
         return False
     try:
         rules_file.resolve().relative_to(repo_root.resolve())
@@ -3466,7 +3467,7 @@ def _resolve_rulespec_import_file_static(
     repo_prefix = _rulespec_import_prefix_static(import_path)
     if repo_prefix:
         candidate = (
-            policy_repo_path.parent / f"rules-{repo_prefix}" / f"{normalized}.yaml"
+            policy_repo_path.parent / f"rulespec-{repo_prefix}" / f"{normalized}.yaml"
         )
         if candidate.exists():
             return candidate
@@ -4525,7 +4526,7 @@ def _parse_rulespec_target(target: str) -> _RuleSpecTargetRef | None:
     symbol = match.group("symbol")
     return _RuleSpecTargetRef(
         prefix=prefix,
-        repo_name=f"rules-{prefix}",
+        repo_name=f"rulespec-{prefix}",
         relative_path=relative_path,
         symbol=symbol.strip() if symbol and symbol.strip() else None,
     )
@@ -4562,7 +4563,7 @@ def _candidate_rulespec_repo_roots(
         else:
             candidates.append(expanded / repo_name)
 
-    env_roots = os.environ.get("AXIOM_RULE_REPO_ROOTS", "")
+    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
     for raw_root in env_roots.split(os.pathsep):
         if raw_root.strip():
             add(Path(raw_root.strip()))
@@ -5151,7 +5152,7 @@ class ValidatorPipeline:
             )
 
     def _pythonpath_env(self) -> dict[str, str]:
-        """Build an env that prefers the configured Axiom Rules checkout."""
+        """Build an env that prefers the configured Axiom rules engine checkout."""
         env = dict(os.environ)
         rules_src = self.axiom_rules_path / "src"
         if rules_src.exists():
@@ -5165,7 +5166,7 @@ class ValidatorPipeline:
         """Build an env that can resolve canonical RuleSpec repo imports."""
         env = self._pythonpath_env()
         roots = [self.policy_repo_path, self.policy_repo_path.parent]
-        existing_roots = env.get("AXIOM_RULE_REPO_ROOTS", "")
+        existing_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
         if existing_roots:
             roots.extend(
                 Path(root) for root in existing_roots.split(os.pathsep) if root
@@ -5177,7 +5178,7 @@ class ValidatorPipeline:
             if raw and raw not in seen:
                 seen.add(raw)
                 deduped_roots.append(raw)
-        env["AXIOM_RULE_REPO_ROOTS"] = os.pathsep.join(deduped_roots)
+        env["AXIOM_RULESPEC_REPO_ROOTS"] = os.pathsep.join(deduped_roots)
         return env
 
     def validate(
@@ -5389,19 +5390,19 @@ class ValidatorPipeline:
         return rules_file.with_name(f"{rules_file.stem}.test.yaml")
 
     def _axiom_rules_binary(self) -> Path:
-        """Resolve the local Axiom Rules CLI binary."""
+        """Resolve the local Axiom rules engine CLI binary."""
         candidates = [
-            self.axiom_rules_path / "target" / "debug" / "axiom-rules",
-            self.axiom_rules_path / "target" / "release" / "axiom-rules",
-            self.axiom_rules_path / "axiom-rules",
+            self.axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
+            self.axiom_rules_path / "target" / "release" / "axiom-rules-engine",
+            self.axiom_rules_path / "axiom-rules-engine",
         ]
         for candidate in candidates:
             if candidate.exists():
                 return candidate
-        if resolved := shutil.which("axiom-rules"):
+        if resolved := shutil.which("axiom-rules-engine"):
             return Path(resolved)
         raise FileNotFoundError(
-            f"axiom-rules binary not found under {self.axiom_rules_path} or on PATH"
+            f"axiom-rules-engine binary not found under {self.axiom_rules_path} or on PATH"
         )
 
     def _compile_rulespec_to_artifact(
@@ -5409,7 +5410,7 @@ class ValidatorPipeline:
         rules_file: Path,
         output_path: Path,
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
-        """Compile RuleSpec YAML to an Axiom Rules artifact JSON file."""
+        """Compile RuleSpec YAML to an Axiom rules engine artifact JSON file."""
         binary = self._axiom_rules_binary()
         result = subprocess.run(
             [
@@ -5439,10 +5440,10 @@ class ValidatorPipeline:
             len(program.get(key) or ())
             for key in ("parameters", "derived", "relations")
         )
-        return f"Successfully compiled {rule_count} RuleSpec rule(s) with Axiom Rules"
+        return f"Successfully compiled {rule_count} RuleSpec rule(s) with the Axiom rules engine"
 
     def _run_rulespec_compile_check(self, rules_file: Path) -> ValidationResult:
-        """Compile RuleSpec YAML through the Axiom Rules engine."""
+        """Compile RuleSpec YAML through the Axiom rules engine."""
         start = time.time()
         issues: list[str] = []
         try:
@@ -5453,7 +5454,7 @@ class ValidatorPipeline:
                 )
                 if result.returncode != 0:
                     detail = result.stderr.strip() or result.stdout.strip()
-                    issues.append(f"Axiom Rules compile failed: {detail}")
+                    issues.append(f"Axiom rules engine compile failed: {detail}")
                     return ValidationResult(
                         validator_name="compile",
                         passed=False,
@@ -5470,7 +5471,7 @@ class ValidatorPipeline:
                 raw_output=self._rulespec_compile_success_output(payload),
             )
         except Exception as exc:
-            issues.append(f"Axiom Rules compile failed: {exc}")
+            issues.append(f"Axiom rules engine compile failed: {exc}")
             return ValidationResult(
                 validator_name="compile",
                 passed=False,
@@ -5480,7 +5481,7 @@ class ValidatorPipeline:
             )
 
     def _run_compile_check(self, rulespec_file: Path) -> ValidationResult:
-        """Tier 0: Compile check against Axiom Rules RuleSpec."""
+        """Tier 0: Compile check against the Axiom rules engine RuleSpec."""
         if not self._is_rulespec_file(rulespec_file):
             return ValidationResult(
                 validator_name="compile",
@@ -5583,7 +5584,7 @@ class ValidatorPipeline:
         )
 
     def _rulespec_scalar_value(self, value: Any) -> dict[str, Any]:
-        """Coerce Python/YAML scalar values to Axiom Rules ScalarValueSpec JSON."""
+        """Coerce Python/YAML scalar values to Axiom rules engine ScalarValueSpec JSON."""
         if isinstance(value, bool):
             return {"kind": "bool", "value": value}
         if isinstance(value, int):
@@ -5632,7 +5633,7 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name: dict[str, list[str]] | None = None,
         module_target: str | None = None,
     ) -> dict[str, Any]:
-        """Build an Axiom Rules dataset from compact RuleSpec test inputs."""
+        """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
             case_input = {}
         if not isinstance(case_input, dict):
@@ -5854,7 +5855,7 @@ class ValidatorPipeline:
         actual: dict[str, Any],
         expected: dict[str, Any],
     ) -> bool:
-        """Compare Axiom Rules scalar value specs, allowing int/decimal equality."""
+        """Compare Axiom rules engine scalar value specs, allowing int/decimal equality."""
         actual_kind = actual.get("kind")
         expected_kind = expected.get("kind")
         numeric = {"integer", "decimal"}
@@ -6189,14 +6190,14 @@ class ValidatorPipeline:
             raw_output = compile_result.stdout + compile_result.stderr
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
-                issues.append(f"Axiom Rules compile failed: {detail}")
+                issues.append(f"Axiom rules engine compile failed: {detail}")
             elif isinstance(payload, dict):
                 compiled_payload = payload
                 raw_output = self._rulespec_compile_success_output(payload)
             else:
-                issues.append("Axiom Rules compile did not return an artifact payload.")
+                issues.append("Axiom rules engine compile did not return an artifact payload.")
         except Exception as exc:
-            issues.append(f"Axiom Rules compile failed: {exc}")
+            issues.append(f"Axiom rules engine compile failed: {exc}")
 
         issues.extend(find_ungrounded_numeric_issues(content))
         issues.extend(find_deprecated_source_url_issues(content))
@@ -6495,6 +6496,8 @@ class ValidatorPipeline:
         for citation, import_path in self._extract_definition_cross_references(
             source_text, title
         ):
+            if not self._rulespec_import_target_exists(import_path):
+                continue
             if any(
                 existing == import_path or existing.startswith(import_path + "/")
                 for existing in imports
@@ -6506,6 +6509,15 @@ class ValidatorPipeline:
                 f"from {import_path}"
             )
         return issues
+
+    def _rulespec_import_target_exists(self, import_path: str) -> bool:
+        """Return whether a canonical statute import target exists locally."""
+        target = self.policy_repo_path / "statutes" / self._import_to_relative_rulespec_path(
+            import_path
+        )
+        if target.exists():
+            return True
+        return target.with_suffix("").is_dir()
 
     def _check_cross_reference_exception_placeholders(
         self, rulespec_file: Path
@@ -7178,8 +7190,9 @@ class ValidatorPipeline:
         refs: list[tuple[str, str]] = []
         seen: set[str] = set()
         for match in _DEFINITION_CROSS_REFERENCE_PATTERN.finditer(source_text):
-            citation = match.group(1)
-            import_path = self._section_reference_to_import_path(title, citation)
+            citation = match.group("section")
+            target_title = match.group("title") or title
+            import_path = self._section_reference_to_import_path(target_title, citation)
             if not import_path or import_path in seen:
                 continue
             seen.add(import_path)
@@ -10947,9 +10960,9 @@ def validate_file(rulespec_file: str | Path) -> PipelineResult:
     policy_repo_root = find_policy_repo_root(file_path)
     if policy_repo_root is None:
         policy_repo_root = file_path.parent
-    axiom_rules_path = policy_repo_root.parent / "axiom-rules"
+    axiom_rules_path = policy_repo_root.parent / "axiom-rules-engine"
     if not axiom_rules_path.exists():
-        axiom_rules_path = Path(__file__).resolve().parents[4] / "axiom-rules"
+        axiom_rules_path = Path(__file__).resolve().parents[4] / "axiom-rules-engine"
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo_root,

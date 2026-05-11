@@ -1,6 +1,6 @@
 # Axiom Encode
 
-AI-assisted Axiom RuleSpec encoding infrastructure. This repo owns the automation layer for turning source legal text into jurisdiction-repo `*.yaml` RuleSpec artifacts and validating them with `axiom-rules`.
+AI-assisted Axiom RuleSpec encoding infrastructure. This repo owns the automation layer for turning source legal text into jurisdiction-repo `*.yaml` RuleSpec artifacts and validating them with `axiom-rules-engine`.
 
 ## Installation
 
@@ -30,7 +30,7 @@ oracles. It also resolves declared source-claim IDs against local
 placeholder-subject claims. Strict proof validation is enabled per file with
 `module.proof_validation.required: true`.
 
-`inventory` counts checked-in RuleSpec files across sibling `rules-*` repos,
+`inventory` counts checked-in RuleSpec files across sibling `rulespec-*` repos,
 separating source/provision encodings from composition modules and reporting
 rule-kind totals. Use `--json` when feeding the current inventory into status
 reports or dashboards.
@@ -128,7 +128,7 @@ uv run --with policyengine-us --with numpy \
   --positive-snap-only
 ```
 
-The command runs `axiom-rules` once over projected ECPS records and
+The command runs `axiom-rules-engine` once over projected ECPS records and
 compares `us:statutes/7/2017/a#snap_regular_month_allotment` to PolicyEngine
 `snap_normal_allotment`. Use `--jurisdiction us-co` or `--jurisdiction us-ny`;
 add `--fail-on-mismatch` in CI when exact parity is expected, or

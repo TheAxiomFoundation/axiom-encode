@@ -15,13 +15,13 @@ As of 2026-04-10:
 
 - Checked-in jurisdictional RuleSpec corpus: 483 files.
 - Repo counts:
-  - `rules-uk`: 146
-  - `rules-us`: 266
-  - `rules-us-ca`: 19
-  - `rules-us-co`: 18
-  - `rules-us-ny`: 15
-  - `rules-us-tx`: 11
-  - `rules-ca`: 8
+  - `rulespec-uk`: 146
+  - `rulespec-us`: 266
+  - `rulespec-us-ca`: 19
+  - `rulespec-us-co`: 18
+  - `rulespec-us-ny`: 15
+  - `rulespec-us-tx`: 11
+  - `rulespec-ca`: 8
 - Recent UK benchmark coverage across the main bulk waves: 165 cases.
   - [uk_wave18_soak.yaml](../benchmarks/uk_wave18_soak.yaml): 25
   - [uk_wave19_scale_seed.yaml](../benchmarks/uk_wave19_scale_seed.yaml): 32
@@ -235,7 +235,7 @@ As of 2026-04-10:
 - Hypothesis:
   - The remaining Colorado Works misses were not mostly parser failures; they were a mix of repo-augmented harness mismatches and prompt-level import/test conventions that the model was inferring incorrectly.
 - Effect:
-  - The harness now preserves canonical import paths for sibling `rules-*` corpora instead of collapsing those files under `external/...`.
+  - The harness now preserves canonical import paths for sibling `rulespec-*` corpora instead of collapsing those files under `external/...`.
   - Validation import-closure handling was tightened for benchmark workspaces and mixed import-block syntax.
   - Prompt guidance became more explicit about direct factual inputs, chart-consistent tests, canonical import targets, and unquoted `imports:` entries.
   - Codex eval waiting logic now terminates once output has persisted long enough, reducing hangs after the model has already emitted a final bundle.
@@ -330,7 +330,7 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [asset-limits-current-effective.txt](../../rules-us/sources/slices/usda/snap/fy-2026-cola/asset-limits-current-effective.txt)
+  - [asset-limits-current-effective.txt](../../rulespec-us/sources/slices/usda/snap/fy-2026-cola/asset-limits-current-effective.txt)
   - [us-snap-asset-test-current-effective-refresh1-interrupted-20260412](../artifacts/eval-suites/us-snap-asset-test-current-effective-refresh1-interrupted-20260412)
   - [us-snap-asset-test-current-effective-refresh5-interrupted-20260412](../artifacts/eval-suites/us-snap-asset-test-current-effective-refresh5-interrupted-20260412)
   - [us-snap-asset-test-current-effective-refresh6-ready-20260412](../artifacts/eval-suites/us-snap-asset-test-current-effective-refresh6-ready-20260412)
@@ -359,7 +359,7 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [is_snap_eligible.txt](../../rules-us/sources/slices/7-USC/snap/current-effective/is_snap_eligible.txt)
+  - [is_snap_eligible.txt](../../rulespec-us/sources/slices/7-USC/snap/current-effective/is_snap_eligible.txt)
   - [us-snap-eligibility-refresh1-failed-20260412](../artifacts/eval-suites/us-snap-eligibility-refresh1-failed-20260412)
   - [us-snap-eligibility-refresh2-failed-20260412](../artifacts/eval-suites/us-snap-eligibility-refresh2-failed-20260412)
   - [us-snap-eligibility-refresh3-interrupted-20260412](../artifacts/eval-suites/us-snap-eligibility-refresh3-interrupted-20260412)
@@ -385,7 +385,7 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_net_income_pre_shelter.txt](../../rules-us/sources/slices/7-USC/snap/current-effective/snap_net_income_pre_shelter.txt)
+  - [snap_net_income_pre_shelter.txt](../../rulespec-us/sources/slices/7-USC/snap/current-effective/snap_net_income_pre_shelter.txt)
   - [us-snap-earned-income-deduction-refresh5-failed-20260412](../artifacts/eval-suites/us-snap-earned-income-deduction-refresh5-failed-20260412)
   - [us-snap-earned-income-deduction-refresh6-ready-20260412](../artifacts/eval-suites/us-snap-earned-income-deduction-refresh6-ready-20260412)
   - [us-snap-net-income-pre-shelter-refresh8-failed-20260412](../artifacts/eval-suites/us-snap-net-income-pre-shelter-refresh8-failed-20260412)
@@ -412,9 +412,9 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_standard_utility_allowance_nc.txt](../../rules-us/sources/slices/ncdhhs/fns/360/current-effective/snap_standard_utility_allowance_nc.txt)
-  - [snap_limited_utility_allowance_nc.txt](../../rules-us/sources/slices/ncdhhs/fns/360/current-effective/snap_limited_utility_allowance_nc.txt)
-  - [snap_individual_utility_allowance_nc.txt](../../rules-us/sources/slices/ncdhhs/fns/360/current-effective/snap_individual_utility_allowance_nc.txt)
+  - [snap_standard_utility_allowance_nc.txt](../../rulespec-us/sources/slices/ncdhhs/fns/360/current-effective/snap_standard_utility_allowance_nc.txt)
+  - [snap_limited_utility_allowance_nc.txt](../../rulespec-us/sources/slices/ncdhhs/fns/360/current-effective/snap_limited_utility_allowance_nc.txt)
+  - [snap_individual_utility_allowance_nc.txt](../../rulespec-us/sources/slices/ncdhhs/fns/360/current-effective/snap_individual_utility_allowance_nc.txt)
   - [us-snap-nc-standard-utility-allowance-refresh8-reviewer-timeout-20260412](../artifacts/eval-suites/us-snap-nc-standard-utility-allowance-refresh8-reviewer-timeout-20260412)
   - [us-snap-nc-standard-utility-allowance-refresh9-ready-20260412](../artifacts/eval-suites/us-snap-nc-standard-utility-allowance-refresh9-ready-20260412)
   - [us-snap-nc-limited-utility-allowance-refresh1-ready-20260412](../artifacts/eval-suites/us-snap-nc-limited-utility-allowance-refresh1-ready-20260412)
@@ -433,7 +433,7 @@ As of 2026-04-10:
   - Axiom Encode grounding now ignores row-labeled schedule helper names the same way it already ignored worded helper labels, so a flat TUA table no longer fails the zero-ungrounded gate on helper labels alone.
   - The refreshed NC telephone utility allowance benchmark now reaches a clean ready state with success, compile, CI, zero-ungrounded numerics, generalist review, and PolicyEngine all passing.
 - Primary evidence paths:
-  - [snap_individual_utility_allowance_nc.txt](../../rules-us/sources/slices/ncdhhs/fns/360/current-effective/snap_individual_utility_allowance_nc.txt)
+  - [snap_individual_utility_allowance_nc.txt](../../rulespec-us/sources/slices/ncdhhs/fns/360/current-effective/snap_individual_utility_allowance_nc.txt)
   - [phone.yaml](../../../worktrees/policyengine-us-main-view/policyengine_us/parameters/gov/usda/snap/income/deductions/utility/single/phone.yaml)
   - [snap_individual_utility_allowance.yaml](../../../worktrees/policyengine-us-main-view/policyengine_us/tests/policy/baseline/gov/usda/snap/income/deductions/snap_individual_utility_allowance.yaml)
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
@@ -462,8 +462,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_limited_utility_allowance_tn.txt](../../rules-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_limited_utility_allowance_tn.txt)
-  - [snap_standard_utility_allowance_tn.txt](../../rules-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_standard_utility_allowance_tn.txt)
+  - [snap_limited_utility_allowance_tn.txt](../../rulespec-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_limited_utility_allowance_tn.txt)
+  - [snap_standard_utility_allowance_tn.txt](../../rulespec-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_standard_utility_allowance_tn.txt)
   - [us-snap-tn-limited-utility-allowance-refresh4-ready-20260412](../artifacts/eval-suites/us-snap-tn-limited-utility-allowance-refresh4-ready-20260412)
   - [us-snap-tn-standard-utility-allowance-refresh5-failed-20260412](../artifacts/eval-suites/us-snap-tn-standard-utility-allowance-refresh5-failed-20260412)
   - [us-snap-tn-standard-utility-allowance-refresh7-ready-20260412](../artifacts/eval-suites/us-snap-tn-standard-utility-allowance-refresh7-ready-20260412)
@@ -481,46 +481,46 @@ As of 2026-04-10:
   - The fresh Tennessee telephone replay reached a clean ready state against compile, CI, generalist review, and PolicyEngine without additional harness tuning, which is good evidence that the repaired state-overlay utility-allowance pattern now generalizes across all three Tennessee allowance categories.
 - Primary evidence paths:
   - [us_snap_tn_individual_utility_allowance_refresh.yaml](../benchmarks/us_snap_tn_individual_utility_allowance_refresh.yaml)
-  - [snap_individual_utility_allowance_tn.txt](../../rules-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_individual_utility_allowance_tn.txt)
+  - [snap_individual_utility_allowance_tn.txt](../../rulespec-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_individual_utility_allowance_tn.txt)
   - [us-snap-tn-individual-utility-allowance-refresh1-ready-20260412](../artifacts/eval-suites/us-snap-tn-individual-utility-allowance-refresh1-ready-20260412)
 
-### 2026-04-12: Tennessee SNAP source corpus moved out of rules-us into rules-us-tn
+### 2026-04-12: Tennessee SNAP source corpus moved out of rulespec-us into rulespec-us-tn
 
 - Primary commits:
   - `6302f5a` `Initialize Tennessee jurisdiction source repo`
-  - `08360c4` `Remove Tennessee overlays from federal rules-us`
+  - `08360c4` `Remove Tennessee overlays from federal rulespec-us`
 - Hypothesis:
-  - The Tennessee SNAP utility slices were benchmark-clean, but they still lived in `rules-us`, which violates the intended boundary that repos correspond to jurisdictions rather than program labels. Moving those sources into a dedicated `rules-us-tn` repo should preserve benchmark behavior while making the repository structure align with the legal/policy authority.
+  - The Tennessee SNAP utility slices were benchmark-clean, but they still lived in `rulespec-us`, which violates the intended boundary that repos correspond to jurisdictions rather than program labels. Moving those sources into a dedicated `rulespec-us-tn` repo should preserve benchmark behavior while making the repository structure align with the legal/policy authority.
 - Effect:
-  - Created a new Tennessee jurisdiction repo, `rules-us-tn`, with Tennessee source slices and minimal validation/docs scaffolding.
-  - Removed the Tennessee utility source slices from `rules-us` so the federal repo now stays federal.
-  - Retargeted the Tennessee Axiom Encode manifests and manifest-load tests to source from `rules-us-tn`.
+  - Created a new Tennessee jurisdiction repo, `rulespec-us-tn`, with Tennessee source slices and minimal validation/docs scaffolding.
+  - Removed the Tennessee utility source slices from `rulespec-us` so the federal repo now stays federal.
+  - Retargeted the Tennessee Axiom Encode manifests and manifest-load tests to source from `rulespec-us-tn`.
   - Re-ran all three Tennessee utility overlays against the new repo path and archived fresh ready artifacts, confirming that the repo-boundary correction did not break the benchmarked Tennessee lanes.
 - Primary evidence paths:
   - [us_snap_tn_standard_utility_allowance_refresh.yaml](../benchmarks/us_snap_tn_standard_utility_allowance_refresh.yaml)
   - [us_snap_tn_limited_utility_allowance_refresh.yaml](../benchmarks/us_snap_tn_limited_utility_allowance_refresh.yaml)
   - [us_snap_tn_individual_utility_allowance_refresh.yaml](../benchmarks/us_snap_tn_individual_utility_allowance_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
-  - [rules-us-tn README](../../rules-us-tn/README.md)
-  - [snap_standard_utility_allowance_tn.txt](../../rules-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_standard_utility_allowance_tn.txt)
-  - [snap_limited_utility_allowance_tn.txt](../../rules-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_limited_utility_allowance_tn.txt)
-  - [snap_individual_utility_allowance_tn.txt](../../rules-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_individual_utility_allowance_tn.txt)
+  - [rulespec-us-tn README](../../rulespec-us-tn/README.md)
+  - [snap_standard_utility_allowance_tn.txt](../../rulespec-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_standard_utility_allowance_tn.txt)
+  - [snap_limited_utility_allowance_tn.txt](../../rulespec-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_limited_utility_allowance_tn.txt)
+  - [snap_individual_utility_allowance_tn.txt](../../rulespec-us-tn/sources/slices/tenncare/post-eligibility/current-effective/snap_individual_utility_allowance_tn.txt)
   - [us-snap-tn-standard-utility-allowance-reorg1-ready-20260412](../artifacts/eval-suites/us-snap-tn-standard-utility-allowance-reorg1-ready-20260412)
   - [us-snap-tn-limited-utility-allowance-reorg1-ready-20260412](../artifacts/eval-suites/us-snap-tn-limited-utility-allowance-reorg1-ready-20260412)
   - [us-snap-tn-individual-utility-allowance-reorg1-ready-20260412](../artifacts/eval-suites/us-snap-tn-individual-utility-allowance-reorg1-ready-20260412)
 
-### 2026-04-13: North Carolina SNAP utility source corpus moved into rules-us-nc and revalidated
+### 2026-04-13: North Carolina SNAP utility source corpus moved into rulespec-us-nc and revalidated
 
 - Primary commits:
   - `195924d` `Initialize North Carolina SNAP utility source repo`
-  - `c5bc3d4` `Move North Carolina SNAP utility slices to rules-us-nc`
-  - `4062a97` `Route NC SNAP utility benchmarks to rules-us-nc`
+  - `c5bc3d4` `Move North Carolina SNAP utility slices to rulespec-us-nc`
+  - `4062a97` `Route NC SNAP utility benchmarks to rulespec-us-nc`
 - Hypothesis:
-  - North Carolina SNAP utility overlays were already benchmark-clean locally, but the source slices still lived in `rules-us`, which violated the intended `repo == jurisdiction` boundary. Moving those sources into `rules-us-nc` should preserve benchmark behavior if Axiom Encode routing and source-manifest handling are actually repo-aware rather than hard-coded to `rules-us`.
+  - North Carolina SNAP utility overlays were already benchmark-clean locally, but the source slices still lived in `rulespec-us`, which violated the intended `repo == jurisdiction` boundary. Moving those sources into `rulespec-us-nc` should preserve benchmark behavior if Axiom Encode routing and source-manifest handling are actually repo-aware rather than hard-coded to `rulespec-us`.
 - Effect:
-  - Created a new North Carolina jurisdiction repo, `rules-us-nc`, with minimal validation/docs scaffolding and `relation: sets` sidecars that anchor the state-set SNAP utility parameters to the delegated federal CFR slots.
-  - Removed the North Carolina utility source slices from `rules-us`, leaving the federal repo federal.
-  - Retargeted the checked-in NC Axiom Encode manifests and manifest-load tests to source from `rules-us-nc`.
+  - Created a new North Carolina jurisdiction repo, `rulespec-us-nc`, with minimal validation/docs scaffolding and `relation: sets` sidecars that anchor the state-set SNAP utility parameters to the delegated federal CFR slots.
+  - Removed the North Carolina utility source slices from `rulespec-us`, leaving the federal repo federal.
+  - Retargeted the checked-in NC Axiom Encode manifests and manifest-load tests to source from `rulespec-us-nc`.
   - The first NC standard rerun on the new repo path exposed one remaining harness issue: terminal table buckets like `5 or more` needed explicit threshold guidance, and delegated `sets` metadata still allowed the model to guess broken canonical imports when the target file was not copied into the workspace.
   - After tightening those prompt rules and widening the schedule-index grounding filter for labels like `four_person_unit_size`, North Carolina standard, limited, and individual utility allowance reruns all reached clean ready states on the new jurisdiction-repo path.
 - Primary evidence paths:
@@ -529,10 +529,10 @@ As of 2026-04-10:
   - [us_snap_nc_individual_utility_allowance_refresh.yaml](../benchmarks/us_snap_nc_individual_utility_allowance_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [rules-us-nc README](../../rules-us-nc/README.md)
-  - [snap_standard_utility_allowance_nc.txt](../../rules-us-nc/sources/slices/ncdhhs/fns/360/current-effective/snap_standard_utility_allowance_nc.txt)
-  - [snap_limited_utility_allowance_nc.txt](../../rules-us-nc/sources/slices/ncdhhs/fns/360/current-effective/snap_limited_utility_allowance_nc.txt)
-  - [snap_individual_utility_allowance_nc.txt](../../rules-us-nc/sources/slices/ncdhhs/fns/360/current-effective/snap_individual_utility_allowance_nc.txt)
+  - [rulespec-us-nc README](../../rulespec-us-nc/README.md)
+  - [snap_standard_utility_allowance_nc.txt](../../rulespec-us-nc/sources/slices/ncdhhs/fns/360/current-effective/snap_standard_utility_allowance_nc.txt)
+  - [snap_limited_utility_allowance_nc.txt](../../rulespec-us-nc/sources/slices/ncdhhs/fns/360/current-effective/snap_limited_utility_allowance_nc.txt)
+  - [snap_individual_utility_allowance_nc.txt](../../rulespec-us-nc/sources/slices/ncdhhs/fns/360/current-effective/snap_individual_utility_allowance_nc.txt)
   - [us-snap-nc-standard-utility-allowance-reorg3-ready-20260413](../artifacts/eval-suites/us-snap-nc-standard-utility-allowance-reorg3-ready-20260413)
   - [us-snap-nc-limited-utility-allowance-reorg1-ready-20260413](../artifacts/eval-suites/us-snap-nc-limited-utility-allowance-reorg1-ready-20260413)
   - [us-snap-nc-individual-utility-allowance-reorg1-failed-20260413](../artifacts/eval-suites/us-snap-nc-individual-utility-allowance-reorg1-failed-20260413)
@@ -543,15 +543,15 @@ As of 2026-04-10:
 - Hypothesis:
   - After Tennessee and North Carolina closed cleanly, the next useful queue item should be a low-complexity third state overlay on an existing jurisdiction repo, not another federal slice. New York phone utility allowance is the narrowest clean candidate because the OTDA October 1, 2025 SUA notice sets one statewide phone amount and PolicyEngine already exposes `snap_individual_utility_allowance` for New York.
 - Effect:
-  - Added a New York source slice and `relation: sets` sidecar under `rules-us-ny`, anchored to the delegated federal SNAP utility-allowance slot.
+  - Added a New York source slice and `relation: sets` sidecar under `rulespec-us-ny`, anchored to the delegated federal SNAP utility-allowance slot.
   - Added a checked-in Axiom Encode benchmark manifest and manifest-load test for the New York telephone lane.
   - The first two smoke runs were not kept as harness regressions: they exposed that the drafted source slice repeated the same `$32` fact too many times for CI's numeric-occurrence rule. Narrowing the slice to the single substantive statewide fact closed the lane without new validator work.
   - The third smoke run reached a clean ready state against compile, CI, generalist review, and PolicyEngine, establishing New York telephone utility allowance as the next proven jurisdictional SNAP overlay.
 - Primary evidence paths:
   - [us_snap_ny_individual_utility_allowance_refresh.yaml](../benchmarks/us_snap_ny_individual_utility_allowance_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_individual_utility_allowance_ny.txt](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_individual_utility_allowance_ny.txt)
-  - [snap_individual_utility_allowance_ny.meta.yaml](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_individual_utility_allowance_ny.meta.yaml)
+  - [snap_individual_utility_allowance_ny.txt](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_individual_utility_allowance_ny.txt)
+  - [snap_individual_utility_allowance_ny.meta.yaml](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_individual_utility_allowance_ny.meta.yaml)
   - [us-snap-ny-individual-utility-allowance-smoke1-failed-20260413](../artifacts/eval-suites/us-snap-ny-individual-utility-allowance-smoke1-failed-20260413)
   - [us-snap-ny-individual-utility-allowance-smoke2-failed-20260413](../artifacts/eval-suites/us-snap-ny-individual-utility-allowance-smoke2-failed-20260413)
   - [us-snap-ny-individual-utility-allowance-smoke3-ready-20260413](../artifacts/eval-suites/us-snap-ny-individual-utility-allowance-smoke3-ready-20260413)
@@ -559,9 +559,9 @@ As of 2026-04-10:
 ### 2026-04-13: New York SNAP standard and limited utility overlays close on the jurisdiction repo path
 
 - Hypothesis:
-  - After New York telephone utility allowance closed, the next pressure point was whether the same `rules-us-ny` source-slice pattern and PolicyEngine-backed replay would also hold for the multi-region standard and limited utility allowances without adding New York-specific policy hacks.
+  - After New York telephone utility allowance closed, the next pressure point was whether the same `rulespec-us-ny` source-slice pattern and PolicyEngine-backed replay would also hold for the multi-region standard and limited utility allowances without adding New York-specific policy hacks.
 - Effect:
-  - Added New York standard and limited utility source slices plus `relation: sets` sidecars under `rules-us-ny`, both anchored to the delegated federal SNAP utility-allowance slots.
+  - Added New York standard and limited utility source slices plus `relation: sets` sidecars under `rulespec-us-ny`, both anchored to the delegated federal SNAP utility-allowance slots.
   - Added checked-in Axiom Encode manifests and manifest-load tests for the New York standard and limited lanes.
   - The first replay failures were not legal-model misses. They exposed two harness issues in the US PolicyEngine bridge: explicit `snap_utility_region` test inputs were not being passed through to the household-level `snap_utility_region_str` variable that PolicyEngine actually consumes, and the first attempt at that bridge seeded the region at a monthly period even though the PolicyEngine household variable is yearly.
   - After fixing the replay bridge to normalize `snap_utility_region` / `snap_utility_region_str` onto the yearly household variable and adding a prompt rail that `match` fallbacks must use `_ => ...` rather than `else: ...`, both New York standard and limited utility allowance reruns reached clean ready states on compile, CI, generalist review, and PolicyEngine.
@@ -570,10 +570,10 @@ As of 2026-04-10:
   - [us_snap_ny_limited_utility_allowance_refresh.yaml](../benchmarks/us_snap_ny_limited_utility_allowance_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_standard_utility_allowance_ny.txt](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_standard_utility_allowance_ny.txt)
-  - [snap_standard_utility_allowance_ny.meta.yaml](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_standard_utility_allowance_ny.meta.yaml)
-  - [snap_limited_utility_allowance_ny.txt](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_limited_utility_allowance_ny.txt)
-  - [snap_limited_utility_allowance_ny.meta.yaml](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_limited_utility_allowance_ny.meta.yaml)
+  - [snap_standard_utility_allowance_ny.txt](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_standard_utility_allowance_ny.txt)
+  - [snap_standard_utility_allowance_ny.meta.yaml](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_standard_utility_allowance_ny.meta.yaml)
+  - [snap_limited_utility_allowance_ny.txt](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_limited_utility_allowance_ny.txt)
+  - [snap_limited_utility_allowance_ny.meta.yaml](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_limited_utility_allowance_ny.meta.yaml)
   - [us-snap-ny-standard-utility-allowance-smoke5-failed-20260413](../artifacts/eval-suites/us-snap-ny-standard-utility-allowance-smoke5-failed-20260413)
   - [us-snap-ny-standard-utility-allowance-refresh1-ready-20260413](../artifacts/eval-suites/us-snap-ny-standard-utility-allowance-refresh1-ready-20260413)
   - [us-snap-ny-limited-utility-allowance-smoke4-failed-20260413](../artifacts/eval-suites/us-snap-ny-limited-utility-allowance-smoke4-failed-20260413)
@@ -584,7 +584,7 @@ As of 2026-04-10:
 - Hypothesis:
   - The next real state-overlay test after utility tables was whether Axiom Encode could cleanly encode a delegated jurisdictional SNAP option as the option itself, rather than overfitting everything to numeric table parameters or restating a downstream federal formula.
 - Effect:
-  - Added a Tennessee SNAP Policy Manual source slice plus `relation: sets` sidecar in `rules-us-tn`, anchored to `us:statutes/7/2014/e/4#snap_state_uses_child_support_deduction`.
+  - Added a Tennessee SNAP Policy Manual source slice plus `relation: sets` sidecar in `rulespec-us-tn`, anchored to `us:statutes/7/2014/e/4#snap_state_uses_child_support_deduction`.
   - Added a checked-in Axiom Encode benchmark for the Tennessee child-support deduction option.
   - Extended the PolicyEngine US bridge so delegated state-option booleans can be compared directly through parameter access, rather than only via downstream benefit variables.
   - Tightened CI so constant booleans are not misclassified as placeholder facts when eval source metadata explicitly marks them as delegated `sets` targets.
@@ -593,8 +593,8 @@ As of 2026-04-10:
   - [us_snap_tn_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_tn_child_support_deduction_option_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_state_uses_child_support_deduction_tn.txt](../../rules-us-tn/sources/slices/tdhs/snap/current-effective/snap_state_uses_child_support_deduction_tn.txt)
-  - [snap_state_uses_child_support_deduction_tn.meta.yaml](../../rules-us-tn/sources/slices/tdhs/snap/current-effective/snap_state_uses_child_support_deduction_tn.meta.yaml)
+  - [snap_state_uses_child_support_deduction_tn.txt](../../rulespec-us-tn/sources/slices/tdhs/snap/current-effective/snap_state_uses_child_support_deduction_tn.txt)
+  - [snap_state_uses_child_support_deduction_tn.meta.yaml](../../rulespec-us-tn/sources/slices/tdhs/snap/current-effective/snap_state_uses_child_support_deduction_tn.meta.yaml)
   - [us-snap-tn-child-support-deduction-option-refresh1-failed-20260413](../artifacts/eval-suites/us-snap-tn-child-support-deduction-option-refresh1-failed-20260413)
   - [us-snap-tn-child-support-deduction-option-refresh2-ready-20260413](../artifacts/eval-suites/us-snap-tn-child-support-deduction-option-refresh2-ready-20260413)
 
@@ -603,7 +603,7 @@ As of 2026-04-10:
 - Hypothesis:
   - After Tennessee closed as a positive delegated child-support deduction option, the next check was whether the same `sets` pathway also works for the opposite state election: a jurisdiction that does not use the deduction because it excludes the payments from gross income instead.
 - Effect:
-  - Added a New York OTDA SNAP Source Book source slice plus `relation: sets` sidecar in `rules-us-ny`, anchored to `us:statutes/7/2014/e/4#snap_state_uses_child_support_deduction`.
+  - Added a New York OTDA SNAP Source Book source slice plus `relation: sets` sidecar in `rulespec-us-ny`, anchored to `us:statutes/7/2014/e/4#snap_state_uses_child_support_deduction`.
   - Added a checked-in Axiom Encode benchmark for the New York child-support deduction option.
   - Generalized the PolicyEngine replay path so delegated state-option booleans no longer default to Tennessee when no explicit state input is present; replay now derives the state from eval source metadata jurisdiction when available.
   - The first New York run already passed generation, generalist review, and PolicyEngine. Its only miss was CI counting the editorial header `Rev. 7/2025` as a substantive numeric. After teaching numeric extraction to ignore revision markers and revalidating the existing output, the lane closed fully ready.
@@ -611,8 +611,8 @@ As of 2026-04-10:
   - [us_snap_ny_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_ny_child_support_deduction_option_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_state_uses_child_support_deduction_ny.txt](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_state_uses_child_support_deduction_ny.txt)
-  - [snap_state_uses_child_support_deduction_ny.meta.yaml](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_state_uses_child_support_deduction_ny.meta.yaml)
+  - [snap_state_uses_child_support_deduction_ny.txt](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_state_uses_child_support_deduction_ny.txt)
+  - [snap_state_uses_child_support_deduction_ny.meta.yaml](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_state_uses_child_support_deduction_ny.meta.yaml)
   - [axiom_encode-us-snap-ny-child-support-deduction-option-refresh1-20260413](../artifacts/eval-suites/axiom_encode-us-snap-ny-child-support-deduction-option-refresh1-20260413)
 
 ### 2026-04-13: North Carolina SNAP child-support deduction election closes on the first replay
@@ -620,14 +620,14 @@ As of 2026-04-10:
 - Hypothesis:
   - With the delegated-boolean replay path repaired for jurisdiction inference, a second positive state-option lane should close without further harness work if the source slice is clean and current.
 - Effect:
-  - Added a North Carolina FNS 340 child-support deduction source slice plus `relation: sets` sidecar in `rules-us-nc`, anchored to `us:statutes/7/2014/e/4#snap_state_uses_child_support_deduction`.
+  - Added a North Carolina FNS 340 child-support deduction source slice plus `relation: sets` sidecar in `rulespec-us-nc`, anchored to `us:statutes/7/2014/e/4#snap_state_uses_child_support_deduction`.
   - Added a checked-in Axiom Encode benchmark for the North Carolina child-support deduction option.
   - The first run closed fully ready on compile, CI, generalist review, and PolicyEngine with no additional harness changes, confirming that the repaired delegated-boolean path generalizes to another jurisdiction that affirmatively elects the deduction.
 - Primary evidence paths:
   - [us_snap_nc_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_nc_child_support_deduction_option_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_state_uses_child_support_deduction_nc.txt](../../rules-us-nc/sources/slices/ncdhhs/fns/340/current-effective/snap_state_uses_child_support_deduction_nc.txt)
-  - [snap_state_uses_child_support_deduction_nc.meta.yaml](../../rules-us-nc/sources/slices/ncdhhs/fns/340/current-effective/snap_state_uses_child_support_deduction_nc.meta.yaml)
+  - [snap_state_uses_child_support_deduction_nc.txt](../../rulespec-us-nc/sources/slices/ncdhhs/fns/340/current-effective/snap_state_uses_child_support_deduction_nc.txt)
+  - [snap_state_uses_child_support_deduction_nc.meta.yaml](../../rulespec-us-nc/sources/slices/ncdhhs/fns/340/current-effective/snap_state_uses_child_support_deduction_nc.meta.yaml)
   - [axiom_encode-us-snap-nc-child-support-deduction-option-refresh1-20260413](../artifacts/eval-suites/axiom_encode-us-snap-nc-child-support-deduction-option-refresh1-20260413)
 
 ### 2026-04-13: California SNAP self-employment expense option closes as a parameter-backed delegated state option
@@ -635,8 +635,8 @@ As of 2026-04-10:
 - Hypothesis:
   - The delegated `sets` pathway should generalize beyond the child-support election if the PolicyEngine bridge can treat state-option booleans as parameter-backed slots rather than one-off hard-coded cases.
 - Effect:
-  - Added a California CalFresh source slice plus `relation: sets` sidecar in `rules-us-ca`, anchored to `us:regulation/7-cfr/273/11/b/3#snap_self_employment_expense_based_deduction_applies`.
-  - Updated `rules-us-ca` repo-boundary docs so California-administered SNAP overlays are treated as first-class jurisdiction content, not as out-of-repo federal leftovers.
+  - Added a California CalFresh source slice plus `relation: sets` sidecar in `rulespec-us-ca`, anchored to `us:regulation/7-cfr/273/11/b/3#snap_self_employment_expense_based_deduction_applies`.
+  - Updated `rulespec-us-ca` repo-boundary docs so California-administered SNAP overlays are treated as first-class jurisdiction content, not as out-of-repo federal leftovers.
   - Generalized the PolicyEngine US adapter model with a reusable parameter-path field for delegated state-option booleans, then used it for both the existing child-support election and the new California self-employment expense option.
   - The first California run already passed generation, compile, generalist review, and PolicyEngine; its only miss was CI counting the structural section citation `63-503.413` as a missing scalar. After teaching source numeric extraction to ignore manual section references of that form, the rerun closed fully ready.
 - Primary evidence paths:
@@ -644,8 +644,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_self_employment_expense_based_deduction_applies_ca.txt](../../rules-us-ca/sources/slices/cdss/calfresh/current-effective/snap_self_employment_expense_based_deduction_applies_ca.txt)
-  - [snap_self_employment_expense_based_deduction_applies_ca.meta.yaml](../../rules-us-ca/sources/slices/cdss/calfresh/current-effective/snap_self_employment_expense_based_deduction_applies_ca.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_ca.txt](../../rulespec-us-ca/sources/slices/cdss/calfresh/current-effective/snap_self_employment_expense_based_deduction_applies_ca.txt)
+  - [snap_self_employment_expense_based_deduction_applies_ca.meta.yaml](../../rulespec-us-ca/sources/slices/cdss/calfresh/current-effective/snap_self_employment_expense_based_deduction_applies_ca.meta.yaml)
   - [us-snap-ca-self-employment-expense-option-refresh1-ci-false-positive-20260413](../artifacts/eval-suites/us-snap-ca-self-employment-expense-option-refresh1-ci-false-positive-20260413)
   - [us-snap-ca-self-employment-expense-option-refresh2-ready-20260413](../artifacts/eval-suites/us-snap-ca-self-employment-expense-option-refresh2-ready-20260413)
 
@@ -654,8 +654,8 @@ As of 2026-04-10:
 - Hypothesis:
   - The parameter-backed delegated `sets` path for SNAP self-employment expense options should transfer from California to another jurisdiction without new oracle-adapter logic. If the first Colorado replay fails, the most likely remaining gap is structural numeric cleanup for state code citations rather than the legal model itself.
 - Effect:
-  - Added a Colorado SNAP regulation source slice plus `relation: sets` sidecar in `rules-us-co`, anchored to `us:regulation/7-cfr/273/11/b/3#snap_self_employment_expense_based_deduction_applies`.
-  - Updated `rules-us-co` repo-boundary docs so Colorado-administered SNAP overlays are treated as first-class jurisdiction content alongside Colorado Works materials.
+  - Added a Colorado SNAP regulation source slice plus `relation: sets` sidecar in `rulespec-us-co`, anchored to `us:regulation/7-cfr/273/11/b/3#snap_self_employment_expense_based_deduction_applies`.
+  - Updated `rulespec-us-co` repo-boundary docs so Colorado-administered SNAP overlays are treated as first-class jurisdiction content alongside Colorado Works materials.
   - Added a checked-in Axiom Encode benchmark for the Colorado self-employment expense option.
   - The first Colorado run already passed generation, compile, generalist review, and PolicyEngine; its only miss was CI counting structural citation numerics from `10 CCR 2506-1` and `section 4.403.11(B)-(C)(3)` as missing scalars.
   - Generalized source numeric cleanup to ignore code citations and decimal section references of that form, then reran the same benchmark. The second run closed fully ready without changing the adapter path.
@@ -664,8 +664,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_self_employment_expense_based_deduction_applies_co.txt](../../rules-us-co/sources/slices/cdhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_co.txt)
-  - [snap_self_employment_expense_based_deduction_applies_co.meta.yaml](../../rules-us-co/sources/slices/cdhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_co.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_co.txt](../../rulespec-us-co/sources/slices/cdhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_co.txt)
+  - [snap_self_employment_expense_based_deduction_applies_co.meta.yaml](../../rulespec-us-co/sources/slices/cdhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_co.meta.yaml)
   - [us-snap-co-self-employment-expense-option-refresh1-ci-false-positive-20260413](../artifacts/eval-suites/us-snap-co-self-employment-expense-option-refresh1-ci-false-positive-20260413)
   - [us-snap-co-self-employment-expense-option-refresh2-ready-20260413](../artifacts/eval-suites/us-snap-co-self-employment-expense-option-refresh2-ready-20260413)
 
@@ -674,15 +674,15 @@ As of 2026-04-10:
 - Hypothesis:
   - After California, Colorado, Tennessee, and North Carolina closed on the delegated parameter-backed `sets` path for SNAP self-employment expense treatment, the same lane should transfer to New York without new harness work. The remaining question was whether the event-driven Codex queue would close the slice cleanly rather than needing a one-off manual replay.
 - Effect:
-  - Added a New York OTDA SNAP Source Book source slice plus `relation: sets` sidecar in `rules-us-ny`, anchored to `us:regulation/7-cfr/273/11/b/3#snap_self_employment_expense_based_deduction_applies`.
+  - Added a New York OTDA SNAP Source Book source slice plus `relation: sets` sidecar in `rulespec-us-ny`, anchored to `us:regulation/7-cfr/273/11/b/3#snap_self_employment_expense_based_deduction_applies`.
   - Added a checked-in Axiom Encode benchmark for the New York self-employment expense option.
   - Seeded the local event-driven SNAP queue with the new New York benchmark and let the Codex-backed runner process it end to end.
   - The first queue run closed fully ready on success, compile, CI, generalist review, and PolicyEngine. The only reviewer notes were non-blocking suggestions about using a dated start boundary instead of the `0001-01-01` sentinel and adding a second temporal-stability test case.
 - Primary evidence paths:
   - [us_snap_ny_self_employment_expense_option_refresh.yaml](../benchmarks/us_snap_ny_self_employment_expense_option_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_self_employment_expense_based_deduction_applies_ny.txt](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ny.txt)
-  - [snap_self_employment_expense_based_deduction_applies_ny.meta.yaml](../../rules-us-ny/sources/slices/otda/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ny.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_ny.txt](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ny.txt)
+  - [snap_self_employment_expense_based_deduction_applies_ny.meta.yaml](../../rulespec-us-ny/sources/slices/otda/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ny.meta.yaml)
   - [axiom_encode-snap-self-employment-expense-based-deduction-applies-ny-20260413t153209](../artifacts/eval-suites/axiom_encode-snap-self-employment-expense-based-deduction-applies-ny-20260413t153209)
 
 ### 2026-04-14: Texas delegated SNAP state-option lanes close after generalized handbook numeric cleanup
@@ -690,7 +690,7 @@ As of 2026-04-10:
 - Hypothesis:
   - The next Texas SNAP overlays after utility allowances should be the already-proven delegated state-option classes: child-support deduction election and self-employment actual-expense treatment. If those first Texas runs fail, the likely remaining gap is source-numeric cleanup for handbook section labels, revision codes, and IRS form references rather than a new legal-model or oracle-adapter problem.
 - Effect:
-  - Added Texas Works Handbook source slices plus `relation: sets` sidecars in `rules-us-tx` for `snap_state_uses_child_support_deduction` and `snap_self_employment_expense_based_deduction_applies`.
+  - Added Texas Works Handbook source slices plus `relation: sets` sidecars in `rulespec-us-tx` for `snap_state_uses_child_support_deduction` and `snap_self_employment_expense_based_deduction_applies`.
   - Added checked-in Axiom Encode benchmarks for both Texas lanes.
   - Let the event-driven Codex queue process both lanes end to end.
   - The first Texas child-support and self-employment runs both generated legally plausible delegated booleans, passed compile, passed PolicyEngine, and passed review, but failed CI because the validator still counted handbook section identifiers like `A-1421.1`, revision markers like `Revision 24-2`, and `Form 1040` references as missing substantive numerics.
@@ -701,8 +701,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_state_uses_child_support_deduction_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_state_uses_child_support_deduction_tx.meta.yaml)
-  - [snap_self_employment_expense_based_deduction_applies_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_self_employment_expense_based_deduction_applies_tx.meta.yaml)
+  - [snap_state_uses_child_support_deduction_tx.meta.yaml](../../rulespec-us-tx/sources/targets/txhhs/twh/current-effective/snap_state_uses_child_support_deduction_tx.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_tx.meta.yaml](../../rulespec-us-tx/sources/targets/txhhs/twh/current-effective/snap_self_employment_expense_based_deduction_applies_tx.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-tx-20260413t205409](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-tx-20260413t205409)
   - [axiom_encode-snap-self-employment-expense-based-deduction-applies-tx-20260413t205807](../artifacts/eval-suites/axiom_encode-snap-self-employment-expense-based-deduction-applies-tx-20260413t205807)
   - [axiom_encode-snap-state-uses-child-support-deduction-tx-20260413t210425](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-tx-20260413t210425)
@@ -720,8 +720,8 @@ As of 2026-04-10:
 - Primary evidence paths:
   - [us_snap_ca_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_ca_child_support_deduction_option_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_state_uses_child_support_deduction_ca.txt](../../rules-us-ca/sources/slices/cdss/calfresh/current-effective/snap_state_uses_child_support_deduction_ca.txt)
-  - [snap_state_uses_child_support_deduction_ca.meta.yaml](../../rules-us-ca/sources/slices/cdss/calfresh/current-effective/snap_state_uses_child_support_deduction_ca.meta.yaml)
+  - [snap_state_uses_child_support_deduction_ca.txt](../../rulespec-us-ca/sources/slices/cdss/calfresh/current-effective/snap_state_uses_child_support_deduction_ca.txt)
+  - [snap_state_uses_child_support_deduction_ca.meta.yaml](../../rulespec-us-ca/sources/slices/cdss/calfresh/current-effective/snap_state_uses_child_support_deduction_ca.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-ca-20260413t212724](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-ca-20260413t212724)
 
 ### 2026-04-14: Colorado delegated SNAP child-support option closes after a real oracle fix plus slash-date cleanup
@@ -740,8 +740,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_state_uses_child_support_deduction_co.txt](../../rules-us-co/sources/slices/cdhs/snap/current-effective/snap_state_uses_child_support_deduction_co.txt)
-  - [snap_state_uses_child_support_deduction_co.meta.yaml](../../rules-us-co/sources/slices/cdhs/snap/current-effective/snap_state_uses_child_support_deduction_co.meta.yaml)
+  - [snap_state_uses_child_support_deduction_co.txt](../../rulespec-us-co/sources/slices/cdhs/snap/current-effective/snap_state_uses_child_support_deduction_co.txt)
+  - [snap_state_uses_child_support_deduction_co.meta.yaml](../../rulespec-us-co/sources/slices/cdhs/snap/current-effective/snap_state_uses_child_support_deduction_co.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-co-20260413t213415](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-co-20260413t213415)
   - [axiom_encode-snap-state-uses-child-support-deduction-co-20260413t214130](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-co-20260413t214130)
 
@@ -750,7 +750,7 @@ As of 2026-04-10:
 - Hypothesis:
   - Florida should transfer cleanly on the already-proven delegated SNAP boolean lanes for child-support deduction election and self-employment actual-expense treatment. The useful system check is whether a newly scaffolded jurisdiction repo plus checked-in benchmarks are enough for the event-driven Codex queue to discover and close both lanes without any new harness work.
 - Effect:
-  - Created `rules-us-fl` as a Florida jurisdiction repo for Florida-administered SNAP overlays, with exact Florida ESS manual source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction` and `snap_self_employment_expense_based_deduction_applies`.
+  - Created `rulespec-us-fl` as a Florida jurisdiction repo for Florida-administered SNAP overlays, with exact Florida ESS manual source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction` and `snap_self_employment_expense_based_deduction_applies`.
   - Added checked-in Axiom Encode benchmarks for both Florida lanes and matching manifest-load coverage.
   - Let the local event-driven Codex queue auto-discover both new benchmarks from `axiom_encode/benchmarks` and process them end to end.
   - Both Florida runs closed fully ready on the first pass, with success, compile, CI, zero ungrounded numerics, generalist review, and PolicyEngine all at 1.0. No harness or oracle repair was needed after the benchmarks landed.
@@ -758,10 +758,10 @@ As of 2026-04-10:
   - [us_snap_fl_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_fl_child_support_deduction_option_refresh.yaml)
   - [us_snap_fl_self_employment_expense_option_refresh.yaml](../benchmarks/us_snap_fl_self_employment_expense_option_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_state_uses_child_support_deduction_fl.txt](../../rules-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_state_uses_child_support_deduction_fl.txt)
-  - [snap_state_uses_child_support_deduction_fl.meta.yaml](../../rules-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_state_uses_child_support_deduction_fl.meta.yaml)
-  - [snap_self_employment_expense_based_deduction_applies_fl.txt](../../rules-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_self_employment_expense_based_deduction_applies_fl.txt)
-  - [snap_self_employment_expense_based_deduction_applies_fl.meta.yaml](../../rules-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_self_employment_expense_based_deduction_applies_fl.meta.yaml)
+  - [snap_state_uses_child_support_deduction_fl.txt](../../rulespec-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_state_uses_child_support_deduction_fl.txt)
+  - [snap_state_uses_child_support_deduction_fl.meta.yaml](../../rulespec-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_state_uses_child_support_deduction_fl.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_fl.txt](../../rulespec-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_self_employment_expense_based_deduction_applies_fl.txt)
+  - [snap_self_employment_expense_based_deduction_applies_fl.meta.yaml](../../rulespec-us-fl/sources/slices/myflfamilies/ess/current-effective/snap_self_employment_expense_based_deduction_applies_fl.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-fl-20260413t220610](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-fl-20260413t220610)
   - [axiom_encode-snap-self-employment-expense-based-deduction-applies-fl-20260413t220911](../artifacts/eval-suites/axiom_encode-snap-self-employment-expense-based-deduction-applies-fl-20260413t220911)
 
@@ -779,8 +779,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_self_employment_simplified_deduction_rate_md.txt](../../rules-us-md/sources/slices/dhs/snap/current-effective/snap_self_employment_simplified_deduction_rate_md.txt)
-  - [snap_self_employment_simplified_deduction_rate_md.meta.yaml](../../rules-us-md/sources/slices/dhs/snap/current-effective/snap_self_employment_simplified_deduction_rate_md.meta.yaml)
+  - [snap_self_employment_simplified_deduction_rate_md.txt](../../rulespec-us-md/sources/slices/dhs/snap/current-effective/snap_self_employment_simplified_deduction_rate_md.txt)
+  - [snap_self_employment_simplified_deduction_rate_md.meta.yaml](../../rulespec-us-md/sources/slices/dhs/snap/current-effective/snap_self_employment_simplified_deduction_rate_md.meta.yaml)
   - [axiom_encode-snap-self-employment-simplified-deduction-rate-md-20260414t064852](../artifacts/eval-suites/axiom_encode-snap-self-employment-simplified-deduction-rate-md-20260414t064852)
 
 ### 2026-04-14: Georgia delegated SNAP option lanes close after integer manual-number cleanup
@@ -788,7 +788,7 @@ As of 2026-04-10:
 - Hypothesis:
   - Georgia should transfer on the already-proven delegated SNAP state-option lanes for child-support deduction election, self-employment actual-expense treatment, and the self-employment simplified deduction rate. The likely failure mode was structural grounding noise from the Georgia DFCS manual section numbers `3035` and `3425`, not a new semantic gap.
 - Effect:
-  - Added `rules-us-ga` as a Georgia jurisdiction repo with exact DFCS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
+  - Added `rulespec-us-ga` as a Georgia jurisdiction repo with exact DFCS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
   - Added checked-in Axiom Encode benchmarks for all three Georgia lanes and matching manifest-load coverage.
   - The first child-support and expense runs generated promotion-ready RuleSpec and passed compile, review, and PolicyEngine, but failed CI because numeric grounding treated the DFCS manual section labels `3035` and `3425` as missing scalar values.
   - Generalized validator numeric cleanup to ignore integer SNAP manual section numbers, locked that with a focused regression, and requeued the Georgia blockers on the event-driven Codex runner.
@@ -800,12 +800,12 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_state_uses_child_support_deduction_ga.txt](../../rules-us-ga/sources/slices/dfcs/snap/current-effective/snap_state_uses_child_support_deduction_ga.txt)
-  - [snap_state_uses_child_support_deduction_ga.meta.yaml](../../rules-us-ga/sources/slices/dfcs/snap/current-effective/snap_state_uses_child_support_deduction_ga.meta.yaml)
-  - [snap_self_employment_expense_based_deduction_applies_ga.txt](../../rules-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ga.txt)
-  - [snap_self_employment_expense_based_deduction_applies_ga.meta.yaml](../../rules-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ga.meta.yaml)
-  - [snap_self_employment_simplified_deduction_rate_ga.txt](../../rules-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_simplified_deduction_rate_ga.txt)
-  - [snap_self_employment_simplified_deduction_rate_ga.meta.yaml](../../rules-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_simplified_deduction_rate_ga.meta.yaml)
+  - [snap_state_uses_child_support_deduction_ga.txt](../../rulespec-us-ga/sources/slices/dfcs/snap/current-effective/snap_state_uses_child_support_deduction_ga.txt)
+  - [snap_state_uses_child_support_deduction_ga.meta.yaml](../../rulespec-us-ga/sources/slices/dfcs/snap/current-effective/snap_state_uses_child_support_deduction_ga.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_ga.txt](../../rulespec-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ga.txt)
+  - [snap_self_employment_expense_based_deduction_applies_ga.meta.yaml](../../rulespec-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ga.meta.yaml)
+  - [snap_self_employment_simplified_deduction_rate_ga.txt](../../rulespec-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_simplified_deduction_rate_ga.txt)
+  - [snap_self_employment_simplified_deduction_rate_ga.meta.yaml](../../rulespec-us-ga/sources/slices/dfcs/snap/current-effective/snap_self_employment_simplified_deduction_rate_ga.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-ga-20260414t072502](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-ga-20260414t072502)
   - [axiom_encode-snap-self-employment-expense-based-deduction-applies-ga-20260414t072737](../artifacts/eval-suites/axiom_encode-snap-self-employment-expense-based-deduction-applies-ga-20260414t072737)
   - [axiom_encode-snap-self-employment-simplified-deduction-rate-ga-20260414t073125](../artifacts/eval-suites/axiom_encode-snap-self-employment-simplified-deduction-rate-ga-20260414t073125)
@@ -815,7 +815,7 @@ As of 2026-04-10:
 - Hypothesis:
   - South Carolina should transfer on the same three delegated SNAP lane shapes as Georgia, using the August 2025 DSS SNAP Manual Vol 65: child-support deduction election, actual self-employment expenses disallowed, and a 40 percent simplified self-employment deduction rate. The likely new failure mode was structural grounding noise from `Vol 65`, not a new ontology gap.
 - Effect:
-  - Created `rules-us-sc` as a South Carolina jurisdiction repo with exact DSS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
+  - Created `rulespec-us-sc` as a South Carolina jurisdiction repo with exact DSS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
   - Added checked-in Axiom Encode benchmarks for all three South Carolina lanes and matching manifest-load coverage.
   - The first South Carolina child-support and expense runs generated correct policy shapes and passed compile, review, and PolicyEngine, but failed CI because numeric grounding treated `Vol 65` from the manual title as a missing scalar; the first expense run also encoded the related `40%` as a non-rate helper and therefore missed grounding on `0.4`.
   - Generalized validator numeric cleanup to ignore manual volume numbers like `Vol 65`, locked that with a focused regression, and requeued the blocked South Carolina lanes on the event-driven Codex runner.
@@ -827,12 +827,12 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_state_uses_child_support_deduction_sc.txt](../../rules-us-sc/sources/slices/scdss/snap/current-effective/snap_state_uses_child_support_deduction_sc.txt)
-  - [snap_state_uses_child_support_deduction_sc.meta.yaml](../../rules-us-sc/sources/slices/scdss/snap/current-effective/snap_state_uses_child_support_deduction_sc.meta.yaml)
-  - [snap_self_employment_expense_based_deduction_applies_sc.txt](../../rules-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_expense_based_deduction_applies_sc.txt)
-  - [snap_self_employment_expense_based_deduction_applies_sc.meta.yaml](../../rules-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_expense_based_deduction_applies_sc.meta.yaml)
-  - [snap_self_employment_simplified_deduction_rate_sc.txt](../../rules-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_simplified_deduction_rate_sc.txt)
-  - [snap_self_employment_simplified_deduction_rate_sc.meta.yaml](../../rules-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_simplified_deduction_rate_sc.meta.yaml)
+  - [snap_state_uses_child_support_deduction_sc.txt](../../rulespec-us-sc/sources/slices/scdss/snap/current-effective/snap_state_uses_child_support_deduction_sc.txt)
+  - [snap_state_uses_child_support_deduction_sc.meta.yaml](../../rulespec-us-sc/sources/slices/scdss/snap/current-effective/snap_state_uses_child_support_deduction_sc.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_sc.txt](../../rulespec-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_expense_based_deduction_applies_sc.txt)
+  - [snap_self_employment_expense_based_deduction_applies_sc.meta.yaml](../../rulespec-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_expense_based_deduction_applies_sc.meta.yaml)
+  - [snap_self_employment_simplified_deduction_rate_sc.txt](../../rulespec-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_simplified_deduction_rate_sc.txt)
+  - [snap_self_employment_simplified_deduction_rate_sc.meta.yaml](../../rulespec-us-sc/sources/slices/scdss/snap/current-effective/snap_self_employment_simplified_deduction_rate_sc.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-sc-20260414t075329](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-sc-20260414t075329)
   - [axiom_encode-snap-self-employment-expense-based-deduction-applies-sc-20260414t075715](../artifacts/eval-suites/axiom_encode-snap-self-employment-expense-based-deduction-applies-sc-20260414t075715)
   - [axiom_encode-snap-self-employment-simplified-deduction-rate-sc-20260414t074915](../artifacts/eval-suites/axiom_encode-snap-self-employment-simplified-deduction-rate-sc-20260414t074915)
@@ -842,7 +842,7 @@ As of 2026-04-10:
 - Hypothesis:
   - Alabama should transfer on the same delegated SNAP lane shapes as Georgia and South Carolina: child-support deduction election, self-employment actual-expense treatment, and a 40 percent simplified self-employment deduction rate. The likely risk was not ontology mismatch, but source/eval hygiene because Alabama's expense-option source proof relies on the universal standard-deduction rule rather than an explicit "no actual expenses" sentence.
 - Effect:
-  - Created `rules-us-al` as an Alabama jurisdiction repo with exact DHR source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
+  - Created `rulespec-us-al` as an Alabama jurisdiction repo with exact DHR source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction`, `snap_self_employment_expense_based_deduction_applies`, and `snap_self_employment_simplified_deduction_rate`.
   - Added checked-in Axiom Encode benchmarks for all three Alabama lanes and matching manifest-load coverage.
   - The first Alabama child-support and simplified-rate runs closed ready immediately.
   - The first Alabama expense-option run generated the right boolean policy shape and passed compile, review, and PolicyEngine, but failed CI because the source slice bundled the supporting `40%` rate that belonged to the separate rate lane; narrowing the source slice to the operative "standard will be used for all" sentence fixed that benchmark-target mismatch.
@@ -855,12 +855,12 @@ As of 2026-04-10:
   - [us_snap_al_self_employment_simplified_deduction_rate_refresh.yaml](../benchmarks/us_snap_al_self_employment_simplified_deduction_rate_refresh.yaml)
   - [evals.py](../src/axiom_encode/harness/evals.py)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_state_uses_child_support_deduction_al.txt](../../rules-us-al/sources/slices/aldhr/poe/current-effective/snap_state_uses_child_support_deduction_al.txt)
-  - [snap_state_uses_child_support_deduction_al.meta.yaml](../../rules-us-al/sources/slices/aldhr/poe/current-effective/snap_state_uses_child_support_deduction_al.meta.yaml)
-  - [snap_self_employment_expense_based_deduction_applies_al.txt](../../rules-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_expense_based_deduction_applies_al.txt)
-  - [snap_self_employment_expense_based_deduction_applies_al.meta.yaml](../../rules-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_expense_based_deduction_applies_al.meta.yaml)
-  - [snap_self_employment_simplified_deduction_rate_al.txt](../../rules-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_simplified_deduction_rate_al.txt)
-  - [snap_self_employment_simplified_deduction_rate_al.meta.yaml](../../rules-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_simplified_deduction_rate_al.meta.yaml)
+  - [snap_state_uses_child_support_deduction_al.txt](../../rulespec-us-al/sources/slices/aldhr/poe/current-effective/snap_state_uses_child_support_deduction_al.txt)
+  - [snap_state_uses_child_support_deduction_al.meta.yaml](../../rulespec-us-al/sources/slices/aldhr/poe/current-effective/snap_state_uses_child_support_deduction_al.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_al.txt](../../rulespec-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_expense_based_deduction_applies_al.txt)
+  - [snap_self_employment_expense_based_deduction_applies_al.meta.yaml](../../rulespec-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_expense_based_deduction_applies_al.meta.yaml)
+  - [snap_self_employment_simplified_deduction_rate_al.txt](../../rulespec-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_simplified_deduction_rate_al.txt)
+  - [snap_self_employment_simplified_deduction_rate_al.meta.yaml](../../rulespec-us-al/sources/slices/aldhr/poe/current-effective/snap_self_employment_simplified_deduction_rate_al.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-al-20260414t081202](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-al-20260414t081202)
   - [axiom_encode-snap-self-employment-expense-based-deduction-applies-al-20260414t084945](../artifacts/eval-suites/axiom_encode-snap-self-employment-expense-based-deduction-applies-al-20260414t084945)
   - [axiom_encode-snap-self-employment-simplified-deduction-rate-al-20260414t081937](../artifacts/eval-suites/axiom_encode-snap-self-employment-simplified-deduction-rate-al-20260414t081937)
@@ -870,7 +870,7 @@ As of 2026-04-10:
 - Hypothesis:
   - Arkansas should transfer on the already-proven delegated SNAP state-option shapes for child-support deduction election and actual self-employment expense treatment. The official DHS SNAP Certification Manual states both rules directly, and because neither slice carries schedule numerics or multi-branch tables, the expected outcome was a first-pass closeout without new harness work.
 - Effect:
-  - Created `rules-us-ar` as an Arkansas jurisdiction repo with exact DHS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction` and `snap_self_employment_expense_based_deduction_applies`.
+  - Created `rulespec-us-ar` as an Arkansas jurisdiction repo with exact DHS source slices plus `relation: sets` sidecars for `snap_state_uses_child_support_deduction` and `snap_self_employment_expense_based_deduction_applies`.
   - Added checked-in Axiom Encode benchmarks for both Arkansas lanes and matching manifest-load coverage.
   - Let the local event-driven Codex queue auto-discover both new benchmarks from `axiom_encode/benchmarks` and process them end to end.
   - Both Arkansas runs closed fully ready on the first pass, with success, compile, CI, zero ungrounded numerics, generalist review, and PolicyEngine all at 1.0. No harness or oracle repair was needed after the benchmarks landed.
@@ -878,10 +878,10 @@ As of 2026-04-10:
   - [us_snap_ar_child_support_deduction_option_refresh.yaml](../benchmarks/us_snap_ar_child_support_deduction_option_refresh.yaml)
   - [us_snap_ar_self_employment_expense_option_refresh.yaml](../benchmarks/us_snap_ar_self_employment_expense_option_refresh.yaml)
   - [test_evals.py](../tests/test_evals.py)
-  - [snap_state_uses_child_support_deduction_ar.txt](../../rules-us-ar/sources/slices/ardhs/snap/current-effective/snap_state_uses_child_support_deduction_ar.txt)
-  - [snap_state_uses_child_support_deduction_ar.meta.yaml](../../rules-us-ar/sources/slices/ardhs/snap/current-effective/snap_state_uses_child_support_deduction_ar.meta.yaml)
-  - [snap_self_employment_expense_based_deduction_applies_ar.txt](../../rules-us-ar/sources/slices/ardhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ar.txt)
-  - [snap_self_employment_expense_based_deduction_applies_ar.meta.yaml](../../rules-us-ar/sources/slices/ardhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ar.meta.yaml)
+  - [snap_state_uses_child_support_deduction_ar.txt](../../rulespec-us-ar/sources/slices/ardhs/snap/current-effective/snap_state_uses_child_support_deduction_ar.txt)
+  - [snap_state_uses_child_support_deduction_ar.meta.yaml](../../rulespec-us-ar/sources/slices/ardhs/snap/current-effective/snap_state_uses_child_support_deduction_ar.meta.yaml)
+  - [snap_self_employment_expense_based_deduction_applies_ar.txt](../../rulespec-us-ar/sources/slices/ardhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ar.txt)
+  - [snap_self_employment_expense_based_deduction_applies_ar.meta.yaml](../../rulespec-us-ar/sources/slices/ardhs/snap/current-effective/snap_self_employment_expense_based_deduction_applies_ar.meta.yaml)
   - [axiom_encode-snap-state-uses-child-support-deduction-ar-20260414t091035](../artifacts/eval-suites/axiom_encode-snap-state-uses-child-support-deduction-ar-20260414t091035)
   - [axiom_encode-snap-self-employment-expense-based-deduction-applies-ar-20260414t091446](../artifacts/eval-suites/axiom_encode-snap-self-employment-expense-based-deduction-applies-ar-20260414t091446)
 
@@ -890,7 +890,7 @@ As of 2026-04-10:
 - Hypothesis:
   - Texas was the strongest candidate for a first state-level SNAP parity push because it already had green utility allowances plus the child-support deduction election and self-employment actual-expense option. The next likely PolicyEngine-comparable Texas gaps were the standard medical deduction amount and the homeless shelter deduction availability boolean published in the HHSC MEPD/TW bulletin.
 - Effect:
-  - Added exact `rules-us-tx` source slices and delegated `sets` sidecars for `snap_standard_medical_expense_deduction` and `snap_homeless_shelter_deduction_available`, both anchored to the upstream federal slots those Texas bulletin values fill.
+  - Added exact `rulespec-us-tx` source slices and delegated `sets` sidecars for `snap_standard_medical_expense_deduction` and `snap_homeless_shelter_deduction_available`, both anchored to the upstream federal slots those Texas bulletin values fill.
   - Added checked-in Axiom Encode benchmarks for both Texas lanes and extended the PolicyEngine adapter so the standard medical deduction compares as a numeric parameter-backed state setting and the homeless shelter lane compares as a delegated boolean availability flag.
   - The first standard-medical replay already matched PolicyEngine and reviewer expectations, but CI failed only because the source slice repeated the `$35` documentary threshold in both the quoted bulletin fact and the explanatory text. Narrowing the source text to one substantive occurrence fixed that without changing the generated RuleSpec.
   - The first homeless-availability replay fixed the earlier missing-oracle-target problem, then failed only because the source slice repeated `198.99` in both the bulletin fact and an instruction sentence. Removing the second documentary repetition let the queue auto-requeue the manifest and close the rerun cleanly.
@@ -902,8 +902,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_standard_medical_expense_deduction_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_standard_medical_expense_deduction_tx.meta.yaml)
-  - [snap_homeless_shelter_deduction_available_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_homeless_shelter_deduction_available_tx.meta.yaml)
+  - [snap_standard_medical_expense_deduction_tx.meta.yaml](../../rulespec-us-tx/sources/targets/txhhs/twh/current-effective/snap_standard_medical_expense_deduction_tx.meta.yaml)
+  - [snap_homeless_shelter_deduction_available_tx.meta.yaml](../../rulespec-us-tx/sources/targets/txhhs/twh/current-effective/snap_homeless_shelter_deduction_available_tx.meta.yaml)
   - [axiom_encode-snap-standard-medical-expense-deduction-tx-20260414t151911](../artifacts/eval-suites/axiom_encode-snap-standard-medical-expense-deduction-tx-20260414t151911)
   - [axiom_encode-snap-homeless-shelter-deduction-available-tx-20260414t152243](../artifacts/eval-suites/axiom_encode-snap-homeless-shelter-deduction-available-tx-20260414t152243)
 
@@ -912,7 +912,7 @@ As of 2026-04-10:
 - Hypothesis:
   - Texas SNAP BBCE should be modeled through the same TANF non-cash parameters that PolicyEngine already uses for categorical eligibility: the TANF-NC gross-income limit ratio and TANF-NC asset limit. The likely risk was ontology drift between the state handbook wording and the PE surface, not a generation problem, because the Texas Works Handbook states the 165 percent FPIL gross test and the $5,000 liquid-plus-excess-vehicle resource test directly.
 - Effect:
-  - Added exact `rules-us-tx` source slices and delegated `sets` sidecars for `snap_tanf_non_cash_gross_income_limit_fpg_ratio` and `snap_tanf_non_cash_asset_limit`, both anchored to the federal SNAP categorical-eligibility slot under `7 USC 2014(a)`.
+  - Added exact `rulespec-us-tx` source slices and delegated `sets` sidecars for `snap_tanf_non_cash_gross_income_limit_fpg_ratio` and `snap_tanf_non_cash_asset_limit`, both anchored to the federal SNAP categorical-eligibility slot under `7 USC 2014(a)`.
   - Added checked-in Axiom Encode benchmarks for both Texas lanes and extended the PolicyEngine adapter so these benchmark targets compare directly against `gov.hhs.tanf.non_cash.income_limit.gross` and `gov.hhs.tanf.non_cash.asset_limit`.
   - Locked the manifest and adapter shape with targeted eval and validator tests before letting the event-driven Codex queue pick the new manifests up automatically.
   - The local queue discovered both manifests without manual queue edits, ran the asset-limit lane first and the gross-limit lane second, and both closed fully ready on success, compile, CI, zero ungrounded numerics, generalist review, and PolicyEngine.
@@ -922,8 +922,8 @@ As of 2026-04-10:
   - [validator_pipeline.py](../src/axiom_encode/harness/validator_pipeline.py)
   - [test_evals.py](../tests/test_evals.py)
   - [test_rulespec_validation.py](../tests/test_rulespec_validation.py)
-  - [snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml)
-  - [snap_tanf_non_cash_asset_limit_tx.meta.yaml](../../rules-us-tx/sources/targets/txhhs/twh/current-effective/snap_tanf_non_cash_asset_limit_tx.meta.yaml)
+  - [snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml](../../rulespec-us-tx/sources/targets/txhhs/twh/current-effective/snap_tanf_non_cash_gross_income_limit_fpg_ratio_tx.meta.yaml)
+  - [snap_tanf_non_cash_asset_limit_tx.meta.yaml](../../rulespec-us-tx/sources/targets/txhhs/twh/current-effective/snap_tanf_non_cash_asset_limit_tx.meta.yaml)
   - [axiom_encode-snap-tanf-non-cash-asset-limit-tx-20260414t154707](../artifacts/eval-suites/axiom_encode-snap-tanf-non-cash-asset-limit-tx-20260414t154707)
   - [axiom_encode-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013](../artifacts/eval-suites/axiom_encode-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013)
 

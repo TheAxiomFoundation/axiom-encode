@@ -14,7 +14,7 @@ def _write_rulespec_file(path: Path, content: str) -> Path:
 
 def test_policyengine_coverage_classifies_executable_outputs(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/7/2014/e/2.yaml",
+        tmp_path / "rulespec-us" / "statutes/7/2014/e/2.yaml",
         """format: rulespec/v1
 rules:
   - name: snap_earned_income_deduction
@@ -30,7 +30,7 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.999.yaml",
+        tmp_path / "rulespec-us-co" / "regulations/10-ccr-2506-1/4.999.yaml",
         """format: rulespec/v1
 rules:
   - name: snap_local_helper
@@ -41,7 +41,7 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/7/9999.yaml",
+        tmp_path / "rulespec-us" / "statutes/7/9999.yaml",
         """format: rulespec/v1
 rules:
   - name: snap_unclassified_new_output
@@ -99,11 +99,11 @@ rules:
         formula: earned_income * 0.2
 """
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/7/2014/e/2.yaml",
+        tmp_path / "rulespec-us" / "statutes/7/2014/e/2.yaml",
         content,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us" / "_axiom" / "rules-us" / "statutes/7/2014/e/2.yaml",
+        tmp_path / "rulespec-us" / "_axiom" / "rulespec-us" / "statutes/7/2014/e/2.yaml",
         content,
     )
 
@@ -116,7 +116,7 @@ rules:
 
 def test_policyengine_coverage_classifies_tax_parameter_outputs(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/26/3101/a.yaml",
+        tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",
         """format: rulespec/v1
 rules:
   - name: oasdi_wage_tax_rate
@@ -132,7 +132,7 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/26/45A/a.yaml",
+        tmp_path / "rulespec-us" / "statutes/26/45A/a.yaml",
         """format: rulespec/v1
 rules:
   - name: indian_employment_credit_rate
@@ -172,7 +172,7 @@ rules:
 
 def test_policyengine_coverage_tracks_comparable_test_outputs(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/26/3101/a.yaml",
+        tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",
         """format: rulespec/v1
 rules:
   - name: oasdi_wage_tax_rate
@@ -188,7 +188,7 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/26/3101/a.test.yaml",
+        tmp_path / "rulespec-us" / "statutes/26/3101/a.test.yaml",
         """- name: oasdi
   input:
     us:statutes/26/3101/a#input.wages: 100000
@@ -209,7 +209,7 @@ rules:
 
 def test_policyengine_candidates_prioritize_exact_unmapped_outputs(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/7/9999.yaml",
+        tmp_path / "rulespec-us" / "statutes/7/9999.yaml",
         """format: rulespec/v1
 rules:
   - name: snap_new_exact_variable
@@ -225,7 +225,7 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us" / "statutes/7/9999.test.yaml",
+        tmp_path / "rulespec-us" / "statutes/7/9999.test.yaml",
         """- name: base
   output:
     us:statutes/7/9999#snap_new_exact_variable: 1
@@ -249,7 +249,7 @@ rules:
 
 def test_policyengine_candidates_report_known_adjacent_targets(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.408.yaml",
+        tmp_path / "rulespec-us-co" / "regulations/10-ccr-2506-1/4.408.yaml",
         """format: rulespec/v1
 rules:
   - name: passes_resource_test
@@ -260,7 +260,7 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.408.test.yaml",
+        tmp_path / "rulespec-us-co" / "regulations/10-ccr-2506-1/4.408.test.yaml",
         """- name: resources
   output:
     us-co:regulations/10-ccr-2506-1/4.408#passes_resource_test: holds
@@ -281,7 +281,7 @@ rules:
 
 def test_policyengine_candidates_honor_registry_priority_overrides(tmp_path):
     _write_rulespec_file(
-        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.407.31.yaml",
+        tmp_path / "rulespec-us-co" / "regulations/10-ccr-2506-1/4.407.31.yaml",
         """format: rulespec/v1
 rules:
   - name: snap_individual_utility_allowance
@@ -292,7 +292,7 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rules-us-co" / "regulations/10-ccr-2506-1/4.407.31.test.yaml",
+        tmp_path / "rulespec-us-co" / "regulations/10-ccr-2506-1/4.407.31.test.yaml",
         """- name: phone_only
   output:
     us-co:regulations/10-ccr-2506-1/4.407.31#snap_individual_utility_allowance: 97

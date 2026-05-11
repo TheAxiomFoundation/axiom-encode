@@ -16,4 +16,4 @@ cases:
     source_id: 7 USC 2017(c)(3)
     corpus_citation_path: us/statute/7/2017/c/3
     allow_context:
-      - ../../rules-us/statutes/7/2017/a.yaml
+      - ../../rulespec-us/statutes/7/2017/a.yaml

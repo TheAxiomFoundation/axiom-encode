@@ -375,8 +375,8 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
 
 def _jurisdiction_for_rules_repo(rules_repo_root: Path) -> str:
     name = Path(rules_repo_root).resolve().name
-    if name.startswith("rules-"):
-        return name.removeprefix("rules-")
+    if name.startswith("rulespec-"):
+        return name.removeprefix("rulespec-")
     return "us"
 
 

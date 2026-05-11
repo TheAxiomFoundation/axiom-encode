@@ -599,8 +599,8 @@ def run_eval_suite(
                             runner_specs=resolved_runners,
                             output_root=case_output_root,
                             policy_path=(
-                                axiom_rules_path.parent / "rules-us"
-                                if axiom_rules_path.name == "axiom-rules"
+                                axiom_rules_path.parent / "rulespec-us"
+                                if axiom_rules_path.name == "axiom-rules-engine"
                                 else axiom_rules_path
                             ),
                             runtime_axiom_rules_path=axiom_rules_path,
@@ -1705,8 +1705,8 @@ def _select_child_fragment_context_files(
 def _repo_augmented_context_root(policy_path: Path) -> Path:
     """Resolve the corpus root used for automatic repo-augmented context selection."""
     resolved = Path(policy_path).resolve()
-    if resolved.name == "axiom-rules":
-        fallback = resolved.parent / "rules-us"
+    if resolved.name == "axiom-rules-engine":
+        fallback = resolved.parent / "rulespec-us"
         if fallback.exists():
             return fallback
     return resolved
@@ -1717,7 +1717,7 @@ def _context_import_relative_target(source_path: Path, policy_path: Path) -> Pat
     repo_parent = policy_path.parent.resolve()
     resolved_source = source_path.resolve()
 
-    for candidate in sorted(repo_parent.glob("rules-*")):
+    for candidate in sorted(repo_parent.glob("rulespec-*")):
         if not candidate.is_dir():
             continue
         resolved_candidate = candidate.resolve()
@@ -1735,10 +1735,10 @@ def _context_import_target(source_path: Path, relative_target: Path) -> str:
 
 
 def _rulespec_repo_import_prefix(source_path: Path) -> str | None:
-    """Infer the absolute RuleSpec import prefix from a `rules-*` repo path."""
+    """Infer the absolute RuleSpec import prefix from a `rulespec-*` repo path."""
     for parent in (source_path, *source_path.parents):
-        if parent.name.startswith("rules-") and len(parent.name) > len("rules-"):
-            return parent.name.removeprefix("rules-")
+        if parent.name.startswith("rulespec-") and len(parent.name) > len("rules-"):
+            return parent.name.removeprefix("rulespec-")
     return None
 
 
@@ -1769,7 +1769,7 @@ def _policy_repo_root_for_corpus_source(
 ) -> Path:
     """Choose the jurisdiction RuleSpec repo for a corpus citation path."""
     jurisdiction = corpus_citation_path.strip().split("/", 1)[0] or "us"
-    repo_name = "rules-us" if jurisdiction == "us" else f"rules-{jurisdiction}"
+    repo_name = "rulespec-us" if jurisdiction == "us" else f"rulespec-{jurisdiction}"
     if axiom_rules_path.name == repo_name:
         return axiom_rules_path
     candidate = axiom_rules_path.parent / repo_name
@@ -2013,7 +2013,7 @@ def _candidate_import_rule_files(
     import_prefix = _import_target_prefix(import_target)
     if import_prefix:
         candidates.append(
-            policy_repo_root.parent / f"rules-{import_prefix}" / target_path
+            policy_repo_root.parent / f"rulespec-{import_prefix}" / target_path
         )
     return candidates
 
@@ -2027,13 +2027,13 @@ def _rulespec_validation_target(
         yield rulespec_file
         return
     relative = _relative_rulespec_source_path(rulespec_file)
-    if relative is None or not policy_repo_root.name.startswith("rules-"):
+    if relative is None or not policy_repo_root.name.startswith("rulespec-"):
         yield rulespec_file
         return
 
     with tempfile.TemporaryDirectory() as tmpdir:
         overlay_parent = Path(tmpdir)
-        for sibling in policy_repo_root.parent.glob("rules-*"):
+        for sibling in policy_repo_root.parent.glob("rulespec-*"):
             if sibling.resolve() == policy_repo_root.resolve() or not sibling.is_dir():
                 continue
             sibling_target = overlay_parent / sibling.name
@@ -3000,7 +3000,7 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
         candidates = [policy_root / target_path]
         if import_prefix:
             candidates.append(
-                policy_root.parent / f"rules-{import_prefix}" / target_path
+                policy_root.parent / f"rulespec-{import_prefix}" / target_path
             )
         if target_path.parts:
             first = target_path.parts[0]
@@ -4314,13 +4314,13 @@ def _canonical_rulespec_target_for_path(rulespec_path: Path | None) -> str | Non
         (
             index
             for index in range(len(components) - 1, -1, -1)
-            if components[index].startswith("rules-")
+            if components[index].startswith("rulespec-")
         ),
         None,
     )
     if repo_index is None or repo_index + 1 >= len(components):
         return None
-    prefix = components[repo_index].removeprefix("rules-")
+    prefix = components[repo_index].removeprefix("rulespec-")
     if not prefix:
         return None
     relative = Path(*components[repo_index + 1 :])

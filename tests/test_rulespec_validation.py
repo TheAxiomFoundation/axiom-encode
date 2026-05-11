@@ -47,26 +47,56 @@ from axiom_encode.oracles.policyengine.registry import (
     load_policyengine_registry,
 )
 
-AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules")
-AXIOM_RULES_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules"
+AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
+AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
 
 
 def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
     repo_parent = tmp_path / "repos"
-    policy_repo = repo_parent / "rules-us-ny"
+    policy_repo = repo_parent / "rulespec-us-ny"
     policy_repo.mkdir(parents=True)
     existing_root = tmp_path / "existing-roots"
-    monkeypatch.setenv("AXIOM_RULE_REPO_ROOTS", str(existing_root))
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(existing_root))
 
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
-        axiom_rules_path=repo_parent / "axiom-rules",
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
     )
 
-    roots = pipeline._rulespec_compile_env()["AXIOM_RULE_REPO_ROOTS"].split(os.pathsep)
+    roots = pipeline._rulespec_compile_env()["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
     assert roots[:2] == [str(policy_repo), str(repo_parent)]
     assert str(existing_root) in roots
+
+
+def test_cross_statute_definition_import_check_uses_cited_title_and_existing_targets(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    target = repo / "statutes" / "7" / "2014" / "e.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "statutes" / "7" / "2015" / "e.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Eligibility is described in section 2014(e). A controlled substance is
+    defined in section 802 of title 21.
+rules: []
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_statute_definition_imports(rules_file)
+
+    assert issues == [
+        "Cross-statute definition import missing: source text references "
+        "section 2014(e) but file does not import from 7/2014/e"
+    ]
 
 
 def test_formula_absolute_reference_rejects_import_targets_in_formula():
@@ -155,7 +185,7 @@ rules:
 
 
 def test_missing_derived_companion_output_rejects_uncovered_derived_rule(tmp_path):
-    policy_repo = tmp_path / "rules-us"
+    policy_repo = tmp_path / "rulespec-us"
     rules_file = policy_repo / "statutes" / "7" / "2015" / "e.yaml"
     rules_file.parent.mkdir(parents=True)
     content = """format: rulespec/v1
@@ -255,7 +285,7 @@ rules:
 
 
 def test_same_section_subsection_import_accepts_transitive_child_import(tmp_path):
-    policy_repo = tmp_path / "rules-us"
+    policy_repo = tmp_path / "rulespec-us"
     child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     child.parent.mkdir(parents=True)
     child.write_text(
@@ -317,7 +347,7 @@ def _write_local_source_claim(repo_parent: Path, record: dict) -> None:
 
 def test_promoted_stub_check_uses_corpus_provisions(tmp_path):
     repo_parent = tmp_path / "repos"
-    rules_repo = repo_parent / "rules-us"
+    rules_repo = repo_parent / "rulespec-us"
     rules_file = rules_repo / "statutes" / "7" / "2014" / "e" / "4.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -328,7 +358,7 @@ def test_promoted_stub_check_uses_corpus_provisions(tmp_path):
 
     pipeline = ValidatorPipeline(
         policy_repo_path=rules_repo,
-        axiom_rules_path=repo_parent / "axiom-rules",
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
     )
 
@@ -340,7 +370,7 @@ def test_promoted_stub_check_uses_corpus_provisions(tmp_path):
 
 def test_imported_stub_dependency_check_uses_corpus_provisions(tmp_path):
     repo_parent = tmp_path / "repos"
-    rules_repo = repo_parent / "rules-us"
+    rules_repo = repo_parent / "rulespec-us"
     rules_file = rules_repo / "statutes" / "7" / "2014" / "root.yaml"
     target_file = rules_repo / "statutes" / "7" / "2014" / "e" / "4.yaml"
     target_file.parent.mkdir(parents=True)
@@ -360,7 +390,7 @@ def test_imported_stub_dependency_check_uses_corpus_provisions(tmp_path):
 
     pipeline = ValidatorPipeline(
         policy_repo_path=rules_repo,
-        axiom_rules_path=repo_parent / "axiom-rules",
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
         enable_oracles=False,
     )
 
@@ -371,8 +401,8 @@ def test_imported_stub_dependency_check_uses_corpus_provisions(tmp_path):
 
 
 def test_rulespec_compile_ci_and_grounding(tmp_path, monkeypatch):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
         monkeypatch,
@@ -436,10 +466,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_friendly_output_keys(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -468,7 +498,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -485,10 +515,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_unresolved_output_reference_path(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -517,7 +547,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -534,10 +564,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_input_reference_in_output_position(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -566,7 +596,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -583,10 +613,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_friendly_input_keys(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -615,7 +645,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -630,10 +660,10 @@ rules:
 
 
 def test_rulespec_ci_executes_repo_backed_absolute_input_keys(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -662,7 +692,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -675,10 +705,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_path(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -707,7 +737,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -726,10 +756,10 @@ rules:
 def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_fragment(
     tmp_path,
 ):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2017" / "a.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2017" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -758,7 +788,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -774,10 +804,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_friendly_relation_child_input_keys(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2012" / "j.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -810,7 +840,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -826,10 +856,10 @@ rules:
 
 
 def test_rulespec_ci_executes_repo_backed_absolute_relation_child_input_keys(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2012" / "j.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -862,7 +892,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
         enforce_repository_layout=False,
@@ -875,10 +905,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_unresolved_relation_reference(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    rules_file = tmp_path / "rules-us" / "statutes" / "7" / "2012" / "j.yaml"
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
         """format: rulespec/v1
@@ -911,7 +941,7 @@ rules:
     )
 
     pipeline = ValidatorPipeline(
-        policy_repo_path=tmp_path / "rules-us",
+        policy_repo_path=tmp_path / "rulespec-us",
         axiom_rules_path=AXIOM_RULES_PATH,
         enable_oracles=False,
     )
@@ -1605,7 +1635,7 @@ def test_policyengine_resolver_rejects_friendly_us_names(tmp_path):
 
 
 def test_policyengine_us_state_inference_uses_rulespec_repo_path(tmp_path):
-    rules_file = tmp_path / "rules-us-co" / "regulations" / "rules.yaml"
+    rules_file = tmp_path / "rulespec-us-co" / "regulations" / "rules.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text("format: rulespec/v1\n")
 
@@ -2687,7 +2717,7 @@ rules:
 
 
 def test_cross_reference_exception_placeholder_requires_import(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -2710,7 +2740,7 @@ rules:
     )
     pipeline = ValidatorPipeline(
         policy_repo_path=repo,
-        axiom_rules_path=tmp_path / "axiom-rules",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
     )
 
@@ -2722,7 +2752,7 @@ rules:
 
 
 def test_cross_reference_placeholder_requires_same_section_subsection_import(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -2745,7 +2775,7 @@ rules:
     )
     pipeline = ValidatorPipeline(
         policy_repo_path=repo,
-        axiom_rules_path=tmp_path / "axiom-rules",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
     )
 
@@ -2757,7 +2787,7 @@ rules:
 
 
 def test_copied_cross_reference_source_rejects_cited_subsection_body(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -2790,7 +2820,7 @@ rules:
 
 
 def test_copied_cross_reference_source_allows_bare_subsection_citation(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -2821,7 +2851,7 @@ rules:
 
 
 def test_same_section_subsection_reference_requires_import(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -2855,7 +2885,7 @@ rules:
 
 
 def test_same_section_subsection_reference_allows_import(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -2890,7 +2920,7 @@ rules:
 
 
 def test_rule_name_path_suffix_rejects_citation_fragments(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text("")
@@ -2915,7 +2945,7 @@ rules:
 
 
 def test_rule_name_path_suffix_allows_semantic_numbers(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "b" / "1.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text("")
@@ -2938,7 +2968,7 @@ rules:
 
 def test_sibling_rule_name_collision_rejects_duplicate_exports(tmp_path):
     rules_file = (
-        tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+        tmp_path / "rulespec-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
     )
     sibling = rules_file.with_name("B.yaml")
     rules_file.parent.mkdir(parents=True)
@@ -2964,7 +2994,7 @@ rules:
 
 def test_sibling_rule_name_collision_allows_unique_exports(tmp_path):
     rules_file = (
-        tmp_path / "rules-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+        tmp_path / "rulespec-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
     )
     sibling = rules_file.with_name("B.yaml")
     rules_file.parent.mkdir(parents=True)
@@ -2985,7 +3015,7 @@ rules:
 
 
 def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
-    repo = tmp_path / "rules-us"
+    repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -3010,7 +3040,7 @@ rules:
     )
     pipeline = ValidatorPipeline(
         policy_repo_path=repo,
-        axiom_rules_path=tmp_path / "axiom-rules",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
         enable_oracles=False,
     )
 
@@ -3049,7 +3079,7 @@ def _write_rulespec_file(path: Path, content: str) -> Path:
 def test_upstream_placement_flags_duplicate_upstream_executable_rule(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(
-        repo_parent / "rules-us" / "policies/example/fy-2026.yaml",
+        repo_parent / "rulespec-us" / "policies/example/fy-2026.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -3062,7 +3092,7 @@ rules:
 """,
     )
     rules_file = _write_rulespec_file(
-        repo_parent / "rules-us-co" / "regulations/example/benefit.yaml",
+        repo_parent / "rulespec-us-co" / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -3088,7 +3118,7 @@ rules:
 def test_upstream_placement_allows_distinct_local_rule_with_same_name(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(
-        repo_parent / "rules-us" / "policies/example/fy-2026.yaml",
+        repo_parent / "rulespec-us" / "policies/example/fy-2026.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -3101,7 +3131,7 @@ rules:
 """,
     )
     rules_file = _write_rulespec_file(
-        repo_parent / "rules-us-co" / "regulations/example/benefit.yaml",
+        repo_parent / "rulespec-us-co" / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: benefit_limit
@@ -3136,14 +3166,14 @@ rules:
         formula: '500'
 """
     rules_file = _write_rulespec_file(
-        repo_parent / "rules-us" / "policies/example/fy-2026.yaml",
+        repo_parent / "rulespec-us" / "policies/example/fy-2026.yaml",
         canonical_content,
     )
     _write_rulespec_file(
         repo_parent
-        / "rules-us"
+        / "rulespec-us"
         / "_axiom"
-        / "rules-us"
+        / "rulespec-us"
         / "policies/example/fy-2026.yaml",
         canonical_content,
     )
@@ -3160,7 +3190,7 @@ rules:
 def test_upstream_placement_ignores_sibling_jurisdiction_duplicates(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(
-        repo_parent / "rules-us-ny" / "regulations/example/benefit.yaml",
+        repo_parent / "rulespec-us-ny" / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: state_allowance
@@ -3173,7 +3203,7 @@ rules:
 """,
     )
     rules_file = _write_rulespec_file(
-        repo_parent / "rules-us-co" / "regulations/example/benefit.yaml",
+        repo_parent / "rulespec-us-co" / "regulations/example/benefit.yaml",
         """format: rulespec/v1
 rules:
   - name: state_allowance
@@ -3664,8 +3694,8 @@ def test_extract_json_object_repairs_missing_terminal_object_brace():
 
 
 def test_rulespec_ci_executes_companion_test_outputs(tmp_path, monkeypatch):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     citation_path = "us/guidance/example/sua"
     _write_local_corpus_provision(
@@ -3755,8 +3785,8 @@ def test_rulespec_output_lookup_rejects_friendly_name_aliases(tmp_path):
 
 
 def test_rulespec_ci_executes_relation_list_inputs(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -3796,8 +3826,8 @@ rules:
 
 
 def test_rulespec_ci_compares_parameter_only_outputs(tmp_path, monkeypatch):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
         monkeypatch, "The official source states the policy rate is 0.2."
@@ -3841,8 +3871,8 @@ rules:
 
 
 def test_rulespec_ci_executes_indexed_parameter_table_lookup(tmp_path, monkeypatch):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
         monkeypatch,
@@ -3910,8 +3940,8 @@ rules:
 
 
 def test_rulespec_ci_compares_indexed_parameter_outputs(tmp_path, monkeypatch):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
         monkeypatch,
@@ -3958,8 +3988,8 @@ rules:
 
 
 def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -4007,8 +4037,8 @@ rules:
 
 
 def test_rulespec_ci_rejects_parameter_values_without_indexed_by(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -4390,8 +4420,8 @@ rules:
 
 
 def test_rulespec_ci_accepts_source_relation_without_tests(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -4417,10 +4447,10 @@ rules:
 
 
 def test_rulespec_ci_verifies_source_relation_values_against_target(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    us_root = tmp_path / "rules-us"
+    us_root = tmp_path / "rulespec-us"
     target_file = us_root / "policies/usda/snap/fy-2026-cola.yaml"
     target_file.parent.mkdir(parents=True)
     target_file.write_text(
@@ -4455,7 +4485,7 @@ rules:
 """
     )
 
-    co_root = tmp_path / "rules-us-co"
+    co_root = tmp_path / "rulespec-us-co"
     rules_file = co_root / "regulations/10-ccr-2506-1/4.207.3.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -4486,10 +4516,10 @@ rules:
 
 
 def test_rulespec_ci_rejects_source_relation_value_mismatch(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
-    us_root = tmp_path / "rules-us"
+    us_root = tmp_path / "rulespec-us"
     target_file = us_root / "policies/usda/snap/fy-2026-cola.yaml"
     target_file.parent.mkdir(parents=True)
     target_file.write_text(
@@ -4517,7 +4547,7 @@ rules:
 """
     )
 
-    co_root = tmp_path / "rules-us-co"
+    co_root = tmp_path / "rulespec-us-co"
     rules_file = co_root / "regulations/10-ccr-2506-1/4.207.3.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -4553,8 +4583,8 @@ rules:
 
 
 def test_rulespec_ci_rejects_source_relation_without_target(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -4581,8 +4611,8 @@ rules:
 
 
 def test_rulespec_ci_rejects_scalar_kind_mismatches(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -4637,8 +4667,8 @@ rules:
 
 
 def test_rulespec_ci_rejects_malformed_period_mapping(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -4680,8 +4710,8 @@ rules:
 
 
 def test_rulespec_ci_rejects_bare_year_periods(tmp_path):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
@@ -4722,8 +4752,8 @@ rules:
 def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(
     tmp_path, monkeypatch
 ):
-    if not AXIOM_RULES_BINARY.exists():
-        pytest.skip("local axiom-rules binary is not built")
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
         monkeypatch,

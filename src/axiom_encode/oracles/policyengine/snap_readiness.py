@@ -1,4 +1,4 @@
-"""SNAP encoding readiness report for rules-us-* repositories."""
+"""SNAP encoding readiness report for rulespec-us-* repositories."""
 
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ def build_snap_readiness_item(
     corpus_root: Path,
 ) -> SnapReadinessItem:
     repo = Path(repo).expanduser().resolve()
-    jurisdiction = repo.name.removeprefix("rules-")
+    jurisdiction = repo.name.removeprefix("rulespec-")
     rulespec_payloads = [
         (rulespec_file, payload)
         for rulespec_file, payload in _iter_snap_rulespec_payloads(repo)
@@ -154,8 +154,8 @@ def count_snap_corpus_provisions(corpus_root: Path, *, jurisdiction: str) -> int
 def _iter_state_rules_repos(root: Path) -> list[Path]:
     return [
         repo
-        for repo in sorted(root.glob("rules-us-*"))
-        if repo.is_dir() and repo.name != "rules-us"
+        for repo in sorted(root.glob("rulespec-us-*"))
+        if repo.is_dir() and repo.name != "rulespec-us"
     ]
 
 
