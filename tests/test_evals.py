@@ -297,6 +297,11 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         "Do not create named `parameter` rules for structural table row labels"
         in prompt
     )
+    assert "Before finalizing, do this self-check:" in prompt
+    assert "Numeric inventory: every source-stated legal amount" in prompt
+    assert "Test input inventory: for every local factual identifier" in prompt
+    assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
+    assert "Import inventory: every `imports:` entry is an exact copied/importable" in prompt
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):

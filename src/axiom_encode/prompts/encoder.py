@@ -217,6 +217,21 @@ Hard requirements:
 - If the same numeric value appears in separate numbered exceptions,
   subparagraphs, or otherwise materially different legal roles, give those roles
   distinct named scalars; reuse a named scalar only for the same legal role.
+- Before finalizing, do this self-check:
+  1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
+     or limit has a named `parameter`, and derived formulas reference the name
+     rather than an inline literal.
+  2. Test input inventory: for every local factual identifier referenced by a
+     local derived formula, every companion test case assigns the corresponding
+     `#input.<fact>` explicitly, including false facts. Do not rely on implicit
+     defaults.
+  3. Proof inventory: every proof atom uses only an allowed `kind`; imported
+     proof atoms include `import.target`, `import.output`, and `import.hash`;
+     textual claim support is either direct corpus source support or a claim ID
+     listed under `module.source_claims`.
+  4. Import inventory: every `imports:` entry is an exact copied/importable
+     RuleSpec target. Do not guess sibling paths; if required upstream context is
+     missing, emit a typed missing-upstream/dependency request instead.
 
 Minimal shape:
 
