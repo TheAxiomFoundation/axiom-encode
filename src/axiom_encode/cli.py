@@ -25,7 +25,7 @@ import tempfile
 import time
 from collections import Counter
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -562,6 +562,32 @@ def main():
         "--json", action="store_true", help="Output guard result as JSON"
     )
 
+    # test command
+    test_parser = subparsers.add_parser(
+        "test", help="Execute RuleSpec companion .test.yaml cases"
+    )
+    test_parser.add_argument(
+        "paths",
+        nargs="*",
+        type=Path,
+        help="RuleSpec .test.yaml files or directories to test",
+    )
+    test_parser.add_argument(
+        "--root",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used when no paths are supplied",
+    )
+    test_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+    test_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
     # compile command
     compile_parser = subparsers.add_parser(
         "compile", help="Compile a RuleSpec YAML file with the Axiom rules engine"
@@ -1051,6 +1077,8 @@ def main():
         cmd_proof_validate(args)
     elif args.command == "compile":
         cmd_compile(args)
+    elif args.command == "test":
+        cmd_test(args)
     elif args.command == "log":
         cmd_log(args)
     elif args.command == "stats":
@@ -1310,6 +1338,517 @@ def cmd_proof_validate(args):
             print(f"  - {issue}")
 
     sys.exit(0 if result.passed else 1)
+
+
+def cmd_test(args):
+    """Execute RuleSpec companion .test.yaml cases."""
+    root = Path(args.root).resolve()
+    test_files = _discover_rulespec_test_files(args.paths, root=root)
+    if not test_files:
+        message = f"No RuleSpec companion tests found under {root}"
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "root": str(root),
+                        "test_files": 0,
+                        "cases": 0,
+                        "failures": [{"file": None, "case": None, "message": message}],
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(message)
+        sys.exit(1)
+
+    axiom_rules_path = (
+        getattr(args, "axiom_rules_path", None)
+        or _resolve_runtime_axiom_rules_checkout(root)
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=root,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+    )
+    binary = pipeline._axiom_rules_binary()
+
+    failures: list[dict[str, str | None]] = []
+    case_count = 0
+    compiled_count = 0
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        compiled_cache: dict[Path, tuple[Path, dict]] = {}
+        for test_file in test_files:
+            result = _execute_rulespec_test_file(
+                test_file,
+                binary=binary,
+                axiom_rules_path=Path(axiom_rules_path),
+                tmp_path=tmp_path,
+                compiled_cache=compiled_cache,
+            )
+            case_count += result["cases"]
+            compiled_count += result["compiled"]
+            failures.extend(result["failures"])
+
+    payload = {
+        "success": not failures,
+        "root": str(root),
+        "test_files": len(test_files),
+        "cases": case_count,
+        "compiled_programs": compiled_count,
+        "failures": failures,
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, default=str))
+    elif failures:
+        print(
+            f"RuleSpec companion tests failed: "
+            f"{len(failures)} failure(s) across {case_count} case(s)"
+        )
+        for failure in failures[:50]:
+            label = failure.get("file") or "<unknown file>"
+            case_name = failure.get("case") or "<unknown case>"
+            print(f"- {label} :: {case_name} :: {failure.get('message')}")
+        if len(failures) > 50:
+            print(f"- ... {len(failures) - 50} more failure(s)")
+    else:
+        print(
+            f"RuleSpec companion tests passed: "
+            f"{len(test_files)} file(s), {case_count} case(s)"
+        )
+    sys.exit(0 if not failures else 1)
+
+
+def _discover_rulespec_test_files(paths: list[Path], *, root: Path) -> list[Path]:
+    candidates = paths or [root]
+    test_files: list[Path] = []
+    for candidate in candidates:
+        path = Path(candidate)
+        if not path.is_absolute():
+            path = (root / path).resolve()
+        if path.is_dir():
+            test_files.extend(
+                file
+                for file in path.rglob("*.test.yaml")
+                if ".git" not in file.parts
+            )
+            test_files.extend(
+                file for file in path.rglob("*.test.yml") if ".git" not in file.parts
+            )
+        elif _is_rulespec_test_file(path):
+            test_files.append(path)
+    return sorted(set(test_files))
+
+
+def _is_rulespec_test_file(path: Path) -> bool:
+    return path.name.endswith(".test.yaml") or path.name.endswith(".test.yml")
+
+
+def _rulespec_program_for_test_file(path: Path) -> Path:
+    if path.name.endswith(".test.yaml"):
+        return path.with_name(path.name.removesuffix(".test.yaml") + ".yaml")
+    if path.name.endswith(".test.yml"):
+        return path.with_name(path.name.removesuffix(".test.yml") + ".yml")
+    raise ValueError(f"{path} is not a RuleSpec companion test file")
+
+
+def _execute_rulespec_test_file(
+    test_file: Path,
+    *,
+    binary: Path,
+    axiom_rules_path: Path,
+    tmp_path: Path,
+    compiled_cache: dict[Path, tuple[Path, dict]],
+) -> dict:
+    failures: list[dict[str, str | None]] = []
+    program_file = _rulespec_program_for_test_file(test_file)
+    if not program_file.exists():
+        return {
+            "cases": 0,
+            "compiled": 0,
+            "failures": [
+                {
+                    "file": str(test_file),
+                    "case": None,
+                    "message": f"missing adjacent RuleSpec file {program_file}",
+                }
+            ],
+        }
+
+    compiled = compiled_cache.get(program_file)
+    compiled_count = 0
+    if compiled is None:
+        compiled_path = tmp_path / (_safe_artifact_stem(program_file) + ".json")
+        result = subprocess.run(
+            [
+                str(binary),
+                "compile",
+                "--program",
+                str(program_file),
+                "--output",
+                str(compiled_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(axiom_rules_path) if axiom_rules_path.exists() else None,
+        )
+        if result.returncode != 0:
+            return {
+                "cases": 0,
+                "compiled": 0,
+                "failures": [
+                    {
+                        "file": str(test_file),
+                        "case": None,
+                        "message": result.stderr.strip() or result.stdout.strip(),
+                    }
+                ],
+            }
+        artifact = json.loads(compiled_path.read_text())
+        compiled_cache[program_file] = (compiled_path, artifact)
+        compiled = (compiled_path, artifact)
+        compiled_count = 1
+
+    compiled_path, artifact = compiled
+    cases = _load_rulespec_test_cases(test_file)
+    parameter_by_id = {
+        parameter.get("id"): parameter
+        for parameter in artifact.get("program", {}).get("parameters", [])
+        if isinstance(parameter, dict) and parameter.get("id")
+    }
+    derived_ids = {
+        derived.get("id")
+        for derived in artifact.get("program", {}).get("derived", [])
+        if isinstance(derived, dict) and derived.get("id")
+    }
+
+    for index, case in enumerate(cases):
+        case_name = str(case.get("name") or f"case_{index}")
+        try:
+            failures.extend(
+                _execute_rulespec_test_case(
+                    test_file,
+                    case,
+                    case_name=case_name,
+                    compiled_path=compiled_path,
+                    binary=binary,
+                    axiom_rules_path=axiom_rules_path,
+                    parameter_by_id=parameter_by_id,
+                    derived_ids=derived_ids,
+                )
+            )
+        except Exception as error:
+            failures.append(
+                {"file": str(test_file), "case": case_name, "message": str(error)}
+            )
+
+    return {"cases": len(cases), "compiled": compiled_count, "failures": failures}
+
+
+def _load_rulespec_test_cases(path: Path) -> list[dict]:
+    data = yaml.safe_load(path.read_text())
+    if isinstance(data, list):
+        cases = data
+    elif isinstance(data, dict) and isinstance(data.get("cases"), list):
+        cases = data["cases"]
+    else:
+        raise ValueError(f"{path} must contain a case list or a mapping with `cases`")
+    invalid = [index for index, case in enumerate(cases) if not isinstance(case, dict)]
+    if invalid:
+        raise ValueError(f"{path} contains non-mapping test case(s): {invalid}")
+    return cases
+
+
+def _execute_rulespec_test_case(
+    test_file: Path,
+    case: dict,
+    *,
+    case_name: str,
+    compiled_path: Path,
+    binary: Path,
+    axiom_rules_path: Path,
+    parameter_by_id: dict[str, dict],
+    derived_ids: set[str],
+) -> list[dict[str, str | None]]:
+    failures: list[dict[str, str | None]] = []
+    period = _rulespec_period_spec(case.get("period", "2026-01"))
+    interval = {"start": period["start"], "end": period["end"]}
+    root_entity_id = "case"
+    inputs: list[dict] = []
+    relations: list[dict] = []
+    flat_inputs: dict[str, object] = {}
+
+    for key, value in (case.get("input") or {}).items():
+        key = str(key)
+        flat_inputs[key] = value
+        if isinstance(value, list) and "#relation." in key:
+            for row_index, row in enumerate(value):
+                related_id = f"related_{row_index}"
+                # The current relation slot convention is related entity first,
+                # enclosing entity second.
+                relations.append(
+                    {
+                        "name": key,
+                        "tuple": [related_id, root_entity_id],
+                        "interval": interval,
+                    }
+                )
+                if not isinstance(row, dict):
+                    failures.append(
+                        {
+                            "file": str(test_file),
+                            "case": case_name,
+                            "message": f"relation row for {key} is not a mapping",
+                        }
+                    )
+                    continue
+                for row_key, row_value in row.items():
+                    inputs.append(
+                        {
+                            "name": str(row_key),
+                            "entity": "Entity",
+                            "entity_id": related_id,
+                            "interval": interval,
+                            "value": _rulespec_scalar_value(row_value),
+                        }
+                    )
+        else:
+            inputs.append(
+                {
+                    "name": key,
+                    "entity": "Entity",
+                    "entity_id": root_entity_id,
+                    "interval": interval,
+                    "value": _rulespec_scalar_value(value),
+                }
+            )
+
+    expected = case.get("output") or {}
+    parameter_expected = {
+        str(key): value for key, value in expected.items() if str(key) in parameter_by_id
+    }
+    derived_expected = {
+        str(key): value for key, value in expected.items() if str(key) not in parameter_by_id
+    }
+
+    for output, expected_value in parameter_expected.items():
+        try:
+            actual_value = _rulespec_parameter_value(
+                parameter_by_id[output], flat_inputs, period["start"]
+            )
+        except Exception as error:
+            failures.append(
+                {
+                    "file": str(test_file),
+                    "case": case_name,
+                    "message": f"{output}: {error}",
+                }
+            )
+            continue
+        if not _rulespec_scalar_matches(actual_value, expected_value):
+            failures.append(
+                {
+                    "file": str(test_file),
+                    "case": case_name,
+                    "message": (
+                        f"{output}: expected {expected_value!r}, got {actual_value!r}"
+                    ),
+                }
+            )
+
+    unknown = [output for output in derived_expected if output not in derived_ids]
+    for output in unknown:
+        failures.append(
+            {
+                "file": str(test_file),
+                "case": case_name,
+                "message": f"unknown executable output {output}",
+            }
+        )
+    derived_expected = {
+        output: value for output, value in derived_expected.items() if output in derived_ids
+    }
+    if not derived_expected:
+        return failures
+
+    request = {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
+        "queries": [
+            {
+                "entity_id": root_entity_id,
+                "period": period,
+                "outputs": list(derived_expected.keys()),
+            }
+        ],
+    }
+    result = subprocess.run(
+        [str(binary), "run-compiled", "--artifact", str(compiled_path)],
+        input=json.dumps(request),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=str(axiom_rules_path) if axiom_rules_path.exists() else None,
+    )
+    if result.returncode != 0:
+        failures.append(
+            {
+                "file": str(test_file),
+                "case": case_name,
+                "message": result.stderr.strip() or result.stdout.strip(),
+            }
+        )
+        return failures
+
+    outputs = json.loads(result.stdout)["results"][0]["outputs"]
+    for output, expected_value in derived_expected.items():
+        actual = outputs.get(output)
+        if actual is None:
+            failures.append(
+                {
+                    "file": str(test_file),
+                    "case": case_name,
+                    "message": f"missing output {output}; got {sorted(outputs)}",
+                }
+            )
+        elif not _rulespec_output_matches(actual, expected_value):
+            failures.append(
+                {
+                    "file": str(test_file),
+                    "case": case_name,
+                    "message": f"{output}: expected {expected_value!r}, got {actual!r}",
+                }
+            )
+    return failures
+
+
+def _safe_artifact_stem(path: Path) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(path.resolve()))
+
+
+def _rulespec_period_spec(value) -> dict[str, str]:
+    if isinstance(value, dict):
+        start = value.get("start")
+        end = value.get("end")
+        return {
+            "period_kind": str(value.get("period_kind", "period")),
+            "start": start.isoformat() if hasattr(start, "isoformat") else str(start),
+            "end": end.isoformat() if hasattr(end, "isoformat") else str(end),
+        }
+    if isinstance(value, int) or (
+        isinstance(value, str) and len(value) == 4 and value.isdigit()
+    ):
+        year = int(value)
+        return {
+            "period_kind": "tax_year",
+            "start": f"{year:04d}-01-01",
+            "end": f"{year:04d}-12-31",
+        }
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}", value):
+        year = int(value[:4])
+        month = int(value[5:])
+        next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        next_start = date(next_year, next_month, 1)
+        end = date.fromordinal(next_start.toordinal() - 1)
+        return {
+            "period_kind": "month",
+            "start": f"{year:04d}-{month:02d}-01",
+            "end": end.isoformat(),
+        }
+    if isinstance(value, date):
+        return {"period_kind": "day", "start": value.isoformat(), "end": value.isoformat()}
+    raise ValueError(f"unsupported period shorthand: {value!r}")
+
+
+def _rulespec_scalar_value(value) -> dict:
+    if isinstance(value, bool):
+        return {"kind": "bool", "value": value}
+    if isinstance(value, int):
+        return {"kind": "integer", "value": value}
+    if isinstance(value, float):
+        return {"kind": "decimal", "value": str(value)}
+    if isinstance(value, date):
+        return {"kind": "date", "value": value.isoformat()}
+    if isinstance(value, str):
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            return {"kind": "date", "value": value}
+        return {"kind": "text", "value": value}
+    raise ValueError(f"unsupported scalar value: {value!r}")
+
+
+def _rulespec_parameter_value(
+    parameter: dict, case_inputs: dict[str, object], period_start: str
+) -> dict:
+    versions = sorted(
+        parameter.get("versions") or [], key=lambda item: str(item["effective_from"])
+    )
+    chosen = None
+    for version in versions:
+        if str(version["effective_from"]) <= period_start:
+            chosen = version
+    if chosen is None:
+        if not versions:
+            raise KeyError("no parameter versions")
+        chosen = versions[0]
+    values = chosen.get("values") or {}
+    key = "0"
+    indexed_by = parameter.get("indexed_by")
+    if indexed_by:
+        raw_index = _rulespec_case_input_value(case_inputs, indexed_by)
+        if raw_index is None:
+            raise KeyError(f"missing parameter index input {indexed_by}")
+        if isinstance(raw_index, (int, float)) and not isinstance(raw_index, bool):
+            key = str(int(raw_index))
+        else:
+            key = str(raw_index)
+    if key not in values:
+        raise KeyError(f"missing parameter value key {key}")
+    return values[key]
+
+
+def _rulespec_case_input_value(
+    case_inputs: dict[str, object], reference: str
+) -> object | None:
+    reference = str(reference)
+    candidates = [reference]
+    fragment = reference.split("#", 1)[-1]
+    if not fragment.startswith("input."):
+        candidates.append(f"dummy#input.{fragment}")
+    for candidate in candidates:
+        if candidate in case_inputs:
+            return case_inputs[candidate]
+    suffix = f"#input.{fragment.removeprefix('input.')}"
+    matches = [value for key, value in case_inputs.items() if str(key).endswith(suffix)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _rulespec_scalar_matches(actual_value: dict, expected) -> bool:
+    kind = actual_value.get("kind")
+    value = actual_value.get("value")
+    if (
+        kind in {"integer", "decimal"}
+        and isinstance(expected, (int, float))
+        and not isinstance(expected, bool)
+    ):
+        from decimal import Decimal
+
+        return Decimal(str(value)) == Decimal(str(expected))
+    if kind == "date" and isinstance(expected, date):
+        return value == expected.isoformat()
+    if isinstance(expected, date):
+        expected = expected.isoformat()
+    return value == expected
+
+
+def _rulespec_output_matches(actual: dict, expected) -> bool:
+    if actual.get("kind") == "judgment":
+        return actual.get("outcome") == expected
+    return _rulespec_scalar_matches(actual.get("value") or {}, expected)
 
 
 def cmd_compile(args):

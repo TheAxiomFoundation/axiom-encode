@@ -48,6 +48,7 @@ from axiom_encode.cli import (
     cmd_stats,
     cmd_sync_agent_sessions,
     cmd_sync_transcripts,
+    cmd_test,
     cmd_transcript_stats,
     cmd_validate,
     guard_generated_change_issues,
@@ -1838,6 +1839,98 @@ rules:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["success"] is False
+
+
+# =========================================================================
+# Test cmd_test
+# =========================================================================
+
+
+class TestCmdTest:
+    def _require_axiom_rules_path(self) -> Path:
+        axiom_rules_path = Path(
+            "/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"
+        )
+        binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
+        if not binary.exists():
+            pytest.skip("local axiom-rules-engine binary is not built")
+        return axiom_rules_path
+
+    def _write_rulespec_with_test(
+        self,
+        tmp_path: Path,
+        *,
+        expected_benefit: int,
+    ) -> Path:
+        repo = tmp_path / "rulespec-us"
+        target = repo / "statutes/1/1.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  summary: Test companion execution.
+rules:
+  - name: threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '10'
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: income + threshold
+"""
+        )
+        target.with_name("1.test.yaml").write_text(
+            f"""- name: computes_derived_and_parameter_output
+  period: 2026-01
+  input:
+    us:statutes/1/1#input.income: 5
+  output:
+    us:statutes/1/1#threshold: 10
+    us:statutes/1/1#benefit: {expected_benefit}
+"""
+        )
+        return repo
+
+    def _args(self, repo: Path, *, json_output: bool):
+        args = MagicMock()
+        args.root = repo
+        args.paths = []
+        args.json = json_output
+        args.axiom_rules_path = self._require_axiom_rules_path()
+        return args
+
+    def test_executes_companion_tests_success_json(self, capsys, tmp_path):
+        repo = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(self._args(repo, json_output=True))
+
+        assert exc_info.value.code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["success"] is True
+        assert output["test_files"] == 1
+        assert output["cases"] == 1
+        assert output["failures"] == []
+
+    def test_executes_companion_tests_failure_json(self, capsys, tmp_path):
+        repo = self._write_rulespec_with_test(tmp_path, expected_benefit=16)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(self._args(repo, json_output=True))
+
+        assert exc_info.value.code == 1
+        output = json.loads(capsys.readouterr().out)
+        assert output["success"] is False
+        assert "expected 16" in output["failures"][0]["message"]
 
 
 # =========================================================================
