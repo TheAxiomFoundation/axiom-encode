@@ -1414,6 +1414,248 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine implements dependent standard deduction inside basic_standard_deduction when dependency status is supplied; it is not exposed as a separate variable.
 
+  - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_earned_income_amounts
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the EITC earned-income amount plateau as a standalone parameter; it stores maximum credits and rates separately.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_maximum_credit_amounts
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.eitc.max
+    parameter_calc_input: qualifying_child_count
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum EITC amount by qualifying-child count, stored in PE as a scale parameter.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_threshold_phaseout_amounts_joint
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine represents joint EITC phaseout starts as the non-joint phaseout-start scale plus a separate joint-bonus scale, not as this published table row.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_completed_phaseout_amounts_joint
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes EITC completed phaseout limits from maximum credit, phaseout rate, and phaseout start; it does not expose the IRS completed-phaseout table row directly.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_threshold_phaseout_amounts_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.eitc.phase_out.start
+    parameter_calc_input: qualifying_child_count
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS non-joint EITC threshold phaseout amount by qualifying-child count, stored in PE as a scale parameter.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_completed_phaseout_amounts_other
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes EITC completed phaseout limits from maximum credit, phaseout rate, and phaseout start; it does not expose the IRS completed-phaseout table row directly.
+
+  - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_maximum_investment_income
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.eitc.phase_out.max_investment_income
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same IRS maximum investment income threshold for EITC eligibility.
+
+  - legal_id: us:statutes/26/32#eitc_phase_in_rates
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.eitc.phase_in_rate
+    parameter_calc_input: qualifying_child_count
+    period: year
+    comparison: rate
+    rationale: Same statutory EITC phase-in rate by qualifying-child count.
+
+  - legal_id: us:statutes/26/32#eitc_phase_out_rates
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.eitc.phase_out.rate
+    parameter_calc_input: qualifying_child_count
+    period: year
+    comparison: rate
+    rationale: Same statutory EITC phase-out rate by qualifying-child count.
+
+  - legal_id: us:statutes/26/32#eitc_childless_minimum_age
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.eitc.eligibility.age.min
+    period: year
+    comparison: count
+    rationale: Same childless EITC minimum age.
+
+  - legal_id: us:statutes/26/32#eitc_childless_age_ceiling_exclusive
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom encodes the statutory exclusive ceiling of age 65; PolicyEngine stores the equivalent inclusive maximum age of 64.
+
+  - legal_id: us:statutes/26/32#eitc_qualifying_child
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes EITC qualifying-child status through person-level dependent and identification variables; the current oracle compares tax-unit outputs.
+
+  - legal_id: us:statutes/26/32#eitc_child_count
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_child_count
+    entity: tax_unit
+    period: year
+    comparison: count
+    rationale: Same tax-unit count of EITC qualifying children.
+
+  - legal_id: us:statutes/26/32#eitc_capped_child_count
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the table lookup cap at three children as a helper; PolicyEngine applies the same cap inside its EITC scale parameters.
+
+  - legal_id: us:statutes/26/32#eitc_phase_in_rate
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_phase_in_rate
+    entity: tax_unit
+    period: year
+    comparison: rate
+    rationale: Same selected EITC phase-in rate.
+
+  - legal_id: us:statutes/26/32#eitc_phase_out_rate
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_phase_out_rate
+    entity: tax_unit
+    period: year
+    comparison: rate
+    rationale: Same selected EITC phase-out rate.
+
+  - legal_id: us:statutes/26/32#eitc_earned_income_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the selected EITC earned-income amount plateau as a standalone variable.
+
+  - legal_id: us:statutes/26/32#eitc_maximum
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_maximum
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same maximum EITC by qualifying-child count.
+
+  - legal_id: us:statutes/26/32#eitc_phase_out_start
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_phase_out_start
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same EITC phaseout start after filing-status and child-count selection.
+
+  - legal_id: us:statutes/26/32#eitc_phase_out_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the statutory greater-of earned income or AGI phaseout base; PolicyEngine uses the same value inside eitc_reduction but does not expose it separately.
+
+  - legal_id: us:statutes/26/32#eitc_phased_in
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_phased_in
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same EITC phase-in amount before phaseout.
+
+  - legal_id: us:statutes/26/32#eitc_reduction
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_reduction
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same EITC income-based phaseout reduction.
+
+  - legal_id: us:statutes/26/32#eitc_before_eligibility
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the final amount before eligibility gates as a helper; PolicyEngine folds this limitation directly into the final eitc variable.
+
+  - legal_id: us:statutes/26/32#eitc_investment_income_eligible
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_investment_income_eligible
+    entity: tax_unit
+    period: year
+    comparison: bool
+    rationale: Same EITC excessive-investment-income eligibility gate.
+
+  - legal_id: us:statutes/26/32#eitc_childless_age_eligible
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine applies childless age eligibility at the tax-unit level and does not expose this Axiom person-level helper predicate.
+
+  - legal_id: us:statutes/26/32#eitc_demographic_eligible
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_demographic_eligible
+    entity: tax_unit
+    period: year
+    comparison: bool
+    rationale: Same EITC demographic eligibility gate for these encoded cases.
+
+  - legal_id: us:statutes/26/32#eitc_eligible
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc_eligible
+    entity: tax_unit
+    period: year
+    comparison: bool
+    rationale: Same EITC eligibility result for supported current-law cases.
+
+  - legal_id: us:statutes/26/32#eitc
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: eitc
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final federal earned income credit.
+
   - legal_id: us:policies/irs/rev-proc-2025-32/child-tax-credit#ctc_child_maximum_amount
     country: us
     program: tax

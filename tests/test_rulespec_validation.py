@@ -2117,6 +2117,32 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+def test_rulespec_grounding_accepts_decimal_rates_in_percentage_table_context():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/example/rates
+rules:
+  - name: phase_in_rates
+    kind: parameter
+    dtype: Rate
+    indexed_by: qualifying_child_count
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.0765
+          1: 0.34
+"""
+
+    source_text = (
+        "The credit percentage and the phaseout percentage are determined as "
+        "follows. The no-children row appears later in the table at 7.65. "
+        "The one-child row is 34."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
 def test_rulespec_rejects_legacy_source_url_metadata():
     content = """format: rulespec/v1
 module:
@@ -4574,6 +4600,40 @@ rules:
                 "Deductions Household Size 1 2 3 4 5 6+ "
                 "48 States & District of Columbia "
                 "$209 $209 $209 $223 $261 $299"
+            )
+        },
+    )
+
+    assert issues == []
+
+
+def test_source_verification_accepts_bare_percentage_table_values():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/example/rates
+    values:
+      eitc_phase_in_rates:
+        0: 0.0765
+        1: 0.34
+rules:
+  - name: eitc_phase_in_rates
+    kind: parameter
+    dtype: Rate
+    indexed_by: qualifying_child_count
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.0765
+          1: 0.34
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/statute/example/rates": (
+                "The credit percentage is determined as follows: "
+                "1 qualifying child 34; no qualifying children 7.65."
             )
         },
     )

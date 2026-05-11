@@ -1400,6 +1400,7 @@ def extract_numbers_from_text(text: str) -> set[float]:
     for span, value in _iter_normalized_special_numeric_matches(text):
         numbers.add(value)
         occupied_spans.append(span)
+    numbers.update(_extract_percentage_context_values(text))
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
@@ -1468,6 +1469,21 @@ def _iter_normalized_special_numeric_matches(
             matches.append((match.span(1), float(match.group(1).replace(",", ""))))
 
     return matches
+
+
+def _extract_percentage_context_values(text: str) -> set[float]:
+    """Return decimal rate equivalents for numbers in percentage table contexts."""
+    values: set[float] = set()
+    for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
+        raw = match.group(1).replace(",", "")
+        with contextlib.suppress(ValueError):
+            value = float(raw)
+            if not (1 < value <= 100):
+                continue
+            context = text[max(0, match.start() - 250) : match.end() + 80].lower()
+            if re.search(r"\bpercent(?:age|ages)?\b", context):
+                values.add(value / 100)
+    return values
 
 
 def _span_overlaps(
@@ -4403,6 +4419,7 @@ def _source_verification_numeric_texts(value: Any) -> tuple[str, ...]:
                 if float(percent).is_integer()
                 else f"{percent:g}"
             )
+            texts.append(percent_text)
             texts.append(f"{percent_text}%")
     return tuple(dict.fromkeys(texts))
 
@@ -4768,10 +4785,17 @@ def _embedded_integer_scale_selector(formula: str) -> str | None:
 
 def numeric_value_is_grounded(value: float, source_numbers: set[float]) -> bool:
     """Return true when a generated number is present in extracted source numbers."""
-    return any(
-        math.isclose(value, source_value, rel_tol=0, abs_tol=1e-12)
-        for source_value in source_numbers
-    )
+    for source_value in source_numbers:
+        if math.isclose(value, source_value, rel_tol=0, abs_tol=1e-12):
+            return True
+        if 0 < abs(value) <= 1 and math.isclose(
+            value * 100,
+            source_value,
+            rel_tol=0,
+            abs_tol=1e-12,
+        ):
+            return True
+    return False
 
 
 @dataclass
@@ -9051,6 +9075,7 @@ print("BENCHMARK:" + json.dumps(result))
         "income_tax_before_refundable_credits": (
             "income_tax_before_refundable_credits"
         ),
+        "eitc_relevant_investment_income": "eitc_relevant_investment_income",
         "ctc": "ctc",
         "refundable_ctc": "refundable_ctc",
         "eitc": "eitc",
@@ -9701,6 +9726,10 @@ print(f'RESULT:{{float(value)}}')
         adapter = self._get_pe_us_var_adapter(pe_var)
 
         adult_age = 65 if aged_flags[:1] == [True] else 30
+        explicit_adult_age = self._rulespec_test_input_value(inputs, "age")
+        with contextlib.suppress(TypeError, ValueError):
+            if explicit_adult_age is not None:
+                adult_age = int(explicit_adult_age)
         adult_attrs = [f"'age': {{'{year}': {adult_age}}}"]
         members = ["'adult'"]
 
@@ -9998,7 +10027,17 @@ print(f'RESULT:{{val}}')
                     row,
                     "is_tax_unit_dependent",
                 )
-                if dependent is not True:
+                is_eitc_qualifying_child = (
+                    self._rulespec_test_input_value(
+                        row,
+                        "is_qualifying_child_dependent",
+                    )
+                    is True
+                )
+                if dependent is not True and not is_eitc_qualifying_child:
+                    continue
+                if is_eitc_qualifying_child:
+                    child_count += 1
                     continue
                 age_value = self._rulespec_test_input_value(row, "age")
                 with contextlib.suppress(TypeError, ValueError):
