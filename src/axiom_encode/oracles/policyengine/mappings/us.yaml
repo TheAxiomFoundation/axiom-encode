@@ -1550,6 +1550,17 @@ mappings:
     comparison: money
     rationale: Same section 1 main-rate income tax calculation after excluding section 1(h) capital-gain income from ordinary rates.
 
+  - legal_id: us:statutes/26/1/j#regular_tax_before_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: regular_tax_before_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1 regular income tax before credits used in the AMT offset calculation.
+
   - legal_id: us:statutes/26/63#taxable_income_deductions_if_itemizing
     country: us
     program: tax
@@ -1917,6 +1928,17 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same final alternative minimum tax for supported current-law individual cases.
+
+  - legal_id: us:statutes/26/55#income_tax_before_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax_before_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same federal income tax before credits, combining main-rate tax, preferential capital-gain tax, and AMT.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction_single
     country: us
@@ -3515,6 +3537,39 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same nonrefundable education tax credits total for supported current-law cases.
+
+  - legal_id: us:statutes/26/26#income_tax_non_refundable_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same current-law aggregate of federal nonrefundable income tax credits.
+
+  - legal_id: us:statutes/26/26#income_tax_unavailable_non_refundable_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax_unavailable_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same amount of nonrefundable credits unavailable because credits exceed income tax before credits.
+
+  - legal_id: us:statutes/26/26#income_tax_capped_non_refundable_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax_capped_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same allowed nonrefundable-credit aggregate after the section 26 income-tax cap.
 
   - legal_id: us:statutes/26/1411#niit_rate
     country: us

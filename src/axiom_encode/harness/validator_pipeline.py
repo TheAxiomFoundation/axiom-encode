@@ -9153,6 +9153,7 @@ print("BENCHMARK:" + json.dumps(result))
         "alternative_minimum_tax_foreign_tax_credit": "foreign_tax_credit_potential",
         "foreign_tax_credit_potential": "foreign_tax_credit_potential",
         "form_4972_lumpsum_distributions": "form_4972_lumpsum_distributions",
+        "income_tax_main_rates": "income_tax_main_rates",
         "regular_tax_before_credits": "regular_tax_before_credits",
         "capital_gains_tax": "capital_gains_tax",
         "income_tax_before_credits": "income_tax_before_credits",
@@ -9170,6 +9171,10 @@ print("BENCHMARK:" + json.dumps(result))
         "energy_efficient_home_improvement_credit": (
             "energy_efficient_home_improvement_credit"
         ),
+        "elderly_disabled_credit": "elderly_disabled_credit",
+        "new_clean_vehicle_credit": "new_clean_vehicle_credit",
+        "used_clean_vehicle_credit": "used_clean_vehicle_credit",
+        "non_refundable_ctc": "non_refundable_ctc",
         "tax_unit_childcare_expenses": "tax_unit_childcare_expenses",
         "min_head_spouse_earned": "min_head_spouse_earned",
         "social_security_benefits_received": "tax_unit_social_security",

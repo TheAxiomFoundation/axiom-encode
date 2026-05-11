@@ -2062,6 +2062,7 @@ def test_policyengine_tax_scenario_builds_amt_inputs(tmp_path):
             "standard_deduction": 16100,
             "tax_unit_itemizes": False,
             "exemptions": 0,
+            "income_tax_main_rates": 150000,
             "regular_tax_before_credits": 160000,
             "capital_gains_tax": 0,
             "amt_part_iii_required": False,
@@ -2076,6 +2077,7 @@ def test_policyengine_tax_scenario_builds_amt_inputs(tmp_path):
     assert "'taxable_income': {'2026': 650000}" in script
     assert "'standard_deduction': {'2026': 16100}" in script
     assert "'tax_unit_itemizes': {'2026': False}" in script
+    assert "'income_tax_main_rates': {'2026': 150000}" in script
     assert "'regular_tax_before_credits': {'2026': 160000}" in script
     assert "'capital_gains_tax': {'2026': 0}" in script
     assert "'amt_part_iii_required': {'2026': False}" in script
@@ -2083,6 +2085,47 @@ def test_policyengine_tax_scenario_builds_amt_inputs(tmp_path):
     assert "'foreign_tax_credit_potential': {'2026': 0}" in script
     assert "'form_4972_lumpsum_distributions': {'2026': 0}" in script
     assert "'amt_kiddie_tax_applies': {'2026': False}" in script
+
+
+def test_policyengine_tax_scenario_builds_nonrefundable_credit_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "income_tax_capped_non_refundable_credits",
+        {
+            "period": "2026",
+            "income_tax_before_credits": 1200,
+            "foreign_tax_credit": 100,
+            "cdcc": 500,
+            "non_refundable_american_opportunity_credit": 1500,
+            "lifetime_learning_credit": 600,
+            "savers_credit": 200,
+            "residential_clean_energy_credit": 300,
+            "energy_efficient_home_improvement_credit": 100,
+            "elderly_disabled_credit": 750,
+            "new_clean_vehicle_credit": 1000,
+            "used_clean_vehicle_credit": 400,
+            "non_refundable_ctc": 2000,
+        },
+        "2026",
+    )
+
+    assert "'income_tax_before_credits': {'2026': 1200}" in script
+    assert "'foreign_tax_credit': {'2026': 100}" in script
+    assert "'cdcc': {'2026': 500}" in script
+    assert "'non_refundable_american_opportunity_credit': {'2026': 1500}" in script
+    assert "'lifetime_learning_credit': {'2026': 600}" in script
+    assert "'savers_credit': {'2026': 200}" in script
+    assert "'residential_clean_energy_credit': {'2026': 300}" in script
+    assert "'energy_efficient_home_improvement_credit': {'2026': 100}" in script
+    assert "'elderly_disabled_credit': {'2026': 750}" in script
+    assert "'new_clean_vehicle_credit': {'2026': 1000}" in script
+    assert "'used_clean_vehicle_credit': {'2026': 400}" in script
+    assert "'non_refundable_ctc': {'2026': 2000}" in script
 
 
 def test_policyengine_tax_scenario_skips_unmodelled_niit_components(tmp_path):
