@@ -1110,9 +1110,7 @@ def _tax_unit_member_aged_flags(inputs: dict[str, Any]) -> list[bool]:
             key_text = str(key).lower()
             if (
                 "#relation." in key_text
-                and key_text.rsplit("#relation.", 1)[1].endswith(
-                    "member_of_tax_unit"
-                )
+                and key_text.rsplit("#relation.", 1)[1].endswith("member_of_tax_unit")
                 and isinstance(value, list)
             ):
                 members = value
@@ -4497,9 +4495,7 @@ def _source_verification_numeric_texts(value: Any) -> tuple[str, ...]:
         if 0 < abs(numeric_float) <= 1:
             percent = numeric_float * 100
             percent_text = (
-                str(int(percent))
-                if float(percent).is_integer()
-                else f"{percent:g}"
+                str(int(percent)) if float(percent).is_integer() else f"{percent:g}"
             )
             texts.append(percent_text)
             texts.append(f"{percent_text}%")
@@ -9298,7 +9294,9 @@ print("BENCHMARK:" + json.dumps(result))
                         False,
                         "PolicyEngine does not model the section 25A(g)(6) married-filing-separately disallowance",
                     )
-                if self._rulespec_test_input_value(inputs, "is_nonresident_alien") and not bool(
+                if self._rulespec_test_input_value(
+                    inputs, "is_nonresident_alien"
+                ) and not bool(
                     self._rulespec_test_input_value(
                         inputs,
                         "section_6013_resident_alien_election",
@@ -9308,7 +9306,9 @@ print("BENCHMARK:" + json.dumps(result))
                         False,
                         "PolicyEngine does not model the section 25A(g)(7) nonresident-alien disallowance",
                     )
-                if self._rulespec_test_input_value(inputs, "taxpayer_is_section_1_g_child"):
+                if self._rulespec_test_input_value(
+                    inputs, "taxpayer_is_section_1_g_child"
+                ):
                     return (
                         False,
                         "PolicyEngine does not model the section 25A(i) kiddie-tax refundability exception",
@@ -9342,8 +9342,9 @@ print("BENCHMARK:" + json.dumps(result))
                         False,
                         "PolicyEngine does not expose all section 1411(c)/(d) net-investment-income and modified-AGI components",
                     )
-                if pe_var_name == "net_investment_income_tax" and self._rulespec_test_input_value(
-                    inputs, "is_nonresident_alien"
+                if (
+                    pe_var_name == "net_investment_income_tax"
+                    and self._rulespec_test_input_value(inputs, "is_nonresident_alien")
                 ):
                     return (
                         False,
@@ -9812,8 +9813,7 @@ print(f'RESULT:{{float(value)}}')
             input_value = self._rulespec_test_input_value(inputs, str(input_name))
             if input_value is None:
                 raise ValueError(
-                    "PolicyEngine parameter mapping needs input "
-                    f"`{input_name}`"
+                    f"PolicyEngine parameter mapping needs input `{input_name}`"
                 )
             key_map = part.get("parameter_key_map") or part.get("key_map") or {}
             key_map = {str(key): str(value) for key, value in key_map.items()}
@@ -9987,9 +9987,7 @@ print(f'RESULT:{{float(value)}}')
             else household_children
         )
         num_adult_dependents = (
-            len(relation_adult_dependent_rows)
-            if relation_child_rows is not None
-            else 0
+            len(relation_adult_dependent_rows) if relation_child_rows is not None else 0
         )
         dependent_care_keys = (
             "snap_dependent_care_actual_costs",
@@ -10141,7 +10139,9 @@ print(f'RESULT:{{float(value)}}')
                 f"'age': {{'{year}': {age}}}",
                 f"'is_tax_unit_dependent': {{'{year}': True}}",
             ]
-            incapable = self._rulespec_test_input_value(row, "is_incapable_of_self_care")
+            incapable = self._rulespec_test_input_value(
+                row, "is_incapable_of_self_care"
+            )
             if incapable is not None:
                 child_attrs.append(
                     f"'is_incapable_of_self_care': "
@@ -10153,9 +10153,7 @@ print(f'RESULT:{{float(value)}}')
                     year,
                 )
             )
-            people_parts.append(
-                f"'child{i}': {{{', '.join(child_attrs)}}}"
-            )
+            people_parts.append(f"'child{i}': {{{', '.join(child_attrs)}}}")
             members.append(f"'child{i}'")
         for i, row in enumerate(adult_dependent_rows):
             age = self._us_tax_relation_member_age(row, 30)
@@ -10163,7 +10161,9 @@ print(f'RESULT:{{float(value)}}')
                 f"'age': {{'{year}': {age}}}",
                 f"'is_tax_unit_dependent': {{'{year}': True}}",
             ]
-            incapable = self._rulespec_test_input_value(row, "is_incapable_of_self_care")
+            incapable = self._rulespec_test_input_value(
+                row, "is_incapable_of_self_care"
+            )
             if incapable is not None:
                 adult_dep_attrs.append(
                     f"'is_incapable_of_self_care': "
@@ -10175,9 +10175,7 @@ print(f'RESULT:{{float(value)}}')
                     year,
                 )
             )
-            people_parts.append(
-                f"'adult_dep{i}': {{{', '.join(adult_dep_attrs)}}}"
-            )
+            people_parts.append(f"'adult_dep{i}': {{{', '.join(adult_dep_attrs)}}}")
             members.append(f"'adult_dep{i}'")
 
         members_str = "[" + ", ".join(members) + "]"
@@ -10536,7 +10534,9 @@ print(f'RESULT:{{val}}')
                 "impairment_expected_to_result_in_death",
             )
             proof = self._rulespec_test_input_value(row, "disability_proof_furnished")
-            duration = self._rulespec_test_input_value(row, "impairment_duration_months")
+            duration = self._rulespec_test_input_value(
+                row, "impairment_duration_months"
+            )
             long_duration = False
             with contextlib.suppress(TypeError, ValueError):
                 long_duration = float(duration) >= 12
@@ -10609,9 +10609,7 @@ print(f'RESULT:{{val}}')
         return (
             bool(required_facts["aotc_election_in_effect"])
             and bool(required_facts["relationship_allowed"])
-            and bool(
-                required_facts["meets_higher_education_act_student_requirements"]
-            )
+            and bool(required_facts["meets_higher_education_act_student_requirements"])
             and bool(required_facts["at_least_half_time_student"])
             and bool(required_facts["prior_year_ok"])
             and not bool(

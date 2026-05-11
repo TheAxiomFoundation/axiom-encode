@@ -2562,8 +2562,14 @@ def test_policyengine_tax_scenario_builds_ctc_dependents_from_relation_rows(tmp_
         "2026",
     )
 
-    assert "'child0': {'age': {'2026': 8}, 'is_tax_unit_dependent': {'2026': True}}" in script
-    assert "'adult_dep0': {'age': {'2026': 19}, 'is_tax_unit_dependent': {'2026': True}}" in script
+    assert (
+        "'child0': {'age': {'2026': 8}, 'is_tax_unit_dependent': {'2026': True}}"
+        in script
+    )
+    assert (
+        "'adult_dep0': {'age': {'2026': 19}, 'is_tax_unit_dependent': {'2026': True}}"
+        in script
+    )
     assert "'adjusted_gross_income': {'2026': 50000}" in script
 
 

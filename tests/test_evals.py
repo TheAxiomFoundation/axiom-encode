@@ -340,13 +340,24 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
     assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
-    assert "Import inventory: every `imports:` entry is an exact copied/importable" in prompt
-    assert "Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`" in prompt
+    assert (
+        "Import inventory: every `imports:` entry is an exact copied/importable"
+        in prompt
+    )
+    assert (
+        "Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`"
+        in prompt
+    )
     assert "Do not use Python-only functions such as `round(...)`" in prompt
     assert "Do not write `amount + if condition: extra else: 0`" in prompt
     assert "Do not emit more than one `versions:` entry for `kind: derived`" in prompt
-    assert "A `kind: table_cell` proof atom must include `source.table.header`" in prompt
-    assert "Adjacent bracket thresholds repeated as both an upper bound and the next" in prompt
+    assert (
+        "A `kind: table_cell` proof atom must include `source.table.header`" in prompt
+    )
+    assert (
+        "Adjacent bracket thresholds repeated as both an upper bound and the next"
+        in prompt
+    )
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):

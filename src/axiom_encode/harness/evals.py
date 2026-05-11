@@ -1570,7 +1570,9 @@ def _slice_legal_text_by_parenthetical_fragment(
     sibling_pattern = _sibling_parenthetical_marker_pattern(fragment, top_level)
     end = len(text)
     for sibling_match in sibling_pattern.finditer(text, body_start):
-        if sibling_match.start(1) > start and _parenthetical_marker_context_is_structural(
+        if sibling_match.start(
+            1
+        ) > start and _parenthetical_marker_context_is_structural(
             text,
             sibling_match.start(1),
         ):

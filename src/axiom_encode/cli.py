@@ -2885,9 +2885,7 @@ def _write_applied_encoding_manifest(
         "tool": "axiom-encode encode --apply",
         "axiom_encode_version": __version__,
         "axiom_encode_git": axiom_encode_git,
-        "generation_prompt_sha256": getattr(
-            result, "generation_prompt_sha256", None
-        ),
+        "generation_prompt_sha256": getattr(result, "generation_prompt_sha256", None),
         "run_id": run_id,
         "citation": str(getattr(result, "citation", "") or ""),
         "runner": str(getattr(result, "runner", "") or ""),
