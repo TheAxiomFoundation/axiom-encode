@@ -150,6 +150,16 @@ CI jobs that need complete classification can use:
 axiom-encode oracle-coverage --root /path/to/workspace --fail-on-unmapped
 ```
 
+CI jobs that need oracle-tested RuleSpec should also fail on comparable outputs
+missing from companion tests:
+
+```bash
+axiom-encode oracle-coverage \
+  --root /path/to/workspace \
+  --fail-on-unmapped \
+  --fail-on-untested-comparable
+```
+
 ## Candidate Triage
 
 Use the candidate command to turn coverage into a priority queue:

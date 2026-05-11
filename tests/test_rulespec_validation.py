@@ -1360,6 +1360,43 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).mapping_type
         == "not_comparable"
     )
+    savers_credit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/25B#savers_credit",
+        country="us",
+    )
+    assert savers_credit_mapping.mapping_type == "not_comparable"
+    assert savers_credit_mapping.policyengine_variable == "savers_credit_potential"
+    savers_credit_cap_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/25B#savers_credit_contribution_cap",
+        country="us",
+    )
+    assert savers_credit_cap_mapping.mapping_type == "parameter_value"
+    assert (
+        savers_credit_cap_mapping.policyengine_parameter
+        == "gov.irs.credits.retirement_saving.contributions_cap"
+    )
+    savers_credit_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/25B#savers_credit_middle_rate",
+        country="us",
+    )
+    assert savers_credit_rate_mapping.parameter_key_path == ("amounts", 1)
+    threshold_multiplier_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/25B#savers_credit_threshold_multiplier",
+        country="us",
+    )
+    assert threshold_multiplier_mapping.mapping_type == "parameter_value"
+    assert (
+        threshold_multiplier_mapping.policyengine_parameter
+        == "gov.irs.credits.retirement_saving.rate.threshold_adjustment"
+    )
+    assert threshold_multiplier_mapping.parameter_key_input == "filing_status"
+    assert (
+        registry.mapping_for_legal_id(
+            "us:statutes/26/25B#savers_credit_applicable_percentage",
+            country="us",
+        ).match_type
+        == "prefix"
+    )
 
 
 def test_policyengine_oracle_tracks_not_comparable_without_issue_noise(tmp_path):
@@ -1718,6 +1755,57 @@ def test_policyengine_oracle_compares_integer_parameter_key_path(tmp_path):
     assert result.issues == []
     assert "gov.irs.income.amt.brackets.rates" in scripts[0]
     assert "key_paths = [[0]]" in scripts[0]
+
+
+def test_policyengine_oracle_compares_parameter_attribute_key_path(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: saver_credit_middle_rate
+  period: 2026
+  input: {}
+  output:
+    us:statutes/26/25B#savers_credit_middle_rate: 0.2
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:statutes/26/25B#savers_credit_middle_rate": PolicyEngineMapping(
+                legal_id="us:statutes/26/25B#savers_credit_middle_rate",
+                country="us",
+                mapping_type="parameter_value",
+                policyengine_parameter="gov.irs.credits.retirement_saving.rate.joint",
+                parameter_key_path=("amounts", 1),
+                period="year",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+    pipeline._is_pe_test_mappable = lambda *_args, **_kwargs: (True, None)
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:0.2\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert "gov.irs.credits.retirement_saving.rate.joint" in scripts[0]
+    assert 'key_paths = [["amounts", 1]]' in scripts[0]
+    assert "getattr(selected, key)" in scripts[0]
 
 
 def test_policyengine_oracle_compares_parameter_scale_calc_input(tmp_path):

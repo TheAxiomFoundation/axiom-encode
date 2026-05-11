@@ -5174,6 +5174,10 @@ class TestSourceEval:
         assert "source_relation.basis.delegation" in prompt
         assert "mirror the copied companion test `input:` pattern" in prompt
         assert "Never turn an imported derived rule into a fabricated" in prompt
+        assert (
+            "Every local executable `kind: parameter` and `kind: derived` rule"
+            in prompt
+        )
         assert "Use `holds` and `not_holds` for actual `dtype: Judgment`" in prompt
         assert "Use YAML booleans `true` and `false` for local factual" in prompt
         assert (

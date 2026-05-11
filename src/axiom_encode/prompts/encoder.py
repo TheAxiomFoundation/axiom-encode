@@ -122,8 +122,9 @@ Hard requirements:
   consumed by that file, `<jurisdiction>:<repo-path>#relation.<name>` for
   relation inputs, and `<jurisdiction>:<repo-path>#<rule_or_parameter>` for
   executable outputs or imported legal values. Never use bare friendly keys.
-- Every local `kind: derived` rule must appear at least once under an `output:`
-  block in the companion `.test.yaml`; do not leave helper derived rules
+- Every local executable `kind: parameter` and `kind: derived` rule must appear
+  at least once under an `output:` block in the companion `.test.yaml`; do not
+  leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
 - If a test needs an imported derived output to become true or false, mirror the
   copied companion test `input:` pattern. Usually this means setting the

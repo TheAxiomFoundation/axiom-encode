@@ -9743,7 +9743,13 @@ elif key_paths:
     for key_path in key_paths:
         selected = value
         for key in key_path:
-            selected = selected[key]
+            try:
+                selected = selected[key]
+            except (KeyError, IndexError, TypeError):
+                if isinstance(key, str) and hasattr(selected, key):
+                    selected = getattr(selected, key)
+                else:
+                    raise
         values.append(float(selected))
     if any(item != values[0] for item in values):
         raise ValueError(f'Parameter keys disagree: {{dict(zip(key_paths, values))}}')

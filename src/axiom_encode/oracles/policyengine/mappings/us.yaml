@@ -2650,6 +2650,120 @@ mappings:
     comparison: money
     rationale: Same maximum refundable CTC before phase-in and tax-liability limits.
 
+  - legal_id: us:statutes/26/25B#savers_credit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: savers_credit_potential
+    candidate_priority: P4
+    rationale: Section 25B encodes the saver-credit amount before the separate section 26 nonrefundable-credit liability cap; PolicyEngine's final savers_credit applies that cap, while its adjacent savers_credit_potential also uses PE's current-year threshold and person-level contribution graph.
+
+  - legal_id: us:statutes/26/25B#savers_credit_contribution_cap
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.contributions_cap
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory saver-credit contribution cap.
+
+  - legal_id: us:statutes/26/25B#savers_credit_age_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.age_threshold
+    period: year
+    comparison: count
+    rationale: Same statutory saver-credit minimum age.
+
+  - legal_id: us:statutes/26/25B#savers_credit_high_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.rate.joint
+    parameter_key_path:
+      - amounts
+      - 0
+    period: year
+    comparison: rate
+    rationale: Same 50 percent saver-credit bracket rate.
+
+  - legal_id: us:statutes/26/25B#savers_credit_middle_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.rate.joint
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    comparison: rate
+    rationale: Same 20 percent saver-credit bracket rate.
+
+  - legal_id: us:statutes/26/25B#savers_credit_low_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.rate.joint
+    parameter_key_path:
+      - amounts
+      - 2
+    period: year
+    comparison: rate
+    rationale: Same 10 percent saver-credit bracket rate.
+
+  - legal_id: us:statutes/26/25B#savers_credit_zero_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.rate.joint
+    parameter_key_path:
+      - amounts
+      - 3
+    period: year
+    comparison: rate
+    rationale: Same zero percent saver-credit bracket rate.
+
+  - legal_id: us:statutes/26/25B#savers_credit_head_of_household_threshold_fraction
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.rate.threshold_adjustment
+    parameter_key: HEAD_OF_HOUSEHOLD
+    period: year
+    comparison: rate
+    rationale: Same head-of-household threshold adjustment for the saver-credit rate table.
+
+  - legal_id: us:statutes/26/25B#savers_credit_other_return_threshold_fraction
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.rate.threshold_adjustment
+    parameter_keys:
+      - SINGLE
+      - SEPARATE
+      - SURVIVING_SPOUSE
+    period: year
+    comparison: rate
+    rationale: Same non-joint, non-head-of-household threshold adjustment for the saver-credit rate table.
+
+  - legal_id: us:statutes/26/25B#savers_credit_threshold_multiplier
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.retirement_saving.rate.threshold_adjustment
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+      4: SURVIVING_SPOUSE
+    period: year
+    comparison: rate
+    rationale: Same filing-status-selected saver-credit threshold adjustment.
+
   - legal_id: us:statutes/26/21#cdcc_child_age_limit
     country: us
     program: tax
@@ -3796,3 +3910,9 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: SNAP allotment statutory intermediates are not one-to-one PolicyEngine outputs unless exactly mapped.
+
+  - legal_id_prefix: us:statutes/26/25B#savers_credit_
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 25B saver-credit helper outputs use statutory formula inputs, base thresholds, and distribution exceptions that PolicyEngine does not expose as one-to-one variables unless an exact mapping overrides this prefix.
