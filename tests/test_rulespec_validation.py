@@ -1311,6 +1311,15 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "standard_deduction"
     )
+    ctc_phase_out_threshold_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/24/h#ctc_phase_out_threshold",
+        country="us",
+    )
+    assert ctc_phase_out_threshold_mapping.mapping_type == "direct_variable"
+    assert (
+        ctc_phase_out_threshold_mapping.policyengine_variable
+        == "ctc_phase_out_threshold"
+    )
     assert (
         registry.mapping_for_legal_id(
             "us:statutes/26/1401#self_employment_tax",

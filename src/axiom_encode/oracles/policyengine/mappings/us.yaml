@@ -2589,15 +2589,9 @@ mappings:
   - legal_id: us:statutes/26/24/h#ctc_phase_out_threshold
     country: us
     program: tax
-    mapping_type: parameter_value
-    policyengine_parameter: gov.irs.credits.ctc.phase_out.threshold
-    parameter_key_input: filing_status
-    parameter_key_map:
-      0: SINGLE
-      1: JOINT
-      2: SEPARATE
-      3: HEAD_OF_HOUSEHOLD
-      4: SURVIVING_SPOUSE
+    mapping_type: direct_variable
+    policyengine_variable: ctc_phase_out_threshold
+    entity: tax_unit
     period: year
     unit: USD
     comparison: money
