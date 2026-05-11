@@ -1464,26 +1464,39 @@ def resolve_corpus_source_unit(
     The identifier may already be a corpus citation path, or it may be a USC
     citation that can be normalized to one. For USC child fragments, the
     resolver falls back to the nearest available section-level corpus provision
-    because current USC corpus artifacts are section-granular.
+    and slices that body to the requested fragment when the parent text carries
+    structural markers such as ``(a)``, ``(2)``, or ``(C)``.
     """
-    for citation_path in _candidate_corpus_citation_paths(identifier):
+    candidates = _candidate_corpus_citation_paths(identifier)
+    primary = candidates[0] if candidates else ""
+    for citation_path in candidates:
         local_text = _fetch_local_corpus_source_text_from_repo(
             citation_path,
             corpus_path,
         )
         if local_text is not None:
+            body = _slice_parent_corpus_text_for_requested_path(
+                local_text,
+                requested_path=primary,
+                resolved_path=citation_path,
+            )
             return CorpusSourceUnit(
                 requested=identifier,
                 citation_path=citation_path,
-                body=local_text,
+                body=body,
                 source="local",
             )
         supabase_text = _fetch_supabase_corpus_source_text(citation_path)
         if supabase_text is not None:
+            body = _slice_parent_corpus_text_for_requested_path(
+                supabase_text,
+                requested_path=primary,
+                resolved_path=citation_path,
+            )
             return CorpusSourceUnit(
                 requested=identifier,
                 citation_path=citation_path,
-                body=supabase_text,
+                body=body,
                 source="supabase",
             )
 
@@ -1492,6 +1505,112 @@ def resolve_corpus_source_unit(
         "No corpus.provisions source text found for "
         f"{identifier!r}. Tried: {candidates}"
     )
+
+
+def _slice_parent_corpus_text_for_requested_path(
+    text: str,
+    *,
+    requested_path: str,
+    resolved_path: str,
+) -> str:
+    """Slice section-granular USC source text to the requested child fragment."""
+    requested_parts = requested_path.strip("/").split("/")
+    resolved_parts = resolved_path.strip("/").split("/")
+    if (
+        len(requested_parts) <= len(resolved_parts)
+        or requested_parts[: len(resolved_parts)] != resolved_parts
+        or resolved_parts[:2] != ["us", "statute"]
+    ):
+        return text
+    missing_fragments = tuple(requested_parts[len(resolved_parts) :])
+    sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
+    return sliced if sliced is not None else text
+
+
+def _slice_legal_text_by_parenthetical_fragments(
+    text: str,
+    fragments: tuple[str, ...],
+) -> str | None:
+    current = text
+    for depth, fragment in enumerate(fragments):
+        current = _slice_legal_text_by_parenthetical_fragment(
+            current,
+            fragment,
+            top_level=depth == 0,
+        )
+        if current is None:
+            return None
+    return current.strip()
+
+
+def _slice_legal_text_by_parenthetical_fragment(
+    text: str,
+    fragment: str,
+    *,
+    top_level: bool,
+) -> str | None:
+    escaped = re.escape(fragment)
+    if top_level:
+        marker_pattern = re.compile(rf"(?:^|\n\s*\n)(\({escaped}\)\s+)")
+    else:
+        marker_pattern = re.compile(rf"(?<![A-Za-z0-9])(\({escaped}\)\s+)")
+    marker_match = next(
+        (
+            match
+            for match in marker_pattern.finditer(text)
+            if _parenthetical_marker_context_is_structural(text, match.start(1))
+        ),
+        None,
+    )
+    if marker_match is None:
+        return None
+
+    start = marker_match.start(1)
+    body_start = marker_match.end(1)
+    sibling_pattern = _sibling_parenthetical_marker_pattern(fragment, top_level)
+    end = len(text)
+    for sibling_match in sibling_pattern.finditer(text, body_start):
+        if sibling_match.start(1) > start and _parenthetical_marker_context_is_structural(
+            text,
+            sibling_match.start(1),
+        ):
+            end = sibling_match.start(1)
+            break
+    return text[start:end]
+
+
+_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX = re.compile(
+    r"\b(?:paragraph|subparagraph|clause|subclause|section|subsection|"
+    r"chapter|title|part|item|sentence|regulation)\s+$",
+    re.IGNORECASE,
+)
+
+
+def _parenthetical_marker_context_is_structural(text: str, marker_start: int) -> bool:
+    prefix = text[max(0, marker_start - 60) : marker_start]
+    previous = prefix.rstrip()[-1:] if prefix.rstrip() else ""
+    if previous == ")":
+        return False
+    return _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX.search(prefix) is None
+
+
+def _sibling_parenthetical_marker_pattern(
+    fragment: str,
+    top_level: bool,
+) -> re.Pattern[str]:
+    if fragment.isdigit():
+        marker = r"\(\d+\)"
+    elif len(fragment) == 1 and fragment.isalpha() and fragment.isupper():
+        marker = r"\([A-Z]\)"
+    elif len(fragment) == 1 and fragment.isalpha() and fragment.islower():
+        marker = r"\([a-z]\)"
+    elif re.fullmatch(r"[ivxlcdm]+", fragment, re.IGNORECASE):
+        marker = r"\([ivxlcdm]+\)"
+    else:
+        marker = r"\([A-Za-z0-9]+\)"
+    if top_level:
+        return re.compile(rf"\n\s*\n({marker}\s+)")
+    return re.compile(rf"(?<![A-Za-z0-9])({marker}\s+)")
 
 
 def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:

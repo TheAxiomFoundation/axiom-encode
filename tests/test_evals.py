@@ -102,7 +102,7 @@ def test_source_identifier_maps_corpus_regulation_to_repo_path():
 
 
 class TestCorpusSourceResolution:
-    def test_resolves_usc_child_citation_to_available_section_provision(self, tmp_path):
+    def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
         provisions_dir = (
             corpus_path / "data" / "corpus" / "provisions" / "us" / "statute"
@@ -112,7 +112,11 @@ class TestCorpusSourceResolution:
             json.dumps(
                 {
                     "citation_path": "us/statute/26/3101",
-                    "body": "Section text states 6.2 percent.",
+                    "body": (
+                        "(a) Old-age, survivors, and disability insurance "
+                        "states 6.2 percent.\n\n"
+                        "(b) Hospital insurance states 1.45 percent."
+                    ),
                 }
             )
             + "\n",
@@ -122,8 +126,43 @@ class TestCorpusSourceResolution:
         source = resolve_corpus_source_unit("26 USC 3101(a)", corpus_path)
 
         assert source.citation_path == "us/statute/26/3101"
-        assert source.body == "Section text states 6.2 percent."
+        assert source.body == (
+            "(a) Old-age, survivors, and disability insurance states 6.2 percent."
+        )
         assert source.source == "local"
+
+    def test_resolves_nested_usc_child_citation_to_sliced_section_provision(
+        self, tmp_path
+    ):
+        corpus_path = tmp_path / "axiom-corpus"
+        provisions_dir = (
+            corpus_path / "data" / "corpus" / "provisions" / "us" / "statute"
+        )
+        provisions_dir.mkdir(parents=True)
+        (provisions_dir / "2026-01-01.jsonl").write_text(
+            json.dumps(
+                {
+                    "citation_path": "us/statute/7/2015",
+                    "body": (
+                        "(a) General eligibility.\n\n"
+                        "(d) Work requirements (1) Paragraph one. "
+                        "(2) Exemptions (A) First exemption. "
+                        "(B) Second exemption. "
+                        "(C) Student exemption states 20 hours. "
+                        "(D) Next exemption. "
+                        "(3) Other work rule.\n\n"
+                        "(e) Students."
+                    ),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        source = resolve_corpus_source_unit("7 USC 2015(d)(2)(C)", corpus_path)
+
+        assert source.citation_path == "us/statute/7/2015"
+        assert source.body == "(C) Student exemption states 20 hours."
 
     def test_build_prompt_requires_resolved_corpus_locator(self, tmp_path):
         workspace = prepare_eval_workspace(
