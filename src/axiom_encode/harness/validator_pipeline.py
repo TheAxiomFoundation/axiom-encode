@@ -1094,6 +1094,19 @@ def _tax_unit_member_aged_flags(inputs: dict[str, Any]) -> list[bool]:
     if isinstance(members, bool):
         return [members]
     if not isinstance(members, list):
+        members = []
+        for key, value in inputs.items():
+            key_text = str(key).lower()
+            if (
+                "#relation." in key_text
+                and key_text.rsplit("#relation.", 1)[1].endswith(
+                    "member_of_tax_unit"
+                )
+                and isinstance(value, list)
+            ):
+                members = value
+                break
+    if not isinstance(members, list):
         return []
     aged_flags: list[bool] = []
     for member in members:
@@ -1102,7 +1115,17 @@ def _tax_unit_member_aged_flags(inputs: dict[str, Any]) -> list[bool]:
             continue
         if not isinstance(member, dict):
             continue
-        aged_flags.append(bool(member.get("is_aged_65_or_over")))
+        explicit_aged = ValidatorPipeline._rulespec_test_input_value(
+            member, "is_aged_65_or_over"
+        )
+        if explicit_aged is not None:
+            aged_flags.append(bool(explicit_aged))
+            continue
+        age = ValidatorPipeline._rulespec_test_input_value(member, "age")
+        with contextlib.suppress(TypeError, ValueError):
+            aged_flags.append(int(age) >= 65)
+            continue
+        aged_flags.append(False)
     return aged_flags
 
 
@@ -9076,8 +9099,22 @@ print("BENCHMARK:" + json.dumps(result))
             "income_tax_before_refundable_credits"
         ),
         "foreign_tax_credit": "foreign_tax_credit",
+        "cdcc": "cdcc",
+        "non_refundable_american_opportunity_credit": (
+            "non_refundable_american_opportunity_credit"
+        ),
+        "lifetime_learning_credit": "lifetime_learning_credit",
+        "savers_credit": "savers_credit",
+        "residential_clean_energy_credit": "residential_clean_energy_credit",
+        "energy_efficient_home_improvement_credit": (
+            "energy_efficient_home_improvement_credit"
+        ),
         "tax_unit_childcare_expenses": "tax_unit_childcare_expenses",
         "min_head_spouse_earned": "min_head_spouse_earned",
+        "social_security_benefits_received": "tax_unit_social_security",
+        "taxable_social_security_benefits_included": (
+            "tax_unit_taxable_social_security"
+        ),
         "filer_adjusted_earnings": "filer_adjusted_earnings",
         "eitc_relevant_investment_income": "eitc_relevant_investment_income",
         "ctc": "ctc",
@@ -9093,6 +9130,11 @@ print("BENCHMARK:" + json.dumps(result))
     _PE_US_PERSON_OVERRIDE_INPUTS = {
         "employee_social_security_tax": "employee_social_security_tax",
         "employee_medicare_tax": "employee_medicare_tax",
+        "pension_annuity_disability_benefits_received": "pension_income",
+        "taxable_pension_annuity_disability_benefits_included": (
+            "taxable_pension_income"
+        ),
+        "section_22_disability_income": "total_disability_payments",
     }
 
     # PE variables at spm_unit level (need spm_units in situation)
@@ -9109,6 +9151,25 @@ print("BENCHMARK:" + json.dumps(result))
         """Return whether the test case can be represented in PolicyEngine."""
         rule_name_lower = rule_name.lower()
         if country == "us":
+            pe_var_name = pe_var or rule_name
+            if pe_var_name == "elderly_disabled_credit":
+                if self._rulespec_test_input_value(inputs, "is_nonresident_alien"):
+                    return (
+                        False,
+                        "PolicyEngine does not model the section 22(f) nonresident-alien disallowance",
+                    )
+                filing_status = _normalize_us_tax_filing_status(
+                    self._rulespec_test_input_value(inputs, "filing_status")
+                )
+                if filing_status == "SEPARATE" and not bool(
+                    self._rulespec_test_input_value(
+                        inputs, "spouses_lived_apart_all_year"
+                    )
+                ):
+                    return (
+                        False,
+                        "PolicyEngine does not model the section 22(e)(1) married-filing-separately living-apart gate",
+                    )
             adapter = self._get_pe_us_var_adapter(pe_var or rule_name)
             if adapter is not None and (
                 adapter.unsupported_input_keys or adapter.unsupported_input_patterns
@@ -9703,6 +9764,9 @@ print(f'RESULT:{{float(value)}}')
         relation_child_rows, relation_adult_dependent_rows = (
             self._us_tax_dependent_member_rows_from_relation_inputs(inputs)
         )
+        relation_filer_rows = self._us_tax_filer_member_rows_from_relation_inputs(
+            inputs
+        )
         relation_child_count = (
             len(relation_child_rows) if relation_child_rows is not None else None
         )
@@ -9747,6 +9811,11 @@ print(f'RESULT:{{float(value)}}')
         adapter = self._get_pe_us_var_adapter(pe_var)
 
         adult_age = 65 if aged_flags[:1] == [True] else 30
+        if relation_filer_rows:
+            adult_age = self._us_tax_relation_member_age(
+                relation_filer_rows[0],
+                adult_age,
+            )
         explicit_adult_age = self._rulespec_test_input_value(inputs, "age")
         with contextlib.suppress(TypeError, ValueError):
             if explicit_adult_age is not None:
@@ -9765,6 +9834,13 @@ print(f'RESULT:{{float(value)}}')
             if value is None:
                 continue
             adult_attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
+        if relation_filer_rows:
+            adult_attrs.extend(
+                self._us_tax_person_attrs_from_relation_row(
+                    relation_filer_rows[0],
+                    year,
+                )
+            )
 
         if adapter is not None:
             for rule_key, pe_attr in adapter.annualized_person_inputs:
@@ -9833,7 +9909,19 @@ print(f'RESULT:{{float(value)}}')
         # Add spouse if joint
         if joint_filing:
             spouse_age = 65 if len(aged_flags) > 1 and aged_flags[1] else 30
-            people_parts.append(f"'spouse': {{'age': {{'{year}': {spouse_age}}}}}")
+            spouse_attrs = [f"'age': {{'{year}': {spouse_age}}}"]
+            if len(relation_filer_rows) > 1:
+                spouse_attrs[0] = (
+                    f"'age': "
+                    f"{{'{year}': {self._us_tax_relation_member_age(relation_filer_rows[1], spouse_age)}}}"
+                )
+                spouse_attrs.extend(
+                    self._us_tax_person_attrs_from_relation_row(
+                        relation_filer_rows[1],
+                        year,
+                    )
+                )
+            people_parts.append(f"'spouse': {{{', '.join(spouse_attrs)}}}")
             members.append("'spouse'")
 
         if explicit_child_count is None and relation_child_rows is not None:
@@ -10117,6 +10205,102 @@ print(f'RESULT:{{val}}')
         if not saw_relation:
             return None, []
         return child_rows, adult_dependent_rows
+
+    def _us_tax_filer_member_rows_from_relation_inputs(
+        self,
+        inputs: dict,
+    ) -> list[dict]:
+        """Return non-dependent tax-unit member rows for PE head/spouse facts."""
+        filer_rows: list[dict] = []
+        for key, rows in inputs.items():
+            key_text = str(key).lower()
+            if "#relation." not in key_text:
+                continue
+            relation_name = key_text.rsplit("#relation.", 1)[1]
+            if not relation_name.endswith("member_of_tax_unit"):
+                continue
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                dependent = self._rulespec_test_input_value(
+                    row,
+                    "is_tax_unit_dependent",
+                )
+                is_eitc_qualifying_child = (
+                    self._rulespec_test_input_value(
+                        row,
+                        "is_qualifying_child_dependent",
+                    )
+                    is True
+                )
+                if dependent is True or is_eitc_qualifying_child:
+                    continue
+                filer_rows.append(row)
+        return filer_rows
+
+    def _us_tax_person_attrs_from_relation_row(
+        self,
+        row: dict,
+        year: str,
+    ) -> list[str]:
+        """Convert RuleSpec relation-row person facts into PE person inputs."""
+
+        def pe_literal(value: Any) -> str:
+            if isinstance(value, str):
+                return repr(value)
+            if isinstance(value, bool):
+                return "True" if value else "False"
+            return str(value)
+
+        attrs: list[str] = []
+        for rule_key, pe_key in self._PE_US_PERSON_OVERRIDE_INPUTS.items():
+            value = self._rulespec_test_input_value(row, rule_key)
+            if value is None:
+                continue
+            attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
+
+        retired_on_total_disability = self._rulespec_test_input_value(
+            row,
+            "retired_on_total_disability",
+        )
+        if retired_on_total_disability is None:
+            retired = self._rulespec_test_input_value(
+                row,
+                "retired_on_disability_before_year_end",
+            )
+            unable = self._rulespec_test_input_value(
+                row,
+                "unable_to_engage_substantial_gainful_activity",
+            )
+            impairment = self._rulespec_test_input_value(
+                row,
+                "medically_determinable_impairment",
+            )
+            death = self._rulespec_test_input_value(
+                row,
+                "impairment_expected_to_result_in_death",
+            )
+            proof = self._rulespec_test_input_value(row, "disability_proof_furnished")
+            duration = self._rulespec_test_input_value(row, "impairment_duration_months")
+            long_duration = False
+            with contextlib.suppress(TypeError, ValueError):
+                long_duration = float(duration) >= 12
+            if all(value is not None for value in (retired, unable, impairment, proof)):
+                retired_on_total_disability = (
+                    bool(retired)
+                    and bool(unable)
+                    and bool(impairment)
+                    and (bool(death) or long_duration)
+                    and bool(proof)
+                )
+        if retired_on_total_disability is not None:
+            attrs.append(
+                f"'retired_on_total_disability': "
+                f"{{'{year}': {pe_literal(bool(retired_on_total_disability))}}}"
+            )
+        return attrs
 
     def _build_pe_uk_scenario_script(
         self, pe_var: str, inputs: dict, year: str, rule_name: str | None = None

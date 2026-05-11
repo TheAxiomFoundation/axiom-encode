@@ -1939,6 +1939,14 @@ def test_policyengine_tax_unit_member_aged_flags_accept_bool_shapes():
             ]
         }
     ) == [True, False]
+    assert _tax_unit_member_aged_flags(
+        {
+            "us:statutes/26/22#relation.elderly_disabled_member_of_tax_unit": [
+                {"us:statutes/26/22#input.age": 70},
+                {"us:statutes/26/22#input.is_aged_65_or_over": False},
+            ]
+        }
+    ) == [True, False]
 
 
 def test_policyengine_tax_scenario_uses_tax_unit_status_and_aged_flags(tmp_path):
@@ -1961,6 +1969,48 @@ def test_policyengine_tax_scenario_uses_tax_unit_status_and_aged_flags(tmp_path)
     assert "'filing_status': {'2026': 'JOINT'}" in script
     assert "'adult': {'age': {'2026': 65}}" in script
     assert "'spouse': {'age': {'2026': 30}}" in script
+
+
+def test_policyengine_tax_scenario_uses_relation_rows_for_filer_and_spouse(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "section_22_income",
+        {
+            "period": "2026",
+            "filing_status": 1,
+            "us:statutes/26/22#input.pension_annuity_disability_benefits_received": 1000,
+            "us:statutes/26/22#input.taxable_pension_annuity_disability_benefits_included": 400,
+            "us:statutes/26/22#relation.elderly_disabled_member_of_tax_unit": [
+                {
+                    "us:statutes/26/22#input.age": 70,
+                    "us:statutes/26/22#input.section_22_disability_income": 0,
+                },
+                {
+                    "us:statutes/26/22#input.age": 60,
+                    "us:statutes/26/22#input.section_22_disability_income": 2000,
+                    "us:statutes/26/22#input.retired_on_disability_before_year_end": True,
+                    "us:statutes/26/22#input.unable_to_engage_substantial_gainful_activity": True,
+                    "us:statutes/26/22#input.medically_determinable_impairment": True,
+                    "us:statutes/26/22#input.impairment_expected_to_result_in_death": False,
+                    "us:statutes/26/22#input.impairment_duration_months": 12,
+                    "us:statutes/26/22#input.disability_proof_furnished": True,
+                },
+            ],
+        },
+        "2026",
+    )
+
+    assert "'adult': {'age': {'2026': 70}" in script
+    assert "'spouse': {'age': {'2026': 60}" in script
+    assert "'pension_income': {'2026': 1000}" in script
+    assert "'taxable_pension_income': {'2026': 400}" in script
+    assert "'total_disability_payments': {'2026': 2000}" in script
+    assert "'retired_on_total_disability': {'2026': True}" in script
 
 
 def test_policyengine_tax_scenario_applies_tax_unit_overrides(tmp_path):

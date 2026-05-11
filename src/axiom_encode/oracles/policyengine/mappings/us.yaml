@@ -2251,6 +2251,271 @@ mappings:
     comparison: money
     rationale: Same final child and dependent care credit for supported current-law cases.
 
+  - legal_id: us:statutes/26/22#section_22_credit_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.rate
+    period: year
+    comparison: rate
+    rationale: Same section 22 credit percentage.
+
+  - legal_id: us:statutes/26/22#section_22_age_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.age
+    period: year
+    comparison: count
+    rationale: Same age threshold for elderly qualified individuals.
+
+  - legal_id: us:statutes/26/22#permanent_total_disability_minimum_duration_months
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine represents retired-on-total-disability as a direct person fact and does not expose the statutory impairment-duration proof element separately.
+
+  - legal_id: us:statutes/26/22#section_22_initial_amount_one_qualified
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.amount.one_qualified
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same one-qualified-individual initial section 22 amount.
+
+  - legal_id: us:statutes/26/22#section_22_initial_amount_two_qualified
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.amount.two_qualified
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-return two-qualified-individual initial section 22 amount.
+
+  - legal_id: us:statutes/26/22#section_22_initial_amount_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.amount.separate
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same married-filing-separately initial section 22 amount.
+
+  - legal_id: us:statutes/26/22#section_22_phaseout_threshold_single
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.phase_out.threshold
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer AGI phaseout threshold.
+
+  - legal_id: us:statutes/26/22#section_22_phaseout_threshold_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.phase_out.threshold
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-return AGI phaseout threshold.
+
+  - legal_id: us:statutes/26/22#section_22_phaseout_threshold_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.phase_out.threshold
+    parameter_key: SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same married-filing-separately AGI phaseout threshold.
+
+  - legal_id: us:statutes/26/22#section_22_phaseout_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.phase_out.rate
+    period: year
+    comparison: rate
+    rationale: Same one-half phaseout rate over the AGI threshold.
+
+  - legal_id: us:statutes/26/22#section_22_qualified_individual_count
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the section 22 qualified-individual count inside section_22_income and does not expose it separately.
+
+  - legal_id: us:statutes/26/22#section_22_aged_qualified_individual_count
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes aged qualified individuals inside section_22_income and does not expose the count separately.
+
+  - legal_id: us:statutes/26/22#section_22_under_65_disability_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the under-65 disability-income cap inside section_22_income and does not expose the subtotal separately.
+
+  - legal_id: us:statutes/26/22#section_22_initial_amount_before_disability_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the section 22 initial amount inside section_22_income and does not expose it separately.
+
+  - legal_id: us:statutes/26/22#section_22_initial_amount_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the disability-income cap inside section_22_income and does not expose it separately.
+
+  - legal_id: us:statutes/26/22#section_22_initial_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the post-cap section 22 initial amount separately.
+
+  - legal_id: us:statutes/26/22#section_22_nontaxable_pension_benefit_reduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes nontaxable pension and Social Security reductions inside section_22_income and does not expose the subtotal separately.
+
+  - legal_id: us:statutes/26/22#section_22_amount_after_benefit_reduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 22 amount before the AGI phaseout separately.
+
+  - legal_id: us:statutes/26/22#section_22_phaseout_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.elderly_or_disabled.phase_out.threshold
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+      4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected AGI phaseout threshold.
+
+  - legal_id: us:statutes/26/22#section_22_agi_phaseout_excess
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the section 22 AGI phaseout excess inside section_22_income and does not expose it separately.
+
+  - legal_id: us:statutes/26/22#section_22_agi_phaseout_reduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes the section 22 AGI phaseout reduction inside section_22_income and does not expose it separately.
+
+  - legal_id: us:statutes/26/22#section_22_amount
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: section_22_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final section 22 amount for supported filer/spouse cases.
+
+  - legal_id: us:statutes/26/22#elderly_disabled_credit_potential
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: elderly_disabled_credit_potential
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 22 amount multiplied by the statutory credit rate.
+
+  - legal_id: us:statutes/26/22#elderly_disabled_preceding_credits
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine sums preceding nonrefundable credits inside elderly_disabled_credit_credit_limit and does not expose this subtotal separately.
+
+  - legal_id: us:statutes/26/22#elderly_disabled_credit_credit_limit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: elderly_disabled_credit_credit_limit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Schedule 3 nonrefundable-credit ordering limit for supported cases.
+
+  - legal_id: us:statutes/26/22#elderly_disabled_filing_status_eligible
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 22 married-filing-separately living-apart gate separately.
+
+  - legal_id: us:statutes/26/22#elderly_disabled_credit_eligible
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the combined section 22 eligibility gate separately.
+
+  - legal_id: us:statutes/26/22#elderly_disabled_credit
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: elderly_disabled_credit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final elderly or disabled credit for supported resident single and joint cases.
+
+  - legal_id: us:statutes/26/22#is_aged_65_or_over
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine uses age directly and does not expose this section-specific age predicate separately.
+
+  - legal_id: us:statutes/26/22#permanently_totally_disabled
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine represents retired-on-total-disability as a direct person fact and does not model section 22(e)(3)'s proof elements separately.
+
+  - legal_id: us:statutes/26/22#retired_on_total_disability
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes retired_on_total_disability as a direct person input, while RuleSpec derives it from the statute's proof elements.
+
+  - legal_id: us:statutes/26/22#elderly_disabled_qualified_individual
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine computes qualifies_for_elderly_or_disabled_credit at person level but current oracle comparisons target tax-unit outputs.
+
+  - legal_id: us:statutes/26/22#under_65_elderly_disabled_qualified_individual
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose this under-65 qualified-individual helper separately.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
