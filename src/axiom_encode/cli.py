@@ -2633,6 +2633,21 @@ def _git_repo_provenance(path: Path) -> dict[str, object] | None:
     }
 
 
+def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
+    provenance = _git_repo_provenance(_axiom_encode_repo_root())
+    if provenance is None or not provenance.get("commit"):
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: axiom-encode git provenance is "
+            "unavailable; commit the encoder build before using --apply."
+        )
+    if provenance.get("dirty_tracked"):
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec from a dirty axiom-encode checkout; "
+            "commit or discard encoder changes before using --apply."
+        )
+    return provenance
+
+
 # =========================================================================
 # Encode Command
 # =========================================================================
@@ -2809,6 +2824,7 @@ def _apply_generated_encoding_result(
     output_file = Path(str(getattr(result, "output_file", "") or ""))
     relative_output = _relative_generated_output_path(result, output_root=output_root)
     signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
 
     applied: list[Path] = []
     for source in (output_file, _rulespec_test_path(output_file)):
@@ -2837,6 +2853,7 @@ def _apply_generated_encoding_result(
             applied_files=applied,
             run_id=run_id,
             signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
         )
         applied.append(manifest_path)
     return applied
@@ -2849,6 +2866,7 @@ def _write_applied_encoding_manifest(
     policy_repo_path: Path,
     relative_output: Path,
     applied_files: list[Path],
+    axiom_encode_git: dict[str, object],
     signing_key: str,
     run_id: str | None = None,
 ) -> Path:
@@ -2866,7 +2884,7 @@ def _write_applied_encoding_manifest(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tool": "axiom-encode encode --apply",
         "axiom_encode_version": __version__,
-        "axiom_encode_git": _git_repo_provenance(_axiom_encode_repo_root()),
+        "axiom_encode_git": axiom_encode_git,
         "generation_prompt_sha256": getattr(
             result, "generation_prompt_sha256", None
         ),

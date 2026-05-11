@@ -2586,6 +2586,65 @@ class TestCmdEncode:
             },
         ]
 
+    def test_apply_generated_encoding_rejects_dirty_encoder_build(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "25B.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": "abc123",
+                    "dirty_tracked": True,
+                },
+            ),
+            pytest.raises(RuntimeError, match="dirty axiom-encode checkout"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+
+        assert not (policy_repo / "statutes/26/25B.yaml").exists()
+
+    def test_apply_generated_encoding_rejects_unknown_encoder_build(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes" / "26" / "25B.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        policy_repo.mkdir()
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            patch("axiom_encode.cli._git_repo_provenance", return_value=None),
+            pytest.raises(RuntimeError, match="git provenance is unavailable"),
+        ):
+            _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+
+        assert not (policy_repo / "statutes/26/25B.yaml").exists()
+
     def test_apply_generated_encoding_requires_signing_key(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us-ny"
