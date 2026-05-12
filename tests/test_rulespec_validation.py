@@ -6254,6 +6254,23 @@ rules:
     assert find_nonnegative_amount_reduction_issues(content) == []
 
 
+def test_nonnegative_amount_reduction_allows_zero_floor_with_trailing_zero_argument():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate), 0)
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
 def test_formula_date_literal_rejects_iso_dates_in_formulas():
     content = """format: rulespec/v1
 rules:

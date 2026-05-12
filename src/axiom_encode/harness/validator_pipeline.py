@@ -3710,10 +3710,8 @@ def _final_expression_has_zero_floor(expression: str) -> bool:
     )
 
 
-_ZERO_FLOOR_CALL_PATTERN = re.compile(
-    r"\bmax\s*\(\s*0(?:\.0+)?\s*,",
-    flags=re.IGNORECASE,
-)
+_MAX_CALL_PATTERN = re.compile(r"\bmax\s*\(", flags=re.IGNORECASE)
+_ZERO_LITERAL_PATTERN = re.compile(r"0(?:\.0+)?$")
 
 
 def _zero_floor_argument_expressions(expression: str) -> list[str]:
@@ -3738,7 +3736,7 @@ def _expression_without_zero_floor_calls(expression: str) -> str:
 
 def _zero_floor_call_spans(expression: str) -> list[tuple[int, int, str]]:
     spans: list[tuple[int, int, str]] = []
-    for match in _ZERO_FLOOR_CALL_PATTERN.finditer(expression):
+    for match in _MAX_CALL_PATTERN.finditer(expression):
         depth = 1
         index = match.end()
         while index < len(expression):
@@ -3748,12 +3746,35 @@ def _zero_floor_call_spans(expression: str) -> list[tuple[int, int, str]]:
             elif char == ")":
                 depth -= 1
                 if depth == 0:
-                    spans.append(
-                        (match.start(), index + 1, expression[match.end() : index])
+                    arguments = _split_top_level_call_arguments(
+                        expression[match.end() : index]
                     )
+                    if len(arguments) >= 2:
+                        first = arguments[0].strip()
+                        second = arguments[1].strip()
+                        if _ZERO_LITERAL_PATTERN.fullmatch(first):
+                            spans.append((match.start(), index + 1, second))
+                        elif _ZERO_LITERAL_PATTERN.fullmatch(second):
+                            spans.append((match.start(), index + 1, first))
                     break
             index += 1
     return spans
+
+
+def _split_top_level_call_arguments(arguments: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for index, char in enumerate(arguments):
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth > 0:
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append(arguments[start:index])
+            start = index + 1
+    parts.append(arguments[start:])
+    return parts
 
 
 def find_zero_branch_test_coverage_issues(
