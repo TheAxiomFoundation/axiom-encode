@@ -3100,6 +3100,242 @@ def find_source_condition_coverage_issues(
     return issues
 
 
+_UNSUPPORTED_RELATION_SUM_PATTERN = re.compile(
+    r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,",
+    flags=re.IGNORECASE,
+)
+_RELATION_AGGREGATE_PATTERN = re.compile(
+    r"\b(?:count_where|len|sum|sum_where)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
+    flags=re.IGNORECASE,
+)
+_BROAD_STRUCTURAL_RELATION_PATTERN = re.compile(
+    r"(?:^|_)(?:member|members)_of_(?:tax_unit|household|family|filing_unit)$"
+    r"|^(?:tax_unit|household|family|filing_unit)_(?:member|members)$",
+    flags=re.IGNORECASE,
+)
+_ROLE_LIMITED_SOURCE_PATTERN = re.compile(
+    r"\b(?:taxpayer|spouse|claimant|applicant|child|children|dependent|individual)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_LIMITATION_PATTERN = re.compile(
+    r"\b(?:limitation|limited\s+to|shall\s+not\s+exceed|may\s+not\s+exceed|"
+    r"not\s+exceed|lesser\s+of|greater\s+of|reduced\s+by|except\s+that)\b",
+    flags=re.IGNORECASE,
+)
+_LIMITATION_ON_SUBJECT_PATTERN = re.compile(
+    r"\blimitation\s+on\s+(?:the\s+)?([A-Za-z][A-Za-z\s-]{2,80}?)"
+    r"(?:\s+in\s+the\s+case\b|[:.;,]|$)",
+    flags=re.IGNORECASE,
+)
+_LIMITATION_IMPLEMENTATION_PATTERN = re.compile(
+    r"(?:^|_|\b)(?:limit|limitation|limited|cap|ceiling|maximum|minimum|"
+    r"lesser|greater|reduc(?:e|ed|tion)|not_exceed|dependent|earned_income|"
+    r"section_151)(?:_|\b|$)|\bmin\s*\(|\bmax\s*\(",
+    flags=re.IGNORECASE,
+)
+_FINAL_AMOUNT_NAME_PATTERN = re.compile(
+    r"(?:^|_)(?:amount|benefit|deduction|credit|tax|allotment|allowance)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _rulespec_payload(content: str) -> dict[str, Any] | None:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Return `(rule_name, kind, formula)` entries from a RuleSpec payload."""
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    formulas: list[tuple[str, str, str]] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or f"rules[{index}]").strip()
+        kind = str(rule.get("kind") or "").strip().lower()
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                formulas.append((name, kind, str(formula)))
+            elif isinstance(formula, str) and formula.strip():
+                formulas.append((name, kind, formula))
+    return formulas
+
+
+def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    return {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("kind") or "").strip().lower() == "data_relation"
+        and str(rule.get("name") or "").strip()
+    }
+
+
+def _source_limitation_subject_slugs(source_text: str) -> set[str]:
+    slugs: set[str] = set()
+    for match in _LIMITATION_ON_SUBJECT_PATTERN.finditer(source_text):
+        slug = re.sub(r"[^a-z0-9]+", "_", match.group(1).lower()).strip("_")
+        if slug:
+            slugs.add(slug)
+    return slugs
+
+
+def _source_supports_structural_relation_container(
+    source_text: str, relation_name: str
+) -> bool:
+    normalized_source = source_text.lower()
+    normalized_relation = relation_name.lower()
+    if re.search(r"\b(?:all|each|every)\s+(?:member|members)\b", normalized_source):
+        return True
+    relation_container_terms = (
+        ("member_of_household", "household"),
+        ("household_member", "household"),
+        ("member_of_family", "family"),
+        ("family_member", "family"),
+        ("member_of_filing_unit", "filing unit"),
+        ("filing_unit_member", "filing unit"),
+        ("member_of_tax_unit", "tax unit"),
+        ("tax_unit_member", "tax unit"),
+    )
+    return any(
+        relation_token in normalized_relation and source_term in normalized_source
+        for relation_token, source_term in relation_container_terms
+    )
+
+
+def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
+    """Reject relation aggregation forms that the runtime does not support."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    relation_names = _rulespec_data_relation_names(payload)
+    issues: list[str] = []
+    for name, _kind, formula in _rulespec_rule_formulas(payload):
+        for match in _UNSUPPORTED_RELATION_SUM_PATTERN.finditer(formula):
+            relation_name = match.group(1)
+            if (
+                relation_name not in relation_names
+                and not _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name)
+            ):
+                continue
+            issues.append(
+                "Unsupported relation aggregate syntax: "
+                f"`{name}` uses `sum({relation_name}, ...)`. RuleSpec supports "
+                "`sum(relation.amount_fact)` and "
+                "`sum_where(relation, amount_fact_or_derived, predicate_fact)`; "
+                "move arithmetic into named facts/derived rules before aggregating."
+            )
+    return issues
+
+
+def find_role_limited_relation_scope_issues(content: str) -> list[str]:
+    """Flag broad container relations used where the source names narrower roles."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not source_text or not _ROLE_LIMITED_SOURCE_PATTERN.search(source_text):
+        return []
+
+    relation_names = _rulespec_data_relation_names(payload)
+    broad_relations = {
+        relation_name
+        for relation_name in relation_names
+        if _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name)
+    }
+    if not broad_relations:
+        return []
+
+    role_terms = sorted(
+        {
+            match.group(0).lower()
+            for match in _ROLE_LIMITED_SOURCE_PATTERN.finditer(source_text)
+        }
+    )
+    role_detail = ", ".join(role_terms[:4])
+    issues: list[str] = []
+    reported: set[tuple[str, str]] = set()
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived":
+            continue
+        for match in _RELATION_AGGREGATE_PATTERN.finditer(formula):
+            relation_name = match.group(1)
+            if relation_name not in broad_relations:
+                continue
+            if _source_supports_structural_relation_container(
+                source_text, relation_name
+            ):
+                continue
+            key = (name, relation_name)
+            if key in reported:
+                continue
+            reported.add(key)
+            issues.append(
+                "Role-limited relation scope: "
+                f"`{name}` aggregates `{relation_name}`, but the source text "
+                f"states narrower legal role(s) ({role_detail}). Define or use "
+                "a relation/fact scoped to the exact roles counted by the source; "
+                "do not count every member of a broader container unless the "
+                "source says every member counts."
+            )
+    return issues
+
+
+def find_source_limitation_application_issues(content: str) -> list[str]:
+    """Flag final amount formulas that ignore a same-source cap or limitation."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not source_text or not _SOURCE_LIMITATION_PATTERN.search(source_text):
+        return []
+
+    limitation_subject_slugs = _source_limitation_subject_slugs(source_text)
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived":
+            continue
+        if not _FINAL_AMOUNT_NAME_PATTERN.search(name):
+            continue
+        candidate_text = f"{name} {formula}".lower()
+        if limitation_subject_slugs and not any(
+            slug in candidate_text for slug in limitation_subject_slugs
+        ):
+            continue
+        if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
+            continue
+        issues.append(
+            "Source limitation not applied: "
+            f"`{name}` is a final amount-style output, but the same source text "
+            "contains a limitation, cap, exception, or not-exceed rule that the "
+            "formula does not reference. Import or encode the limiting rule and "
+            "compose it into the final exported amount."
+        )
+    return issues
+
+
 _BROAD_APPLICATION_FURNISHING_SOURCE_PATTERN = re.compile(
     r"\b(?:shall|must|may)\s+(?:be\s+)?"
     r"(?:furnished|provided|paid|made\s+available|granted|issued)\b"
@@ -6386,6 +6622,9 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_relation_aggregate_syntax_issues(content))
+        issues.extend(find_role_limited_relation_scope_issues(content))
+        issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(

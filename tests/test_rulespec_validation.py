@@ -31,11 +31,14 @@ from axiom_encode.harness.validator_pipeline import (
     find_formula_absolute_reference_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
+    find_relation_aggregate_syntax_issues,
+    find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
+    find_source_limitation_application_issues,
     find_source_verification_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
@@ -5168,6 +5171,135 @@ rules:
     )
 
     assert issues == []
+
+
+def test_relation_aggregate_syntax_rejects_expression_sum_over_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: additional_condition_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          sum(member_of_tax_unit, (if is_aged_65_or_over: 1 else: 0) + (if is_blind: 1 else: 0))
+"""
+
+    issues = find_relation_aggregate_syntax_issues(content)
+
+    assert any("Unsupported relation aggregate syntax" in issue for issue in issues)
+    assert "sum(member_of_tax_unit, ...)" in issues[0]
+
+
+def test_role_limited_relation_scope_rejects_broad_container_count():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The additional standard deduction is the sum of each additional amount to
+    which the taxpayer is entitled. If the taxpayer is married and files a
+    joint return, the spouse may also be entitled to the additional amount.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: additional_condition_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          count_where(member_of_tax_unit, is_aged_65_or_over) + count_where(member_of_tax_unit, is_blind)
+"""
+
+    issues = find_role_limited_relation_scope_issues(content)
+
+    assert any("Role-limited relation scope" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+    assert "taxpayer" in issues[0]
+
+
+def test_role_limited_relation_scope_accepts_source_stated_household_members():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Each household member who is elderly counts toward the household allowance.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: elderly_member_count
+    kind: derived
+    entity: Household
+    dtype: Count
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(member_of_household, is_elderly)
+"""
+
+    assert find_role_limited_relation_scope_issues(content) == []
+
+
+def test_source_limitation_application_rejects_final_amount_without_limit():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The standard deduction means the sum of the basic standard deduction and
+    the additional standard deduction. Limitation on basic standard deduction
+    in the case of certain dependents: the basic standard deduction shall not
+    exceed the greater of $500 or earned income plus $250.
+rules:
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_standard_deduction_amount + additional_standard_deduction_amount
+"""
+
+    issues = find_source_limitation_application_issues(content)
+
+    assert any("Source limitation not applied" in issue for issue in issues)
+    assert "standard_deduction" in issues[0]
+
+
+def test_source_limitation_application_accepts_final_amount_with_limit_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The standard deduction means the sum of the basic standard deduction and
+    the additional standard deduction. Limitation on basic standard deduction
+    in the case of certain dependents: the basic standard deduction shall not
+    exceed the greater of $500 or earned income plus $250.
+rules:
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: dependent_limited_basic_standard_deduction + additional_standard_deduction_amount
+"""
+
+    assert find_source_limitation_application_issues(content) == []
 
 
 def test_source_verification_accepts_decimal_rate_values_as_word_percentages():
