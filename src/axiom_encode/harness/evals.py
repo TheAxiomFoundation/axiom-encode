@@ -2845,6 +2845,16 @@ RuleSpec requirements:
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
+- US tax `filing_status` is a structural enum: 0 single, 1 joint return,
+  2 married filing separately, 3 head of household, and 4 surviving spouse /
+  qualifying widow(er). Never encode US tax filing status as string literals
+  such as `"married_filing_jointly"` or as separate boolean facts such as
+  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`.
+  Formulas and tests must use the numeric `filing_status` enum input directly,
+  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`, and
+  `.test.yaml` should assign `#input.filing_status: 1` or `4`. If the source
+  groups surviving spouse with joint return, every branch or match that handles
+  status 1 must also handle status 4 in that same branch with the same result.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write

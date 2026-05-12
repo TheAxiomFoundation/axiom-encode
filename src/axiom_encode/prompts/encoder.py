@@ -336,6 +336,12 @@ Hard requirements:
   qualifying widow(er). If the source groups surviving spouse with joint return,
   every filing-status branch or match that handles status 1 must also handle
   status 4 in that same branch.
+- Never encode US tax filing status as string literals such as
+  `"married_filing_jointly"` or as separate boolean facts such as
+  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`.
+  Formulas and tests must use the numeric `filing_status` enum input directly,
+  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...` and
+  `.test.yaml` should assign `#input.filing_status: 1` or `4`.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.

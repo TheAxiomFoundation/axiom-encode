@@ -3249,6 +3249,76 @@ def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
     return issues
 
 
+_FILING_STATUS_STRING_VALUE_PATTERN = re.compile(
+    rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=)\s*['\"][^'\"]+['\"]"
+    rf"|['\"][^'\"]+['\"]\s*(?:==|!=)\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}",
+    flags=re.IGNORECASE,
+)
+_FILING_STATUS_NAMED_VALUE_PATTERN = re.compile(
+    rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=)\s*"
+    r"(?:single|joint|joint_return|married_filing_jointly|married_filing_separately|"
+    r"separate|head_of_household|surviving_spouse|qualifying_widow(?:er)?)\b",
+    flags=re.IGNORECASE,
+)
+_FILING_STATUS_MATCH_NAMED_ARM_PATTERN = re.compile(
+    r"^\s*(?:single|joint|joint_return|married_filing_jointly|"
+    r"married_filing_separately|separate|head_of_household|surviving_spouse|"
+    r"qualifying_widow(?:er)?)\s*=>",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
+
+
+def find_tax_filing_status_enum_representation_issues(content: str) -> list[str]:
+    """Reject string/boolean encodings of the structural US filing-status enum."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived" or not _US_TAX_FILING_STATUS_NAME_PATTERN.search(formula):
+            continue
+        if (
+            _FILING_STATUS_STRING_VALUE_PATTERN.search(formula)
+            or _FILING_STATUS_NAMED_VALUE_PATTERN.search(formula)
+            or _FILING_STATUS_MATCH_NAMED_ARM_PATTERN.search(formula)
+        ):
+            issues.append(
+                "Filing status must use numeric enum: "
+                f"`{name}` compares `filing_status` to string/named status values. "
+                "Use numeric codes directly: 0 single, 1 joint return, 2 married "
+                "filing separately, 3 head of household, 4 surviving spouse / "
+                "qualifying widow(er)."
+            )
+    return issues
+
+
+def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
+    """Reject nonnumeric `#input.filing_status` test assignments."""
+    if not isinstance(test_cases, list):
+        return []
+
+    issues: list[str] = []
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        test_name = str(test_case.get("name") or "<unnamed>").strip() or "<unnamed>"
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        for key, value in inputs.items():
+            if _test_reference_fragment(key) != "input.filing_status":
+                continue
+            if isinstance(value, bool) or value not in {0, 1, 2, 3, 4}:
+                issues.append(
+                    "Filing status test input must use numeric enum: "
+                    f"`{test_name}` assigns `{key}: {value}`. Use 0 single, "
+                    "1 joint return, 2 married filing separately, 3 head of "
+                    "household, or 4 surviving spouse / qualifying widow(er)."
+                )
+    return issues
+
+
 def _filing_status_surviving_spouse_branch_issue(
     rule_name: str,
     formula: str,
@@ -7334,6 +7404,7 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_nonnegative_amount_reduction_issues(content))
         issues.extend(find_relation_aggregate_syntax_issues(content))
@@ -7422,6 +7493,7 @@ class ValidatorPipeline:
                             )
                         )
                     issues.extend(find_test_input_assignment_issues(content, payload))
+                    issues.extend(find_tax_filing_status_test_input_issues(payload))
                     issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
                         find_zero_branch_test_coverage_issues(content, payload)

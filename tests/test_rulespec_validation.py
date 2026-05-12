@@ -45,7 +45,9 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_condition_coverage_issues,
     find_source_limitation_application_issues,
     find_source_verification_issues,
+    find_tax_filing_status_enum_representation_issues,
     find_tax_filing_status_surviving_spouse_issues,
+    find_tax_filing_status_test_input_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
@@ -5739,6 +5741,81 @@ rules:
     issues = find_tax_filing_status_surviving_spouse_issues(content)
 
     assert any("status code 4" in issue for issue in issues)
+
+
+def test_filing_status_enum_rejects_string_formula():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == "married_filing_jointly": standard_deduction_joint else:
+          if filing_status == "surviving_spouse": standard_deduction_joint else:
+          standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
+def test_filing_status_enum_rejects_named_match_arm():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              married_filing_jointly => standard_deduction_joint
+              surviving_spouse => standard_deduction_joint
+              single => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
+def test_filing_status_test_input_rejects_string_value():
+    test_cases = [
+        {
+            "name": "joint_status_string",
+            "input": {
+                "us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status": "married_filing_jointly"
+            },
+            "output": {},
+        }
+    ]
+
+    issues = find_tax_filing_status_test_input_issues(test_cases)
+
+    assert any(
+        "Filing status test input must use numeric enum" in issue for issue in issues
+    )
+
+
+def test_filing_status_test_input_allows_numeric_value():
+    test_cases = [
+        {
+            "name": "joint_status_code",
+            "input": {
+                "us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status": 1
+            },
+            "output": {},
+        }
+    ]
+
+    assert find_tax_filing_status_test_input_issues(test_cases) == []
 
 
 def test_filing_status_branch_allows_surviving_spouse_code():
