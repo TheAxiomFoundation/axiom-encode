@@ -780,7 +780,9 @@ _NONNEGATIVE_REDUCTION_FORMULA_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _ZERO_AMOUNT_BRANCH_PATTERN = re.compile(
-    r"\bif\b[\s\S]{0,500}:\s*0(?:\.0+)?\s+else\s*:",
+    r"(?:\bif\b[\s\S]{0,500}:\s*0(?:\.0+)?(?:\s+else\s*:|\s*$))"
+    r"|(?:\belse\s*:\s*0(?:\.0+)?(?:\s|$))"
+    r"|(?:=>\s*0(?:\.0+)?(?:\s|$))",
     flags=re.IGNORECASE,
 )
 _CARDINAL_WORD_VALUES = {
@@ -3241,16 +3243,112 @@ def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
     for name, kind, formula in _rulespec_rule_formulas(payload):
         if kind != "derived" or not _US_TAX_FILING_STATUS_NAME_PATTERN.search(formula):
             continue
-        codes = _filing_status_codes_in_formula(formula)
-        if 1 in codes and 4 not in codes:
-            issues.append(
-                "Filing status branch missing surviving spouse: "
-                f"`{name}` handles joint-return status code 1 while this source "
-                "mentions surviving spouse or qualifying widow(er), but the formula "
-                "does not handle status code 4. Include code 4 when the source groups "
-                "surviving spouse with joint return, or encode a separate explicit branch."
-            )
+        branch_issue = _filing_status_surviving_spouse_branch_issue(name, formula)
+        if branch_issue is not None:
+            issues.append(branch_issue)
     return issues
+
+
+def _filing_status_surviving_spouse_branch_issue(
+    rule_name: str,
+    formula: str,
+) -> str | None:
+    match_blocks = _filing_status_match_blocks(formula)
+    for arms in match_blocks:
+        if 1 not in arms:
+            continue
+        if 4 not in arms:
+            return (
+                "Filing status branch missing surviving spouse: "
+                f"`{rule_name}` handles joint-return status code 1 while this source "
+                "mentions surviving spouse or qualifying widow(er), but the formula "
+                "does not handle status code 4 in the same filing-status branch. "
+                "Include code 4 when the source groups surviving spouse with joint "
+                "return, or encode a separate explicit branch."
+            )
+        if _normalize_branch_result(arms[1]) != _normalize_branch_result(arms[4]):
+            return (
+                "Filing status branch routes surviving spouse to a different result: "
+                f"`{rule_name}` handles joint-return status code 1 and surviving-spouse "
+                "status code 4 with different branch results, but this source groups "
+                "surviving spouse with joint return."
+            )
+    if match_blocks:
+        return None
+
+    if _filing_status_has_code_comparison(formula, 1) and not (
+        _filing_status_has_grouped_joint_surviving_spouse_condition(formula)
+        or _filing_status_has_code_comparison(formula, 4)
+    ):
+        return (
+            "Filing status branch missing surviving spouse: "
+            f"`{rule_name}` handles joint-return status code 1 while this source "
+            "mentions surviving spouse or qualifying widow(er), but the formula "
+            "does not handle status code 4. Include code 4 when the source groups "
+            "surviving spouse with joint return, or encode a separate explicit branch."
+        )
+    return None
+
+
+def _filing_status_match_blocks(formula: str) -> list[dict[int, str]]:
+    blocks: list[dict[int, str]] = []
+    lines = formula.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(
+            rf"^(\s*)match\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            continue
+        base_indent = len(match.group(1))
+        arms: dict[int, str] = {}
+        for branch_line in lines[index + 1 :]:
+            if not branch_line.strip():
+                continue
+            branch_indent = len(branch_line) - len(branch_line.lstrip())
+            if branch_indent <= base_indent:
+                break
+            branch_match = re.match(r"^\s*(\d+)\s*=>\s*(.+?)\s*$", branch_line)
+            if branch_match is None:
+                continue
+            with contextlib.suppress(ValueError):
+                arms[int(branch_match.group(1))] = branch_match.group(2)
+        blocks.append(arms)
+    return blocks
+
+
+def _normalize_branch_result(result: str) -> str:
+    return re.sub(r"\s+", "", result.strip().rstrip(",")).lower()
+
+
+def _filing_status_has_code_comparison(formula: str, code: int) -> bool:
+    return bool(
+        re.search(
+            rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=|>=|>|<=|<)\s*{code}\b"
+            rf"|\b{code}\s*(?:==|!=|>=|>|<=|<)\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+            formula,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _filing_status_has_grouped_joint_surviving_spouse_condition(formula: str) -> bool:
+    compact = re.sub(r"\s+", "", formula).lower()
+    for name in ("filing_status", "tax_filing_status"):
+        if re.search(rf"\b{name}in[\[\(\{{]1,4[\]\)\}}]", compact):
+            return True
+        if re.search(rf"\b{name}in[\[\(\{{]4,1[\]\)\}}]", compact):
+            return True
+        if f"{name}==1or{name}==4" in compact:
+            return True
+        if f"{name}==4or{name}==1" in compact:
+            return True
+        if f"1=={name}or4=={name}" in compact:
+            return True
+        if f"4=={name}or1=={name}" in compact:
+            return True
+    return False
 
 
 def _filing_status_codes_in_formula(formula: str) -> set[int]:
@@ -3268,9 +3366,8 @@ def _filing_status_codes_in_formula(formula: str) -> set[int]:
         normalized,
         flags=re.IGNORECASE,
     ):
-        for match in re.finditer(r"\b(\d+)\s*=>", normalized):
-            with contextlib.suppress(ValueError):
-                codes.add(int(match.group(1)))
+        for block in _filing_status_match_blocks(formula):
+            codes.update(block)
     return codes
 
 
@@ -3305,10 +3402,14 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            compact = re.sub(r"\s+", "", formula).lower()
-            if "max(0" in compact or "max(0.0" in compact:
-                continue
-            if not _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(formula):
+            result_expressions = _formula_result_expressions(formula)
+            unfloored_expressions = [
+                expression
+                for expression in result_expressions
+                if _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(expression)
+                and not _final_expression_has_zero_floor(expression)
+            ]
+            if not unfloored_expressions:
                 continue
             issues.append(
                 "Nonnegative amount reduction missing floor: "
@@ -3318,6 +3419,29 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
                 "use `max(0, ...)` before downstream minimums or eligibility branches."
             )
     return issues
+
+
+def _formula_result_expressions(formula: str) -> list[str]:
+    expressions: list[str] = []
+    for raw_line in formula.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match_arm = re.match(r"^(?:\d+|default|otherwise|_)\s*=>\s*(.+)$", line)
+        if match_arm is not None:
+            expressions.append(match_arm.group(1).strip())
+            continue
+        branch = re.match(r"^(?:if\b.+|elif\b.+|else)\s*:\s*(.+)$", line)
+        if branch is not None:
+            expressions.append(branch.group(1).strip())
+    if not expressions and formula.strip():
+        expressions.append(formula.strip())
+    return expressions
+
+
+def _final_expression_has_zero_floor(expression: str) -> bool:
+    compact = re.sub(r"\s+", "", expression).lower()
+    return bool(re.match(r"^max\(0(?:\.0+)?,", compact))
 
 
 def find_zero_branch_test_coverage_issues(

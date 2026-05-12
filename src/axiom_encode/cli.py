@@ -625,6 +625,15 @@ def main():
         ),
     )
     encode_parser.add_argument(
+        "--source-id",
+        default=None,
+        help=(
+            "Optional canonical RuleSpec source identifier to write while reading "
+            "the requested corpus citation as source text. Use when a corpus "
+            "page backs a logical policy file."
+        ),
+    )
+    encode_parser.add_argument(
         "--output",
         type=Path,
         default=Path("/tmp/axiom-encode-encodings"),
@@ -2689,17 +2698,37 @@ def cmd_encode(args):
         print(f"Policy repo not found: {policy_repo_path}")
         sys.exit(1)
 
-    results = run_model_eval(
-        citations=[args.citation],
-        runner_specs=[runner],
-        output_root=args.output,
-        policy_path=policy_repo_path,
-        runtime_axiom_rules_path=axiom_rules_path,
-        corpus_path=corpus_path,
-        mode=args.mode,
-        extra_context_paths=[Path(path) for path in args.allow_context],
-        include_tests=True,
-    )
+    source_id = getattr(args, "source_id", None)
+    source_unit = None
+    if source_id:
+        source_unit = resolve_corpus_source_unit(args.citation, corpus_path)
+        results = run_source_eval(
+            source_id=source_id,
+            source_text=source_unit.body,
+            runner_specs=[runner],
+            output_root=args.output,
+            policy_path=policy_repo_path,
+            source_metadata_payload={
+                "corpus_citation_path": source_unit.citation_path,
+                "corpus_source": source_unit.source,
+                "requested_source": source_unit.requested,
+            },
+            runtime_axiom_rules_path=axiom_rules_path,
+            mode=args.mode,
+            extra_context_paths=[Path(path) for path in args.allow_context],
+        )
+    else:
+        results = run_model_eval(
+            citations=[args.citation],
+            runner_specs=[runner],
+            output_root=args.output,
+            policy_path=policy_repo_path,
+            runtime_axiom_rules_path=axiom_rules_path,
+            corpus_path=corpus_path,
+            mode=args.mode,
+            extra_context_paths=[Path(path) for path in args.allow_context],
+            include_tests=True,
+        )
 
     result = results[0]
     print(f"Output root: {args.output}")
@@ -2708,6 +2737,9 @@ def cmd_encode(args):
     print(f"Policy repo: {policy_repo_path}")
     print(f"Runner: {runner}")
     print(f"Mode: {args.mode}")
+    if source_unit is not None:
+        print(f"Corpus source: {source_unit.citation_path} ({source_unit.source})")
+        print(f"RuleSpec source id: {source_id}")
     print()
     print(f"{result.citation} [{result.runner}]")
     apply_requested = getattr(args, "apply", False) is True

@@ -2548,6 +2548,7 @@ class TestCmdEncode:
         policy_repo_path.mkdir(exist_ok=True)
         args = MagicMock()
         args.citation = overrides.get("citation", "26 USC 1(j)(2)")
+        args.source_id = overrides.get("source_id", None)
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
         args.backend = overrides.get("backend", "codex")
@@ -2558,6 +2559,8 @@ class TestCmdEncode:
         args.allow_context = overrides.get("allow_context", [])
         args.db = overrides.get("db", tmp_path / "encodings.db")
         args.sync = overrides.get("sync", True)
+        args.apply = overrides.get("apply", False)
+        args.apply_target_only = overrides.get("apply_target_only", False)
         return args
 
     def _make_eval_result(self, success=True):
@@ -2602,6 +2605,60 @@ class TestCmdEncode:
         assert (
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
+        )
+
+    def test_encode_with_source_id_uses_corpus_source_unit(self, capsys, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            citation="us/guidance/irs/rev-proc-2025-32/page-18",
+            source_id="us/policies/irs/rev-proc-2025-32/standard-deduction",
+            sync=False,
+        )
+        result = self._make_eval_result(True)
+        result.citation = args.source_id
+
+        with (
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=SimpleNamespace(
+                    body="standard deduction source text",
+                    citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
+                    source="local",
+                    requested="us/guidance/irs/rev-proc-2025-32/page-18",
+                ),
+            ) as mock_resolve,
+            patch(
+                "axiom_encode.cli.run_source_eval", return_value=[result]
+            ) as mock_run_source,
+            patch("axiom_encode.cli.run_model_eval") as mock_run_model,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        mock_resolve.assert_called_once_with(args.citation, args.corpus_path)
+        mock_run_model.assert_not_called()
+        assert mock_run_source.call_args.kwargs["source_id"] == args.source_id
+        assert (
+            mock_run_source.call_args.kwargs["source_text"]
+            == "standard deduction source text"
+        )
+        assert mock_run_source.call_args.kwargs["runner_specs"] == ["codex:test-model"]
+        assert mock_run_source.call_args.kwargs["policy_path"] == args.policy_repo_path
+        assert (
+            mock_run_source.call_args.kwargs["runtime_axiom_rules_path"]
+            == args.axiom_rules_path
+        )
+        assert mock_run_source.call_args.kwargs["source_metadata_payload"] == {
+            "corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+            "corpus_source": "local",
+            "requested_source": "us/guidance/irs/rev-proc-2025-32/page-18",
+        }
+        output = capsys.readouterr().out
+        assert (
+            "RuleSpec source id: us/policies/irs/rev-proc-2025-32/standard-deduction"
+            in output
         )
 
     def test_encode_with_errors(self, capsys, tmp_path):
