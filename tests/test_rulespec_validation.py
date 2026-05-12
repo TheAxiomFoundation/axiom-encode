@@ -5808,6 +5808,25 @@ rules:
     assert any("Filing status must use numeric enum" in issue for issue in issues)
 
 
+def test_filing_status_enum_rejects_inline_named_match_arm():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status: married_filing_jointly => standard_deduction_joint; surviving_spouse => standard_deduction_joint; single => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
 def test_filing_status_enum_allows_named_arms_in_unrelated_match_block():
     content = """format: rulespec/v1
 rules:
@@ -6025,6 +6044,23 @@ rules:
       - effective_from: '2025-10-01'
         formula: |-
           if ineligible: 0 else: if has_utility_cost: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: 0
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_allows_downstream_min_wrapper_after_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          min(snap_maximum_allotment_for_household_size, max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
 """
 
     assert find_nonnegative_amount_reduction_issues(content) == []

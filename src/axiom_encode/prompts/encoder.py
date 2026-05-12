@@ -170,6 +170,13 @@ Hard requirements:
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
   inflation adjustment formula itself.
+- If a copied current-year authority exports the same concept or output name
+  that the requested statute formula would otherwise create, do not emit a
+  local executable duplicate with that name. Import and use the current-year
+  authority's output, keeping only statute-specific conditions or non-executable
+  `source_relation` records in the statute file. For IRC section 63(c)(5), if
+  Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
+  not recreate it in the statute file.
 - Use `kind: source_relation` for non-executable legal/provenance edges such as
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and

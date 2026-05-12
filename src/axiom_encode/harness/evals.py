@@ -1588,9 +1588,12 @@ def _slice_legal_text_by_parenthetical_fragment(
     return text[start:end]
 
 
+_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL = (
+    r"(?:paragraphs?|subparagraphs?|clauses?|subclauses?|sections?|"
+    r"subsections?|chapters?|titles?|parts?|items?|sentences?|regulations?)"
+)
 _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX = re.compile(
-    r"\b(?:paragraph|subparagraph|clause|subclause|section|subsection|"
-    r"chapter|title|part|item|sentence|regulation)\s+$",
+    rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\s+$",
     re.IGNORECASE,
 )
 
@@ -1608,8 +1611,7 @@ def _parenthetical_marker_context_is_structural(text: str, marker_start: int) ->
 def _parenthetical_marker_is_in_reference_list(prefix: str) -> bool:
     segment = re.split(r"(?:[.;]\s+|\n+)", prefix)[-1]
     if not re.search(
-        r"\b(?:paragraph|subparagraph|clause|subclause|section|subsection|"
-        r"chapter|title|part|item|sentence|regulation)\b",
+        rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\b",
         segment,
         flags=re.IGNORECASE,
     ):
@@ -2850,6 +2852,13 @@ RuleSpec requirements:
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
   inflation adjustment formula itself.
+- If a copied current-year authority exports the same concept or output name
+  that the requested statute formula would otherwise create, do not emit a
+  local executable duplicate with that name. Import and use the current-year
+  authority's output, keeping only statute-specific conditions or non-executable
+  `source_relation` records in the statute file. For IRC section 63(c)(5), if
+  Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
+  not recreate it in the statute file.
 - Do not invent new entities, periods, or dtypes.
 - Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.

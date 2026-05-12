@@ -3299,12 +3299,14 @@ def _filing_status_match_has_named_arms(formula: str) -> bool:
     lines = formula.splitlines()
     for index, line in enumerate(lines):
         match = re.match(
-            rf"^(\s*)match\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:\s*$",
+            rf"^(\s*)match\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:\s*(.*)$",
             line,
             flags=re.IGNORECASE,
         )
         if match is None:
             continue
+        if _match_fragment_has_named_arm(match.group(2)):
+            return True
         base_indent = len(match.group(1))
         for branch_line in lines[index + 1 :]:
             if not branch_line.strip():
@@ -3312,9 +3314,17 @@ def _filing_status_match_has_named_arms(formula: str) -> bool:
             branch_indent = len(branch_line) - len(branch_line.lstrip())
             if branch_indent <= base_indent:
                 break
-            if _FILING_STATUS_MATCH_NAMED_ARM_PATTERN.match(branch_line):
+            if _match_fragment_has_named_arm(branch_line):
                 return True
     return False
+
+
+def _match_fragment_has_named_arm(fragment: str) -> bool:
+    return any(
+        _FILING_STATUS_MATCH_NAMED_ARM_PATTERN.match(part)
+        for part in re.split(r";", fragment)
+        if part.strip()
+    )
 
 
 def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
@@ -3630,7 +3640,36 @@ def _split_inline_conditional_result_expressions(expression: str) -> list[str]:
 
 def _final_expression_has_zero_floor(expression: str) -> bool:
     compact = re.sub(r"\s+", "", expression).lower()
-    return bool(re.match(r"^max\(0(?:\.0+)?,", compact))
+    if re.match(r"^max\(0(?:\.0+)?,", compact):
+        return True
+    return any(
+        _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(inner_expression)
+        for inner_expression in _zero_floor_argument_expressions(expression)
+    )
+
+
+_ZERO_FLOOR_CALL_PATTERN = re.compile(
+    r"\bmax\s*\(\s*0(?:\.0+)?\s*,",
+    flags=re.IGNORECASE,
+)
+
+
+def _zero_floor_argument_expressions(expression: str) -> list[str]:
+    argument_expressions: list[str] = []
+    for match in _ZERO_FLOOR_CALL_PATTERN.finditer(expression):
+        depth = 1
+        index = match.end()
+        while index < len(expression):
+            char = expression[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    argument_expressions.append(expression[match.end() : index])
+                    break
+            index += 1
+    return argument_expressions
 
 
 def find_zero_branch_test_coverage_issues(
