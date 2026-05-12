@@ -646,6 +646,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_source_proofs_parser = subparsers.add_parser(
+        "repair-missing-source-proofs",
+        help="Apply signed deterministic repairs for missing RuleSpec proof atoms",
+    )
+    repair_source_proofs_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_source_proofs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_source_proofs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1209,6 +1231,8 @@ def main():
         cmd_repair_local_proof_hashes(args)
     elif args.command == "repair-tax-filing-status-branches":
         cmd_repair_tax_filing_status_branches(args)
+    elif args.command == "repair-missing-source-proofs":
+        cmd_repair_missing_source_proofs(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -2872,6 +2896,89 @@ def cmd_repair_tax_filing_status_branches(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_missing_source_proofs(args):
+    """Apply signed deterministic repairs for missing source proof atoms."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    repaired_content, repaired_rules = _repair_missing_source_proof_atoms(
+        original_content
+    )
+    if repaired_content == original_content:
+        print("No missing source proof repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    rules_file.write_text(repaired_content)
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        rules_file.write_text(original_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="source-proof-atom-v1",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied missing source proof repair to "
+        f"{relative_output}: {', '.join(repaired_rules)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
 def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
     if (
         "surviving spouse" not in content.lower()
@@ -2916,6 +3023,240 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
         repaired_rules.append(current_rule_name or "<unknown>")
 
     return "".join(repaired), repaired_rules
+
+
+def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return content, []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return content, []
+
+    module = payload.get("module")
+    source_paths = _rulespec_module_source_paths(payload)
+    if not source_paths:
+        return content, []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    repairs_by_rule: dict[str, dict[str, str]] = {}
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if not _parsed_rule_requires_generated_source_proof(rule):
+            continue
+        rule_name = str(rule.get("name") or f"rules[{index}]").strip()
+        if not rule_name:
+            continue
+        repairs_by_rule[rule_name] = {
+            "kind": _generated_proof_atom_kind(rule),
+            "corpus_citation_path": source_paths[0],
+            "span": _generated_proof_atom_span(rule),
+        }
+
+    if not repairs_by_rule:
+        return content, []
+
+    lines = content.splitlines(keepends=True)
+    lines = _ensure_module_proof_validation_required(lines, module)
+    repaired_lines, repaired_rules = _insert_missing_source_proof_atoms(
+        lines, repairs_by_rule
+    )
+    return "".join(repaired_lines), repaired_rules
+
+
+def _rulespec_module_source_paths(payload: dict[str, object]) -> list[str]:
+    module = payload.get("module")
+    source_verification: object = None
+    if isinstance(module, dict):
+        source_verification = module.get("source_verification")
+    if not isinstance(source_verification, dict):
+        source_verification = payload.get("source_verification")
+    if not isinstance(source_verification, dict):
+        return []
+
+    paths: list[str] = []
+    single = str(source_verification.get("corpus_citation_path") or "").strip()
+    if single:
+        paths.append(single)
+    many = source_verification.get("corpus_citation_paths")
+    if isinstance(many, list):
+        for item in many:
+            value = str(item or "").strip()
+            if value:
+                paths.append(value)
+    return paths
+
+
+def _parsed_rule_requires_generated_source_proof(rule: dict[str, object]) -> bool:
+    kind = str(rule.get("kind") or "").strip()
+    if kind not in {"parameter", "derived"}:
+        return False
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        return False
+    first_version = versions[0]
+    if not isinstance(first_version, dict) or "formula" not in first_version:
+        return False
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return True
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return True
+    atoms = proof.get("atoms")
+    return not isinstance(atoms, list) or not atoms
+
+
+def _generated_proof_atom_kind(rule: dict[str, object]) -> str:
+    if str(rule.get("kind") or "").strip() == "parameter":
+        return "parameter"
+    return "formula"
+
+
+def _generated_proof_atom_span(rule: dict[str, object]) -> str:
+    source = rule.get("source")
+    if isinstance(source, str):
+        return source.strip()
+    if isinstance(source, dict):
+        for key in ("span", "ref", "citation"):
+            value = str(source.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
+
+def _ensure_module_proof_validation_required(
+    lines: list[str],
+    module: object,
+) -> list[str]:
+    if isinstance(module, dict):
+        proof_validation = module.get("proof_validation")
+        if (
+            isinstance(proof_validation, dict)
+            and proof_validation.get("required") is True
+        ):
+            return lines
+
+    repaired: list[str] = []
+    inserted = False
+    for line in lines:
+        repaired.append(line)
+        if not inserted and line == "module:\n":
+            repaired.append("  proof_validation:\n")
+            repaired.append("    required: true\n")
+            inserted = True
+    return repaired
+
+
+def _insert_missing_source_proof_atoms(
+    lines: list[str],
+    repairs_by_rule: dict[str, dict[str, str]],
+) -> tuple[list[str], list[str]]:
+    rule_starts = [
+        index for index, line in enumerate(lines) if re.match(r"^  - name:\s*", line)
+    ]
+    if not rule_starts:
+        return lines, []
+
+    output = lines[:]
+    offset = 0
+    repaired_rules: list[str] = []
+    for rule_start, next_rule_start in zip(
+        rule_starts,
+        rule_starts[1:] + [len(lines)],
+        strict=False,
+    ):
+        adjusted_start = rule_start + offset
+        adjusted_end = next_rule_start + offset
+        name_match = re.match(r"^  - name:\s*(.+?)\s*$", output[adjusted_start])
+        if name_match is None:
+            continue
+        rule_name = name_match.group(1).strip()
+        repair = repairs_by_rule.get(rule_name)
+        if repair is None:
+            continue
+
+        block = output[adjusted_start:adjusted_end]
+        insertion_index, inserted_lines = _source_proof_insertion(
+            block,
+            proof_kind=repair["kind"],
+            corpus_citation_path=repair["corpus_citation_path"],
+            span=repair["span"],
+        )
+        absolute_insertion_index = adjusted_start + insertion_index
+        output[absolute_insertion_index:absolute_insertion_index] = inserted_lines
+        offset += len(inserted_lines)
+        repaired_rules.append(rule_name)
+
+    return output, repaired_rules
+
+
+def _source_proof_insertion(
+    rule_block: list[str],
+    *,
+    proof_kind: str,
+    corpus_citation_path: str,
+    span: str,
+) -> tuple[int, list[str]]:
+    metadata_index = next(
+        (
+            index
+            for index, line in enumerate(rule_block)
+            if re.match(r"^    metadata:\s*$", line)
+        ),
+        None,
+    )
+    proof_lines = _generated_source_proof_atom_lines(
+        proof_kind=proof_kind,
+        corpus_citation_path=corpus_citation_path,
+        span=span,
+        include_metadata=metadata_index is None,
+    )
+    if metadata_index is not None:
+        return metadata_index + 1, proof_lines
+
+    versions_index = next(
+        (
+            index
+            for index, line in enumerate(rule_block)
+            if re.match(r"^    versions:\s*$", line)
+        ),
+        len(rule_block),
+    )
+    return versions_index, proof_lines
+
+
+def _generated_source_proof_atom_lines(
+    *,
+    proof_kind: str,
+    corpus_citation_path: str,
+    span: str,
+    include_metadata: bool,
+) -> list[str]:
+    lines: list[str] = []
+    if include_metadata:
+        lines.append("    metadata:\n")
+    lines.extend(
+        [
+            "      proof:\n",
+            "        atoms:\n",
+            "          - path: versions[0].formula\n",
+            f"            kind: {proof_kind}\n",
+            "            source:\n",
+            f"              corpus_citation_path: {corpus_citation_path}\n",
+        ]
+    )
+    if span:
+        lines.append(f"              span: {_quote_yaml_single_line(span)}\n")
+    return lines
+
+
+def _quote_yaml_single_line(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _append_additional_medicare_surviving_spouse_test_if_missing(
