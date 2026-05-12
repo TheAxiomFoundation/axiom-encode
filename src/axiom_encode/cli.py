@@ -606,18 +606,18 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
-    repair_local_hash_parser = subparsers.add_parser(
-        "repair-local-proof-hashes",
-        help="Apply signed deterministic repairs for same-file proof import hashes",
+    repair_proof_hash_parser = subparsers.add_parser(
+        "repair-proof-import-hashes",
+        help="Apply signed deterministic repairs for proof import hashes",
     )
-    repair_local_hash_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
-    repair_local_hash_parser.add_argument(
+    repair_proof_hash_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
+    repair_proof_hash_parser.add_argument(
         "--repo",
         type=Path,
         default=Path.cwd(),
         help="Rules repository root used for manifest signing",
     )
-    repair_local_hash_parser.add_argument(
+    repair_proof_hash_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -1227,8 +1227,8 @@ def main():
         cmd_repair_nonnegative_floors(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
-    elif args.command == "repair-local-proof-hashes":
-        cmd_repair_local_proof_hashes(args)
+    elif args.command == "repair-proof-import-hashes":
+        cmd_repair_proof_import_hashes(args)
     elif args.command == "repair-tax-filing-status-branches":
         cmd_repair_tax_filing_status_branches(args)
     elif args.command == "repair-missing-source-proofs":
@@ -2705,8 +2705,8 @@ def cmd_repair_zero_branch_tests(args):
     print(f"manifest={manifest_path}")
 
 
-def cmd_repair_local_proof_hashes(args):
-    """Apply signed deterministic repairs for same-file proof import hashes."""
+def cmd_repair_proof_import_hashes(args):
+    """Apply signed deterministic repairs for proof import hashes."""
     repo_path = Path(args.repo).resolve()
     rules_file = Path(args.file)
     if not rules_file.is_absolute():
@@ -2726,12 +2726,14 @@ def cmd_repair_local_proof_hashes(args):
         f"{_relative_rulespec_import_target(relative_output)}"
     )
     original_content = rules_file.read_text()
-    repaired_content, repair_count = _repair_local_proof_import_hashes(
+    repaired_content, repair_count = _repair_proof_import_hashes(
         original_content,
         target_base=target_base,
+        rules_file=rules_file,
+        repo_path=repo_path,
     )
     if repaired_content == original_content:
-        print("No local proof hash repairs found.")
+        print("No proof hash repairs found.")
         return
 
     signing_key = _require_applied_encoding_manifest_signing_key()
@@ -2753,7 +2755,7 @@ def cmd_repair_local_proof_hashes(args):
         ]
         if _only_pending_zero_branch_coverage_issues(issues):
             print(
-                "Applied local proof hash repair with pending zero-branch coverage "
+                "Applied proof import hash repair with pending zero-branch coverage "
                 "repair still required."
             )
         else:
@@ -2772,7 +2774,7 @@ def cmd_repair_local_proof_hashes(args):
             output_file=str(generated_output),
             runner="deterministic-repair",
             backend="deterministic",
-            model="local-proof-hash-v1",
+            model="proof-import-hash-v1",
             citation=target_base,
             generation_prompt_sha256=None,
             trace_file=None,
@@ -2789,7 +2791,7 @@ def cmd_repair_local_proof_hashes(args):
             axiom_encode_git=axiom_encode_git,
         )
 
-    print(f"Applied local proof hash repair to {relative_output}: {repair_count}")
+    print(f"Applied proof hash repair to {relative_output}: {repair_count}")
     print(f"manifest={manifest_path}")
 
 
@@ -3350,29 +3352,73 @@ def _append_additional_medicare_surviving_spouse_test_if_missing(
     return True
 
 
-def _repair_local_proof_import_hashes(
+def _repair_proof_import_hashes(
     content: str,
     *,
     target_base: str,
+    rules_file: Path,
+    repo_path: Path,
 ) -> tuple[str, int]:
     lines = content.splitlines(keepends=True)
     repaired_lines: list[str] = []
-    pending_local_target = False
+    pending_expected_hash: str | None = None
     repair_count = 0
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("target: "):
             target = stripped.removeprefix("target: ").strip().strip("'\"")
-            pending_local_target = target.startswith(f"{target_base}#")
-        elif pending_local_target and stripped.startswith("hash: "):
-            if stripped != "hash: sha256:local":
+            pending_expected_hash = _expected_proof_import_hash(
+                target,
+                target_base=target_base,
+                rules_file=rules_file,
+                repo_path=repo_path,
+            )
+        elif pending_expected_hash is not None and stripped.startswith("hash: "):
+            expected_line = f"hash: {pending_expected_hash}"
+            if stripped != expected_line:
                 newline = "\n" if line.endswith("\n") else ""
                 prefix = line[: len(line) - len(line.lstrip())]
-                line = f"{prefix}hash: sha256:local{newline}"
+                line = f"{prefix}{expected_line}{newline}"
                 repair_count += 1
-            pending_local_target = False
+            pending_expected_hash = None
         repaired_lines.append(line)
     return "".join(repaired_lines), repair_count
+
+
+def _expected_proof_import_hash(
+    target: str,
+    *,
+    target_base: str,
+    rules_file: Path,
+    repo_path: Path,
+) -> str | None:
+    if target.startswith(f"{target_base}#"):
+        return "sha256:local"
+
+    normalized = target.strip().strip("'\"")
+    match = re.match(r"^(?P<prefix>[a-z][a-z0-9_-]*):(?P<path>[^#]+)", normalized)
+    if match is None:
+        return None
+    if match.group("prefix") != _repo_jurisdiction_prefix(repo_path):
+        return None
+
+    target_path = match.group("path").strip().strip("/")
+    if not target_path:
+        return None
+    target_relative = Path(target_path)
+    if target_relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in target_relative.parts
+    ):
+        return None
+    if not target_path.endswith((".yaml", ".yml")):
+        target_relative = Path(f"{target_path}.yaml")
+
+    target_file = (repo_path / target_relative).resolve()
+    if not target_file.exists():
+        return None
+    if target_file == rules_file.resolve():
+        return "sha256:local"
+    return f"sha256:{hashlib.sha256(target_file.read_bytes()).hexdigest()}"
 
 
 def _only_pending_zero_branch_coverage_issues(issues: list[str]) -> bool:
