@@ -6236,6 +6236,23 @@ rules:
     assert find_nonnegative_amount_reduction_issues(content) == []
 
 
+def test_nonnegative_amount_reduction_allows_zero_floor_for_limit_minus_reduction():
+    content = """format: rulespec/v1
+rules:
+  - name: qualified_passenger_vehicle_interest_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, passenger_vehicle_interest_after_dollar_limit - passenger_vehicle_interest_phaseout_reduction)
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
 def test_nonnegative_amount_reduction_allows_zero_branch_with_floored_else():
     content = """format: rulespec/v1
 rules:

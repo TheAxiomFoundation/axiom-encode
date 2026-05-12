@@ -782,6 +782,12 @@ _NONNEGATIVE_REDUCTION_FORMULA_PATTERN = re.compile(
     r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
     flags=re.IGNORECASE,
 )
+_ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*\b"
+    r"[\s\S]{0,180}-[\s\S]{0,220}"
+    r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
+    flags=re.IGNORECASE,
+)
 _ZERO_AMOUNT_BRANCH_PATTERN = re.compile(
     r"(?:\bif\b[\s\S]{0,500}:\s*0(?:\.0+)?(?:\s+else\s*:|\s*$))"
     r"|(?:\belse\s*:\s*0(?:\.0+)?(?:\s|$))"
@@ -3657,6 +3663,7 @@ def _final_expression_has_zero_floor(expression: str) -> bool:
         without_zero_floor_calls
     ) and any(
         _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(argument)
+        or _ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN.search(argument)
         for argument in _zero_floor_argument_expressions(expression)
     )
 
