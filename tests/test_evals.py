@@ -4336,7 +4336,7 @@ class TestRepoAugmentedContext:
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
-    def test_prepare_eval_workspace_copies_existing_corpus_target(self, tmp_path):
+    def test_prepare_eval_workspace_omits_existing_corpus_target(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "rulespec-us-ny"
         target_file = (
@@ -4366,24 +4366,8 @@ class TestRepoAugmentedContext:
         copied_sources = {
             item["source_path"]: item for item in manifest["context_files"]
         }
-        assert copied_sources[str(target_file)]["kind"] == "existing_target"
-        assert copied_sources[str(target_file)]["import_path"] == (
-            "us-ny:regulations/18-nycrr/387/12/f"
-        )
+        assert str(target_file) not in copied_sources
         assert str(target_file.with_name("f.test.yaml")) not in copied_sources
-
-        prompt = _build_eval_prompt(
-            "us-ny/regulation/18-nycrr/387/12/f",
-            "repo-augmented",
-            workspace,
-            workspace.context_files,
-            target_file_name="f.yaml",
-            runner_backend="openai",
-        )
-        assert "existing_target" in prompt
-        assert "existing_provenance" in prompt
-        assert "existing_case" not in prompt
-        assert "preserve the legal/provenance edge" in prompt
 
     def test_select_context_files_excludes_target(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"

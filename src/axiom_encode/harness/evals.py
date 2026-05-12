@@ -1760,8 +1760,6 @@ def _auto_select_context_files(citation: str, policy_root: Path) -> list[Path]:
     target_rel = _target_rel_for_eval_identifier(citation)
     if target_rel is not None:
         target_path = policy_root / target_rel
-        if target_path.exists():
-            selected.append(target_path)
         if target_path.parent.exists():
             for sibling in sorted(target_path.parent.glob("*.yaml")):
                 if sibling.name.endswith(".test.yaml") or sibling == target_path:
