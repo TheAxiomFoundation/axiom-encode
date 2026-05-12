@@ -2807,6 +2807,15 @@ def _append_generated_zero_branch_tests_if_missing(
         relative_output=relative_output,
     ):
         repaired.append("no_qualified_individual_zero_section_22_initial_amount")
+    if _append_savers_credit_zero_gross_contributions_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append(
+            "post_2026_no_able_contributions_zero_savers_credit_gross_contributions"
+        )
     return repaired
 
 
@@ -3023,6 +3032,84 @@ def _append_section_22_zero_initial_amount_test_if_missing(
     {target_base}#section_22_under_65_disability_income: 0
     {initial_amount_target}: 0
     {target_base}#section_22_initial_amount_cap: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _append_savers_credit_zero_gross_contributions_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 25B's post-2026 zero branch."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if (
+        "name: savers_credit_gross_contributions" not in rules_content
+        or "taxable_year_begins_before_2027" not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    gross_contributions_target = f"{target_base}#savers_credit_gross_contributions"
+    test_content = test_file.read_text()
+    try:
+        test_payload = yaml.safe_load(test_content) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, gross_contributions_target):
+        return False
+    case_name = "post_2026_no_able_contributions_zero_savers_credit_gross_contributions"
+    if case_name in test_content:
+        return False
+
+    input_prefix = f"{target_base}#input."
+    case = f"""- name: {case_name}
+  period:
+    period_kind: tax_year
+    start: '2027-01-01'
+    end: '2027-12-31'
+  input:
+    {input_prefix}filing_status: 0
+    {input_prefix}adjusted_gross_income: 0
+    {input_prefix}section_911_excluded_income: 0
+    {input_prefix}section_931_excluded_income: 0
+    {input_prefix}section_933_excluded_income: 0
+    {input_prefix}cost_of_living_adjustment_25b: 0
+    {input_prefix}age_at_close_of_taxable_year: 30
+    {input_prefix}section_151_deduction_allowed_to_another_taxpayer: false
+    {input_prefix}is_student_under_section_152_f_2: false
+    {input_prefix}taxable_year_begins_before_2027: false
+    {input_prefix}able_account_contributions: 0
+    {input_prefix}qualified_retirement_contributions: 0
+    {input_prefix}elective_deferrals: 0
+    {input_prefix}eligible_deferred_compensation_deferrals: 0
+    {input_prefix}voluntary_employee_qualified_plan_contributions: 0
+    {input_prefix}individual_testing_period_distributions: 0
+    {input_prefix}spouse_testing_period_distributions: 0
+    {input_prefix}joint_return_filed_for_spouse_distribution_year: false
+    {input_prefix}trustee_to_trustee_transfer_or_rollover_distribution_portion: 0
+    {input_prefix}section_72_p_distribution: 0
+    {input_prefix}section_401_k_8_distribution: 0
+    {input_prefix}section_401_m_6_distribution: 0
+    {input_prefix}section_402_g_2_distribution: 0
+    {input_prefix}section_404_k_distribution: 0
+    {input_prefix}section_408_d_4_distribution: 0
+    {input_prefix}section_408A_d_3_distribution: 0
+  output:
+    {gross_contributions_target}: 0
+    {target_base}#savers_credit_qualified_retirement_savings_contributions: 0
+    {target_base}#savers_credit_contributions_taken_into_account: 0
+    {target_base}#savers_credit: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")

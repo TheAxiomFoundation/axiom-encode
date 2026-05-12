@@ -3708,6 +3708,87 @@ rules:
         )
         assert "us:statutes/26/22#section_22_initial_amount_cap: 0" in test_content
 
+    def test_repair_zero_branch_tests_handles_savers_credit_gross_contributions(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/25B.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: savers_credit_gross_contributions
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          able_account_contributions
+          + (
+              if taxable_year_begins_before_2027:
+                  qualified_retirement_contributions
+              else:
+                  0
+          )
+"""
+        )
+        test_file = policy_repo / "statutes/26/25B.test.yaml"
+        test_file.write_text(
+            """- name: existing_positive_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/25B#input.taxable_year_begins_before_2027: true
+    us:statutes/26/25B#input.able_account_contributions: 0
+    us:statutes/26/25B#input.qualified_retirement_contributions: 2500
+  output:
+    us:statutes/26/25B#savers_credit_gross_contributions: 2500
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/25B.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        test_content = test_file.read_text()
+        assert (
+            "post_2026_no_able_contributions_zero_savers_credit_gross_contributions"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/25B#input.taxable_year_begins_before_2027: false"
+            in test_content
+        )
+        assert "us:statutes/26/25B#input.able_account_contributions: 0" in test_content
+        assert "us:statutes/26/25B#savers_credit_gross_contributions: 0" in test_content
+
     def test_repair_local_proof_hashes_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/22.yaml"
