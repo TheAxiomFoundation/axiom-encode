@@ -3599,8 +3599,13 @@ rules:
         )
         assert "us:statutes/26/21#input.age: 0" in test_content
         assert (
+            "us:statutes/26/21#input.employment_related_expense_requirements_satisfied: false"
+            in test_content
+        )
+        assert (
             "us:statutes/26/21#cdcc_expense_limit_before_exclusion: 0" in test_content
         )
+        assert "us:statutes/26/21#cdcc_creditable_expenses: 0" in test_content
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/21.json"
         payload = json.loads(manifest.read_text())
         assert payload["backend"] == "deterministic"

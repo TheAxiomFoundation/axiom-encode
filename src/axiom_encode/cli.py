@@ -2766,6 +2766,26 @@ def _append_cdcc_zero_expense_limit_test_if_missing(
     end: '2026-12-31'
   input:
     {input_prefix}taxable_year_begins_in_2021: false
+    {input_prefix}adjusted_gross_income: 15000
+    {input_prefix}filing_status: 0
+    {input_prefix}dependent_care_assistance_excludable_under_section_129: 0
+    {input_prefix}married_at_close_of_taxable_year: false
+    {input_prefix}married_joint_return_filed: false
+    {input_prefix}legally_separated_under_decree: false
+    {input_prefix}married_filing_separate_return: false
+    {input_prefix}maintains_household_principal_abode_of_qualifying_individual_more_than_half_year: false
+    {input_prefix}furnishes_over_half_cost_of_household: false
+    {input_prefix}spouse_not_member_of_household_during_last_six_months: false
+    {input_prefix}taxpayer_earned_income_for_cdcc: 0
+    {input_prefix}spouse_earned_income_for_cdcc: 0
+    {input_prefix}employment_related_expense_requirements_satisfied: false
+    {input_prefix}employment_related_expenses_paid: 0
+    {input_prefix}service_provider_identifying_information_requirement_satisfied: false
+    {input_prefix}qualifying_individual_tin_included_on_return: false
+    {input_prefix}paid_to_disallowed_related_individual: false
+    {input_prefix}possession_credit_or_payment_bars_united_states_credit: false
+    {input_prefix}taxpayer_or_spouse_has_us_principal_abode_more_than_half_year: false
+    {input_prefix}tax_imposed_by_chapter_before_cdcc: 0
     {input_prefix}is_dependent_under_section_152_a_1: false
     {input_prefix}age: 0
     {input_prefix}abode_relationship_violates_local_law: false
@@ -2778,6 +2798,7 @@ def _append_cdcc_zero_expense_limit_test_if_missing(
   output:
     {target_base}#cdcc_qualifying_individual_count: 0
     {expense_limit_target}: 0
+    {target_base}#cdcc_creditable_expenses: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")
