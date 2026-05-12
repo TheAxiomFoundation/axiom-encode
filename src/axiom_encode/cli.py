@@ -626,6 +626,26 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_tax_filing_parser = subparsers.add_parser(
+        "repair-tax-filing-status-branches",
+        help="Apply signed deterministic repairs for US tax filing-status branches",
+    )
+    repair_tax_filing_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
+    repair_tax_filing_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_tax_filing_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1187,6 +1207,8 @@ def main():
         cmd_repair_zero_branch_tests(args)
     elif args.command == "repair-local-proof-hashes":
         cmd_repair_local_proof_hashes(args)
+    elif args.command == "repair-tax-filing-status-branches":
+        cmd_repair_tax_filing_status_branches(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -2745,6 +2767,194 @@ def cmd_repair_local_proof_hashes(args):
 
     print(f"Applied local proof hash repair to {relative_output}: {repair_count}")
     print(f"manifest={manifest_path}")
+
+
+def cmd_repair_tax_filing_status_branches(args):
+    """Apply signed deterministic repairs for US tax filing-status enum branches."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    original_content = rules_file.read_text()
+    repaired_content, repaired_rules = _repair_tax_filing_status_branches(
+        original_content
+    )
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_test_cases: list[str] = []
+    if (
+        test_file.exists()
+        and _append_additional_medicare_surviving_spouse_test_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=relative_output,
+        )
+    ):
+        repaired_test_cases.append("surviving_spouse_uses_joint_threshold")
+
+    if repaired_content == original_content and not repaired_test_cases:
+        print("No tax filing-status branch repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    rules_file.write_text(repaired_content)
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        rules_file.write_text(original_content)
+        if original_test_content is not None:
+            test_file.write_text(original_test_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="tax-filing-status-branch-v1",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        applied_files = [rules_file]
+        if repaired_test_cases:
+            applied_files.append(test_file)
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    repairs = repaired_rules + repaired_test_cases
+    print(
+        "Applied tax filing-status branch repair to "
+        f"{relative_output}: {', '.join(repairs)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
+def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
+    if (
+        "surviving spouse" not in content.lower()
+        and "qualifying widow" not in content.lower()
+    ):
+        return content, []
+
+    lines = content.splitlines(keepends=True)
+    repaired: list[str] = []
+    repaired_rules: list[str] = []
+    in_filing_status_match = False
+    pending_insert: tuple[str, str] | None = None
+    current_rule_name: str | None = None
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("- name: "):
+            current_rule_name = stripped.removeprefix("- name: ").strip()
+        if stripped == "match filing_status:":
+            in_filing_status_match = True
+            pending_insert = None
+        elif in_filing_status_match and "=>" in stripped:
+            arm_match = re.match(r"(\s*)1\s*=>\s*(.+)$", line.rstrip("\n"))
+            if arm_match is not None:
+                indent, expression = arm_match.groups()
+                pending_insert = (indent, expression)
+            elif re.match(r"\s*4\s*=>", line):
+                pending_insert = None
+        elif in_filing_status_match and stripped and not stripped[0].isdigit():
+            if pending_insert is not None:
+                indent, expression = pending_insert
+                repaired.append(f"{indent}4 => {expression}\n")
+                repaired_rules.append(current_rule_name or "<unknown>")
+                pending_insert = None
+            in_filing_status_match = False
+
+        repaired.append(line)
+
+    if in_filing_status_match and pending_insert is not None:
+        indent, expression = pending_insert
+        repaired.append(f"{indent}4 => {expression}\n")
+        repaired_rules.append(current_rule_name or "<unknown>")
+
+    return "".join(repaired), repaired_rules
+
+
+def _append_additional_medicare_surviving_spouse_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    rules_content = rules_file.read_text()
+    if "name: additional_medicare_wage_tax_threshold" not in rules_content:
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    test_content = test_file.read_text()
+    if "surviving_spouse_uses_joint_threshold" in test_content:
+        return False
+    if f"{target_base}#input.filing_status: 4" in test_content:
+        return False
+
+    case = f"""- name: surviving_spouse_uses_joint_threshold
+  period:
+    period_kind: tax_year
+    start: 2026-01-01
+    end: 2026-12-31
+  input:
+    {target_base}#input.filing_status: 4
+    {target_base}#input.wages: 300000
+  output:
+    {target_base}#additional_medicare_wage_tax_threshold: 250000
+    {target_base}#additional_medicare_excess_wages: 50000
+    {target_base}#additional_medicare_tax: 450
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
 
 
 def _repair_local_proof_import_hashes(
