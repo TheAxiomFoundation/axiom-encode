@@ -2702,14 +2702,20 @@ def cmd_repair_local_proof_hashes(args):
         require_policy_proofs=False,
     ).validate(rules_file, skip_reviewers=True)
     if not validation.all_passed:
-        rules_file.write_text(original_content)
         issues = [
             result.error for result in validation.results.values() if result.error
         ]
-        print("Repair failed validation; restored original file.")
-        for issue in issues:
-            print(f"- {issue}")
-        sys.exit(1)
+        if _only_pending_zero_branch_coverage_issues(issues):
+            print(
+                "Applied local proof hash repair with pending zero-branch coverage "
+                "repair still required."
+            )
+        else:
+            rules_file.write_text(original_content)
+            print("Repair failed validation; restored original file.")
+            for issue in issues:
+                print(f"- {issue}")
+            sys.exit(1)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
@@ -2764,6 +2770,12 @@ def _repair_local_proof_import_hashes(
             pending_local_target = False
         repaired_lines.append(line)
     return "".join(repaired_lines), repair_count
+
+
+def _only_pending_zero_branch_coverage_issues(issues: list[str]) -> bool:
+    return bool(issues) and all(
+        issue.startswith("Zero branch test coverage missing: ") for issue in issues
+    )
 
 
 def _append_generated_zero_branch_tests_if_missing(

@@ -3733,7 +3733,18 @@ rules:
             def validate(self, path, *, skip_reviewers):
                 assert path == target.resolve()
                 assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "zero_branch": SimpleNamespace(
+                            error=(
+                                "Zero branch test coverage missing: "
+                                "`section_22_initial_amount_before_disability_cap` "
+                                "has a formula branch that returns 0."
+                            )
+                        )
+                    },
+                )
 
         with (
             patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
