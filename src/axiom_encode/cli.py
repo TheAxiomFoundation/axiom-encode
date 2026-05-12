@@ -4182,8 +4182,6 @@ def _append_taxable_income_zero_floor_test_if_missing(
     us:statutes/26/163#input.indebtedness_owed_to_related_person_under_section_267_b_or_707_b_1: false
     us:statutes/26/163#input.passenger_vehicle_loan_interest_paid_or_accrued: 0
   output:
-    {target_base}#taxable_income_for_individual_who_does_not_itemize: -5550
-    {target_base}#taxable_income_general_rule: -19000
     {taxable_income_target}: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"

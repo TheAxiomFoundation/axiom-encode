@@ -3531,6 +3531,73 @@ rules:
             "regulations/7-cfr/273/10.test.yaml",
         ]
 
+    def test_repair_nonnegative_floors_taxable_income_test_checks_final_output_only(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/63.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: taxable_income_for_individual_who_does_not_itemize else: taxable_income_general_rule
+"""
+        )
+        test_file = policy_repo / "statutes/26/63.test.yaml"
+        test_file.write_text(
+            """- name: existing_positive_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/63#input.gross_income: 100000
+  output:
+    us:statutes/26/63#taxable_income: 100000
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/63.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_nonnegative_floors(args)
+
+        test_content = test_file.read_text()
+        assert "low_income_nonitemizer_zero_taxable_income" in test_content
+        assert "us:statutes/26/63#taxable_income: 0" in test_content
+        assert "taxable_income_for_individual_who_does_not_itemize: -" not in test_content
+        assert "taxable_income_general_rule: -" not in test_content
+
     def test_repair_zero_branch_tests_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/21.yaml"
