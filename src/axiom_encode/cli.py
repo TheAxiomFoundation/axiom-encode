@@ -3068,10 +3068,12 @@ def cmd_repair_missing_source_proofs(args):
         issues = [
             result.error for result in validation.results.values() if result.error
         ]
-        if _only_pending_tax_filing_status_branch_issues(issues):
+        if _only_pending_tax_filing_status_branch_issues(
+            issues
+        ) or _only_pending_nonnegative_amount_reduction_issues(issues):
             print(
-                "Applied missing source proof repair with pending tax filing-status "
-                "branch repair still required."
+                "Applied missing source proof repair with pending deterministic "
+                "validation repair still required."
             )
         else:
             rules_file.write_text(original_content)
@@ -3248,6 +3250,14 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
 def _only_pending_tax_filing_status_branch_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
         issue.startswith("Filing status branch missing surviving spouse:")
+        for issue in issues
+    )
+
+
+def _only_pending_nonnegative_amount_reduction_issues(issues: list[str]) -> bool:
+    return bool(issues) and all(
+        issue.startswith("Nonnegative amount reduction missing floor:")
+        or issue.startswith("Nonnegative taxable income missing floor:")
         for issue in issues
     )
 

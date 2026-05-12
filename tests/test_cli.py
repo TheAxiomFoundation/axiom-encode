@@ -4281,6 +4281,76 @@ rules:
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
         assert manifest.exists()
 
+    def test_repair_missing_source_proofs_allows_pending_nonnegative_floor_repair(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/1/h.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+  summary: capital gains taxable income exclusion.
+rules:
+  - name: capital_gains_excluded_from_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1(h)(1)(A)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxable_income - capital_gains_exclusion
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/1/h.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "nonnegative": SimpleNamespace(
+                            error=(
+                                "Nonnegative taxable income missing floor: "
+                                "`capital_gains_excluded_from_taxable_income` "
+                                "can return a negative amount."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_missing_source_proofs(args)
+
+        content = target.read_text()
+        assert "metadata:\n      proof:\n        atoms:" in content
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1/h.json"
+        assert manifest.exists()
+
     def test_repair_proof_import_hashes_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/22.yaml"
