@@ -2466,9 +2466,21 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         root = document_roots.get(parts[1])
         if root is not None:
             tail = parts[2:]
+            if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
+                tail = _canonical_us_regulation_tail(tail)
             if tail:
                 return (Path(root) / Path(*tail)).with_suffix(".yaml")
     return Path("source") / f"{_slugify(source_id)}.yaml"
+
+
+def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:
+    """Map federal regulation corpus paths to canonical RuleSpec repo paths."""
+    if not tail:
+        return tail
+    title = tail[0].strip()
+    if title.isdigit():
+        return [f"{title}-cfr", *tail[1:]]
+    return tail
 
 
 def _canonical_target_ref_prefix(source_id: str, relative_path: Path) -> str | None:

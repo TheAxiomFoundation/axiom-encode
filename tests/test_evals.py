@@ -101,6 +101,12 @@ def test_source_identifier_maps_corpus_regulation_to_repo_path():
     ) == Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
 
 
+def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
+    assert _source_identifier_to_relative_rulespec_path(
+        "us/regulation/7/273/10"
+    ) == Path("regulations/7-cfr/273/10.yaml")
+
+
 class TestCorpusSourceResolution:
     def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
