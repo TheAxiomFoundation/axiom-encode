@@ -67,6 +67,7 @@ from .oracles.policyengine.ecps_snap import (
 from .oracles.policyengine.ecps_snap import (
     main as run_snap_ecps_compare,
 )
+from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .repo_routing import find_policy_repo_root
 
@@ -618,6 +619,28 @@ def main():
         help="Rules repository root used for manifest signing",
     )
     repair_proof_hash_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_oracle_parameter_tests_parser = subparsers.add_parser(
+        "repair-oracle-parameter-tests",
+        help="Apply signed deterministic repairs for missing oracle parameter tests",
+    )
+    repair_oracle_parameter_tests_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_oracle_parameter_tests_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_oracle_parameter_tests_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -1229,6 +1252,8 @@ def main():
         cmd_repair_zero_branch_tests(args)
     elif args.command == "repair-proof-import-hashes":
         cmd_repair_proof_import_hashes(args)
+    elif args.command == "repair-oracle-parameter-tests":
+        cmd_repair_oracle_parameter_tests(args)
     elif args.command == "repair-tax-filing-status-branches":
         cmd_repair_tax_filing_status_branches(args)
     elif args.command == "repair-missing-source-proofs":
@@ -2795,6 +2820,105 @@ def cmd_repair_proof_import_hashes(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_oracle_parameter_tests(args):
+    """Apply signed deterministic companion tests for mapped parameter outputs."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else ""
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    repaired_test_cases = _append_oracle_parameter_tests_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        target_base=target_base,
+    )
+    if not repaired_test_cases:
+        print("No oracle parameter test repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        test_file.write_text(original_test_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original test file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    test_failures = _rulespec_companion_test_failures(
+        test_file,
+        root=repo_path,
+        axiom_rules_path=axiom_rules_path,
+    )
+    if test_failures:
+        test_file.write_text(original_test_content)
+        print("Repair failed companion tests; restored original test file.")
+        for failure in test_failures[:20]:
+            case_name = failure.get("case") or "<unknown case>"
+            print(f"- {case_name}: {failure.get('message')}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="oracle-parameter-test-v1",
+            citation=target_base,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied oracle parameter test repair to "
+        f"{relative_output}: {', '.join(repaired_test_cases)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
 def cmd_repair_tax_filing_status_branches(args):
     """Apply signed deterministic repairs for US tax filing-status enum branches."""
     repo_path = Path(args.repo).resolve()
@@ -3419,6 +3543,144 @@ def _expected_proof_import_hash(
     if target_file == rules_file.resolve():
         return "sha256:local"
     return f"sha256:{hashlib.sha256(target_file.read_bytes()).hexdigest()}"
+
+
+def _append_oracle_parameter_tests_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    target_base: str,
+) -> list[str]:
+    payload = yaml.safe_load(rules_file.read_text()) or {}
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return []
+
+    existing_outputs = _rulespec_test_output_keys(test_file)
+    registry = load_policyengine_registry()
+    appended_cases: list[dict] = []
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip() != "parameter":
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not rule_name:
+            continue
+        legal_id = f"{target_base}#{rule_name}"
+        if legal_id in existing_outputs:
+            continue
+        mapping = registry.mapping_for_legal_id(legal_id, country="us")
+        if mapping is None or mapping.mapping_type != "parameter_value":
+            continue
+
+        index_name = _single_parameter_index_name(rule)
+        if index_name is None:
+            continue
+        sample = _first_scalar_parameter_value(rule)
+        if sample is None:
+            continue
+        key, value = sample
+        appended_cases.append(
+            {
+                "name": f"oracle_parameter_{_safe_test_name(rule_name)}_{_safe_test_name(str(key))}",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {f"{target_base}#input.{index_name}": key},
+                "output": {legal_id: value},
+            }
+        )
+        repaired.append(rule_name)
+
+    if not appended_cases:
+        return []
+
+    existing_content = test_file.read_text() if test_file.exists() else ""
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    rendered = yaml.safe_dump(appended_cases, sort_keys=False)
+    separator = "" if not existing_content or existing_content.endswith("\n") else "\n"
+    test_file.write_text(f"{existing_content}{separator}{rendered}")
+    return repaired
+
+
+def _rulespec_test_output_keys(test_file: Path) -> set[str]:
+    if not test_file.exists():
+        return set()
+    try:
+        cases = _load_rulespec_test_cases(test_file)
+    except (OSError, ValueError, yaml.YAMLError):
+        return set()
+    outputs: set[str] = set()
+    for case in cases:
+        output = case.get("output")
+        if not isinstance(output, dict):
+            continue
+        outputs.update(str(key) for key in output)
+    return outputs
+
+
+def _single_parameter_index_name(rule: dict) -> str | None:
+    indexed_by = rule.get("indexed_by")
+    if isinstance(indexed_by, str) and indexed_by.strip():
+        return indexed_by.strip()
+    if (
+        isinstance(indexed_by, list)
+        and len(indexed_by) == 1
+        and isinstance(indexed_by[0], str)
+        and indexed_by[0].strip()
+    ):
+        return indexed_by[0].strip()
+    return None
+
+
+def _first_scalar_parameter_value(rule: dict) -> tuple[object, object] | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return None
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        values = version.get("values")
+        if not isinstance(values, dict):
+            continue
+        for key, value in values.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                return key, value
+    return None
+
+
+def _rulespec_companion_test_failures(
+    test_file: Path,
+    *,
+    root: Path,
+    axiom_rules_path: Path,
+) -> list[dict[str, str | None]]:
+    pipeline = ValidatorPipeline(
+        policy_repo_path=root,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+    )
+    binary = pipeline._axiom_rules_binary()
+    rulespec_env = pipeline._rulespec_compile_env()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _execute_rulespec_test_file(
+            test_file,
+            binary=binary,
+            axiom_rules_path=Path(axiom_rules_path),
+            env=rulespec_env,
+            tmp_path=Path(tmpdir),
+            compiled_cache={},
+        )
+    return list(result["failures"])
+
+
+def _safe_test_name(value: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9]+", "_", value.strip()).strip("_").lower()
+    return safe or "value"
 
 
 def _only_pending_zero_branch_coverage_issues(issues: list[str]) -> bool:
