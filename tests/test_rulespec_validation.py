@@ -4928,6 +4928,53 @@ def test_rulespec_ci_rejects_mixed_derived_output_entities(tmp_path):
     ]
 
 
+def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "snap_net_income",
+                    "id": "us:statutes/7/2014/e/6/A#snap_net_income",
+                    "entity": "Household",
+                },
+                {
+                    "name": "snap_regular_month_allotment",
+                    "id": "us:statutes/7/2017/a#snap_regular_month_allotment",
+                    "entity": "Household",
+                },
+            ],
+            "parameters": [],
+        }
+    }
+    cases = [
+        {
+            "name": "stubs_imported_net_income",
+            "period": "2026-01",
+            "input": {"us:statutes/7/2014/e/6/A#snap_net_income": 100},
+            "output": {"us:statutes/7/2017/a#snap_regular_month_allotment": 268},
+        }
+    ]
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "statutes/7/2017/a.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=cases,
+    )
+
+    assert issues == [
+        "Test case `stubs_imported_net_income` assigns computed RuleSpec "
+        "output(s) as input: `us:statutes/7/2014/e/6/A#snap_net_income`. "
+        "Imported parameters and derived outputs are computed by the compiled "
+        "program; assign their upstream `#input.*` or `#relation.*` facts instead."
+    ]
+
+
 def test_rulespec_ci_executes_relation_list_inputs(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")

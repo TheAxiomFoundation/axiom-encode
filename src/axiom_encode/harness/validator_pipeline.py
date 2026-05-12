@@ -6769,6 +6769,29 @@ class ValidatorPipeline:
                     f"{self.policyengine_rule_hint}."
                 )
 
+            inputs_map = case.get("input")
+            if isinstance(inputs_map, dict):
+                computed_input_keys = [
+                    str(input_name)
+                    for input_name in inputs_map
+                    if str(input_name) in derived_by_key
+                    or str(input_name) in parameter_by_key
+                ]
+                if computed_input_keys:
+                    key_display = ", ".join(
+                        f"`{key}`" for key in computed_input_keys[:4]
+                    )
+                    if len(computed_input_keys) > 4:
+                        key_display += f", and {len(computed_input_keys) - 4} more"
+                    issues.append(
+                        f"Test case `{case_name}` assigns computed RuleSpec "
+                        f"output(s) as input: {key_display}. Imported parameters "
+                        "and derived outputs are computed by the compiled program; "
+                        "assign their upstream `#input.*` or `#relation.*` facts "
+                        "instead."
+                    )
+                    continue
+
             derived_outputs: list[str] = []
             parameter_outputs: list[str] = []
             for output_name in output_map:

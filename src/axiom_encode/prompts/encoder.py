@@ -201,12 +201,11 @@ Hard requirements:
   `TaxUnit` cases use relation rows to supply person facts and assert only
   tax-unit outputs. Do not assert relation-child outputs in the parent entity's
   case.
-- If a test needs an imported derived output to become true or false, mirror the
-  copied companion test `input:` pattern. Usually this means setting the
-  imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not
-  shortcutting by setting the imported derived output itself. Only set an
-  imported derived key in `input:` when a copied companion test also uses that
-  exact derived key in `input:`.
+- Never assign an imported module's computed `#rule_name` output in `input:`.
+  If this file imports that rule, the compiled program computes it. To make an
+  imported output true, false, or equal a value, mirror the imported file's
+  companion test pattern by setting its underlying `#input.<fact>` and
+  `#relation.<name>` keys.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
   key. For example, use
   `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds`

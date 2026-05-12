@@ -5256,7 +5256,7 @@ class TestSourceEval:
         assert "record that legal/provenance edge as a separate" in prompt
         assert "Preserve existing or copied `kind: source_relation` records" in prompt
         assert "source_relation.basis.delegation" in prompt
-        assert "mirror the copied companion test `input:` pattern" in prompt
+        assert "mirror the imported file's companion test pattern" in prompt
         assert "Never turn an imported derived rule into a fabricated" in prompt
         assert (
             "Every local executable `kind: parameter` and `kind: derived` rule"
