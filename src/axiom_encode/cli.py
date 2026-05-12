@@ -2723,46 +2723,53 @@ def cmd_encode(args):
     repair_manifest = None
     apply_passed = False
     if apply_requested:
-        can_apply, apply_issues, supplemental_files = (
-            _validate_generated_encoding_in_policy_overlay(
-                result,
-                output_root=args.output,
-                policy_repo_path=policy_repo_path,
-                axiom_rules_path=axiom_rules_path,
-            )
-        )
-        outcome["overlay_validation_success"] = bool(can_apply)
-        if not can_apply:
-            detail = (
-                apply_issues[0]
-                if apply_issues
-                else f"standalone_failed: {result.error or 'validation failed'}"
-            )
-            outcome["status"] = "apply_blocked_validation"
+        if not _can_attempt_apply(result):
+            detail = str(getattr(result, "error", None) or "generation failed")
+            outcome["status"] = "apply_blocked_generation"
             outcome["apply_error"] = detail
             outcome["final_success"] = False
-            print(f"  apply=blocked_validation:{detail}")
-        if can_apply:
-            try:
-                applied = _apply_generated_encoding_result(
+            print(f"  apply=blocked_generation:{detail}")
+        else:
+            can_apply, apply_issues, supplemental_files = (
+                _validate_generated_encoding_in_policy_overlay(
                     result,
                     output_root=args.output,
                     policy_repo_path=policy_repo_path,
-                    run_id=logged_run.id,
-                    supplemental_files=supplemental_files,
+                    axiom_rules_path=axiom_rules_path,
                 )
-            except RuntimeError as exc:
-                outcome["status"] = "apply_blocked_manifest"
-                outcome["apply_error"] = str(exc)
+            )
+            outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                detail = (
+                    apply_issues[0]
+                    if apply_issues
+                    else f"standalone_failed: {result.error or 'validation failed'}"
+                )
+                outcome["status"] = "apply_blocked_validation"
+                outcome["apply_error"] = detail
                 outcome["final_success"] = False
-                print(f"  apply=blocked_manifest:{exc}")
-            else:
-                print("  apply=" + ",".join(str(path) for path in applied))
-                apply_passed = True
-                outcome["status"] = "apply_applied"
-                outcome["apply_success"] = True
-                outcome["final_success"] = True
-                outcome["applied_files"] = [str(path) for path in applied]
+                print(f"  apply=blocked_validation:{detail}")
+            if can_apply:
+                try:
+                    applied = _apply_generated_encoding_result(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        run_id=logged_run.id,
+                        supplemental_files=supplemental_files,
+                    )
+                except RuntimeError as exc:
+                    outcome["status"] = "apply_blocked_manifest"
+                    outcome["apply_error"] = str(exc)
+                    outcome["final_success"] = False
+                    print(f"  apply=blocked_manifest:{exc}")
+                else:
+                    print("  apply=" + ",".join(str(path) for path in applied))
+                    apply_passed = True
+                    outcome["status"] = "apply_applied"
+                    outcome["apply_success"] = True
+                    outcome["final_success"] = True
+                    outcome["applied_files"] = [str(path) for path in applied]
     repair_manifest = _record_encode_outcome(
         db_path=db_path,
         result=result,
@@ -2787,6 +2794,17 @@ def cmd_encode(args):
     if apply_requested:
         sys.exit(0 if apply_passed else 1)
     sys.exit(0 if result.success else 1)
+
+
+def _can_attempt_apply(result) -> bool:
+    """Allow apply for successful runs or standalone artifact-validation failures."""
+    if bool(getattr(result, "success", False)):
+        return True
+    error = str(getattr(result, "error", "") or "")
+    return error in {
+        "Generated RuleSpec failed compile validation",
+        "Generated RuleSpec failed CI validation",
+    }
 
 
 def _relative_generated_output_path(

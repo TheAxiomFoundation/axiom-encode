@@ -2709,8 +2709,24 @@ RuleSpec requirements:
   item child files, make the principal output name semantic to that branch
   (for example `care_responsibility_exemption_applies`), not only the shared
   parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
+- Choose structural relations at the narrow legal subject stated by the source.
+  If the source grants an amount to the taxpayer, spouse, claimant, child, or
+  other role-limited person, do not aggregate over a broader household/tax-unit
+  relation unless the source says every member counts. Name the relation for the
+  role set that is legally counted, such as `taxpayer_or_spouse`, not merely for
+  the container entity. If a copied relation is legally too broad for the
+  requested source, rename it; relation names are not stable public outputs.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
 - Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
+- If the requested source text includes a limitation, cap, exception, or
+  cross-referenced subparagraph that changes the final exported amount, the
+  final exported amount must apply that limitation. If a copied sibling/context
+  file already encodes the limitation, import it and compose with it instead of
+  duplicating or ignoring it.
+- Do not create parallel statutory-dollar executable parameters when a copied
+  current-year authority already provides the applicable inflation-adjusted
+  parameter. Import the current-year authority unless the task is to encode the
+  inflation adjustment formula itself.
 - Do not invent new entities, periods, or dtypes.
 - Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
@@ -2722,6 +2738,12 @@ RuleSpec requirements:
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
+- Supported relation aggregators are `len(relation)`,
+  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
+  `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
+  `sum(relation, expression)` or put arithmetic inside a relation field access.
+  To count two boolean conditions over the same relation, write two
+  `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression, wrap the whole conditional in parentheses, such as `amount + (if condition: extra else: 0)`. Do not write `amount + if condition: extra else: 0`.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but

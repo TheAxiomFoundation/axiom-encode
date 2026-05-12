@@ -88,6 +88,13 @@ Hard requirements:
 - For subparagraph/list item child files, do not preserve an existing copied
   target name that mainly describes the shared parent outcome rather than this
   branch's source-stated condition; treat it as stale and rename it.
+- Choose structural relations at the narrow legal subject stated by the source.
+  If the source grants an amount to the taxpayer, spouse, claimant, child, or
+  other role-limited person, do not aggregate over a broader household/tax-unit
+  relation unless the source says every member counts. Name the relation for the
+  role set that is legally counted, such as `taxpayer_or_spouse`, not merely for
+  the container entity. If a copied relation is legally too broad for the
+  requested source, rename it; relation names are not stable public outputs.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility,
   availability, applicability, entitlement, and other holds/not-holds style
   outputs, especially when the formula contains `not`.
@@ -100,6 +107,15 @@ Hard requirements:
   a formula needs a local true/false fact, reference a descriptive bare fact
   name in the formula and put that fact in tests as
   `<jurisdiction>:<repo-path>#input.<fact>`.
+- If the requested source text includes a limitation, cap, exception, or
+  cross-referenced subparagraph that changes the final exported amount, the
+  final exported amount must apply that limitation. If a copied sibling/context
+  file already encodes the limitation, import it and compose with it instead of
+  duplicating or ignoring it.
+- Do not create parallel statutory-dollar executable parameters when a copied
+  current-year authority already provides the applicable inflation-adjusted
+  parameter. Import the current-year authority unless the task is to encode the
+  inflation adjustment formula itself.
 - Use `kind: source_relation` for non-executable legal/provenance edges such as
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and
@@ -215,6 +231,12 @@ Hard requirements:
   `ceil(x)`. Do not use Python-only functions such as `round(...)`; express
   nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for
   nonnegative amounts.
+- Supported relation aggregators are `len(relation)`,
+  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
+  `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
+  `sum(relation, expression)` or put arithmetic inside a relation field access.
+  To count two boolean conditions over the same relation, write two
+  `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression,
   wrap the whole conditional in parentheses, such as
   `amount + (if condition: extra else: 0)`. Do not write

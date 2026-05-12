@@ -2713,6 +2713,7 @@ class TestCmdEncode:
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
         result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
         output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
         output_file.parent.mkdir(parents=True)
         output_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -2755,6 +2756,75 @@ class TestCmdEncode:
             "encode_result",
             "encode_outcome",
         ]
+
+    def test_encode_apply_blocks_non_validation_generation_failure(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "backend timed out"
+        output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        result.output_file = str(output_file)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ) as mock_overlay,
+            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "apply=blocked_generation:backend timed out" in output
+        mock_overlay.assert_not_called()
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "apply_blocked_generation"
+        assert run.outcome["overlay_validation_success"] is None
+        assert run.outcome["final_success"] is False
+        assert run.success is False
+        assert output_file.with_suffix(".repair.json").exists()
+
+    def test_encode_apply_blocks_failed_overlay_after_standalone_validation_failure(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed compile validation"
+        output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        result.output_file = str(output_file)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(False, ["overlay compile failed"], {}),
+            ) as mock_overlay,
+            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        mock_overlay.assert_called_once()
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "apply_blocked_validation"
+        assert run.outcome["overlay_validation_success"] is False
+        assert run.outcome["apply_error"] == "overlay compile failed"
+        assert run.outcome["final_success"] is False
 
     def test_encode_apply_records_final_success_when_overlay_apply_passes(
         self, capsys, tmp_path
