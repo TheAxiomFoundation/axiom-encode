@@ -2886,6 +2886,12 @@ RuleSpec requirements:
 - Do not create derived `dtype: Boolean` helper rules with logical formulas. Use `dtype: Judgment` for derived legal predicates, or leave simple local facts as factual `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}` keys consumed by formulas and tests.
 - Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
 - Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Do not encode legal effective dates as `dtype: String` parameters or date
+  literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
+  Use `effective_from` metadata for version timing, or use a
+  source-stated boolean predicate such as
+  `taxable_year_begins_after_2024_and_before_2029` when a date window is a
+  runtime condition.
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
@@ -2922,6 +2928,10 @@ RuleSpec requirements:
 - Use concrete ISO calendar dates like `2025-03-21` for day-level tests; do not use ISO week strings like `2025-W13`.
 - Any substantive numeric literal in a formula must either appear in `./source.txt` or be one of -1, 0, 1, 2, or 3.
 - Every substantive numeric occurrence in `./source.txt` must be represented by a named scalar definition in RuleSpec when it is a legal amount, rate, threshold, cap, or limit.
+- If you encode a substantive numeric literal, `module.summary` or the rule's proof excerpt
+  must include the exact source phrase containing that number. Do not omit a
+  subsection, table row, or clause that grounds an encoded
+  numeric amount, rate, threshold, cap, or limit.
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.

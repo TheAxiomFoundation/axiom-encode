@@ -788,6 +788,9 @@ _ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN = re.compile(
     r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
     flags=re.IGNORECASE,
 )
+_FORMULA_ISO_DATE_LITERAL_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])\d{4}-\d{2}-\d{2}(?![A-Za-z0-9_])"
+)
 _ZERO_AMOUNT_BRANCH_PATTERN = re.compile(
     r"(?:\bif\b[\s\S]{0,500}:\s*0(?:\.0+)?(?:\s+else\s*:|\s*$))"
     r"|(?:\belse\s*:\s*0(?:\.0+)?(?:\s|$))"
@@ -3598,6 +3601,45 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
                 "maximum amount but does not floor the result at zero. Benefit, "
                 "allotment, credit, deduction, allowance, and subsidy outputs must "
                 "use `max(0, ...)` before downstream minimums or eligibility branches."
+            )
+    return issues
+
+
+def find_formula_date_literal_issues(content: str) -> list[str]:
+    """Flag ISO date literals in executable formulas."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {"parameter", "derived"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            match = _FORMULA_ISO_DATE_LITERAL_PATTERN.search(formula)
+            if match is None:
+                continue
+            issues.append(
+                "Formula date literal unsupported: "
+                f"`{name}` uses `{match.group(0)}` inside an executable formula. "
+                "Axiom formula syntax has no date literal type; encode effective "
+                "windows with `effective_from` metadata or source-stated boolean "
+                "predicates such as `taxable_year_begins_after_2024_and_before_2029`."
             )
     return issues
 
@@ -7606,6 +7648,7 @@ class ValidatorPipeline:
         issues.extend(find_source_condition_coverage_issues(content))
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
+        issues.extend(find_formula_date_literal_issues(content))
         issues.extend(find_nonnegative_amount_reduction_issues(content))
         issues.extend(find_relation_aggregate_syntax_issues(content))
         issues.extend(find_role_limited_relation_scope_issues(content))

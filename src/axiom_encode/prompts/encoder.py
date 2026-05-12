@@ -313,6 +313,12 @@ Hard requirements:
   state-residency input unless the provision itself is encoding a residency
   eligibility test.
 - Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Do not encode legal effective dates as `dtype: String` parameters or date
+  literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
+  Use `effective_from` metadata for version timing, or use a
+  source-stated boolean predicate such as
+  `taxable_year_begins_after_2024_and_before_2029` when a date window is a
+  runtime condition.
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime
   does not yet support period-selecting versioned formulas. Use a single
   source-faithful conditional formula when the provision itself defines a
@@ -349,6 +355,10 @@ Hard requirements:
   compact `not A and not B` line.
 - Formula strings reference indexed parameter tables with `table_name[index_expr]`.
 - Every substantive numeric literal must be grounded in the supplied source text unless it is -1, 0, 1, 2, or 3.
+- If you encode a substantive numeric literal, `module.summary` or the rule's proof excerpt
+  must include the exact source phrase containing that number. Do not omit a
+  subsection, table row, or clause that grounds an encoded
+  numeric amount, rate, threshold, cap, or limit.
 - US tax `filing_status` is a structural enum: 0 single, 1 joint return,
   2 married filing separately, 3 head of household, and 4 surviving spouse /
   qualifying widow(er). If the source groups surviving spouse with joint return,

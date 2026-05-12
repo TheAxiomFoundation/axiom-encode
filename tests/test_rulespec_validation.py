@@ -33,6 +33,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_deprecated_source_url_issues,
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
+    find_formula_date_literal_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
     find_nonnegative_amount_reduction_issues,
@@ -6251,6 +6252,26 @@ rules:
 """
 
     assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_formula_date_literal_rejects_iso_dates_in_formulas():
+    content = """format: rulespec/v1
+rules:
+  - name: passenger_vehicle_loan_interest_period_start
+    kind: parameter
+    dtype: String
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          2025-01-01
+"""
+
+    issues = find_formula_date_literal_issues(content)
+
+    assert any("Formula date literal unsupported" in issue for issue in issues)
+    assert any(
+        "taxable_year_begins_after_2024_and_before_2029" in issue for issue in issues
+    )
 
 
 def test_nonnegative_amount_reduction_allows_zero_branch_with_floored_else():

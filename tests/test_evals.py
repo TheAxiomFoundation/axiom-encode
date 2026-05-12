@@ -3366,10 +3366,14 @@ class TestEvalPrompt:
             "Do not invent `dtype: String` variables just to restate the effective date"
             in prompt
         )
+        assert "Axiom formulas have no date literal type" in prompt
+        assert "taxable_year_begins_after_2024_and_before_2029" in prompt
         assert (
             "Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables"
             in prompt
         )
+        assert "module.summary` or the rule's proof excerpt" in prompt
+        assert "exact source phrase containing that number" in prompt
         assert "`==` for equality" in prompt
 
     def test_prepare_eval_workspace_injects_resolved_defined_term_stub(self, tmp_path):
