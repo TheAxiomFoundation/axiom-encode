@@ -201,6 +201,10 @@ Hard requirements:
   `TaxUnit` cases use relation rows to supply person facts and assert only
   tax-unit outputs. Do not assert relation-child outputs in the parent entity's
   case.
+- A `#relation.<name>` input value must be a YAML list of row mappings. Never
+  use a scalar row such as `- true`. For example:
+  `us:statutes/7/2012/j#relation.member_of_household:`
+  followed by `- us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true`.
 - Never assign an imported module's computed `#rule_name` output in `input:`.
   If this file imports that rule, the compiled program computes it. To make an
   imported output true, false, or equal a value, mirror the imported file's
