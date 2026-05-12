@@ -4088,6 +4088,51 @@ rules:
             "statutes/26/3101/b/2.test.yaml",
         ]
 
+    def test_repair_tax_filing_status_branches_does_not_mutate_without_signing_key(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/3101/b/2.yaml"
+        target.parent.mkdir(parents=True)
+        original_content = """format: rulespec/v1
+module:
+  summary: joint / surviving spouse and any other case
+rules:
+  - name: additional_medicare_wage_tax_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          match filing_status:
+              1 => additional_medicare_wage_tax_joint_threshold
+              2 => additional_medicare_wage_tax_joint_threshold / 2
+              0 => additional_medicare_wage_tax_other_threshold
+"""
+        target.write_text(original_content)
+        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
+        original_test_content = """- name: joint_above_threshold
+  output:
+    us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold: 250000
+"""
+        test_file.write_text(original_test_content)
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/3101/b/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
+        ):
+            cmd_repair_tax_filing_status_branches(args)
+
+        assert target.read_text() == original_content
+        assert test_file.read_text() == original_test_content
+
     def test_repair_missing_source_proofs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/3101/b/2.yaml"
