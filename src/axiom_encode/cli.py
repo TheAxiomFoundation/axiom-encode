@@ -606,6 +606,26 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_local_hash_parser = subparsers.add_parser(
+        "repair-local-proof-hashes",
+        help="Apply signed deterministic repairs for same-file proof import hashes",
+    )
+    repair_local_hash_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
+    repair_local_hash_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_local_hash_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1165,6 +1185,8 @@ def main():
         cmd_repair_nonnegative_floors(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
+    elif args.command == "repair-local-proof-hashes":
+        cmd_repair_local_proof_hashes(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -2635,6 +2657,113 @@ def cmd_repair_zero_branch_tests(args):
         f"{relative_output}: {', '.join(repaired_test_cases)}"
     )
     print(f"manifest={manifest_path}")
+
+
+def cmd_repair_local_proof_hashes(args):
+    """Apply signed deterministic repairs for same-file proof import hashes."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    original_content = rules_file.read_text()
+    repaired_content, repair_count = _repair_local_proof_import_hashes(
+        original_content,
+        target_base=target_base,
+    )
+    if repaired_content == original_content:
+        print("No local proof hash repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    rules_file.write_text(repaired_content)
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        rules_file.write_text(original_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="local-proof-hash-v1",
+            citation=target_base,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(f"Applied local proof hash repair to {relative_output}: {repair_count}")
+    print(f"manifest={manifest_path}")
+
+
+def _repair_local_proof_import_hashes(
+    content: str,
+    *,
+    target_base: str,
+) -> tuple[str, int]:
+    lines = content.splitlines(keepends=True)
+    repaired_lines: list[str] = []
+    pending_local_target = False
+    repair_count = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("target: "):
+            target = stripped.removeprefix("target: ").strip().strip("'\"")
+            pending_local_target = target.startswith(f"{target_base}#")
+        elif pending_local_target and stripped.startswith("hash: "):
+            if stripped != "hash: sha256:local":
+                newline = "\n" if line.endswith("\n") else ""
+                prefix = line[: len(line) - len(line.lstrip())]
+                line = f"{prefix}hash: sha256:local{newline}"
+                repair_count += 1
+            pending_local_target = False
+        repaired_lines.append(line)
+    return "".join(repaired_lines), repair_count
 
 
 def _append_generated_zero_branch_tests_if_missing(

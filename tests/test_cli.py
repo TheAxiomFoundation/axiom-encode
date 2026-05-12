@@ -41,6 +41,7 @@ from axiom_encode.cli import (
     cmd_log_event,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_repair_local_proof_hashes,
     cmd_repair_nonnegative_floors,
     cmd_repair_zero_branch_tests,
     cmd_runs,
@@ -3614,6 +3615,77 @@ rules:
             "statutes/26/21.yaml",
             "statutes/26/21.test.yaml",
         ]
+
+    def test_repair_local_proof_hashes_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/22.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: section_22_age_threshold
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          65
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/22#section_22_age_threshold
+              output: section_22_age_threshold
+              hash: sha256:20182e27b153a3a48aad21a7321215bf9a581fcd69e4a87d815d8ade8a2cccff
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          age >= section_22_age_threshold
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/22.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_local_proof_hashes(args)
+
+        content = target.read_text()
+        assert "hash: sha256:local" in content
+        assert "20182e27" not in content
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/22.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert payload["model"] == "local-proof-hash-v1"
+        assert payload["applied_files"][0]["path"] == "statutes/26/22.yaml"
 
     def test_apply_overlay_validation_checks_direct_dependents_by_default(
         self, tmp_path
