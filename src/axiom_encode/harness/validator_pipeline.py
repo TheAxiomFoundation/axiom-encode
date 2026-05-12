@@ -6616,7 +6616,7 @@ class ValidatorPipeline:
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
         issues: list[str] = []
-        binary = self._axiom_rules_binary()
+        binary: Path | None = None
         derived_by_key, parameter_by_key = self._rulespec_program_maps(compiled_payload)
         legal_ids_by_friendly_name = self._rulespec_legal_ids_by_friendly_output_name(
             compiled_payload
@@ -6705,6 +6705,20 @@ class ValidatorPipeline:
 
             actual_outputs: dict[str, Any] = {}
             if derived_outputs:
+                derived_entities = {
+                    str(derived_by_key[output_name].get("entity") or "Case")
+                    for output_name in derived_outputs
+                }
+                if len(derived_entities) > 1:
+                    entities = ", ".join(sorted(derived_entities))
+                    issues.append(
+                        f"Test case `{case_name}` mixes derived output entities "
+                        f"({entities}); put outputs for each entity in separate "
+                        "test cases."
+                    )
+                    continue
+                if binary is None:
+                    binary = self._axiom_rules_binary()
                 response_outputs, execution_issues = (
                     self._run_rulespec_derived_test_case(
                         binary=binary,

@@ -2278,6 +2278,8 @@ class TestEvalPrompt:
         assert "service_injury_pension_excluded_amount" in prompt
         assert "TaxUnit-to-Payment" in prompt
         assert "section_104_a_4_amounts" in prompt
+        assert "only one entity type" in prompt
+        assert "Do not assert relation-child outputs" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(

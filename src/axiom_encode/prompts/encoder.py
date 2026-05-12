@@ -178,6 +178,12 @@ Hard requirements:
   at least once under an `output:` block in the companion `.test.yaml`; do not
   leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If
+  a module defines both `Person` and `TaxUnit` outputs, create separate cases:
+  `Person` cases set person facts at the top level and assert person outputs;
+  `TaxUnit` cases use relation rows to supply person facts and assert only
+  tax-unit outputs. Do not assert relation-child outputs in the parent entity's
+  case.
 - If a test needs an imported derived output to become true or false, mirror the
   copied companion test `input:` pattern. Usually this means setting the
   imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not

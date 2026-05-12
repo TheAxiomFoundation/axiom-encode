@@ -4753,6 +4753,59 @@ def test_rulespec_output_lookup_rejects_friendly_name_aliases(tmp_path):
     )
 
 
+def test_rulespec_ci_rejects_mixed_derived_output_entities(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "is_aged_65_or_over",
+                    "id": "us:statutes/26/22#is_aged_65_or_over",
+                    "entity": "Person",
+                },
+                {
+                    "name": "elderly_disabled_credit",
+                    "id": "us:statutes/26/22#elderly_disabled_credit",
+                    "entity": "TaxUnit",
+                },
+            ],
+            "parameters": [],
+        }
+    }
+    cases = [
+        {
+            "name": "mixed_person_and_tax_unit_outputs",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {},
+            "output": {
+                "us:statutes/26/22#is_aged_65_or_over": "holds",
+                "us:statutes/26/22#elderly_disabled_credit": 750,
+            },
+        }
+    ]
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "statutes/26/22.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=cases,
+    )
+
+    assert issues == [
+        "Test case `mixed_person_and_tax_unit_outputs` mixes derived output "
+        "entities (Person, TaxUnit); put outputs for each entity in separate "
+        "test cases."
+    ]
+
+
 def test_rulespec_ci_executes_relation_list_inputs(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")

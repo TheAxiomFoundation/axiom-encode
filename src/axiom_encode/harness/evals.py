@@ -2642,6 +2642,7 @@ Test file rules:
 - If a test needs an imported derived output to become true or false, mirror the copied companion test `input:` pattern. Usually this means setting the imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not shortcutting by setting the imported derived output itself. Only set an imported derived key in `input:` when a copied companion test also uses that exact derived key in `input:`.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds` or `not_holds`, not `us:statutes/7/2012/j#input.snap_household_has_elderly_or_disabled_member`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines both `Person` and `TaxUnit` outputs, create separate cases: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
 - Every test case for a local derived formula must assign every local factual
@@ -2846,6 +2847,12 @@ RuleSpec requirements:
   at least once under an `output:` block in the companion `.test.yaml`; do not
   leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If
+  a module defines both `Person` and `TaxUnit` outputs, create separate cases:
+  `Person` cases set person facts at the top level and assert person outputs;
+  `TaxUnit` cases use relation rows to supply person facts and assert only
+  tax-unit outputs. Do not assert relation-child outputs in the parent entity's
+  case.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If `./source.txt` says someone is "aged 18 or over", "under 25", or similar, model the legal age predicate instead of inventing documentary age constants.
 - When source text uses amendment markup like `[old] new`, treat the bracketed value as superseded text. Encode the current unbracketed value/effective date unless the task explicitly asks for historical text.
