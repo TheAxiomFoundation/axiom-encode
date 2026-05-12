@@ -4211,10 +4211,14 @@ def _all_test_input_names(test_cases: list[Any]) -> set[str]:
 
 def _input_names_from_mapping(inputs: dict[Any, Any]) -> set[str]:
     names: set[str] = set()
-    for key in inputs:
+    for key, value in inputs.items():
         fragment = _test_reference_fragment(key)
         if fragment.startswith("input."):
             names.add(fragment.removeprefix("input."))
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    names.update(_input_names_from_mapping(item))
     return names
 
 

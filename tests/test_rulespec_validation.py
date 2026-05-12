@@ -3498,6 +3498,57 @@ rules:
     assert "disqualifying_condition" in issues[0]
 
 
+def test_test_input_assignment_counts_relation_child_inputs():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: taxpayer_or_spouse_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: taxpayer_or_spouse_of_tax_unit
+      arity: 2
+      arguments:
+        - TaxUnit
+        - Person
+  - name: person_qualified
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= 65 and not disqualifying_condition
+  - name: qualified_person_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(taxpayer_or_spouse_of_tax_unit, person_qualified)
+"""
+    test_cases = [
+        {
+            "name": "tax_unit_with_aged_taxpayer",
+            "input": {
+                "us:statutes/26/22#relation.taxpayer_or_spouse_of_tax_unit": [
+                    {
+                        "us:statutes/26/22#input.age": 65,
+                        "us:statutes/26/22#input.disqualifying_condition": False,
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/22#qualified_person_count": 1,
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
 def test_test_input_assignment_ignores_imported_rule_outputs():
     content = """format: rulespec/v1
 module:
