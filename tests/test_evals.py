@@ -3356,6 +3356,8 @@ class TestEvalPrompt:
             "reuse that named scalar everywhere the rule compares against or computes with that number"
             in prompt
         )
+        assert "Do not simplify source-stated ratios or fractions" in prompt
+        assert "ungrounded decimal such as `0.10`" in prompt
         assert (
             'If `./source.txt` says someone is "aged 18 or over", "under 25"' in prompt
         )

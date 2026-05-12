@@ -2915,6 +2915,10 @@ RuleSpec requirements:
 - Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks.
 - Do not append a multiline conditional directly onto another expression, and do not use inline assignment syntax like `:=` inside formula blocks.
 - For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals.
+- Do not simplify source-stated ratios or fractions into new decimal literals.
+  If the source states `20/200`, encode grounded numerator and denominator
+  parameters and compare with `20 / 200` or with those named parameters; do not
+  emit an ungrounded decimal such as `0.10`.
 - Use concrete ISO calendar dates like `2025-03-21` for day-level tests; do not use ISO week strings like `2025-W13`.
 - Any substantive numeric literal in a formula must either appear in `./source.txt` or be one of -1, 0, 1, 2, or 3.
 - Every substantive numeric occurrence in `./source.txt` must be represented by a named scalar definition in RuleSpec when it is a legal amount, rate, threshold, cap, or limit.
