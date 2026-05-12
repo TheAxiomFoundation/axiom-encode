@@ -3597,6 +3597,7 @@ rules:
         )
         assert "same concept or output name" in prompt
         assert "dependent_standard_deduction_limit" in prompt
+        assert "dependent_basic_standard_deduction_statutory_limit" in prompt
         assert "says a value is determined `in accordance with section X`" in prompt
         assert "do not invent `import` statements or `imports:` blocks" in prompt
 

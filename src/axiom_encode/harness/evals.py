@@ -2859,6 +2859,11 @@ RuleSpec requirements:
   `source_relation` records in the statute file. For IRC section 63(c)(5), if
   Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
   not recreate it in the statute file.
+- When the statute states pre-inflation base dollars that a current-year
+  authority adjusts, any local statute output must be named as a statutory/base
+  concept, not as the current-year value. For IRC section 63(c)(5), use a name
+  like `dependent_basic_standard_deduction_statutory_limit`, not
+  `dependent_standard_deduction_limit`.
 - Do not invent new entities, periods, or dtypes.
 - Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
