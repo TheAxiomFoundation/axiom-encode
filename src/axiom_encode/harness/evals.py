@@ -2906,6 +2906,11 @@ RuleSpec requirements:
      the test must assign every `indexed_by` key as `#input.<key>`; otherwise
      assert the derived lookup output instead of the raw table. In ordinary
      end-to-end tests, do not output raw indexed parameter tables at all.
+     For imported modules, only assign imported `#input` or `#relation` keys
+     that exist in the current imported RuleSpec context. Do not preserve stale
+     imported test inputs from copied files. If the downstream rule only needs
+     an imported output value, assign that imported output directly in the test
+     input instead of reconstructing the upstream module's internal facts.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
      textual claim support is either direct corpus source support or a claim ID
