@@ -23,6 +23,7 @@ from axiom_encode.cli import (
     _discover_rulespec_test_files,
     _effective_runner_specs,
     _find_rulespec_dependents,
+    _has_zero_output_test,
     _insert_false_input_default,
     _rewrite_gpt_runner_backend,
     _sha256_file,
@@ -3530,6 +3531,7 @@ rules:
             "regulations/7-cfr/273/10.yaml",
             "regulations/7-cfr/273/10.test.yaml",
         ]
+        assert payload["tool"] == "axiom-encode repair-nonnegative-floors"
 
     def test_repair_nonnegative_floors_taxable_income_test_checks_final_output_only(
         self, tmp_path
@@ -3682,10 +3684,63 @@ rules:
         payload = json.loads(manifest.read_text())
         assert payload["backend"] == "deterministic"
         assert payload["model"] == "zero-branch-test-v1"
+        assert payload["tool"] == "axiom-encode repair-zero-branch-tests"
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "statutes/26/21.yaml",
             "statutes/26/21.test.yaml",
         ]
+
+    def test_repair_zero_branch_tests_does_not_mutate_without_signing_key(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/21.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: cdcc_expense_limit_before_exclusion
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if cdcc_qualifying_individual_count == 1:
+              cdcc_one_qualifying_individual_expense_limit
+          else:
+              if cdcc_qualifying_individual_count >= 2:
+                  cdcc_two_or_more_qualifying_individuals_expense_limit
+              else:
+                  0
+"""
+        )
+        test_file = policy_repo / "statutes/26/21.test.yaml"
+        original_test_content = """- name: existing_positive_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/21#input.taxable_year_begins_in_2021: false
+  output:
+    us:statutes/26/21#cdcc_expense_limit_before_exclusion: 3000
+"""
+        test_file.write_text(original_test_content)
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/21.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        assert test_file.read_text() == original_test_content
 
     def test_repair_zero_branch_tests_handles_section_22_initial_amount(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
@@ -3935,6 +3990,21 @@ rules:
             "us:statutes/26/6401#limitation_period_overpayment_part: 0" in test_content
         )
 
+    def test_has_zero_output_test_requires_exact_legal_id(self):
+        cases = [
+            {
+                "output": {
+                    "us:statutes/26/1#taxable_income": 0,
+                    "taxable_income": 0,
+                }
+            }
+        ]
+
+        assert (
+            _has_zero_output_test(cases, "us:statutes/26/63#taxable_income") is False
+        )
+        assert _has_zero_output_test(cases, "us:statutes/26/1#taxable_income") is True
+
     def test_repair_tax_filing_status_branches_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/3101/b/2.yaml"
@@ -4012,6 +4082,7 @@ rules:
         payload = json.loads(manifest.read_text())
         assert payload["backend"] == "deterministic"
         assert payload["model"] == "tax-filing-status-branch-v1"
+        assert payload["tool"] == "axiom-encode repair-tax-filing-status-branches"
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "statutes/26/3101/b/2.yaml",
             "statutes/26/3101/b/2.test.yaml",
@@ -4086,6 +4157,7 @@ rules:
         payload = json.loads(manifest.read_text())
         assert payload["backend"] == "deterministic"
         assert payload["model"] == "source-proof-atom-v1"
+        assert payload["tool"] == "axiom-encode repair-missing-source-proofs"
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "statutes/26/3101/b/2.yaml",
         ]
@@ -4244,6 +4316,7 @@ rules:
         payload = json.loads(manifest.read_text())
         assert payload["backend"] == "deterministic"
         assert payload["model"] == "proof-import-hash-v1"
+        assert payload["tool"] == "axiom-encode repair-proof-import-hashes"
         assert payload["applied_files"][0]["path"] == "statutes/26/22.yaml"
 
     def test_repair_imported_proof_hashes_writes_target_file_hash(self, tmp_path):
@@ -4322,6 +4395,7 @@ rules:
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/7/2015/d/2.json"
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "proof-import-hash-v1"
+        assert payload["tool"] == "axiom-encode repair-proof-import-hashes"
         assert payload["applied_files"][0]["path"] == "statutes/7/2015/d/2.yaml"
 
     def test_repair_oracle_parameter_tests_adds_missing_parameter_output(
@@ -4401,6 +4475,7 @@ rules:
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32.json"
         manifest_payload = json.loads(manifest.read_text())
         assert manifest_payload["model"] == "oracle-parameter-test-v1"
+        assert manifest_payload["tool"] == "axiom-encode repair-oracle-parameter-tests"
         assert [item["path"] for item in manifest_payload["applied_files"]] == [
             "statutes/26/32.yaml",
             "statutes/26/32.test.yaml",

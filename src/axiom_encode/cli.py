@@ -2614,6 +2614,7 @@ def cmd_repair_nonnegative_floors(args):
             runner="deterministic-repair",
             backend="deterministic",
             model="nonnegative-floor-v1",
+            tool="axiom-encode repair-nonnegative-floors",
             citation=(
                 f"{_repo_jurisdiction_prefix(repo_path)}:"
                 f"{_relative_rulespec_import_target(relative_output)}"
@@ -2662,6 +2663,8 @@ def cmd_repair_zero_branch_tests(args):
         sys.exit(1)
 
     original_test_content = test_file.read_text()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     repaired_test_cases = _append_generated_zero_branch_tests_if_missing(
         rules_file=rules_file,
         test_file=test_file,
@@ -2672,8 +2675,6 @@ def cmd_repair_zero_branch_tests(args):
         print("No zero-branch test repairs found.")
         return
 
-    signing_key = _require_applied_encoding_manifest_signing_key()
-    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
@@ -2704,6 +2705,7 @@ def cmd_repair_zero_branch_tests(args):
             runner="deterministic-repair",
             backend="deterministic",
             model="zero-branch-test-v1",
+            tool="axiom-encode repair-zero-branch-tests",
             citation=(
                 f"{_repo_jurisdiction_prefix(repo_path)}:"
                 f"{_relative_rulespec_import_target(relative_output)}"
@@ -2800,6 +2802,7 @@ def cmd_repair_proof_import_hashes(args):
             runner="deterministic-repair",
             backend="deterministic",
             model="proof-import-hash-v1",
+            tool="axiom-encode repair-proof-import-hashes",
             citation=target_base,
             generation_prompt_sha256=None,
             trace_file=None,
@@ -2896,6 +2899,7 @@ def cmd_repair_oracle_parameter_tests(args):
             runner="deterministic-repair",
             backend="deterministic",
             model="oracle-parameter-test-v1",
+            tool="axiom-encode repair-oracle-parameter-tests",
             citation=target_base,
             generation_prompt_sha256=None,
             trace_file=None,
@@ -2941,6 +2945,8 @@ def cmd_repair_tax_filing_status_branches(args):
         original_content
     )
     original_test_content = test_file.read_text() if test_file.exists() else None
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     repaired_test_cases: list[str] = []
     if (
         test_file.exists()
@@ -2957,8 +2963,6 @@ def cmd_repair_tax_filing_status_branches(args):
         print("No tax filing-status branch repairs found.")
         return
 
-    signing_key = _require_applied_encoding_manifest_signing_key()
-    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
@@ -2992,6 +2996,7 @@ def cmd_repair_tax_filing_status_branches(args):
             runner="deterministic-repair",
             backend="deterministic",
             model="tax-filing-status-branch-v1",
+            tool="axiom-encode repair-tax-filing-status-branches",
             citation=(
                 f"{_repo_jurisdiction_prefix(repo_path)}:"
                 f"{_relative_rulespec_import_target(relative_output)}"
@@ -3085,6 +3090,7 @@ def cmd_repair_missing_source_proofs(args):
             runner="deterministic-repair",
             backend="deterministic",
             model="source-proof-atom-v1",
+            tool="axiom-encode repair-missing-source-proofs",
             citation=(
                 f"{_repo_jurisdiction_prefix(repo_path)}:"
                 f"{_relative_rulespec_import_target(relative_output)}"
@@ -4192,7 +4198,7 @@ def _append_taxable_income_zero_floor_test_if_missing(
 def _has_zero_output_test(test_cases: object, target: str) -> bool:
     if not isinstance(test_cases, list):
         return False
-    target_fragment = target.rsplit("#", 1)[-1]
+    normalized_target = target.strip()
     for test_case in test_cases:
         if not isinstance(test_case, dict):
             continue
@@ -4200,8 +4206,7 @@ def _has_zero_output_test(test_cases: object, target: str) -> bool:
         if not isinstance(outputs, dict):
             continue
         for key, value in outputs.items():
-            key_fragment = str(key).rsplit("#", 1)[-1]
-            if key_fragment != target_fragment:
+            if str(key).strip() != normalized_target:
                 continue
             if isinstance(value, bool) or value is None:
                 continue
@@ -4756,10 +4761,13 @@ def _write_applied_encoding_manifest(
     context_manifest = Path(context_manifest_raw) if context_manifest_raw else None
     trace_file = Path(trace_file_raw) if trace_file_raw else None
     output_file = Path(output_file_raw) if output_file_raw else None
+    tool = getattr(result, "tool", None)
+    if not isinstance(tool, str) or not tool.strip():
+        tool = "axiom-encode encode --apply"
     payload = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "tool": "axiom-encode encode --apply",
+        "tool": tool,
         "axiom_encode_version": __version__,
         "axiom_encode_git": axiom_encode_git,
         "generation_prompt_sha256": getattr(result, "generation_prompt_sha256", None),
