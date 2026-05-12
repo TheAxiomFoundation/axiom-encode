@@ -3419,6 +3419,13 @@ def _append_generated_zero_branch_tests_if_missing(
         repaired.append(
             "post_2026_no_able_contributions_zero_savers_credit_gross_contributions"
         )
+    if _append_limitation_period_zero_overpayment_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("not_after_limitation_period_zero_overpayment_part")
     return repaired
 
 
@@ -3713,6 +3720,56 @@ def _append_savers_credit_zero_gross_contributions_test_if_missing(
     {target_base}#savers_credit_qualified_retirement_savings_contributions: 0
     {target_base}#savers_credit_contributions_taken_into_account: 0
     {target_base}#savers_credit: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _append_limitation_period_zero_overpayment_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 6401(a)'s zero branch."""
+    rules_content = rules_file.read_text()
+    if "name: limitation_period_overpayment_part" not in rules_content:
+        return False
+    if (
+        "internal_revenue_tax_payment_assessed_or_collected_after_applicable_limitation_period_expired"
+        not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    overpayment_target = f"{target_base}#limitation_period_overpayment_part"
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, overpayment_target):
+        return False
+
+    test_content = test_file.read_text()
+    case_name = "not_after_limitation_period_zero_overpayment_part"
+    if case_name in test_content:
+        return False
+
+    case = f"""- name: {case_name}
+  period:
+    period_kind: tax_year
+    start: 2026-01-01
+    end: 2026-12-31
+  input:
+    {target_base}#input.internal_revenue_tax_payment_assessed_or_collected_after_applicable_limitation_period_expired: false
+    {target_base}#input.amount_of_internal_revenue_tax_payment_assessed_or_collected_after_limitation_period: 1200
+  output:
+    {overpayment_target}: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")
