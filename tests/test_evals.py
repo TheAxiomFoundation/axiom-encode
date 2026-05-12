@@ -2272,6 +2272,9 @@ class TestEvalPrompt:
         assert "us:statutes/26/63/c/5#dependent_standard_deduction" in prompt
         assert "Do not start a local input with" in prompt
         assert "_under_section_<section>" in prompt
+        assert "For IRC section 22" in prompt
+        assert "taxpayer_or_spouse_of_tax_unit" in prompt
+        assert "elderly_disabled_member_of_tax_unit" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(

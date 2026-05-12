@@ -101,6 +101,11 @@ Hard requirements:
   role set that is legally counted, such as `taxpayer_or_spouse`, not merely for
   the container entity. If a copied relation is legally too broad for the
   requested source, rename it; relation names are not stable public outputs.
+  Never preserve or create `*_member_of_tax_unit` or `member_of_tax_unit` for a
+  source that counts only the taxpayer, spouse, qualified individual, claimant,
+  child, or dependent. For IRC section 22, count qualified individuals over a
+  relation like `taxpayer_or_spouse_of_tax_unit`, not
+  `elderly_disabled_member_of_tax_unit`.
 - If the source computes an amount by reference to an entitlement, status,
   amount, or test "under" another section, subsection, paragraph, regulation, or
   document, do not inline that cross-reference's mechanics into this file unless
