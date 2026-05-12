@@ -343,6 +343,10 @@ Hard requirements:
      imported test inputs from copied files. If the downstream rule only needs
      an imported output value, assign that imported output directly in the test
      input instead of reconstructing the upstream module's internal facts.
+     Example: if this file imports `us:statutes/26/32#eitc` only to subtract
+     the EITC amount, test with `us:statutes/26/32#eitc: 0`; do not assign old
+     upstream internals like `us:statutes/26/32#input.some_eligibility_fact` or
+     `us:statutes/26/32#relation.some_old_relation`.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
      textual claim support is either direct corpus source support or a claim ID
