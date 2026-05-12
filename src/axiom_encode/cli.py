@@ -1381,6 +1381,7 @@ def cmd_test(args):
         enable_oracles=False,
     )
     binary = pipeline._axiom_rules_binary()
+    rulespec_env = pipeline._rulespec_compile_env()
 
     failures: list[dict[str, str | None]] = []
     case_count = 0
@@ -1393,6 +1394,7 @@ def cmd_test(args):
                 test_file,
                 binary=binary,
                 axiom_rules_path=Path(axiom_rules_path),
+                env=rulespec_env,
                 tmp_path=tmp_path,
                 compiled_cache=compiled_cache,
             )
@@ -1494,6 +1496,7 @@ def _execute_rulespec_test_file(
     *,
     binary: Path,
     axiom_rules_path: Path,
+    env: dict[str, str],
     tmp_path: Path,
     compiled_cache: dict[Path, tuple[Path, dict]],
 ) -> dict:
@@ -1529,6 +1532,7 @@ def _execute_rulespec_test_file(
             text=True,
             timeout=60,
             cwd=str(axiom_rules_path) if axiom_rules_path.exists() else None,
+            env=env,
         )
         if result.returncode != 0:
             return {
@@ -1571,6 +1575,7 @@ def _execute_rulespec_test_file(
                     compiled_path=compiled_path,
                     binary=binary,
                     axiom_rules_path=axiom_rules_path,
+                    env=env,
                     parameter_by_id=parameter_by_id,
                     derived_ids=derived_ids,
                 )
@@ -1605,6 +1610,7 @@ def _execute_rulespec_test_case(
     compiled_path: Path,
     binary: Path,
     axiom_rules_path: Path,
+    env: dict[str, str],
     parameter_by_id: dict[str, dict],
     derived_ids: set[str],
 ) -> list[dict[str, str | None]]:
@@ -1733,6 +1739,7 @@ def _execute_rulespec_test_case(
         text=True,
         timeout=60,
         cwd=str(axiom_rules_path) if axiom_rules_path.exists() else None,
+        env=env,
     )
     if result.returncode != 0:
         failures.append(

@@ -1933,6 +1933,79 @@ rules:
         assert output["success"] is False
         assert "expected 16" in output["failures"][0]["message"]
 
+    def test_executes_companion_tests_prefers_current_repo_over_env_root(
+        self, capsys, monkeypatch, tmp_path
+    ):
+        stale_repo = tmp_path / "canonical" / "rulespec-us"
+        stale_child = stale_repo / "statutes/1/child.yaml"
+        stale_child.parent.mkdir(parents=True)
+        stale_child.write_text(
+            """format: rulespec/v1
+rules:
+  - name: child_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: stale_income + 1
+"""
+        )
+
+        repo = tmp_path / "workspace" / "rulespec-us"
+        child = repo / "statutes/1/child.yaml"
+        child.parent.mkdir(parents=True)
+        child.write_text(
+            """format: rulespec/v1
+rules:
+  - name: child_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: current_income + 1
+"""
+        )
+        parent = repo / "statutes/1/parent.yaml"
+        parent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/1/child
+rules:
+  - name: total_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: child_benefit + 1
+"""
+        )
+        parent.with_name("parent.test.yaml").write_text(
+            """- name: imported_current_child_input
+  period: 2026-01
+  input:
+    us:statutes/1/child#input.current_income: 5
+  output:
+    us:statutes/1/parent#total_benefit: 7
+"""
+        )
+        monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(self._args(repo, json_output=True))
+
+        assert exc_info.value.code == 0
+        output = json.loads(capsys.readouterr().out)
+        assert output["success"] is True
+
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"
         valid_test = root / "statutes/1/1.test.yaml"
