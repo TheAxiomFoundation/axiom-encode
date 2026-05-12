@@ -5244,17 +5244,17 @@ def _candidate_rulespec_repo_roots(
         else:
             candidates.append(expanded / repo_name)
 
-    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
-    for raw_root in env_roots.split(os.pathsep):
-        if raw_root.strip():
-            add(Path(raw_root.strip()))
-
     if policy_repo_path is not None:
         policy_root = Path(policy_repo_path).resolve()
         add(policy_root)
         add(policy_root.parent / repo_name)
         add(policy_root / "_axiom" / repo_name)
         add(policy_root.parent / "_axiom" / repo_name)
+
+    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
+    for raw_root in env_roots.split(os.pathsep):
+        if raw_root.strip():
+            add(Path(raw_root.strip()))
 
     cwd = Path.cwd()
     add(cwd / repo_name)

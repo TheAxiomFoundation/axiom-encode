@@ -5208,6 +5208,58 @@ rules:
     assert issue is None
 
 
+def test_rulespec_test_reference_prefers_current_repo_over_stale_env_root(
+    monkeypatch,
+    tmp_path,
+):
+    stale_repo = tmp_path / "canonical" / "rulespec-us"
+    stale_file = stale_repo / "regulations" / "7-cfr" / "273" / "10.yaml"
+    stale_file.parent.mkdir(parents=True)
+    stale_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_net_income
+"""
+    )
+
+    current_repo = tmp_path / "workspace" / "rulespec-us"
+    current_file = current_repo / "regulations" / "7-cfr" / "273" / "10.yaml"
+    current_file.parent.mkdir(parents=True)
+    current_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if household_size <= 2: snap_minimum_benefit else: snap_net_income
+"""
+    )
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
+
+    issue = validator_pipeline._rulespec_absolute_test_reference_issue(
+        "us:regulations/7-cfr/273/10#input.household_size",
+        label="input",
+        policy_repo_path=current_repo,
+        allow_input_slots=True,
+        allow_relations=False,
+        allow_outputs=False,
+    )
+
+    assert issue is None
+
+
 def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
