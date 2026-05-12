@@ -73,6 +73,11 @@ Hard requirements:
   `module.status: deferred`, `module.status: entity_not_supported`, or
   `rules: []`. Preserve the executable scope and make the smallest
   source-faithful repair.
+- If an existing copied target file is present, treat it as the baseline to
+  repair. Preserve existing rule names, imports, companion-test output keys,
+  and public formulas unless `./source.txt` proves a specific rule legally
+  wrong. Do not rewrite the whole file or rename established outputs just to
+  improve style.
 - If a copied child-fragment file encodes a limitation, branch, amount, or
   predicate needed by the requested parent provision, import the child output
   and compose it. Do not copy the child formula or its factual inputs into the
@@ -338,6 +343,9 @@ Hard requirements:
   never emit negative money. When subtracting an income, contribution, or other
   reduction from a maximum amount, floor the result with `max(0, ...)` before
   applying downstream minimum-benefit or issuance branches.
+- If that reduction has rounding alternatives, every branch must be floored:
+  use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`,
+  never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
