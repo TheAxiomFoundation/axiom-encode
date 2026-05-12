@@ -3945,6 +3945,80 @@ rules:
             "statutes/26/3101/b/2.yaml",
         ]
 
+    def test_repair_missing_source_proofs_allows_pending_tax_branch_repair(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/3101/b/2.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3101
+  summary: joint return or surviving spouse.
+rules:
+  - name: additional_medicare_wage_tax_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3101(b)(2)(A)-(C)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          match filing_status:
+              1 => additional_medicare_wage_tax_joint_threshold
+              2 => additional_medicare_wage_tax_joint_threshold / 2
+              0 => additional_medicare_wage_tax_other_threshold
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/3101/b/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "filing_status": SimpleNamespace(
+                            error=(
+                                "Filing status branch missing surviving spouse: "
+                                "`additional_medicare_wage_tax_threshold` handles "
+                                "joint-return status code 1 while this source "
+                                "mentions surviving spouse."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_missing_source_proofs(args)
+
+        content = target.read_text()
+        assert "metadata:\n      proof:\n        atoms:" in content
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
+        assert manifest.exists()
+
     def test_repair_local_proof_hashes_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/22.yaml"

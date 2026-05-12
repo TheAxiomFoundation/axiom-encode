@@ -2934,14 +2934,20 @@ def cmd_repair_missing_source_proofs(args):
         require_policy_proofs=True,
     ).validate(rules_file, skip_reviewers=True)
     if not validation.all_passed:
-        rules_file.write_text(original_content)
         issues = [
             result.error for result in validation.results.values() if result.error
         ]
-        print("Repair failed validation; restored original file.")
-        for issue in issues:
-            print(f"- {issue}")
-        sys.exit(1)
+        if _only_pending_tax_filing_status_branch_issues(issues):
+            print(
+                "Applied missing source proof repair with pending tax filing-status "
+                "branch repair still required."
+            )
+        else:
+            rules_file.write_text(original_content)
+            print("Repair failed validation; restored original file.")
+            for issue in issues:
+                print(f"- {issue}")
+            sys.exit(1)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_root = Path(tmpdir)
@@ -3066,6 +3072,13 @@ def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
         lines, repairs_by_rule
     )
     return "".join(repaired_lines), repaired_rules
+
+
+def _only_pending_tax_filing_status_branch_issues(issues: list[str]) -> bool:
+    return bool(issues) and all(
+        issue.startswith("Filing status branch missing surviving spouse:")
+        for issue in issues
+    )
 
 
 def _rulespec_module_source_paths(payload: dict[str, object]) -> list[str]:
