@@ -3283,7 +3283,7 @@ def find_tax_filing_status_enum_representation_issues(content: str) -> list[str]
         if (
             _FILING_STATUS_STRING_VALUE_PATTERN.search(formula)
             or _FILING_STATUS_NAMED_VALUE_PATTERN.search(formula)
-            or _FILING_STATUS_MATCH_NAMED_ARM_PATTERN.search(formula)
+            or _filing_status_match_has_named_arms(formula)
         ):
             issues.append(
                 "Filing status must use numeric enum: "
@@ -3293,6 +3293,28 @@ def find_tax_filing_status_enum_representation_issues(content: str) -> list[str]
                 "qualifying widow(er)."
             )
     return issues
+
+
+def _filing_status_match_has_named_arms(formula: str) -> bool:
+    lines = formula.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(
+            rf"^(\s*)match\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            continue
+        base_indent = len(match.group(1))
+        for branch_line in lines[index + 1 :]:
+            if not branch_line.strip():
+                continue
+            branch_indent = len(branch_line) - len(branch_line.lstrip())
+            if branch_indent <= base_indent:
+                break
+            if _FILING_STATUS_MATCH_NAMED_ARM_PATTERN.match(branch_line):
+                return True
+    return False
 
 
 def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
@@ -3557,32 +3579,53 @@ def _formula_result_expressions(formula: str) -> list[str]:
         line = raw_line.strip()
         if not line:
             continue
-        inline_conditional = re.match(
-            r"^(?:if\b.+?|elif\b.+?)\s*:\s*(.+?)\s+else\s*:\s*(.+)$",
-            line,
-            flags=re.IGNORECASE,
-        )
+        inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(line)
         if inline_conditional is not None:
-            expressions.append(inline_conditional.group(1).strip())
-            expressions.append(inline_conditional.group(2).strip())
+            expressions.extend(_split_inline_conditional_result_expressions(line))
             continue
         match_arm = re.match(r"^(?:\d+|default|otherwise|_)\s*=>\s*(.+)$", line)
         if match_arm is not None:
-            expressions.append(match_arm.group(1).strip())
+            expressions.extend(
+                _split_inline_conditional_result_expressions(match_arm.group(1))
+            )
             continue
         branch = re.match(r"^(?:if\b.+|elif\b.+|else)\s*:\s*(.+)$", line)
         if branch is not None:
-            expression = re.split(
-                r"\s+else\s*:",
-                branch.group(1).strip(),
-                maxsplit=1,
-                flags=re.IGNORECASE,
-            )[0].strip()
-            if expression:
-                expressions.append(expression)
+            expression = _branch_result_expression(branch.group(1).strip())
+            expressions.extend(_split_inline_conditional_result_expressions(expression))
     if not expressions and formula.strip():
         expressions.append(formula.strip())
     return expressions
+
+
+_INLINE_CONDITIONAL_RESULT_PATTERN = re.compile(
+    r"^(?:if\b.+?|elif\b.+?)\s*:\s*(.+?)\s+else\s*:\s*(.+)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _branch_result_expression(branch_tail: str) -> str:
+    if _INLINE_CONDITIONAL_RESULT_PATTERN.match(branch_tail):
+        return branch_tail
+    return re.split(
+        r"\s+else\s*:",
+        branch_tail,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+
+
+def _split_inline_conditional_result_expressions(expression: str) -> list[str]:
+    expression = expression.strip()
+    if not expression:
+        return []
+    inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(expression)
+    if inline_conditional is None:
+        return [expression]
+    return [
+        *(_split_inline_conditional_result_expressions(inline_conditional.group(1))),
+        *(_split_inline_conditional_result_expressions(inline_conditional.group(2))),
+    ]
 
 
 def _final_expression_has_zero_floor(expression: str) -> bool:

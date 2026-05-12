@@ -1600,7 +1600,23 @@ def _parenthetical_marker_context_is_structural(text: str, marker_start: int) ->
     previous = prefix.rstrip()[-1:] if prefix.rstrip() else ""
     if previous == ")":
         return False
-    return _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX.search(prefix) is None
+    if _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX.search(prefix):
+        return False
+    return not _parenthetical_marker_is_in_reference_list(prefix)
+
+
+def _parenthetical_marker_is_in_reference_list(prefix: str) -> bool:
+    segment = re.split(r"(?:[.;]\s+|\n+)", prefix)[-1]
+    if not re.search(
+        r"\b(?:paragraph|subparagraph|clause|subclause|section|subsection|"
+        r"chapter|title|part|item|sentence|regulation)\b",
+        segment,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    if not re.search(r"\([A-Za-z0-9]+\)", segment):
+        return False
+    return re.search(r"(?:,\s*|\b(?:or|and)\s+)$", segment) is not None
 
 
 def _sibling_parenthetical_marker_pattern(

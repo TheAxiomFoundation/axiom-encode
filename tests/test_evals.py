@@ -170,6 +170,41 @@ class TestCorpusSourceResolution:
         assert source.citation_path == "us/statute/7/2015"
         assert source.body == "(C) Student exemption states 20 hours."
 
+    def test_nested_slicing_ignores_parenthetical_cross_reference_list(self, tmp_path):
+        corpus_path = tmp_path / "axiom-corpus"
+        provisions_dir = (
+            corpus_path / "data" / "corpus" / "provisions" / "us" / "statute"
+        )
+        provisions_dir.mkdir(parents=True)
+        (provisions_dir / "2026-01-01.jsonl").write_text(
+            json.dumps(
+                {
+                    "citation_path": "us/statute/26/63",
+                    "body": (
+                        "(c) Standard deduction "
+                        "(4) Adjustments for inflation Each dollar amount "
+                        "contained in paragraph (2)(B), (2)(C), or (5) or "
+                        "subsection (f) shall be increased. "
+                        "(5) Limitation on basic standard deduction in the case "
+                        "of certain dependents In the case of an individual with "
+                        "respect to whom a deduction under section 151 is "
+                        "allowable to another taxpayer, the basic standard "
+                        "deduction shall not exceed the greater of— (A) $500, "
+                        "or (B) the sum of $250 and earned income. "
+                        "(6) Certain individuals not eligible."
+                    ),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        source = resolve_corpus_source_unit("26 USC 63(c)(5)", corpus_path)
+
+        assert source.citation_path == "us/statute/26/63"
+        assert source.body.startswith("(5) Limitation on basic standard deduction")
+        assert "paragraph (2)(B)" not in source.body
+
     def test_build_prompt_requires_resolved_corpus_locator(self, tmp_path):
         workspace = prepare_eval_workspace(
             citation="26 USC 3101(a)",
