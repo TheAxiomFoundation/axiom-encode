@@ -342,6 +342,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert (
         "If a test asserts an indexed `parameter` table output directly" in prompt
     )
+    assert "do not output raw indexed parameter tables at all" in prompt
     assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
     assert (
         "Import inventory: every `imports:` entry is an exact copied/importable"

@@ -336,7 +336,8 @@ Hard requirements:
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
      defaults. If a test asserts an indexed `parameter` table output directly,
      the test must assign every `indexed_by` key as `#input.<key>`; otherwise
-     assert the derived lookup output instead of the raw table.
+     assert the derived lookup output instead of the raw table. In ordinary
+     end-to-end tests, do not output raw indexed parameter tables at all.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
      textual claim support is either direct corpus source support or a claim ID
