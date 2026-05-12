@@ -3239,7 +3239,9 @@ def _default_refs_for_missing_input(
     ]
     if matches:
         return matches
-    return [(f"{target_ref}#input.{input_name}", _infer_missing_input_default(input_name))]
+    return [
+        (f"{target_ref}#input.{input_name}", _infer_missing_input_default(input_name))
+    ]
 
 
 def _infer_missing_input_default(input_name: str) -> object:
@@ -3305,7 +3307,10 @@ def _find_yaml_input_blocks(lines: list[str]) -> list[tuple[int, int]]:
         end = index + 1
         while end < len(lines):
             candidate = lines[end]
-            if candidate.strip() and len(candidate) - len(candidate.lstrip(" ")) <= block_indent:
+            if (
+                candidate.strip()
+                and len(candidate) - len(candidate.lstrip(" ")) <= block_indent
+            ):
                 break
             end += 1
         blocks.append((index, end))

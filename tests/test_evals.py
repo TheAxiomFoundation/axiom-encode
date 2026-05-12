@@ -345,9 +345,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
-    assert (
-        "If a test asserts an indexed `parameter` table output directly" in prompt
-    )
+    assert "If a test asserts an indexed `parameter` table output directly" in prompt
     assert "do not output raw indexed parameter tables at all" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
@@ -4532,8 +4530,7 @@ class TestRepoAugmentedContext:
         }
         assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
         assert (
-            copied_sources[str(context_file)]["import_path"]
-            == "us:statutes/26/104/a/4"
+            copied_sources[str(context_file)]["import_path"] == "us:statutes/26/104/a/4"
         )
         assert (
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
