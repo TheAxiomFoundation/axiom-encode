@@ -91,6 +91,12 @@ Hard requirements:
   item child files, make the principal output name semantic to that branch
   (for example `care_responsibility_exemption_applies`), not only the shared
   parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
+- When a child provision substitutes, increases, caps, or otherwise modifies a
+  sibling or parent output, give the replacement a branch-specific name such as
+  `_under_subsection_h`, `_after_2017`, or another source-stated modifier. For
+  IRC section 24(h), do not reuse sibling 24(d) names like
+  `ctc_refundable_phase_in_threshold`; use a subsection-h-specific name such as
+  `ctc_refundable_phase_in_threshold_under_subsection_h`.
 - For subparagraph/list item child files, do not preserve an existing copied
   target name that mainly describes the shared parent outcome rather than this
   branch's source-stated condition; treat it as stale and rename it.

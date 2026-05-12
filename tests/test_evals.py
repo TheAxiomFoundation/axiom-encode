@@ -2278,6 +2278,7 @@ class TestEvalPrompt:
         assert "section 24(h)" in prompt
         assert "dependent_of_tax_unit" in prompt
         assert "ctc_qualifying_child" in prompt
+        assert "ctc_refundable_phase_in_threshold_under_subsection_h" in prompt
         assert "service_injury_pension_excluded_amount" in prompt
         assert "TaxUnit-to-Payment" in prompt
         assert "section_104_a_4_amounts" in prompt
