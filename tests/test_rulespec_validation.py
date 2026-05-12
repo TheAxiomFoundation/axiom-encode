@@ -3595,6 +3595,35 @@ rules:
     assert "statutes/7/2015/b" in issues[0]
 
 
+def test_cross_reference_placeholder_allows_current_section_helpers(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "22.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Section 22 provides a credit except as limited by the section 22 amount.
+rules:
+  - name: is_aged_65_or_over
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= section_22_age_threshold
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
+
+
 def test_cross_reference_placeholder_requires_same_section_subsection_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
@@ -5430,6 +5459,49 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: basic_standard_deduction + additional_standard_deduction_amount
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
+def test_source_limitation_application_accepts_transitive_limited_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A credit equals 15 percent of the section 22 amount. The section 22 amount
+    is reduced by pension benefits and by the adjusted gross income limitation.
+rules:
+  - name: section_22_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, amount_after_benefit_reduction - agi_phaseout_reduction)
+  - name: elderly_disabled_credit_potential
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_22_amount * credit_rate
+  - name: elderly_disabled_credit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if eligible:
+              elderly_disabled_credit_potential
+          else:
+              0
 """
 
     assert find_source_limitation_application_issues(content) == []

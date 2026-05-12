@@ -3331,14 +3331,10 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
             continue
         if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
             continue
-        referenced_helper_formulas = [
-            formula_by_name[identifier]
-            for identifier in _formula_local_identifiers(formula)
-            if identifier in formula_by_name and identifier != name
-        ]
-        if any(
-            _LIMITATION_IMPLEMENTATION_PATTERN.search(helper_formula)
-            for helper_formula in referenced_helper_formulas
+        if _formula_or_referenced_helpers_implement_limitation(
+            formula,
+            formula_by_name=formula_by_name,
+            current_name=name,
         ):
             continue
         issues.append(
@@ -3349,6 +3345,30 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
             "compose it into the final exported amount."
         )
     return issues
+
+
+def _formula_or_referenced_helpers_implement_limitation(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    current_name: str,
+    seen: set[str] | None = None,
+) -> bool:
+    if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
+        return True
+    visited = set(seen or set())
+    visited.add(current_name)
+    for identifier in _formula_local_identifiers(formula):
+        if identifier in visited or identifier not in formula_by_name:
+            continue
+        if _formula_or_referenced_helpers_implement_limitation(
+            formula_by_name[identifier],
+            formula_by_name=formula_by_name,
+            current_name=identifier,
+            seen=visited,
+        ):
+            return True
+    return False
 
 
 _BROAD_APPLICATION_FURNISHING_SOURCE_PATTERN = re.compile(
@@ -7202,6 +7222,8 @@ class ValidatorPipeline:
         )
         if not match:
             return None
+        if current_section and match.group("section") == current_section:
+            return None
         if not (
             _is_exception_identifier(identifier)
             or re.search(
@@ -7833,23 +7855,23 @@ class ValidatorPipeline:
             if (
                 len(relative.parts) >= 3
                 and relative.parts[0] == "statutes"
-                and re.fullmatch(r"[0-9A-Za-z.-]+", relative.parts[2])
-                and any(ch.isdigit() for ch in relative.parts[2])
+                and re.fullmatch(r"[0-9A-Za-z.-]+", Path(relative.parts[2]).stem)
+                and any(ch.isdigit() for ch in Path(relative.parts[2]).stem)
             ):
-                return relative.parts[2]
+                return Path(relative.parts[2]).stem
             if (
                 len(relative.parts) >= 2
-                and re.fullmatch(r"[0-9A-Za-z.-]+", relative.parts[1])
-                and any(ch.isdigit() for ch in relative.parts[1])
+                and re.fullmatch(r"[0-9A-Za-z.-]+", Path(relative.parts[1]).stem)
+                and any(ch.isdigit() for ch in Path(relative.parts[1]).stem)
             ):
-                return relative.parts[1]
+                return Path(relative.parts[1]).stem
             return None
 
         parts = list(resolved_file.parts)
         with contextlib.suppress(ValueError):
             statutes_idx = parts.index("statutes")
             if statutes_idx + 2 < len(parts):
-                return parts[statutes_idx + 2]
+                return Path(parts[statutes_idx + 2]).stem
         return None
 
     def _run_reviewer(
