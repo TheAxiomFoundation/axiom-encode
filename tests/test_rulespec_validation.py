@@ -5688,6 +5688,40 @@ rules:
     assert find_source_limitation_application_issues(content) == []
 
 
+def test_source_limitation_application_scopes_lowercase_subsection_before_uppercase_subparagraph():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (a) In general The tax equals 3.8 percent of the lesser of (A) net
+    investment income or (B) the excess of modified adjusted gross income over
+    the threshold amount.
+
+    (b) Threshold amount The term threshold amount means (1) $250,000 for a
+    joint return, (2) one-half of that amount for a separate return, and (3)
+    $200,000 in any other case.
+
+    (c) Net investment income The term net investment income means the excess
+    of gross investment income over allocable deductions.
+rules:
+  - name: niit_threshold_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1411(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == 1:
+              niit_threshold_joint
+          else:
+              niit_threshold_other
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
 def test_source_verification_accepts_decimal_rate_values_as_word_percentages():
     content = """format: rulespec/v1
 module:

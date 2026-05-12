@@ -3230,7 +3230,8 @@ def _rule_source_subsection_tokens(source: Any) -> tuple[str, ...]:
 
 
 def _slice_source_text_at_marker(source_text: str, token: str) -> str:
-    marker = re.compile(rf"\({re.escape(token)}\)", flags=re.IGNORECASE)
+    marker_flags = 0 if token.isalpha() else re.IGNORECASE
+    marker = re.compile(rf"\({re.escape(token)}\)", flags=marker_flags)
     match = marker.search(source_text)
     if match is None:
         return ""
@@ -3247,7 +3248,7 @@ def _slice_source_text_at_marker(source_text: str, token: str) -> str:
     next_match = re.search(
         next_marker_pattern,
         source_text[match.end() :],
-        flags=re.IGNORECASE,
+        flags=marker_flags,
     )
     if next_match is None:
         return source_text[match.start() :].strip()
