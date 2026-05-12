@@ -3616,6 +3616,76 @@ rules:
             "statutes/26/21.test.yaml",
         ]
 
+    def test_repair_zero_branch_tests_handles_section_22_initial_amount(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/22.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: section_22_initial_amount_before_disability_cap
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if section_22_qualified_individual_count >= 1:
+              section_22_initial_amount_one_qualified
+          else:
+              0
+"""
+        )
+        test_file = policy_repo / "statutes/26/22.test.yaml"
+        test_file.write_text(
+            """- name: existing_positive_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/22#input.filing_status: 0
+  output:
+    us:statutes/26/22#section_22_initial_amount_before_disability_cap: 5000
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/22.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        test_content = test_file.read_text()
+        assert "no_qualified_individual_zero_section_22_initial_amount" in test_content
+        assert (
+            "us:statutes/26/22#section_22_initial_amount_before_disability_cap: 0"
+            in test_content
+        )
+        assert "us:statutes/26/22#section_22_initial_amount_cap: 0" in test_content
+
     def test_repair_local_proof_hashes_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/22.yaml"

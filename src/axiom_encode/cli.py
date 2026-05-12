@@ -2788,6 +2788,13 @@ def _append_generated_zero_branch_tests_if_missing(
         relative_output=relative_output,
     ):
         repaired.append("no_qualifying_individual_zero_cdcc_expense_limit")
+    if _append_section_22_zero_initial_amount_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("no_qualified_individual_zero_section_22_initial_amount")
     return repaired
 
 
@@ -2928,6 +2935,74 @@ def _append_cdcc_zero_expense_limit_test_if_missing(
     {target_base}#cdcc_qualifying_individual_count: 0
     {expense_limit_target}: 0
     {target_base}#cdcc_creditable_expenses: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _append_section_22_zero_initial_amount_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 22's no-qualified-person branch."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if (
+        "name: section_22_initial_amount_before_disability_cap" not in rules_content
+        or "section_22_qualified_individual_count" not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    initial_amount_target = (
+        f"{target_base}#section_22_initial_amount_before_disability_cap"
+    )
+    test_content = test_file.read_text()
+    try:
+        test_payload = yaml.safe_load(test_content) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, initial_amount_target):
+        return False
+    if "no_qualified_individual_zero_section_22_initial_amount" in test_content:
+        return False
+
+    input_prefix = f"{target_base}#input."
+    taxpayer_relation_key = f"{target_base}#relation.taxpayer_or_spouse_of_tax_unit"
+    payment_relation_key = f"{target_base}#relation.section_22_payment_of_tax_unit"
+    case = f"""- name: no_qualified_individual_zero_section_22_initial_amount
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    {input_prefix}filing_status: 0
+    {input_prefix}adjusted_gross_income: 0
+    {input_prefix}social_security_title_ii_benefits_excluded_from_gross_income: 0
+    {input_prefix}railroad_retirement_act_benefits_excluded_from_gross_income: 0
+    {input_prefix}veterans_affairs_pension_annuity_or_disability_benefits_excluded_from_gross_income: 0
+    {input_prefix}other_non_title_pension_annuity_or_disability_benefits_excluded_from_gross_income: 0
+    {input_prefix}workers_compensation_treated_as_social_security_benefit_under_section_86_d_3: 0
+    {input_prefix}married_at_close_of_taxable_year: false
+    {input_prefix}spouses_lived_apart_all_year: false
+    {input_prefix}is_nonresident_alien: false
+    {taxpayer_relation_key}: []
+    {payment_relation_key}: []
+  output:
+    {target_base}#section_22_qualified_individual_count: 0
+    {target_base}#section_22_aged_qualified_individual_count: 0
+    {target_base}#section_22_under_65_disability_income: 0
+    {initial_amount_target}: 0
+    {target_base}#section_22_initial_amount_cap: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")
