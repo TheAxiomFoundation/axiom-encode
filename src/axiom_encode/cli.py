@@ -699,6 +699,15 @@ def main():
             "path for updating live RuleSpec files."
         ),
     )
+    encode_parser.add_argument(
+        "--apply-target-only",
+        action="store_true",
+        help=(
+            "With --apply, validate and install only the generated target file. "
+            "Use for clean breaking migrations where direct dependents will be "
+            "re-encoded in the same change set before final repository validation."
+        ),
+    )
 
     # eval command - run deterministic model comparisons on one or more citations
     eval_parser = subparsers.add_parser(
@@ -2736,6 +2745,9 @@ def cmd_encode(args):
                     output_root=args.output,
                     policy_repo_path=policy_repo_path,
                     axiom_rules_path=axiom_rules_path,
+                    validate_dependents=not bool(
+                        getattr(args, "apply_target_only", False)
+                    ),
                 )
             )
             outcome["overlay_validation_success"] = bool(can_apply)
@@ -3020,6 +3032,7 @@ def _validate_generated_encoding_in_policy_overlay(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    validate_dependents: bool = True,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Validate generated artifacts in a temporary policy-repo overlay."""
     output_file = Path(str(getattr(result, "output_file", "") or ""))
@@ -3071,7 +3084,11 @@ def _validate_generated_encoding_in_policy_overlay(
             enable_oracles=False,
             require_policy_proofs=True,
         )
-        dependents = _find_rulespec_dependents(overlay_repo, relative_output)
+        dependents = (
+            _find_rulespec_dependents(overlay_repo, relative_output)
+            if validate_dependents
+            else []
+        )
         dependent_pipeline = (
             ValidatorPipeline(
                 policy_repo_path=overlay_repo,

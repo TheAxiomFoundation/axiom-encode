@@ -3198,6 +3198,45 @@ rules:
         assert supplemental == {}
         assert [path.name for path in validated_paths] == ["C.yaml", "2.yaml"]
 
+    def test_apply_overlay_validation_can_skip_dependents_for_cascading_migration(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/24/h.yaml"
+        dependent = policy_repo / "statutes/26/24/d.yaml"
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        dependent.write_text(
+            "format: rulespec/v1\nimports:\n  - us:statutes/26/24/h\nrules: []\n"
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        validated_paths: list[Path] = []
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                validated_paths.append(Path(path))
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                validate_dependents=False,
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
+        assert [path.name for path in validated_paths] == ["h.yaml"]
+
     def test_apply_overlay_validation_fills_dependent_inputs_from_baseline(
         self, tmp_path
     ):
