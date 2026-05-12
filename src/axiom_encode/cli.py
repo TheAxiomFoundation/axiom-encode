@@ -586,6 +586,26 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_zero_tests_parser = subparsers.add_parser(
+        "repair-zero-branch-tests",
+        help="Apply signed deterministic repairs for missing zero-branch tests",
+    )
+    repair_zero_tests_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
+    repair_zero_tests_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_zero_tests_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1143,6 +1163,8 @@ def main():
         cmd_guard_generated(args)
     elif args.command == "repair-nonnegative-floors":
         cmd_repair_nonnegative_floors(args)
+    elif args.command == "repair-zero-branch-tests":
+        cmd_repair_zero_branch_tests(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -2468,12 +2490,13 @@ def cmd_repair_nonnegative_floors(args):
 
         rules_file.write_text(repaired_content)
         applied_files = [rules_file]
-        if _append_snap_zero_allotment_test_if_missing(
+        repaired_test_cases = _append_generated_zero_branch_tests_if_missing(
             rules_file=rules_file,
             test_file=test_file,
             repo_path=repo_path,
             relative_output=relative_output,
-        ):
+        )
+        if repaired_test_cases:
             applied_files.append(test_file)
         validation = ValidatorPipeline(
             policy_repo_path=repo_path,
@@ -2522,6 +2545,121 @@ def cmd_repair_nonnegative_floors(args):
         f"{relative_output}: {', '.join(repaired_rules)}"
     )
     print(f"manifest={manifest_path}")
+
+
+def cmd_repair_zero_branch_tests(args):
+    """Apply signed deterministic zero-branch companion test repairs."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        print(f"Companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_test_content = test_file.read_text()
+    repaired_test_cases = _append_generated_zero_branch_tests_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    )
+    if not repaired_test_cases:
+        print("No zero-branch test repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        test_file.write_text(original_test_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original test file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="zero-branch-test-v1",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied zero-branch test repair to "
+        f"{relative_output}: {', '.join(repaired_test_cases)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
+def _append_generated_zero_branch_tests_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> list[str]:
+    repaired: list[str] = []
+    if _append_snap_zero_allotment_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("initial_month_high_income_zero_allotment")
+    if _append_cdcc_zero_expense_limit_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("no_qualifying_individual_zero_cdcc_expense_limit")
+    return repaired
 
 
 def _append_snap_zero_allotment_test_if_missing(
@@ -2580,6 +2718,58 @@ def _append_snap_zero_allotment_test_if_missing(
   output:
     {target_base}#snap_calculated_monthly_allotment_before_minimums: 0
     {monthly_allotment_target}: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _append_cdcc_zero_expense_limit_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 21's no-qualifying-person branch."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if (
+        "name: cdcc_expense_limit_before_exclusion" not in rules_content
+        or "cdcc_qualifying_individual_count" not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    expense_limit_target = f"{target_base}#cdcc_expense_limit_before_exclusion"
+    test_content = test_file.read_text()
+    try:
+        test_payload = yaml.safe_load(test_content) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, expense_limit_target):
+        return False
+    if "no_qualifying_individual_zero_cdcc_expense_limit" in test_content:
+        return False
+
+    input_prefix = f"{target_base}#input."
+    relation_key = f"{target_base}#relation.qualifying_individual_of_tax_unit"
+    case = f"""- name: no_qualifying_individual_zero_cdcc_expense_limit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    {input_prefix}taxable_year_begins_in_2021: false
+    {relation_key}: []
+  output:
+    {target_base}#cdcc_qualifying_individual_count: 0
+    {expense_limit_target}: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")

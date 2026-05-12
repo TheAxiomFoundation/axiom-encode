@@ -42,6 +42,7 @@ from axiom_encode.cli import (
     cmd_oracle_candidates,
     cmd_oracle_coverage,
     cmd_repair_nonnegative_floors,
+    cmd_repair_zero_branch_tests,
     cmd_runs,
     cmd_session_end,
     cmd_session_show,
@@ -3523,6 +3524,85 @@ rules:
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "regulations/7-cfr/273/10.yaml",
             "regulations/7-cfr/273/10.test.yaml",
+        ]
+
+    def test_repair_zero_branch_tests_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/21.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: cdcc_expense_limit_before_exclusion
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if cdcc_qualifying_individual_count == 1:
+              cdcc_one_qualifying_individual_expense_limit
+          else:
+              if cdcc_qualifying_individual_count >= 2:
+                  cdcc_two_or_more_qualifying_individuals_expense_limit
+              else:
+                  0
+"""
+        )
+        test_file = policy_repo / "statutes/26/21.test.yaml"
+        test_file.write_text(
+            """- name: existing_positive_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/21#input.taxable_year_begins_in_2021: false
+  output:
+    us:statutes/26/21#cdcc_expense_limit_before_exclusion: 3000
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/21.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        test_content = test_file.read_text()
+        assert "no_qualifying_individual_zero_cdcc_expense_limit" in test_content
+        assert (
+            "us:statutes/26/21#cdcc_expense_limit_before_exclusion: 0" in test_content
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/21.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert payload["model"] == "zero-branch-test-v1"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/21.yaml",
+            "statutes/26/21.test.yaml",
         ]
 
     def test_apply_overlay_validation_checks_direct_dependents_by_default(
