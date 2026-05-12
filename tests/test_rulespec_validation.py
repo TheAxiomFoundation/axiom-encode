@@ -25,17 +25,21 @@ from axiom_encode.harness.validator_pipeline import (
     extract_numeric_occurrences_from_text,
     find_aggregate_exception_predicate_issues,
     find_broad_application_passthrough_issues,
+    find_child_fragment_reencoding_issues,
     find_copied_cross_reference_source_issues,
     find_deprecated_source_url_issues,
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
+    find_relation_aggregate_syntax_issues,
+    find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
+    find_source_limitation_application_issues,
     find_source_verification_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
@@ -3494,6 +3498,90 @@ rules:
     assert "disqualifying_condition" in issues[0]
 
 
+def test_test_input_assignment_ignores_match_keyword():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: credit_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match child_count:
+              0 => 0.0765
+              1 => 0.34
+"""
+    test_cases = [
+        {
+            "name": "one_child",
+            "input": {
+                "us:statutes/26/32#input.child_count": 1,
+            },
+            "output": {
+                "us:statutes/26/32#credit_rate": 0.34,
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
+def test_test_input_assignment_counts_relation_child_inputs():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: taxpayer_or_spouse_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: taxpayer_or_spouse_of_tax_unit
+      arity: 2
+      arguments:
+        - TaxUnit
+        - Person
+  - name: person_qualified
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= 65 and not disqualifying_condition
+  - name: qualified_person_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(taxpayer_or_spouse_of_tax_unit, person_qualified)
+"""
+    test_cases = [
+        {
+            "name": "tax_unit_with_aged_taxpayer",
+            "input": {
+                "us:statutes/26/22#relation.taxpayer_or_spouse_of_tax_unit": [
+                    {
+                        "us:statutes/26/22#input.age": 65,
+                        "us:statutes/26/22#input.disqualifying_condition": False,
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/22#qualified_person_count": 1,
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
 def test_test_input_assignment_ignores_imported_rule_outputs():
     content = """format: rulespec/v1
 module:
@@ -3589,6 +3677,35 @@ rules:
     assert len(issues) == 1
     assert "Cross-reference placeholder" in issues[0]
     assert "statutes/7/2015/b" in issues[0]
+
+
+def test_cross_reference_placeholder_allows_current_section_helpers(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "22.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Section 22 provides a credit except as limited by the section 22 amount.
+rules:
+  - name: is_aged_65_or_over
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= section_22_age_threshold
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
 
 
 def test_cross_reference_placeholder_requires_same_section_subsection_import(tmp_path):
@@ -3854,6 +3971,102 @@ rules:
     assert find_sibling_rule_name_collision_issues(content, rules_file) == []
 
 
+def test_child_fragment_reencoding_rejects_parent_copying_child_inputs(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "63" / "c.yaml"
+    child = repo / "statutes" / "26" / "63" / "c" / "5.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/standard-deduction
+rules:
+  - name: dependent_standard_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: earned_income + dependent_earned_income_addition
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/standard-deduction
+rules:
+  - name: basic_standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if deduction_allowable_to_another_taxpayer_under_section_151:
+              earned_income + dependent_earned_income_addition
+          else:
+              basic_standard_deduction_amount
+"""
+
+    issues = find_child_fragment_reencoding_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Child fragment re-encoded" in issues[0]
+    assert "earned_income" in issues[0]
+    assert "statutes/26/63/c/5" in issues[0]
+
+
+def test_child_fragment_reencoding_allows_imported_child_output(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "63" / "c.yaml"
+    child = repo / "statutes" / "26" / "63" / "c" / "5.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: dependent_standard_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: earned_income
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/63/c/5
+rules:
+  - name: basic_standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if deduction_allowable_to_another_taxpayer_under_section_151:
+              dependent_standard_deduction
+          else:
+              basic_standard_deduction_amount
+"""
+
+    assert (
+        find_child_fragment_reencoding_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
@@ -3876,6 +4089,44 @@ rules:
         formula: |-
           household_qualifies
           and not section_2015_b_exception_applies
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
+
+
+def test_cross_reference_placeholder_allows_deeper_import_for_semantic_tail(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1411.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
+module:
+  summary: |-
+    Modified adjusted gross income is adjusted gross income increased by the
+    excess of the amount excluded from gross income under section 911(a)(1)
+    over deductions or exclusions disallowed under section 911(d)(6).
+rules:
+  - name: niit_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          adjusted_gross_income
+          + gross_income_excluded_under_section_911_a_1
+          - section_911_disallowed_deductions_and_exclusions
 """
     )
     pipeline = ValidatorPipeline(
@@ -4624,6 +4875,106 @@ def test_rulespec_output_lookup_rejects_friendly_name_aliases(tmp_path):
     )
 
 
+def test_rulespec_ci_rejects_mixed_derived_output_entities(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "is_aged_65_or_over",
+                    "id": "us:statutes/26/22#is_aged_65_or_over",
+                    "entity": "Person",
+                },
+                {
+                    "name": "elderly_disabled_credit",
+                    "id": "us:statutes/26/22#elderly_disabled_credit",
+                    "entity": "TaxUnit",
+                },
+            ],
+            "parameters": [],
+        }
+    }
+    cases = [
+        {
+            "name": "mixed_person_and_tax_unit_outputs",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {},
+            "output": {
+                "us:statutes/26/22#is_aged_65_or_over": "holds",
+                "us:statutes/26/22#elderly_disabled_credit": 750,
+            },
+        }
+    ]
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "statutes/26/22.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=cases,
+    )
+
+    assert issues == [
+        "Test case `mixed_person_and_tax_unit_outputs` mixes derived output "
+        "entities (Person, TaxUnit); put outputs for each entity in separate "
+        "test cases."
+    ]
+
+
+def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "snap_net_income",
+                    "id": "us:statutes/7/2014/e/6/A#snap_net_income",
+                    "entity": "Household",
+                },
+                {
+                    "name": "snap_regular_month_allotment",
+                    "id": "us:statutes/7/2017/a#snap_regular_month_allotment",
+                    "entity": "Household",
+                },
+            ],
+            "parameters": [],
+        }
+    }
+    cases = [
+        {
+            "name": "stubs_imported_net_income",
+            "period": "2026-01",
+            "input": {"us:statutes/7/2014/e/6/A#snap_net_income": 100},
+            "output": {"us:statutes/7/2017/a#snap_regular_month_allotment": 268},
+        }
+    ]
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "statutes/7/2017/a.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=cases,
+    )
+
+    assert issues == [
+        "Test case `stubs_imported_net_income` assigns computed RuleSpec "
+        "output(s) as input: `us:statutes/7/2014/e/6/A#snap_net_income`. "
+        "Imported parameters and derived outputs are computed by the compiled "
+        "program; assign their upstream `#input.*` or `#relation.*` facts instead."
+    ]
+
+
 def test_rulespec_ci_executes_relation_list_inputs(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
@@ -5168,6 +5519,292 @@ rules:
     )
 
     assert issues == []
+
+
+def test_relation_aggregate_syntax_rejects_expression_sum_over_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: additional_condition_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          sum(member_of_tax_unit, (if is_aged_65_or_over: 1 else: 0) + (if is_blind: 1 else: 0))
+"""
+
+    issues = find_relation_aggregate_syntax_issues(content)
+
+    assert any("Unsupported relation aggregate syntax" in issue for issue in issues)
+    assert "sum(member_of_tax_unit, ...)" in issues[0]
+
+
+def test_role_limited_relation_scope_rejects_broad_container_count():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The additional standard deduction is the sum of each additional amount to
+    which the taxpayer is entitled. If the taxpayer is married and files a
+    joint return, the spouse may also be entitled to the additional amount.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: additional_condition_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Count
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          count_where(member_of_tax_unit, is_aged_65_or_over) + count_where(member_of_tax_unit, is_blind)
+"""
+
+    issues = find_role_limited_relation_scope_issues(content)
+
+    assert any("Role-limited relation scope" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+    assert "taxpayer" in issues[0]
+
+
+def test_role_limited_relation_scope_accepts_source_stated_household_members():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Each household member who is elderly counts toward the household allowance.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: elderly_member_count
+    kind: derived
+    entity: Household
+    dtype: Count
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(member_of_household, is_elderly)
+"""
+
+    assert find_role_limited_relation_scope_issues(content) == []
+
+
+def test_source_limitation_application_rejects_final_amount_without_limit():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The standard deduction means the sum of the basic standard deduction and
+    the additional standard deduction. Limitation on basic standard deduction
+    in the case of certain dependents: the basic standard deduction shall not
+    exceed the greater of $500 or earned income plus $250.
+rules:
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_standard_deduction_amount + additional_standard_deduction_amount
+"""
+
+    issues = find_source_limitation_application_issues(content)
+
+    assert any("Source limitation not applied" in issue for issue in issues)
+    assert "standard_deduction" in issues[0]
+
+
+def test_source_limitation_application_accepts_final_amount_with_limit_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The standard deduction means the sum of the basic standard deduction and
+    the additional standard deduction. Limitation on basic standard deduction
+    in the case of certain dependents: the basic standard deduction shall not
+    exceed the greater of $500 or earned income plus $250.
+rules:
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: dependent_limited_basic_standard_deduction + additional_standard_deduction_amount
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
+def test_source_limitation_application_accepts_indirect_limited_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The standard deduction means the sum of the basic standard deduction and
+    the additional standard deduction. Limitation on basic standard deduction
+    in the case of certain dependents: the basic standard deduction shall not
+    exceed the greater of $500 or earned income plus $250.
+rules:
+  - name: basic_standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if deduction_under_section_151_allowable_to_another_taxpayer:
+              dependent_standard_deduction
+          else:
+              basic_standard_deduction_amount
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_standard_deduction + additional_standard_deduction_amount
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
+def test_source_limitation_application_accepts_transitive_limited_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A credit equals 15 percent of the section 22 amount. The section 22 amount
+    is reduced by pension benefits and by the adjusted gross income limitation.
+rules:
+  - name: section_22_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, amount_after_benefit_reduction - agi_phaseout_reduction)
+  - name: elderly_disabled_credit_potential
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_22_amount * credit_rate
+  - name: elderly_disabled_credit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if eligible:
+              elderly_disabled_credit_potential
+          else:
+              0
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
+def test_source_limitation_application_scopes_subsection_special_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (a) Assessment and collection after limitation period. The term
+    overpayment includes the payment assessed after the expiration of the
+    period of limitation.
+
+    (b) Excessive credits (1) In general If refundable credits exceed the tax
+    imposed by subtitle A, reduced by nonrefundable credits, the excess is an
+    overpayment. (2) Special rule for credit under section 33 The credit is
+    treated as refundable only if a section 6013 election is in effect. The
+    preceding sentence shall not apply to a credit allowed by reason of section
+    1446.
+rules:
+  - name: excessive_refundable_credits_overpayment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 6401(b)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, refundable_credits - tax_reduced_by_nonrefundable_credits)
+  - name: section_33_credit_treated_as_refundable_credit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 6401(b)(2)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if section_6013_election_in_effect or credit_allowed_by_reason_of_section_1446:
+              section_33_credit_allowed
+          else:
+              0
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
+def test_source_limitation_application_scopes_lowercase_subsection_before_uppercase_subparagraph():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (a) In general The tax equals 3.8 percent of the lesser of (A) net
+    investment income or (B) the excess of modified adjusted gross income over
+    the threshold amount.
+
+    (b) Threshold amount The term threshold amount means (1) $250,000 for a
+    joint return, (2) one-half of that amount for a separate return, and (3)
+    $200,000 in any other case.
+
+    (c) Net investment income The term net investment income means the excess
+    of gross investment income over allocable deductions.
+rules:
+  - name: niit_threshold_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1411(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == 1:
+              niit_threshold_joint
+          else:
+              niit_threshold_other
+"""
+
+    assert find_source_limitation_application_issues(content) == []
 
 
 def test_source_verification_accepts_decimal_rate_values_as_word_percentages():
@@ -5878,6 +6515,31 @@ rules:
         "Ungrounded generated numeric literal" in issue and "452" in issue
         for issue in result.issues
     )
+
+
+def test_ungrounded_numeric_accepts_source_unicode_fraction():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1411
+rules:
+  - name: married_separate_threshold_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          0.5
+"""
+
+    assert (
+        find_ungrounded_numeric_issues(
+            content,
+            source_text="The amount is ½ of the dollar amount determined elsewhere.",
+        )
+        == []
+    )
+    assert 0.5 in extract_numeric_occurrences_from_text("The amount is ½.")
 
 
 def test_non_rulespec_yaml_artifact_is_rejected(tmp_path):

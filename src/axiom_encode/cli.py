@@ -699,6 +699,15 @@ def main():
             "path for updating live RuleSpec files."
         ),
     )
+    encode_parser.add_argument(
+        "--apply-target-only",
+        action="store_true",
+        help=(
+            "With --apply, validate and install only the generated target file. "
+            "Use for clean breaking migrations where direct dependents will be "
+            "re-encoded in the same change set before final repository validation."
+        ),
+    )
 
     # eval command - run deterministic model comparisons on one or more citations
     eval_parser = subparsers.add_parser(
@@ -2723,13 +2732,12 @@ def cmd_encode(args):
     repair_manifest = None
     apply_passed = False
     if apply_requested:
-        if not result.success:
-            detail = f"standalone_failed: {result.error or 'validation failed'}"
-            outcome["overlay_validation_success"] = False
-            outcome["status"] = "apply_blocked_validation"
+        if not _can_attempt_apply(result):
+            detail = str(getattr(result, "error", None) or "generation failed")
+            outcome["status"] = "apply_blocked_generation"
             outcome["apply_error"] = detail
             outcome["final_success"] = False
-            print(f"  apply=blocked_validation:{detail}")
+            print(f"  apply=blocked_generation:{detail}")
         else:
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
@@ -2737,36 +2745,43 @@ def cmd_encode(args):
                     output_root=args.output,
                     policy_repo_path=policy_repo_path,
                     axiom_rules_path=axiom_rules_path,
+                    validate_dependents=not bool(
+                        getattr(args, "apply_target_only", False)
+                    ),
                 )
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                detail = apply_issues[0] if apply_issues else "generation_failed"
+                detail = (
+                    apply_issues[0]
+                    if apply_issues
+                    else f"standalone_failed: {result.error or 'validation failed'}"
+                )
                 outcome["status"] = "apply_blocked_validation"
                 outcome["apply_error"] = detail
                 outcome["final_success"] = False
                 print(f"  apply=blocked_validation:{detail}")
-        if result.success and can_apply:
-            try:
-                applied = _apply_generated_encoding_result(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                    run_id=logged_run.id,
-                    supplemental_files=supplemental_files,
-                )
-            except RuntimeError as exc:
-                outcome["status"] = "apply_blocked_manifest"
-                outcome["apply_error"] = str(exc)
-                outcome["final_success"] = False
-                print(f"  apply=blocked_manifest:{exc}")
-            else:
-                print("  apply=" + ",".join(str(path) for path in applied))
-                apply_passed = True
-                outcome["status"] = "apply_applied"
-                outcome["apply_success"] = True
-                outcome["final_success"] = True
-                outcome["applied_files"] = [str(path) for path in applied]
+            if can_apply:
+                try:
+                    applied = _apply_generated_encoding_result(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        run_id=logged_run.id,
+                        supplemental_files=supplemental_files,
+                    )
+                except RuntimeError as exc:
+                    outcome["status"] = "apply_blocked_manifest"
+                    outcome["apply_error"] = str(exc)
+                    outcome["final_success"] = False
+                    print(f"  apply=blocked_manifest:{exc}")
+                else:
+                    print("  apply=" + ",".join(str(path) for path in applied))
+                    apply_passed = True
+                    outcome["status"] = "apply_applied"
+                    outcome["apply_success"] = True
+                    outcome["final_success"] = True
+                    outcome["applied_files"] = [str(path) for path in applied]
     repair_manifest = _record_encode_outcome(
         db_path=db_path,
         result=result,
@@ -2791,6 +2806,17 @@ def cmd_encode(args):
     if apply_requested:
         sys.exit(0 if apply_passed else 1)
     sys.exit(0 if result.success else 1)
+
+
+def _can_attempt_apply(result) -> bool:
+    """Allow apply for successful runs or standalone artifact-validation failures."""
+    if bool(getattr(result, "success", False)):
+        return True
+    error = str(getattr(result, "error", "") or "")
+    return error in {
+        "Generated RuleSpec failed compile validation",
+        "Generated RuleSpec failed CI validation",
+    }
 
 
 def _relative_generated_output_path(
@@ -3006,6 +3032,7 @@ def _validate_generated_encoding_in_policy_overlay(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    validate_dependents: bool = True,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Validate generated artifacts in a temporary policy-repo overlay."""
     output_file = Path(str(getattr(result, "output_file", "") or ""))
@@ -3057,12 +3084,6 @@ def _validate_generated_encoding_in_policy_overlay(
             enable_oracles=False,
             require_policy_proofs=True,
         )
-        # Applying one generated file can be part of a clean multi-file migration
-        # where dependents are regenerated later in the same batch. Keep apply
-        # target-strict and leave full dependent consistency to repository tests.
-        validate_dependents = (
-            os.getenv("AXIOM_ENCODE_VALIDATE_DEPENDENTS_ON_APPLY") == "1"
-        )
         dependents = (
             _find_rulespec_dependents(overlay_repo, relative_output)
             if validate_dependents
@@ -3085,25 +3106,24 @@ def _validate_generated_encoding_in_policy_overlay(
             dependents=dependents,
         )
         supplemental_files: dict[Path, str] = {}
-        if not all(validation.all_passed for _, validation in validations):
+        for _ in range(10):
+            if all(validation.all_passed for _, validation in validations):
+                return True, [], supplemental_files
             changed_tests = _complete_missing_dependent_test_inputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,
                 validations=validations,
             )
-            if changed_tests:
-                validations = _validate_overlay_files(
-                    pipeline,
-                    dependent_pipeline=dependent_pipeline,
-                    overlay_target=overlay_target,
-                    dependents=dependents,
-                )
-                supplemental_files = {
-                    path.relative_to(overlay_repo): path.read_text()
-                    for path in changed_tests
-                }
-        if all(validation.all_passed for _, validation in validations):
-            return True, [], supplemental_files
+            if not changed_tests:
+                break
+            for path in changed_tests:
+                supplemental_files[path.relative_to(overlay_repo)] = path.read_text()
+            validations = _validate_overlay_files(
+                pipeline,
+                dependent_pipeline=dependent_pipeline,
+                overlay_target=overlay_target,
+                dependents=dependents,
+            )
         issues: list[str] = []
         for validated_file, validation in validations:
             for validator_result in validation.results.values():
@@ -3147,10 +3167,13 @@ def _complete_missing_dependent_test_inputs(
     relative_output: Path,
     validations: list[tuple[Path, object]],
 ) -> list[Path]:
-    """Fill missing generated target inputs as false in dependent tests."""
+    """Fill missing generated target inputs in dependent tests."""
     target_ref = (
         f"{_repo_jurisdiction_prefix(overlay_repo)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    baseline_inputs = _load_test_input_baseline(
+        _rulespec_test_path(overlay_repo / relative_output)
     )
     changed: list[Path] = []
     for validated_file, validation in validations:
@@ -3169,38 +3192,147 @@ def _complete_missing_dependent_test_inputs(
         content = test_path.read_text()
         updated = content
         for input_name in sorted(missing_inputs):
-            input_ref = f"{target_ref}#input.{input_name}"
-            if input_ref in updated:
-                continue
-            updated = _insert_false_input_default(updated, input_ref)
+            for input_ref, value in _default_refs_for_missing_input(
+                input_name,
+                target_ref=target_ref,
+                baseline_inputs=baseline_inputs,
+            ):
+                updated = _insert_input_default_in_test_cases(
+                    updated,
+                    input_ref,
+                    value,
+                )
         if updated != content:
             test_path.write_text(updated)
             changed.append(test_path)
     return changed
 
 
-def _insert_false_input_default(content: str, input_ref: str) -> str:
-    """Insert an input default into the first anchored test input block."""
+def _load_test_input_baseline(test_path: Path) -> dict[str, object]:
+    """Return the first companion-test input block for generated defaults."""
+    try:
+        cases = yaml.safe_load(test_path.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return {}
+    if not isinstance(cases, list):
+        return {}
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        if isinstance(inputs, dict):
+            return {str(key): value for key, value in inputs.items()}
+    return {}
+
+
+def _default_refs_for_missing_input(
+    input_name: str,
+    *,
+    target_ref: str,
+    baseline_inputs: dict[str, object],
+) -> list[tuple[str, object]]:
+    suffix = f"#input.{input_name}"
+    matches = [
+        (reference, value)
+        for reference, value in baseline_inputs.items()
+        if reference.endswith(suffix)
+    ]
+    if matches:
+        return matches
+    return [
+        (f"{target_ref}#input.{input_name}", _infer_missing_input_default(input_name))
+    ]
+
+
+def _infer_missing_input_default(input_name: str) -> object:
+    normalized = input_name.lower()
+    numeric_markers = (
+        "amount",
+        "count",
+        "deduction",
+        "income",
+        "number",
+        "num_",
+        "wage",
+        "earning",
+    )
+    if any(marker in normalized for marker in numeric_markers):
+        return 0
+    return False
+
+
+def _insert_input_default_in_test_cases(
+    content: str, input_ref: str, value: object
+) -> str:
+    """Insert an input default into every concrete test input block that needs it."""
     lines = content.splitlines(keepends=True)
-    for index, line in enumerate(lines):
-        match = re.match(r"^(?P<indent>\s*)input:\s*&\S+\s*(?:#.*)?$", line)
+    blocks = _find_yaml_input_blocks(lines)
+    if not blocks:
+        return content
+
+    anchored_blocks = [
+        block for block in blocks if re.search(r"\s&\S+", lines[block[0]])
+    ]
+    target_blocks = [anchored_blocks[0]] if anchored_blocks else list(blocks)
+    if anchored_blocks:
+        for block in blocks:
+            if block in target_blocks:
+                continue
+            block_text = "".join(lines[block[0] : block[1]])
+            if "<<:" in block_text:
+                continue
+            target_blocks.append(block)
+
+    rendered = _format_yaml_scalar(value)
+    for start, end in sorted(target_blocks, reverse=True):
+        block_text = "".join(lines[start:end])
+        if re.search(rf"^\s*{re.escape(input_ref)}\s*:", block_text, re.MULTILINE):
+            continue
+        match = re.match(r"^(?P<indent>\s*)input:\s*", lines[start])
         if not match:
             continue
         indent = match.group("indent") + "  "
-        newline = "\n" if line.endswith("\n") else ""
-        lines.insert(index + 1, f"{indent}{input_ref}: false{newline}")
-        return "".join(lines)
+        newline = "\n" if lines[start].endswith("\n") else ""
+        lines.insert(start + 1, f"{indent}{input_ref}: {rendered}{newline}")
+    return "".join(lines)
 
+
+def _find_yaml_input_blocks(lines: list[str]) -> list[tuple[int, int]]:
+    blocks: list[tuple[int, int]] = []
     for index, line in enumerate(lines):
-        match = re.match(r"^(?P<indent>\s*)input:\s*(?:#.*)?$", line)
+        match = re.match(r"^(?P<indent>\s*)input:\s*(?:&\S+\s*)?(?:#.*)?$", line)
         if not match:
             continue
-        indent = match.group("indent") + "  "
-        newline = "\n" if line.endswith("\n") else ""
-        lines.insert(index + 1, f"{indent}{input_ref}: false{newline}")
-        return "".join(lines)
+        block_indent = len(match.group("indent"))
+        end = index + 1
+        while end < len(lines):
+            candidate = lines[end]
+            if (
+                candidate.strip()
+                and len(candidate) - len(candidate.lstrip(" ")) <= block_indent
+            ):
+                break
+            end += 1
+        blocks.append((index, end))
+    return blocks
 
-    return content
+
+def _format_yaml_scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "null"
+    if isinstance(value, int | float):
+        return str(value)
+    dumped = yaml.safe_dump(value, default_flow_style=True).strip()
+    if dumped.endswith("\n..."):
+        dumped = dumped.removesuffix("\n...").strip()
+    return dumped
+
+
+def _insert_false_input_default(content: str, input_ref: str) -> str:
+    """Insert a false input default into test input blocks."""
+    return _insert_input_default_in_test_cases(content, input_ref, False)
 
 
 def _rulespec_test_path(path: Path) -> Path:

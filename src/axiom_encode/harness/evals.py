@@ -1398,6 +1398,13 @@ def prepare_eval_workspace(
                 context_corpus_root,
             )
         )
+        selected.extend(
+            _select_cross_section_context_files(
+                citation,
+                source_text,
+                context_corpus_root,
+            )
+        )
         for extra_path in extra_context_paths or []:
             path = Path(extra_path)
             if path.exists():
@@ -1753,8 +1760,6 @@ def _auto_select_context_files(citation: str, policy_root: Path) -> list[Path]:
     target_rel = _target_rel_for_eval_identifier(citation)
     if target_rel is not None:
         target_path = policy_root / target_rel
-        if target_path.exists():
-            selected.append(target_path)
         if target_path.parent.exists():
             for sibling in sorted(target_path.parent.glob("*.yaml")):
                 if sibling.name.endswith(".test.yaml") or sibling == target_path:
@@ -1795,6 +1800,44 @@ def _select_same_section_subsection_context_files(
             continue
         candidate_rel = citation_to_relative_rulespec_path(
             CitationParts(parts.title, parts.section, (subsection,))
+        )
+        if candidate_rel == target_rel:
+            continue
+        candidate = policy_root / candidate_rel
+        resolved = candidate.resolve()
+        if candidate.exists() and resolved not in seen:
+            selected.append(candidate)
+            seen.add(resolved)
+    return selected
+
+
+def _select_cross_section_context_files(
+    citation: str,
+    source_text: str,
+    policy_root: Path,
+) -> list[Path]:
+    """Select existing RuleSpecs for cited USC sections outside this section."""
+    try:
+        parts = parse_usc_citation(citation)
+    except Exception:
+        return []
+
+    target_rel = citation_to_relative_rulespec_path(parts)
+    selected: list[Path] = []
+    seen: set[Path] = set()
+    for match in re.finditer(
+        r"\bsection\s+"
+        r"(?P<section>[0-9][A-Za-z0-9.-]*)"
+        r"(?P<fragments>(?:\([A-Za-z0-9]+\))*)",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        section = match.group("section")
+        if section == parts.section:
+            continue
+        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
+        candidate_rel = citation_to_relative_rulespec_path(
+            CitationParts(parts.title, section, fragments)
         )
         if candidate_rel == target_rel:
             continue
@@ -2421,9 +2464,21 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         root = document_roots.get(parts[1])
         if root is not None:
             tail = parts[2:]
+            if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
+                tail = _canonical_us_regulation_tail(tail)
             if tail:
                 return (Path(root) / Path(*tail)).with_suffix(".yaml")
     return Path("source") / f"{_slugify(source_id)}.yaml"
+
+
+def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:
+    """Map federal regulation corpus paths to canonical RuleSpec repo paths."""
+    if not tail:
+        return tail
+    title = tail[0].strip()
+    if title.isdigit():
+        return [f"{title}-cfr", *tail[1:]]
+    return tail
 
 
 def _canonical_target_ref_prefix(source_id: str, relative_path: Path) -> str | None:
@@ -2594,9 +2649,11 @@ Test file rules:
   empty.
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
-- If a test needs an imported derived output to become true or false, mirror the copied companion test `input:` pattern. Usually this means setting the imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not shortcutting by setting the imported derived output itself. Only set an imported derived key in `input:` when a copied companion test also uses that exact derived key in `input:`.
+- Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds` or `not_holds`, not `us:statutes/7/2012/j#input.snap_household_has_elderly_or_disabled_member`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
+- A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `us:statutes/7/2012/j#relation.member_of_household: [- true]`. Good: `us:statutes/7/2012/j#relation.member_of_household:` followed by `- us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true`.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines both `Person` and `TaxUnit` outputs, create separate cases: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
 - Every test case for a local derived formula must assign every local factual
@@ -2606,6 +2663,7 @@ Test file rules:
   companion tests for the positive path and the carve-out path so exclusions
   cannot be silently dropped.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change. For example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the same dependent/qualifying-child facts as its positive companion and flip only `noncitizen_exception_to_other_dependent_credit_applies`.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, preserve this file's public output names unless the source text proves the old interface was legally wrong. Do not rename an exported value just because a clearer friendly name is possible.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
@@ -2690,7 +2748,7 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
-- A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header` and row/column keys. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell`.
+- A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header`, `source.table.row_key`, and `source.table.column_key`; header-only `parameter_table` proof atoms are invalid. Example: `source: {{table: {{header: "credit percentage table", row_key: "qualifying_child_count", column_key: "credit_percentage"}}}}`. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell` or `parameter_table`.
 - Every executable `parameter` and `derived` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
@@ -2698,6 +2756,12 @@ RuleSpec requirements:
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
 - Do not encode a pure pass-through rule whose formula is only one local fact. If the source only names a preexisting fact without changing it, reference the upstream rule when available or leave the phrase documentary.
+- If a copied child-fragment file encodes a limitation, branch, amount, or
+  predicate needed by the requested parent provision, import the child output
+  and compose it. Do not copy the child formula or its factual inputs into the
+  parent file. For example, IRC section 63(c) should import
+  `us:statutes/26/63/c/5#dependent_standard_deduction` rather than reconstruct
+  the dependent earned-income limitation in `c.yaml`.
 - Do not create standalone small-number parameters just to restate prose such as "one-time" or "more than one consecutive month" when the number only qualifies a local factual condition. Encode the whole source-stated condition as a fact predicate or derived condition unless the scalar is an independent reusable amount, rate, threshold, cap, or limit.
 - Do not append citation or file suffixes like `_2014_a` to new local rule names; the file path is already the legal ID. Keep names concise and semantic unless a copied public interface must be preserved.
 - Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
@@ -2709,8 +2773,67 @@ RuleSpec requirements:
   item child files, make the principal output name semantic to that branch
   (for example `care_responsibility_exemption_applies`), not only the shared
   parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
+- When a child provision substitutes, increases, caps, or otherwise modifies a
+  sibling or parent output, give the replacement a branch-specific name such as
+  `_under_subsection_h`, `_after_2017`, or another source-stated modifier. For
+  IRC section 24(h), do not reuse sibling 24(d) names like
+  `ctc_refundable_phase_in_threshold`; use a subsection-h-specific name such as
+  `ctc_refundable_phase_in_threshold_under_subsection_h`.
+- Choose structural relations at the narrow legal subject stated by the source.
+  If the source grants an amount to the taxpayer, spouse, claimant, child, or
+  other role-limited person, do not aggregate over a broader household/tax-unit
+  relation unless the source says every member counts. Name the relation for the
+  role set that is legally counted, such as `taxpayer_or_spouse`, not merely for
+  the container entity. If a copied relation is legally too broad for the
+  requested source, rename it; relation names are not stable public outputs.
+  Never preserve or create `*_member_of_tax_unit` or `member_of_tax_unit` for a
+  source that counts only the taxpayer, spouse, qualified individual, claimant,
+  child, or dependent. For IRC section 22, count qualified individuals over a
+  relation like `taxpayer_or_spouse_of_tax_unit`, not
+  `elderly_disabled_member_of_tax_unit`.
+- For child tax credit, dependent credit, or any source that says "qualifying
+  child", "dependent of the taxpayer", or "with respect to such child", do not
+  use `member_of_tax_unit`. Define a role-scoped relation such as
+  `dependent_of_tax_unit`, `qualifying_child_of_tax_unit`, or
+  `child_or_dependent_of_tax_unit`, and aggregate over that relation. For IRC
+  section 24(h), count `ctc_qualifying_child` and `ctc_other_dependent` over a
+  dependent/child relation, not over `member_of_tax_unit`.
+- If the source computes an amount by reference to an entitlement, status,
+  amount, or test "under" another section, subsection, paragraph, regulation, or
+  document, do not inline that cross-reference's mechanics into this file unless
+  that cross-referenced source text is included and this file is the canonical
+  home for those mechanics. Import the existing RuleSpec target when present. If
+  the cross-reference is not yet encoded, expose a semantic input/count named
+  for the cross-reference itself, such as
+  `additional_standard_deduction_entitlement_count_under_subsection_f`, rather
+  than inventing the cross-referenced age, blindness, household, or membership
+  tests locally. For example, IRC section 63(c)(3) should not count
+  `is_aged_65_or_over` or `is_blind` over `member_of_tax_unit`; those are
+  subsection 63(f) mechanics.
+- When an unencoded cross-reference must be represented as a semantic local
+  input, name it after the legal status with an `_under_section_<section>` or
+  `_under_subsection_<subsection>` suffix. Do not start a local input with
+  `section_<section>_` or `subsection_<subsection>_`; those names are reserved
+  for imported legal outputs and will be treated as missing imports.
+- When a copied context file encodes a cited upstream source on a different
+  entity, import that upstream output and bridge entities with a structural
+  relation instead of replacing the import with a local cross-reference amount.
+  For example, if IRC section 22 excludes amounts described in section
+  104(a)(4), import
+  `us:statutes/26/104/a/4#service_injury_pension_excluded_amount` and aggregate
+  it over a TaxUnit-to-Payment relation; do not create local inputs named
+  `section_104_a_4_amounts` or `section_104_a_4_veterans_affairs_benefits`.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
 - Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
+- If the requested source text includes a limitation, cap, exception, or
+  cross-referenced subparagraph that changes the final exported amount, the
+  final exported amount must apply that limitation. If a copied sibling/context
+  file already encodes the limitation, import it and compose with it instead of
+  duplicating or ignoring it.
+- Do not create parallel statutory-dollar executable parameters when a copied
+  current-year authority already provides the applicable inflation-adjusted
+  parameter. Import the current-year authority unless the task is to encode the
+  inflation adjustment formula itself.
 - Do not invent new entities, periods, or dtypes.
 - Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
@@ -2722,6 +2845,12 @@ RuleSpec requirements:
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
+- Supported relation aggregators are `len(relation)`,
+  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
+  `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
+  `sum(relation, expression)` or put arithmetic inside a relation field access.
+  To count two boolean conditions over the same relation, write two
+  `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression, wrap the whole conditional in parentheses, such as `amount + (if condition: extra else: 0)`. Do not write `amount + if condition: extra else: 0`.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
@@ -2739,10 +2868,17 @@ RuleSpec requirements:
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change. For example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the same dependent/qualifying-child facts as its positive companion and flip only `noncitizen_exception_to_other_dependent_credit_applies`.
 - Every local executable `kind: parameter` and `kind: derived` rule must appear
   at least once under an `output:` block in the companion `.test.yaml`; do not
   leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If
+  a module defines both `Person` and `TaxUnit` outputs, create separate cases:
+  `Person` cases set person facts at the top level and assert person outputs;
+  `TaxUnit` cases use relation rows to supply person facts and assert only
+  tax-unit outputs. Do not assert relation-child outputs in the parent entity's
+  case.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If `./source.txt` says someone is "aged 18 or over", "under 25", or similar, model the legal age predicate instead of inventing documentary age constants.
 - When source text uses amendment markup like `[old] new`, treat the bracketed value as superseded text. Encode the current unbracketed value/effective date unless the task explicitly asks for historical text.
@@ -2777,7 +2913,16 @@ RuleSpec requirements:
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
-     defaults.
+     defaults. If a test asserts an indexed `parameter` table output directly,
+     the test must assign every `indexed_by` key as `#input.<key>`; otherwise
+     assert the derived lookup output instead of the raw table. In ordinary
+     end-to-end tests, do not output raw indexed parameter tables at all.
+     For imported modules, only assign imported `#input` or `#relation` keys
+     that exist in the current imported RuleSpec context. Do not preserve stale
+     imported test inputs from copied files. Do not stub imported derived
+     outputs as test inputs; imported programs are computed. If the downstream
+     rule depends on an imported output, assign all current upstream factual
+     inputs and relations needed by that imported output, including false facts.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
      textual claim support is either direct corpus source support or a claim ID
@@ -3113,8 +3258,10 @@ def _expand_context_files(
             continue
         seen.add(resolved)
         expanded.append((source_path, kind))
-        if source_path.suffix in {".yaml", ".yml"} and not source_path.name.endswith(
-            ".test.yaml"
+        if (
+            kind != "existing_target"
+            and source_path.suffix in {".yaml", ".yml"}
+            and not source_path.name.endswith(".test.yaml")
         ):
             test_path = _rulespec_test_path(source_path)
             resolved_test = test_path.resolve()

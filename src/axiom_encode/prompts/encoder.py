@@ -31,9 +31,13 @@ Hard requirements:
 - A `kind: table_cell` proof atom must include
   `source.table.header`, `source.table.row`, and `source.table.column`.
   A `kind: parameter_table` proof atom with `source.table` must include
-  `source.table.header` and row/column keys. If you cannot identify table
-  coordinates, use a direct proof kind such as `amount`, `parameter`, or
-  `formula` instead of `table_cell`.
+  `source.table.header`, `source.table.row_key`, and
+  `source.table.column_key`. Header-only `parameter_table` proof atoms are
+  invalid. For example:
+  `source: {table: {header: "credit percentage table", row_key: "qualifying_child_count", column_key: "credit_percentage"}}`.
+  If you cannot identify table coordinates, use a direct proof kind such as
+  `amount`, `parameter`, or `formula` instead of `table_cell` or
+  `parameter_table`.
 - Do not emit `source_url`; RuleSpec validation reads normalized corpus provisions,
   not raw PDFs or web pages.
 - Use `rules:` as a list of rule objects.
@@ -63,6 +67,12 @@ Hard requirements:
   encode subparagraphs, import those child outputs and compose them. Do not
   redefine the child parameters, helper rules, or copied executable outputs in
   the parent file.
+- If a copied child-fragment file encodes a limitation, branch, amount, or
+  predicate needed by the requested parent provision, import the child output
+  and compose it. Do not copy the child formula or its factual inputs into the
+  parent file. For example, IRC section 63(c) should import
+  `us:statutes/26/63/c/5#dependent_standard_deduction` rather than reconstruct
+  the dependent earned-income limitation in `c.yaml`.
 - If copied context listings include exported symbols as `import_target#name`,
   use those exact references in `imports:` and proof atoms when composing from
   context.
@@ -85,9 +95,59 @@ Hard requirements:
   item child files, make the principal output name semantic to that branch
   (for example `care_responsibility_exemption_applies`), not only the shared
   parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
+- When a child provision substitutes, increases, caps, or otherwise modifies a
+  sibling or parent output, give the replacement a branch-specific name such as
+  `_under_subsection_h`, `_after_2017`, or another source-stated modifier. For
+  IRC section 24(h), do not reuse sibling 24(d) names like
+  `ctc_refundable_phase_in_threshold`; use a subsection-h-specific name such as
+  `ctc_refundable_phase_in_threshold_under_subsection_h`.
 - For subparagraph/list item child files, do not preserve an existing copied
   target name that mainly describes the shared parent outcome rather than this
   branch's source-stated condition; treat it as stale and rename it.
+- Choose structural relations at the narrow legal subject stated by the source.
+  If the source grants an amount to the taxpayer, spouse, claimant, child, or
+  other role-limited person, do not aggregate over a broader household/tax-unit
+  relation unless the source says every member counts. Name the relation for the
+  role set that is legally counted, such as `taxpayer_or_spouse`, not merely for
+  the container entity. If a copied relation is legally too broad for the
+  requested source, rename it; relation names are not stable public outputs.
+  Never preserve or create `*_member_of_tax_unit` or `member_of_tax_unit` for a
+  source that counts only the taxpayer, spouse, qualified individual, claimant,
+  child, or dependent. For IRC section 22, count qualified individuals over a
+  relation like `taxpayer_or_spouse_of_tax_unit`, not
+  `elderly_disabled_member_of_tax_unit`.
+- For child tax credit, dependent credit, or any source that says "qualifying
+  child", "dependent of the taxpayer", or "with respect to such child", do not
+  use `member_of_tax_unit`. Define a role-scoped relation such as
+  `dependent_of_tax_unit`, `qualifying_child_of_tax_unit`, or
+  `child_or_dependent_of_tax_unit`, and aggregate over that relation. For IRC
+  section 24(h), count `ctc_qualifying_child` and `ctc_other_dependent` over a
+  dependent/child relation, not over `member_of_tax_unit`.
+- If the source computes an amount by reference to an entitlement, status,
+  amount, or test "under" another section, subsection, paragraph, regulation, or
+  document, do not inline that cross-reference's mechanics into this file unless
+  that cross-referenced source text is included and this file is the canonical
+  home for those mechanics. Import the existing RuleSpec target when present. If
+  the cross-reference is not yet encoded, expose a semantic input/count named
+  for the cross-reference itself, such as
+  `additional_standard_deduction_entitlement_count_under_subsection_f`, rather
+  than inventing the cross-referenced age, blindness, household, or membership
+  tests locally. For example, IRC section 63(c)(3) should not count
+  `is_aged_65_or_over` or `is_blind` over `member_of_tax_unit`; those are
+  subsection 63(f) mechanics.
+- When an unencoded cross-reference must be represented as a semantic local
+  input, name it after the legal status with an `_under_section_<section>` or
+  `_under_subsection_<subsection>` suffix. Do not start a local input with
+  `section_<section>_` or `subsection_<subsection>_`; those names are reserved
+  for imported legal outputs and will be treated as missing imports.
+- When a copied context file encodes a cited upstream source on a different
+  entity, import that upstream output and bridge entities with a structural
+  relation instead of replacing the import with a local cross-reference amount.
+  For example, if IRC section 22 excludes amounts described in section
+  104(a)(4), import
+  `us:statutes/26/104/a/4#service_injury_pension_excluded_amount` and aggregate
+  it over a TaxUnit-to-Payment relation; do not create local inputs named
+  `section_104_a_4_amounts` or `section_104_a_4_veterans_affairs_benefits`.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility,
   availability, applicability, entitlement, and other holds/not-holds style
   outputs, especially when the formula contains `not`.
@@ -100,6 +160,15 @@ Hard requirements:
   a formula needs a local true/false fact, reference a descriptive bare fact
   name in the formula and put that fact in tests as
   `<jurisdiction>:<repo-path>#input.<fact>`.
+- If the requested source text includes a limitation, cap, exception, or
+  cross-referenced subparagraph that changes the final exported amount, the
+  final exported amount must apply that limitation. If a copied sibling/context
+  file already encodes the limitation, import it and compose with it instead of
+  duplicating or ignoring it.
+- Do not create parallel statutory-dollar executable parameters when a copied
+  current-year authority already provides the applicable inflation-adjusted
+  parameter. Import the current-year authority unless the task is to encode the
+  inflation adjustment formula itself.
 - Use `kind: source_relation` for non-executable legal/provenance edges such as
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and
@@ -126,12 +195,26 @@ Hard requirements:
   at least once under an `output:` block in the companion `.test.yaml`; do not
   leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
-- If a test needs an imported derived output to become true or false, mirror the
-  copied companion test `input:` pattern. Usually this means setting the
-  imported file's underlying `#input.<fact>` and `#relation.<name>` keys, not
-  shortcutting by setting the imported derived output itself. Only set an
-  imported derived key in `input:` when a copied companion test also uses that
-  exact derived key in `input:`.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If
+  a module defines both `Person` and `TaxUnit` outputs, create separate cases:
+  `Person` cases set person facts at the top level and assert person outputs;
+  `TaxUnit` cases use relation rows to supply person facts and assert only
+  tax-unit outputs. Do not assert relation-child outputs in the parent entity's
+  case.
+- A `#relation.<name>` input value must be a YAML list of row mappings. Never
+  use a scalar row such as `- true`. For example:
+  `us:statutes/7/2012/j#relation.member_of_household:`
+  followed by `- us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true`.
+  Bad:
+  `us:statutes/7/2012/j#relation.member_of_household: [- true]`
+  Good:
+  `us:statutes/7/2012/j#relation.member_of_household:`
+  followed by `- us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true`.
+- Never assign an imported module's computed `#rule_name` output in `input:`.
+  If this file imports that rule, the compiled program computes it. To make an
+  imported output true, false, or equal a value, mirror the imported file's
+  companion test pattern by setting its underlying `#input.<fact>` and
+  `#relation.<name>` keys.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
   key. For example, use
   `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds`
@@ -156,6 +239,12 @@ Hard requirements:
 - If a formula negates multiple exception predicates, include a separate
   companion test for each predicate that sets that exception input true and
   expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the
+  same output rule where only the exception input changes from `false` to
+  `true`; do not combine the exception test with another branch change. For
+  example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the
+  same dependent/qualifying-child facts as its positive companion and flip only
+  `noncitizen_exception_to_other_dependent_credit_applies`.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into
   one aggregate fact such as `sections_..._do_not_preclude...`. Encode or
   import each cited exception separately, then combine them in a helper if
@@ -215,6 +304,12 @@ Hard requirements:
   `ceil(x)`. Do not use Python-only functions such as `round(...)`; express
   nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for
   nonnegative amounts.
+- Supported relation aggregators are `len(relation)`,
+  `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
+  `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
+  `sum(relation, expression)` or put arithmetic inside a relation field access.
+  To count two boolean conditions over the same relation, write two
+  `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression,
   wrap the whole conditional in parentheses, such as
   `amount + (if condition: extra else: 0)`. Do not write
@@ -247,7 +342,16 @@ Hard requirements:
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
-     defaults.
+     defaults. If a test asserts an indexed `parameter` table output directly,
+     the test must assign every `indexed_by` key as `#input.<key>`; otherwise
+     assert the derived lookup output instead of the raw table. In ordinary
+     end-to-end tests, do not output raw indexed parameter tables at all.
+     For imported modules, only assign imported `#input` or `#relation` keys
+     that exist in the current imported RuleSpec context. Do not preserve stale
+     imported test inputs from copied files. Do not stub imported derived
+     outputs as test inputs; imported programs are computed. If the downstream
+     rule depends on an imported output, assign all current upstream factual
+     inputs and relations needed by that imported output, including false facts.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
      textual claim support is either direct corpus source support or a claim ID

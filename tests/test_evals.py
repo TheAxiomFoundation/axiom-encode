@@ -101,6 +101,12 @@ def test_source_identifier_maps_corpus_regulation_to_repo_path():
     ) == Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
 
 
+def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
+    assert _source_identifier_to_relative_rulespec_path(
+        "us/regulation/7/273/10"
+    ) == Path("regulations/7-cfr/273/10.yaml")
+
+
 class TestCorpusSourceResolution:
     def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
@@ -339,6 +345,12 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
+    assert "If a test asserts an indexed `parameter` table output directly" in prompt
+    assert "do not output raw indexed parameter tables at all" in prompt
+    assert "imported test inputs from copied files" in prompt
+    assert "Do not stub imported derived" in prompt
+    assert "#relation.<name>` input value must be a YAML list of row mappings" in prompt
+    assert "member_of_household: [- true]" in prompt
     assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
     assert (
         "Import inventory: every `imports:` entry is an exact copied/importable"
@@ -354,6 +366,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert (
         "A `kind: table_cell` proof atom must include `source.table.header`" in prompt
     )
+    assert "header-only `parameter_table` proof atoms are invalid" in prompt
+    assert "row_key" in prompt
+    assert "column_key" in prompt
     assert (
         "Adjacent bracket thresholds repeated as both an upper bound and the next"
         in prompt
@@ -2264,6 +2279,28 @@ class TestEvalPrompt:
         assert (
             "Use chained `if condition: value else: other_value` expressions" in prompt
         )
+        assert "do not inline that cross-reference's mechanics into this file" in prompt
+        assert (
+            "additional_standard_deduction_entitlement_count_under_subsection_f"
+            in prompt
+        )
+        assert "us:statutes/26/63/c/5#dependent_standard_deduction" in prompt
+        assert "Do not start a local input with" in prompt
+        assert "_under_section_<section>" in prompt
+        assert "For IRC section 22" in prompt
+        assert "taxpayer_or_spouse_of_tax_unit" in prompt
+        assert "elderly_disabled_member_of_tax_unit" in prompt
+        assert "section 24(h)" in prompt
+        assert "dependent_of_tax_unit" in prompt
+        assert "ctc_qualifying_child" in prompt
+        assert "ctc_refundable_phase_in_threshold_under_subsection_h" in prompt
+        assert "only the exception input changes" in prompt
+        assert "noncitizen_exception_to_other_dependent_credit_applies" in prompt
+        assert "service_injury_pension_excluded_amount" in prompt
+        assert "TaxUnit-to-Payment" in prompt
+        assert "section_104_a_4_amounts" in prompt
+        assert "only one entity type" in prompt
+        assert "Do not assert relation-child outputs" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
@@ -4297,7 +4334,7 @@ class TestRepoAugmentedContext:
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
-    def test_prepare_eval_workspace_copies_existing_corpus_target(self, tmp_path):
+    def test_prepare_eval_workspace_omits_existing_corpus_target(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "rulespec-us-ny"
         target_file = (
@@ -4327,26 +4364,8 @@ class TestRepoAugmentedContext:
         copied_sources = {
             item["source_path"]: item for item in manifest["context_files"]
         }
-        assert copied_sources[str(target_file)]["kind"] == "existing_target"
-        assert copied_sources[str(target_file)]["import_path"] == (
-            "us-ny:regulations/18-nycrr/387/12/f"
-        )
-        assert (
-            copied_sources[str(target_file.with_name("f.test.yaml"))]["kind"]
-            == "implementation_test_context"
-        )
-
-        prompt = _build_eval_prompt(
-            "us-ny/regulation/18-nycrr/387/12/f",
-            "repo-augmented",
-            workspace,
-            workspace.context_files,
-            target_file_name="f.yaml",
-            runner_backend="openai",
-        )
-        assert "existing_target" in prompt
-        assert "existing_provenance" in prompt
-        assert "preserve the legal/provenance edge" in prompt
+        assert str(target_file) not in copied_sources
+        assert str(target_file.with_name("f.test.yaml")) not in copied_sources
 
     def test_select_context_files_excludes_target(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
@@ -4471,6 +4490,47 @@ class TestRepoAugmentedContext:
         assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
         assert (
             copied_sources[str(context_file)]["import_path"] == "us:statutes/7/2015/e"
+        )
+        assert (
+            copied_sources[str(context_test)]["kind"] == "implementation_test_context"
+        )
+
+    def test_prepare_eval_workspace_adds_cross_section_context(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        context_root = repo_root / "rulespec-us" / "statutes" / "26" / "104" / "a"
+        context_root.mkdir(parents=True)
+        context_file = context_root / "4.yaml"
+        context_test = context_root / "4.test.yaml"
+        context_file.write_text("format: rulespec/v1\nrules: []\n")
+        context_test.write_text("- name: service_injury_case\n  period: 2026\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 22",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=(
+                    "No reduction shall be made for any amount described in "
+                    "section 104(a)(4)."
+                ),
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
+        assert (
+            copied_sources[str(context_file)]["import_path"] == "us:statutes/26/104/a/4"
         )
         assert (
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
@@ -5183,7 +5243,7 @@ class TestSourceEval:
         assert "record that legal/provenance edge as a separate" in prompt
         assert "Preserve existing or copied `kind: source_relation` records" in prompt
         assert "source_relation.basis.delegation" in prompt
-        assert "mirror the copied companion test `input:` pattern" in prompt
+        assert "mirror the imported file's companion test pattern" in prompt
         assert "Never turn an imported derived rule into a fabricated" in prompt
         assert (
             "Every local executable `kind: parameter` and `kind: derived` rule"

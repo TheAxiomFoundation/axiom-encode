@@ -559,6 +559,17 @@ GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
 SOURCE_TEXT_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,]))(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
+_UNICODE_FRACTION_VALUES = {
+    "¼": 0.25,
+    "½": 0.5,
+    "¾": 0.75,
+    "⅓": 1 / 3,
+    "⅔": 2 / 3,
+    "⅛": 0.125,
+    "⅜": 0.375,
+    "⅝": 0.625,
+    "⅞": 0.875,
+}
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -1462,6 +1473,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
         if phrase in text_lower:
             numbers.add(value)
 
+    for glyph, value in _UNICODE_FRACTION_VALUES.items():
+        if glyph in text:
+            numbers.add(value)
+
     for match in _CARDINAL_WORD_PATTERN.finditer(text_lower):
         numbers.add(_CARDINAL_WORD_VALUES[match.group(1)])
 
@@ -1680,6 +1695,9 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
             if _ordinal_is_calendar_day_reference(cleaned, match.end(), value):
                 continue
             occurrences.append(value)
+
+    for glyph, value in _UNICODE_FRACTION_VALUES.items():
+        occurrences.extend(value for _ in re.finditer(re.escape(glyph), cleaned))
 
     occurrence_counts = Counter(occurrences)
     normalized: list[float] = []
@@ -3100,6 +3118,363 @@ def find_source_condition_coverage_issues(
     return issues
 
 
+_UNSUPPORTED_RELATION_SUM_PATTERN = re.compile(
+    r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,",
+    flags=re.IGNORECASE,
+)
+_RELATION_AGGREGATE_PATTERN = re.compile(
+    r"\b(?:count_where|len|sum|sum_where)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
+    flags=re.IGNORECASE,
+)
+_BROAD_STRUCTURAL_RELATION_PATTERN = re.compile(
+    r"(?:^|_)(?:member|members)_of_(?:tax_unit|household|family|filing_unit)$"
+    r"|^(?:tax_unit|household|family|filing_unit)_(?:member|members)$",
+    flags=re.IGNORECASE,
+)
+_ROLE_LIMITED_SOURCE_PATTERN = re.compile(
+    r"\b(?:taxpayer|spouse|claimant|applicant|child|children|dependent|individual)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_LIMITATION_PATTERN = re.compile(
+    r"\b(?:limitation|limited\s+to|shall\s+not\s+exceed|may\s+not\s+exceed|"
+    r"not\s+exceed|lesser\s+of|greater\s+of|reduced\s+by|except\s+that|"
+    r"only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
+    flags=re.IGNORECASE,
+)
+_CONDITIONAL_SOURCE_LIMITATION_PATTERN = re.compile(
+    r"\b(?:except\s+that|only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
+    flags=re.IGNORECASE,
+)
+_LIMITATION_ON_SUBJECT_PATTERN = re.compile(
+    r"\blimitation\s+on\s+(?:the\s+)?([A-Za-z][A-Za-z\s-]{2,80}?)"
+    r"(?:\s+in\s+the\s+case\b|[:.;,]|$)",
+    flags=re.IGNORECASE,
+)
+_LIMITATION_IMPLEMENTATION_PATTERN = re.compile(
+    r"(?:^|_|\b)(?:limit|limitation|limited|cap|ceiling|maximum|minimum|"
+    r"lesser|greater|reduc(?:e|ed|tion)|not_exceed|dependent|earned_income|"
+    r"section_151)(?:_|\b|$)|\bmin\s*\(|\bmax\s*\(",
+    flags=re.IGNORECASE,
+)
+_CONDITIONAL_FORMULA_PATTERN = re.compile(r"\bif\b[\s\S]*\belse\b", flags=re.IGNORECASE)
+_FINAL_AMOUNT_NAME_PATTERN = re.compile(
+    r"(?:^|_)(?:amount|benefit|deduction|credit|tax|allotment|allowance)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _rulespec_payload(content: str) -> dict[str, Any] | None:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _rulespec_rule_formula_records(
+    payload: dict[str, Any],
+) -> list[tuple[str, str, str, Any]]:
+    """Return `(rule_name, kind, formula, source)` entries from a RuleSpec payload."""
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    formulas: list[tuple[str, str, str, Any]] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or f"rules[{index}]").strip()
+        kind = str(rule.get("kind") or "").strip().lower()
+        rule_source = rule.get("source")
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            source = version.get("source", rule_source)
+            formula = version.get("formula")
+            if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                formulas.append((name, kind, str(formula), source))
+            elif isinstance(formula, str) and formula.strip():
+                formulas.append((name, kind, formula, source))
+    return formulas
+
+
+def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Return `(rule_name, kind, formula)` entries from a RuleSpec payload."""
+    return [
+        (name, kind, formula)
+        for name, kind, formula, _source in _rulespec_rule_formula_records(payload)
+    ]
+
+
+def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    return {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("kind") or "").strip().lower() == "data_relation"
+        and str(rule.get("name") or "").strip()
+    }
+
+
+def _source_limitation_subject_slugs(source_text: str) -> set[str]:
+    slugs: set[str] = set()
+    for match in _LIMITATION_ON_SUBJECT_PATTERN.finditer(source_text):
+        slug = re.sub(r"[^a-z0-9]+", "_", match.group(1).lower()).strip("_")
+        if slug:
+            slugs.add(slug)
+    return slugs
+
+
+def _rule_source_subsection_tokens(source: Any) -> tuple[str, ...]:
+    if isinstance(source, dict):
+        source_text = " ".join(
+            str(value) for value in source.values() if isinstance(value, str)
+        )
+    elif isinstance(source, str):
+        source_text = source
+    else:
+        return ()
+    return tuple(
+        token
+        for token in re.findall(r"\(([A-Za-z0-9]+)\)", source_text)
+        if 1 <= len(token) <= 4
+    )
+
+
+def _slice_source_text_at_marker(source_text: str, token: str) -> str:
+    marker_flags = 0 if token.isalpha() else re.IGNORECASE
+    marker = re.compile(rf"\({re.escape(token)}\)", flags=marker_flags)
+    match = marker.search(source_text)
+    if match is None:
+        return ""
+
+    if token.isdigit():
+        next_token = str(int(token) + 1)
+    elif len(token) == 1 and token.isalpha():
+        next_token = chr(ord(token) + 1)
+    else:
+        next_token = ""
+    if not next_token:
+        return source_text[match.start() :].strip()
+    next_marker_pattern = rf"\({re.escape(next_token)}\)"
+    next_match = re.search(
+        next_marker_pattern,
+        source_text[match.end() :],
+        flags=marker_flags,
+    )
+    if next_match is None:
+        return source_text[match.start() :].strip()
+    return source_text[match.start() : match.end() + next_match.start()].strip()
+
+
+def _source_text_for_rule_source(source_text: str, source: Any) -> str:
+    scoped_source = source_text
+    for token in _rule_source_subsection_tokens(source):
+        next_scoped_source = _slice_source_text_at_marker(scoped_source, token)
+        if not next_scoped_source:
+            return scoped_source
+        scoped_source = next_scoped_source
+    return scoped_source
+
+
+def _formula_implements_limitation(formula: str, source_text: str) -> bool:
+    if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
+        return True
+    return bool(
+        _CONDITIONAL_SOURCE_LIMITATION_PATTERN.search(source_text)
+        and _CONDITIONAL_FORMULA_PATTERN.search(formula)
+    )
+
+
+def _source_supports_structural_relation_container(
+    source_text: str, relation_name: str
+) -> bool:
+    normalized_source = source_text.lower()
+    normalized_relation = relation_name.lower()
+    if re.search(r"\b(?:all|each|every)\s+(?:member|members)\b", normalized_source):
+        return True
+    relation_container_terms = (
+        ("member_of_household", "household"),
+        ("household_member", "household"),
+        ("member_of_family", "family"),
+        ("family_member", "family"),
+        ("member_of_filing_unit", "filing unit"),
+        ("filing_unit_member", "filing unit"),
+        ("member_of_tax_unit", "tax unit"),
+        ("tax_unit_member", "tax unit"),
+    )
+    return any(
+        relation_token in normalized_relation and source_term in normalized_source
+        for relation_token, source_term in relation_container_terms
+    )
+
+
+def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
+    """Reject relation aggregation forms that the runtime does not support."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    relation_names = _rulespec_data_relation_names(payload)
+    issues: list[str] = []
+    for name, _kind, formula in _rulespec_rule_formulas(payload):
+        for match in _UNSUPPORTED_RELATION_SUM_PATTERN.finditer(formula):
+            relation_name = match.group(1)
+            if (
+                relation_name not in relation_names
+                and not _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name)
+            ):
+                continue
+            issues.append(
+                "Unsupported relation aggregate syntax: "
+                f"`{name}` uses `sum({relation_name}, ...)`. RuleSpec supports "
+                "`sum(relation.amount_fact)` and "
+                "`sum_where(relation, amount_fact_or_derived, predicate_fact)`; "
+                "move arithmetic into named facts/derived rules before aggregating."
+            )
+    return issues
+
+
+def find_role_limited_relation_scope_issues(content: str) -> list[str]:
+    """Flag broad container relations used where the source names narrower roles."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not source_text or not _ROLE_LIMITED_SOURCE_PATTERN.search(source_text):
+        return []
+
+    relation_names = _rulespec_data_relation_names(payload)
+    broad_relations = {
+        relation_name
+        for relation_name in relation_names
+        if _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name)
+    }
+    if not broad_relations:
+        return []
+
+    role_terms = sorted(
+        {
+            match.group(0).lower()
+            for match in _ROLE_LIMITED_SOURCE_PATTERN.finditer(source_text)
+        }
+    )
+    role_detail = ", ".join(role_terms[:4])
+    issues: list[str] = []
+    reported: set[tuple[str, str]] = set()
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived":
+            continue
+        for match in _RELATION_AGGREGATE_PATTERN.finditer(formula):
+            relation_name = match.group(1)
+            if relation_name not in broad_relations:
+                continue
+            if _source_supports_structural_relation_container(
+                source_text, relation_name
+            ):
+                continue
+            key = (name, relation_name)
+            if key in reported:
+                continue
+            reported.add(key)
+            issues.append(
+                "Role-limited relation scope: "
+                f"`{name}` aggregates `{relation_name}`, but the source text "
+                f"states narrower legal role(s) ({role_detail}). Define or use "
+                "a relation/fact scoped to the exact roles counted by the source; "
+                "do not count every member of a broader container unless the "
+                "source says every member counts."
+            )
+    return issues
+
+
+def find_source_limitation_application_issues(content: str) -> list[str]:
+    """Flag final amount formulas that ignore a same-source cap or limitation."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not source_text or not _SOURCE_LIMITATION_PATTERN.search(source_text):
+        return []
+
+    formula_records = _rulespec_rule_formula_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source in formula_records
+        if kind == "derived"
+    }
+    issues: list[str] = []
+    for name, kind, formula, rule_source in formula_records:
+        if kind != "derived":
+            continue
+        if not _FINAL_AMOUNT_NAME_PATTERN.search(name):
+            continue
+        scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if not _SOURCE_LIMITATION_PATTERN.search(scoped_source_text):
+            continue
+        limitation_subject_slugs = _source_limitation_subject_slugs(scoped_source_text)
+        candidate_text = f"{name} {formula}".lower()
+        if limitation_subject_slugs and not any(
+            slug in candidate_text for slug in limitation_subject_slugs
+        ):
+            continue
+        if _formula_implements_limitation(formula, scoped_source_text):
+            continue
+        if _formula_or_referenced_helpers_implement_limitation(
+            formula,
+            formula_by_name=formula_by_name,
+            current_name=name,
+            source_text=scoped_source_text,
+        ):
+            continue
+        issues.append(
+            "Source limitation not applied: "
+            f"`{name}` is a final amount-style output, but the same source text "
+            "contains a limitation, cap, exception, or not-exceed rule that the "
+            "formula does not reference. Import or encode the limiting rule and "
+            "compose it into the final exported amount."
+        )
+    return issues
+
+
+def _formula_or_referenced_helpers_implement_limitation(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    current_name: str,
+    source_text: str,
+    seen: set[str] | None = None,
+) -> bool:
+    if _formula_implements_limitation(formula, source_text):
+        return True
+    visited = set(seen or set())
+    visited.add(current_name)
+    for identifier in _formula_local_identifiers(formula):
+        if identifier in visited or identifier not in formula_by_name:
+            continue
+        if _formula_or_referenced_helpers_implement_limitation(
+            formula_by_name[identifier],
+            formula_by_name=formula_by_name,
+            current_name=identifier,
+            source_text=source_text,
+            seen=visited,
+        ):
+            return True
+    return False
+
+
 _BROAD_APPLICATION_FURNISHING_SOURCE_PATTERN = re.compile(
     r"\b(?:shall|must|may)\s+(?:be\s+)?"
     r"(?:furnished|provided|paid|made\s+available|granted|issued)\b"
@@ -3374,6 +3749,156 @@ def find_sibling_rule_name_collision_issues(
             f"rule `{name}` is also exported by sibling `{sibling.name}`. "
             "Use semantic branch-specific names so aggregate parent provisions "
             "can import sibling outputs without ambiguity."
+        )
+    return issues
+
+
+def _rulespec_executable_names_from_payload(payload: Any) -> set[str]:
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+        }:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _rulespec_payload_from_file(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _rulespec_import_export_names(
+    imports: set[str],
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> set[str]:
+    names: set[str] = set()
+    for import_path in imports:
+        import_file = _resolve_rulespec_import_file_static(
+            import_path,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if import_file is None:
+            continue
+        payload = _rulespec_payload_from_file(import_file)
+        names.update(_rulespec_executable_names_from_payload(payload))
+    return names
+
+
+def _rulespec_local_input_slots(
+    payload: dict[str, Any],
+    *,
+    imports: set[str],
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> set[str]:
+    local_symbols = _rulespec_executable_names_from_payload(payload)
+    local_symbols.update(_rulespec_data_relation_names(payload))
+    imported_symbols = _rulespec_import_export_names(
+        imports,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    return _rulespec_formula_identifiers(payload) - local_symbols - imported_symbols
+
+
+def find_child_fragment_reencoding_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Reject parent files that re-encode factual inputs owned by child fragments."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    child_dir = rules_file.with_suffix("")
+    if not child_dir.is_dir():
+        return []
+
+    try:
+        policy_repo_path = policy_repo_path.resolve()
+        rules_file.resolve().relative_to(policy_repo_path)
+    except ValueError:
+        return []
+
+    imports = {
+        _normalize_rulespec_import_path_static(import_path)
+        for import_path in _extract_import_paths_from_content(content)
+    }
+    parent_inputs = _rulespec_local_input_slots(
+        payload,
+        imports=imports,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    if not parent_inputs:
+        return []
+
+    issues: list[str] = []
+    for child in sorted(child_dir.rglob("*.yaml")):
+        if child.name.endswith(".test.yaml"):
+            continue
+        try:
+            child_import_base = (
+                child.resolve().relative_to(policy_repo_path).with_suffix("").as_posix()
+            )
+            child_display_path = (
+                child.resolve().relative_to(policy_repo_path).as_posix()
+            )
+        except ValueError:
+            continue
+        if _imports_cover_path_static(imports, child_import_base):
+            continue
+
+        child_payload = _rulespec_payload_from_file(child)
+        if child_payload is None:
+            continue
+        child_imports = {
+            _normalize_rulespec_import_path_static(import_path)
+            for import_path in _extract_import_paths_from_content(child.read_text())
+        }
+        child_inputs = _rulespec_local_input_slots(
+            child_payload,
+            imports=child_imports,
+            rules_file=child,
+            policy_repo_path=policy_repo_path,
+        )
+        shared_inputs = sorted(parent_inputs & child_inputs)
+        if not shared_inputs:
+            continue
+
+        child_exports = sorted(_rulespec_executable_names_from_payload(child_payload))
+        export_hint = (
+            f" such as `{child_exports[0]}`" if child_exports else " from that child"
+        )
+        shared = ", ".join(f"`{name}`" for name in shared_inputs[:4])
+        if len(shared_inputs) > 4:
+            shared += ", ..."
+        issues.append(
+            "Child fragment re-encoded: "
+            f"`{rules_file.name}` uses child-local input(s) {shared} also used by "
+            f"`{child_display_path}` without importing `{child_import_base}`. "
+            f"Import and compose the child output{export_hint} "
+            "instead of copying the child formula or factual inputs into the parent."
         )
     return issues
 
@@ -3790,10 +4315,14 @@ def _all_test_input_names(test_cases: list[Any]) -> set[str]:
 
 def _input_names_from_mapping(inputs: dict[Any, Any]) -> set[str]:
     names: set[str] = set()
-    for key in inputs:
+    for key, value in inputs.items():
         fragment = _test_reference_fragment(key)
         if fragment.startswith("input."):
             names.add(fragment.removeprefix("input."))
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    names.update(_input_names_from_mapping(item))
     return names
 
 
@@ -4993,6 +5522,7 @@ _RULESPEC_FORMULA_BUILTINS = {
     "floor",
     "if",
     "len",
+    "match",
     "max",
     "min",
     "not",
@@ -6195,7 +6725,7 @@ class ValidatorPipeline:
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
         issues: list[str] = []
-        binary = self._axiom_rules_binary()
+        binary: Path | None = None
         derived_by_key, parameter_by_key = self._rulespec_program_maps(compiled_payload)
         legal_ids_by_friendly_name = self._rulespec_legal_ids_by_friendly_output_name(
             compiled_payload
@@ -6238,6 +6768,29 @@ class ValidatorPipeline:
                     f"Test case #{index} output must assert "
                     f"{self.policyengine_rule_hint}."
                 )
+
+            inputs_map = case.get("input")
+            if isinstance(inputs_map, dict):
+                computed_input_keys = [
+                    str(input_name)
+                    for input_name in inputs_map
+                    if str(input_name) in derived_by_key
+                    or str(input_name) in parameter_by_key
+                ]
+                if computed_input_keys:
+                    key_display = ", ".join(
+                        f"`{key}`" for key in computed_input_keys[:4]
+                    )
+                    if len(computed_input_keys) > 4:
+                        key_display += f", and {len(computed_input_keys) - 4} more"
+                    issues.append(
+                        f"Test case `{case_name}` assigns computed RuleSpec "
+                        f"output(s) as input: {key_display}. Imported parameters "
+                        "and derived outputs are computed by the compiled program; "
+                        "assign their upstream `#input.*` or `#relation.*` facts "
+                        "instead."
+                    )
+                    continue
 
             derived_outputs: list[str] = []
             parameter_outputs: list[str] = []
@@ -6284,6 +6837,20 @@ class ValidatorPipeline:
 
             actual_outputs: dict[str, Any] = {}
             if derived_outputs:
+                derived_entities = {
+                    str(derived_by_key[output_name].get("entity") or "Case")
+                    for output_name in derived_outputs
+                }
+                if len(derived_entities) > 1:
+                    entities = ", ".join(sorted(derived_entities))
+                    issues.append(
+                        f"Test case `{case_name}` mixes derived output entities "
+                        f"({entities}); put outputs for each entity in separate "
+                        "test cases."
+                    )
+                    continue
+                if binary is None:
+                    binary = self._axiom_rules_binary()
                 response_outputs, execution_issues = (
                     self._run_rulespec_derived_test_case(
                         binary=binary,
@@ -6386,6 +6953,9 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_relation_aggregate_syntax_issues(content))
+        issues.extend(find_role_limited_relation_scope_issues(content))
+        issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(
@@ -6415,6 +6985,13 @@ class ValidatorPipeline:
             )
         )
         issues.extend(find_sibling_rule_name_collision_issues(content, rules_file))
+        issues.extend(
+            find_child_fragment_reencoding_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         strict_layout_checks = (
             _strict_rules_repo_layout_checks_enabled(
                 policy_repo_path=self.policy_repo_path,
@@ -6791,6 +7368,8 @@ class ValidatorPipeline:
         )
         if not match:
             return None
+        if current_section and match.group("section") == current_section:
+            return None
         if not (
             _is_exception_identifier(identifier)
             or re.search(
@@ -6803,6 +7382,7 @@ class ValidatorPipeline:
         fragments: list[str] = []
         for fragment in (match.group("tail") or "").split("_"):
             if fragment in {
+                "and",
                 "exception",
                 "exceptions",
                 "except",
@@ -6820,9 +7400,18 @@ class ValidatorPipeline:
                 "met",
             }:
                 break
-            if fragment:
+            if fragment and self._is_cross_reference_path_fragment(fragment):
                 fragments.append(fragment)
+                continue
+            break
         return "/".join(["statutes", title, match.group("section"), *fragments])
+
+    def _is_cross_reference_path_fragment(self, fragment: str) -> bool:
+        """Return whether an identifier tail fragment is a citation path token."""
+        return bool(
+            re.fullmatch(r"\d+[A-Za-z]?|[A-Za-z]|[ivxlcdm]+", fragment)
+            and fragment.lower() not in {"and"}
+        )
 
     def _check_resolved_defined_term_imports(self, rulespec_file: Path) -> list[str]:
         """Flag missing imports for known legally-defined terms mentioned in source text."""
@@ -7422,23 +8011,23 @@ class ValidatorPipeline:
             if (
                 len(relative.parts) >= 3
                 and relative.parts[0] == "statutes"
-                and re.fullmatch(r"[0-9A-Za-z.-]+", relative.parts[2])
-                and any(ch.isdigit() for ch in relative.parts[2])
+                and re.fullmatch(r"[0-9A-Za-z.-]+", Path(relative.parts[2]).stem)
+                and any(ch.isdigit() for ch in Path(relative.parts[2]).stem)
             ):
-                return relative.parts[2]
+                return Path(relative.parts[2]).stem
             if (
                 len(relative.parts) >= 2
-                and re.fullmatch(r"[0-9A-Za-z.-]+", relative.parts[1])
-                and any(ch.isdigit() for ch in relative.parts[1])
+                and re.fullmatch(r"[0-9A-Za-z.-]+", Path(relative.parts[1]).stem)
+                and any(ch.isdigit() for ch in Path(relative.parts[1]).stem)
             ):
-                return relative.parts[1]
+                return Path(relative.parts[1]).stem
             return None
 
         parts = list(resolved_file.parts)
         with contextlib.suppress(ValueError):
             statutes_idx = parts.index("statutes")
             if statutes_idx + 2 < len(parts):
-                return parts[statutes_idx + 2]
+                return Path(parts[statutes_idx + 2]).stem
         return None
 
     def _run_reviewer(

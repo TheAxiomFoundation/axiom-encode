@@ -2707,12 +2707,63 @@ class TestCmdEncode:
             "encode_issue",
         ]
 
-    def test_encode_apply_blocks_failed_standalone_validation_before_overlay(
+    def test_encode_apply_allows_overlay_to_rescue_failed_standalone_validation(
         self, capsys, tmp_path
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
         result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "regulations/example.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "standalone_success=False" in output
+        assert "outcome=apply_applied final_success=True" in output
+        mock_overlay.assert_called_once()
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.iterations[0].success is False
+        assert run.outcome["standalone_validation_success"] is False
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["apply_success"] is True
+        assert run.outcome["final_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+        assert run.success is True
+        assert not output_file.with_suffix(".repair.json").exists()
+        events = EncodingDB(args.db).get_session_events(run.session_id)
+        assert [event.event_type for event in events] == [
+            "encode_request",
+            "encode_result",
+            "encode_outcome",
+        ]
+
+    def test_encode_apply_blocks_non_validation_generation_failure(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "backend timed out"
         output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
         output_file.parent.mkdir(parents=True)
         output_file.write_text("format: rulespec/v1\nrules: []\n")
@@ -2722,6 +2773,7 @@ class TestCmdEncode:
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
             ) as mock_overlay,
             patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
             patch.dict(os.environ, {}, clear=True),
@@ -2731,27 +2783,48 @@ class TestCmdEncode:
 
         assert exc_info.value.code == 1
         output = capsys.readouterr().out
-        assert "standalone_success=False" in output
-        assert "apply=blocked_validation:standalone_failed: failed" in output
+        assert "apply=blocked_generation:backend timed out" in output
         mock_overlay.assert_not_called()
         mock_apply.assert_not_called()
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
-        assert run.iterations[0].success is False
-        assert run.outcome["standalone_validation_success"] is False
-        assert run.outcome["overlay_validation_success"] is False
-        assert run.outcome["apply_success"] is False
+        assert run.outcome["status"] == "apply_blocked_generation"
+        assert run.outcome["overlay_validation_success"] is None
         assert run.outcome["final_success"] is False
-        assert run.outcome["status"] == "apply_blocked_validation"
-        assert run.outcome["apply_error"] == "standalone_failed: failed"
         assert run.success is False
         assert output_file.with_suffix(".repair.json").exists()
-        events = EncodingDB(args.db).get_session_events(run.session_id)
-        assert [event.event_type for event in events] == [
-            "encode_request",
-            "encode_result",
-            "encode_outcome",
-            "encode_issue",
-        ]
+
+    def test_encode_apply_blocks_failed_overlay_after_standalone_validation_failure(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed compile validation"
+        output_file = tmp_path / "out" / "codex-test-model" / "regulations/example.yaml"
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        result.output_file = str(output_file)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(False, ["overlay compile failed"], {}),
+            ) as mock_overlay,
+            patch("axiom_encode.cli._apply_generated_encoding_result") as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        mock_overlay.assert_called_once()
+        mock_apply.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "apply_blocked_validation"
+        assert run.outcome["overlay_validation_success"] is False
+        assert run.outcome["apply_error"] == "overlay compile failed"
+        assert run.outcome["final_success"] is False
 
     def test_encode_apply_records_final_success_when_overlay_apply_passes(
         self, capsys, tmp_path
@@ -3087,7 +3160,7 @@ rules:
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
 
-    def test_apply_overlay_validation_does_not_block_on_dependents_by_default(
+    def test_apply_overlay_validation_checks_direct_dependents_by_default(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
@@ -3123,7 +3196,142 @@ rules:
         assert ok is True
         assert issues == []
         assert supplemental == {}
-        assert [path.name for path in validated_paths] == ["C.yaml"]
+        assert [path.name for path in validated_paths] == ["C.yaml", "2.yaml"]
+
+    def test_apply_overlay_validation_can_skip_dependents_for_cascading_migration(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/24/h.yaml"
+        dependent = policy_repo / "statutes/26/24/d.yaml"
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        dependent.write_text(
+            "format: rulespec/v1\nimports:\n  - us:statutes/26/24/h\nrules: []\n"
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        validated_paths: list[Path] = []
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                validated_paths.append(Path(path))
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                validate_dependents=False,
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
+        assert [path.name for path in validated_paths] == ["h.yaml"]
+
+    def test_apply_overlay_validation_fills_dependent_inputs_from_baseline(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/63/c.yaml"
+        generated_test = generated.with_name("c.test.yaml")
+        dependent = policy_repo / "statutes/26/63.yaml"
+        dependent_test = dependent.with_name("63.test.yaml")
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated_test.write_text(
+            """- name: baseline
+  input:
+    us:statutes/26/63/c#input.married_filing_separately_and_either_spouse_itemizes: false
+    us:statutes/26/63/c#input.additional_standard_deduction_entitlement_count_under_subsection_f: 0
+    us:statutes/26/63/c/5#input.earned_income: 0
+  output:
+    us:statutes/26/63/c#standard_deduction: 16100
+"""
+        )
+        dependent.write_text(
+            "format: rulespec/v1\nimports:\n  - us:statutes/26/63/c\nrules: []\n"
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 80000
+  output:
+    us:statutes/26/63#taxable_income: 63900
+- name: case_two
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 90000
+  output:
+    us:statutes/26/63#taxable_income: 73900
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        required = [
+            "married_filing_separately_and_either_spouse_itemizes",
+            "additional_standard_deduction_entitlement_count_under_subsection_f",
+            "earned_income",
+        ]
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if Path(path).name == "c.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                test_content = Path(path).with_name("63.test.yaml").read_text()
+                for input_name in required:
+                    if test_content.count(f"#input.{input_name}:") < 2:
+                        return SimpleNamespace(
+                            all_passed=False,
+                            results={
+                                "ci": SimpleNamespace(
+                                    error=(
+                                        "Test case `case_one` execution failed: "
+                                        f"missing input `{input_name}`"
+                                    )
+                                )
+                            },
+                        )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        updated = supplemental[Path("statutes/26/63.test.yaml")]
+        assert (
+            "us:statutes/26/63/c#input.married_filing_separately_and_either_spouse_itemizes: false"
+            in updated
+        )
+        assert (
+            "us:statutes/26/63/c#input.additional_standard_deduction_entitlement_count_under_subsection_f: 0"
+            in updated
+        )
+        assert "us:statutes/26/63/c/5#input.earned_income: 0" in updated
+        assert (
+            updated.count(
+                "us:statutes/26/63/c#input.married_filing_separately_and_either_spouse_itemizes"
+            )
+            == 2
+        )
 
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
         repo = tmp_path / "rulespec-us-ny"
