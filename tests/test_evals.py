@@ -352,6 +352,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
     assert "#relation.<name>` input value must be a YAML list of row mappings" in prompt
+    assert "member_of_household: [- true]" in prompt
     assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
     assert (
         "Import inventory: every `imports:` entry is an exact copied/importable"
