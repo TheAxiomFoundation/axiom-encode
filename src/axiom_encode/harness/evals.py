@@ -3247,8 +3247,10 @@ def _expand_context_files(
             continue
         seen.add(resolved)
         expanded.append((source_path, kind))
-        if source_path.suffix in {".yaml", ".yml"} and not source_path.name.endswith(
-            ".test.yaml"
+        if (
+            kind != "existing_target"
+            and source_path.suffix in {".yaml", ".yml"}
+            and not source_path.name.endswith(".test.yaml")
         ):
             test_path = _rulespec_test_path(source_path)
             resolved_test = test_path.resolve()

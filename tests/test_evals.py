@@ -4362,10 +4362,7 @@ class TestRepoAugmentedContext:
         assert copied_sources[str(target_file)]["import_path"] == (
             "us-ny:regulations/18-nycrr/387/12/f"
         )
-        assert (
-            copied_sources[str(target_file.with_name("f.test.yaml"))]["kind"]
-            == "implementation_test_context"
-        )
+        assert str(target_file.with_name("f.test.yaml")) not in copied_sources
 
         prompt = _build_eval_prompt(
             "us-ny/regulation/18-nycrr/387/12/f",
@@ -4377,6 +4374,7 @@ class TestRepoAugmentedContext:
         )
         assert "existing_target" in prompt
         assert "existing_provenance" in prompt
+        assert "existing_case" not in prompt
         assert "preserve the legal/provenance edge" in prompt
 
     def test_select_context_files_excludes_target(self, tmp_path):
