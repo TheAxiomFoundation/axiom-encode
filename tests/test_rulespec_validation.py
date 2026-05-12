@@ -4315,7 +4315,22 @@ rules:
 def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
+    imported_file = repo / "statutes" / "7" / "2015" / "b.yaml"
     rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: section_2015_b_exception_applies
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_is_subject_to_section_2015_b_exception
+"""
+    )
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -4343,6 +4358,63 @@ rules:
     )
 
     assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
+
+
+def test_cross_reference_placeholder_rejects_covering_import_without_export(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "63.yaml"
+    imported_file = repo / "statutes" / "26" / "163" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: interest_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: interest_paid_or_accrued_on_indebtedness
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/163/a#interest_deduction
+module:
+  summary: |-
+    Except as provided in subsection (b), taxable income subtracts so much of
+    the deduction allowed by section 163(a) as is attributable to the exception
+    under section 163(h)(4)(A).
+rules:
+  - name: subsection_b_deductions_for_nonitemizer
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          standard_deduction
+          + section_163_a_deduction_attributable_to_section_163_h_4_A_exception
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Cross-reference placeholder" in issues[0]
+    assert "interest_deduction" not in issues[0]
+    assert "section_163_a_deduction_attributable" in issues[0]
 
 
 def test_cross_reference_placeholder_allows_deeper_import_for_semantic_tail(

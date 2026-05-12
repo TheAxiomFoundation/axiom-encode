@@ -4763,6 +4763,12 @@ class TestRepoAugmentedContext:
             "In formulas, reference imported exports by their bare local rule name"
             in prompt
         )
+        assert "import and use the listed exported symbol from that" in prompt
+        assert "context instead of creating a local `section_...`" in prompt
+        assert (
+            "`section_163_a_deduction_attributable_to_section_163_h_4_A_exception`"
+            in prompt
+        )
         assert (
             "never write an absolute `us:...#rule_name` reference inside a formula"
             in prompt

@@ -2617,6 +2617,14 @@ Import and context rules:
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
 - In formulas, reference imported exports by their bare local rule name after adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
+- When source text cites a section or subsection and a copied context file for
+  that citation is listed, import and use the listed exported symbol from that
+  context instead of creating a local `section_...` or `subsection_...`
+  placeholder. For example, if a source references a deduction allowed by
+  section 163(a) and context lists `us:statutes/26/163/a#interest_deduction`,
+  import that exact export and use `interest_deduction`; a local fact such as
+  `section_163_a_deduction_attributable_to_section_163_h_4_A_exception` is
+  invalid.
 - If this target is an aggregate parent provision and copied child-fragment files
   already encode subparagraphs, import those child outputs and compose them.
   Do not redefine the child parameters, helper rules, or copied executable

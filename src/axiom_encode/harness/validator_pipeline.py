@@ -7826,6 +7826,14 @@ class ValidatorPipeline:
 
     def _extract_import_paths(self, content: str) -> list[str]:
         """Extract import file references from an imports block."""
+        return [
+            item.split("#", 1)[0].strip()
+            for item in self._extract_import_items(content)
+            if item.split("#", 1)[0].strip()
+        ]
+
+    def _extract_import_items(self, content: str) -> list[str]:
+        """Extract raw import items from an imports block."""
         paths: list[str] = []
         in_imports = False
         imports_indent = 0
@@ -7856,9 +7864,9 @@ class ValidatorPipeline:
                 if not mapping_match:
                     continue
                 item = mapping_match.group(2).strip()
-            import_target = item.split("#", 1)[0].strip()
-            if import_target:
-                paths.append(import_target)
+            item = item.strip().strip("\"'")
+            if item:
+                paths.append(item)
 
         return paths
 
@@ -7945,10 +7953,7 @@ class ValidatorPipeline:
             return []
         current_section = self._infer_section_from_rulespec_path(rulespec_file)
 
-        imports = {
-            self._normalize_rulespec_import_path(import_path)
-            for import_path in self._extract_import_paths(content)
-        }
+        import_items = self._extract_import_items(content)
         issues: list[str] = []
         seen: set[tuple[str, str]] = set()
         for block in self._extract_definition_blocks(content):
@@ -7964,7 +7969,12 @@ class ValidatorPipeline:
                 )
                 if not import_base:
                     continue
-                if self._imports_cover_path(imports, import_base):
+                if self._imports_cover_placeholder_identifier(
+                    import_items,
+                    import_base,
+                    identifier,
+                    rulespec_file=rulespec_file,
+                ):
                     continue
                 key = (str(block["name"]), identifier)
                 if key in seen:
@@ -7977,6 +7987,44 @@ class ValidatorPipeline:
                     f"`{import_base}` instead of creating a local cross-reference input."
                 )
         return issues
+
+    def _imports_cover_placeholder_identifier(
+        self,
+        import_items: list[str],
+        expected_path: str,
+        identifier: str,
+        *,
+        rulespec_file: Path,
+    ) -> bool:
+        """Return whether an import covers a cross-reference placeholder symbol."""
+        expected = expected_path.strip("/")
+        for import_item in import_items:
+            normalized = self._normalize_rulespec_import_path(import_item)
+            if not self._imports_cover_path({normalized}, expected):
+                continue
+
+            fragment = self._import_item_fragment(import_item)
+            if fragment == identifier:
+                return True
+
+            import_file = _resolve_rulespec_import_file_static(
+                import_item,
+                rules_file=rulespec_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+            if import_file is None:
+                continue
+            with contextlib.suppress(OSError):
+                if identifier in self._extract_defined_symbols(import_file.read_text()):
+                    return True
+        return False
+
+    def _import_item_fragment(self, import_item: str) -> str | None:
+        """Return the imported symbol fragment for an import item, if any."""
+        if "#" not in import_item:
+            return None
+        fragment = import_item.split("#", 1)[1].strip().strip("\"'")
+        return fragment or None
 
     def _normalize_rulespec_import_path(self, import_path: str) -> str:
         """Normalize a RuleSpec import path for repository-local comparison."""
