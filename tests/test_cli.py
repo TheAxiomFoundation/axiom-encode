@@ -3458,6 +3458,26 @@ rules:
       - effective_from: '2025-10-01'
         formula: |-
           if state_agency_rounds_thirty_percent_net_income_up: snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate) else: floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if household_initial_month and snap_calculated_monthly_allotment_before_minimums < snap_initial_month_minimum_issuance: 0 else: snap_calculated_monthly_allotment_before_minimums
+"""
+        )
+        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
+        test_file.write_text(
+            """- name: existing_positive_case
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.household_size: 1
+  output:
+    us:regulations/7-cfr/273/10#snap_monthly_allotment: 24
 """
         )
         args = SimpleNamespace(
@@ -3491,13 +3511,19 @@ rules:
         content = target.read_text()
         assert "max(0, snap_maximum_allotment_for_household_size - ceil(" in content
         assert "else: max(0, floor(snap_maximum_allotment_for_household_size" in content
+        test_content = test_file.read_text()
+        assert "initial_month_high_income_zero_allotment" in test_content
+        assert "us:regulations/7-cfr/273/10#snap_monthly_allotment: 0" in test_content
         manifest = (
             policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
         )
         payload = json.loads(manifest.read_text())
         assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
         assert payload["backend"] == "deterministic"
-        assert payload["applied_files"][0]["path"] == "regulations/7-cfr/273/10.yaml"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "regulations/7-cfr/273/10.yaml",
+            "regulations/7-cfr/273/10.test.yaml",
+        ]
 
     def test_apply_overlay_validation_checks_direct_dependents_by_default(
         self, tmp_path

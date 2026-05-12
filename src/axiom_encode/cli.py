@@ -12,6 +12,7 @@ Self-contained -- no external plugin dependencies.
 """
 
 import argparse
+import contextlib
 import csv
 import hashlib
 import hmac
@@ -2444,6 +2445,8 @@ def cmd_repair_nonnegative_floors(args):
         sys.exit(1)
 
     original_content = rules_file.read_text()
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else None
     repaired_content, repaired_rules = repair_nonnegative_amount_reductions(
         original_content
     )
@@ -2464,6 +2467,14 @@ def cmd_repair_nonnegative_floors(args):
         generated_output.write_text(repaired_content)
 
         rules_file.write_text(repaired_content)
+        applied_files = [rules_file]
+        if _append_snap_zero_allotment_test_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=relative_output,
+        ):
+            applied_files.append(test_file)
         validation = ValidatorPipeline(
             policy_repo_path=repo_path,
             axiom_rules_path=axiom_rules_path,
@@ -2472,6 +2483,8 @@ def cmd_repair_nonnegative_floors(args):
         ).validate(rules_file, skip_reviewers=True)
         if not validation.all_passed:
             rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
             issues = [
                 result.error for result in validation.results.values() if result.error
             ]
@@ -2498,7 +2511,7 @@ def cmd_repair_nonnegative_floors(args):
             output_root=output_root,
             policy_repo_path=repo_path,
             relative_output=relative_output,
-            applied_files=[rules_file],
+            applied_files=applied_files,
             run_id="deterministic-repair",
             signing_key=signing_key,
             axiom_encode_git=axiom_encode_git,
@@ -2509,6 +2522,93 @@ def cmd_repair_nonnegative_floors(args):
         f"{relative_output}: {', '.join(repaired_rules)}"
     )
     print(f"manifest={manifest_path}")
+
+
+def _append_snap_zero_allotment_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 7 CFR 273.10's zero issuance branch."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if (
+        "name: snap_monthly_allotment" not in rules_content
+        or "household_initial_month" not in rules_content
+        or "snap_initial_month_minimum_issuance" not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    monthly_allotment_target = f"{target_base}#snap_monthly_allotment"
+    test_content = test_file.read_text()
+    try:
+        test_payload = yaml.safe_load(test_content) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, monthly_allotment_target):
+        return False
+    if "initial_month_high_income_zero_allotment" in test_content:
+        return False
+
+    input_prefix = f"{target_base}#input."
+    case = f"""- name: initial_month_high_income_zero_allotment
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/deductions#input.household_size: 1
+    {input_prefix}household_size: 1
+    {input_prefix}snap_gross_monthly_earned_income: 0
+    {input_prefix}snap_total_monthly_unearned_income: 1200
+    {input_prefix}snap_income_exclusions: 0
+    {input_prefix}household_entitled_to_excess_medical_deduction: false
+    {input_prefix}snap_total_medical_expenses: 0
+    {input_prefix}snap_allowable_monthly_dependent_care_expenses: 0
+    {input_prefix}snap_allowable_monthly_child_support_payments: 0
+    {input_prefix}snap_claimed_homeless_shelter_deduction: 0
+    {input_prefix}snap_total_allowable_shelter_expenses: 0
+    {input_prefix}snap_maximum_allotment_for_one_person_household: 298
+    {input_prefix}snap_maximum_allotment_for_household_size: 298
+    {input_prefix}state_agency_rounds_thirty_percent_net_income_up: true
+    {input_prefix}household_initial_month: true
+  output:
+    {target_base}#snap_calculated_monthly_allotment_before_minimums: 0
+    {monthly_allotment_target}: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _has_zero_output_test(test_cases: object, target: str) -> bool:
+    if not isinstance(test_cases, list):
+        return False
+    target_fragment = target.rsplit("#", 1)[-1]
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for key, value in outputs.items():
+            key_fragment = str(key).rsplit("#", 1)[-1]
+            if key_fragment != target_fragment:
+                continue
+            if isinstance(value, bool) or value is None:
+                continue
+            if isinstance(value, int | float) and float(value) == 0.0:
+                return True
+            if isinstance(value, str):
+                with contextlib.suppress(ValueError):
+                    if float(value.strip()) == 0.0:
+                        return True
+    return False
 
 
 def guard_generated_change_issues(
