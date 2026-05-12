@@ -2766,6 +2766,14 @@ def _append_cdcc_zero_expense_limit_test_if_missing(
     end: '2026-12-31'
   input:
     {input_prefix}taxable_year_begins_in_2021: false
+    {input_prefix}is_dependent_under_section_152_a_1: false
+    {input_prefix}age: 0
+    {input_prefix}abode_relationship_violates_local_law: false
+    {input_prefix}section_152_e_non_custodial_parent: false
+    {input_prefix}is_dependent_under_section_152_disregarding_listed_subsections: false
+    {input_prefix}physically_or_mentally_incapable_of_self_care: false
+    {input_prefix}same_principal_place_of_abode_more_than_half_year: false
+    {input_prefix}is_spouse_of_taxpayer: false
     {relation_key}: []
   output:
     {target_base}#cdcc_qualifying_individual_count: 0

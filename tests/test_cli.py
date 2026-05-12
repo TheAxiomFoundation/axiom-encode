@@ -3594,6 +3594,11 @@ rules:
         test_content = test_file.read_text()
         assert "no_qualifying_individual_zero_cdcc_expense_limit" in test_content
         assert (
+            "us:statutes/26/21#input.is_dependent_under_section_152_a_1: false"
+            in test_content
+        )
+        assert "us:statutes/26/21#input.age: 0" in test_content
+        assert (
             "us:statutes/26/21#cdcc_expense_limit_before_exclusion: 0" in test_content
         )
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/21.json"
