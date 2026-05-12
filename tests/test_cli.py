@@ -3680,6 +3680,28 @@ rules:
 
         test_content = test_file.read_text()
         assert "no_qualified_individual_zero_section_22_initial_amount" in test_content
+        assert "us:statutes/26/22#input.age: 0" in test_content
+        assert (
+            "us:statutes/26/22#input.disability_proof_furnished: false" in test_content
+        )
+        assert "us:statutes/26/22#input.impairment_duration_months: 0" in test_content
+        assert (
+            "us:statutes/26/22#input.impairment_expected_to_result_in_death: false"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/22#input.medically_determinable_impairment: false"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/22#input.retired_on_disability_before_year_end: false"
+            in test_content
+        )
+        assert "us:statutes/26/22#input.section_22_disability_income: 0" in test_content
+        assert (
+            "us:statutes/26/22#input.unable_to_engage_substantial_gainful_activity: false"
+            in test_content
+        )
         assert (
             "us:statutes/26/22#section_22_initial_amount_before_disability_cap: 0"
             in test_content

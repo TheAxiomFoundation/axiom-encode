@@ -2997,8 +2997,15 @@ def _append_section_22_zero_initial_amount_test_if_missing(
     start: '2026-01-01'
     end: '2026-12-31'
   input:
+    {input_prefix}age: 0
     {input_prefix}filing_status: 0
     {input_prefix}adjusted_gross_income: 0
+    {input_prefix}disability_proof_furnished: false
+    {input_prefix}impairment_duration_months: 0
+    {input_prefix}impairment_expected_to_result_in_death: false
+    {input_prefix}medically_determinable_impairment: false
+    {input_prefix}retired_on_disability_before_year_end: false
+    {input_prefix}section_22_disability_income: 0
     {input_prefix}social_security_title_ii_benefits_excluded_from_gross_income: 0
     {input_prefix}railroad_retirement_act_benefits_excluded_from_gross_income: 0
     {input_prefix}veterans_affairs_pension_annuity_or_disability_benefits_excluded_from_gross_income: 0
@@ -3006,6 +3013,7 @@ def _append_section_22_zero_initial_amount_test_if_missing(
     {input_prefix}workers_compensation_treated_as_social_security_benefit_under_section_86_d_3: 0
     {input_prefix}married_at_close_of_taxable_year: false
     {input_prefix}spouses_lived_apart_all_year: false
+    {input_prefix}unable_to_engage_substantial_gainful_activity: false
     {input_prefix}is_nonresident_alien: false
     {taxpayer_relation_key}: []
     {payment_relation_key}: []
