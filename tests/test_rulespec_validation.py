@@ -5611,6 +5611,50 @@ rules:
     assert find_source_limitation_application_issues(content) == []
 
 
+def test_source_limitation_application_scopes_subsection_special_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (a) Assessment and collection after limitation period. The term
+    overpayment includes the payment assessed after the expiration of the
+    period of limitation.
+
+    (b) Excessive credits (1) In general If refundable credits exceed the tax
+    imposed by subtitle A, reduced by nonrefundable credits, the excess is an
+    overpayment. (2) Special rule for credit under section 33 The credit is
+    treated as refundable only if a section 6013 election is in effect. The
+    preceding sentence shall not apply to a credit allowed by reason of section
+    1446.
+rules:
+  - name: excessive_refundable_credits_overpayment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 6401(b)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, refundable_credits - tax_reduced_by_nonrefundable_credits)
+  - name: section_33_credit_treated_as_refundable_credit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 6401(b)(2)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if section_6013_election_in_effect or credit_allowed_by_reason_of_section_1446:
+              section_33_credit_allowed
+          else:
+              0
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
 def test_source_verification_accepts_decimal_rate_values_as_word_percentages():
     content = """format: rulespec/v1
 module:

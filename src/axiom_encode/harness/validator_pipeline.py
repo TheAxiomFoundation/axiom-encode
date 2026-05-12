@@ -3119,7 +3119,12 @@ _ROLE_LIMITED_SOURCE_PATTERN = re.compile(
 )
 _SOURCE_LIMITATION_PATTERN = re.compile(
     r"\b(?:limitation|limited\s+to|shall\s+not\s+exceed|may\s+not\s+exceed|"
-    r"not\s+exceed|lesser\s+of|greater\s+of|reduced\s+by|except\s+that)\b",
+    r"not\s+exceed|lesser\s+of|greater\s+of|reduced\s+by|except\s+that|"
+    r"only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
+    flags=re.IGNORECASE,
+)
+_CONDITIONAL_SOURCE_LIMITATION_PATTERN = re.compile(
+    r"\b(?:except\s+that|only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
     flags=re.IGNORECASE,
 )
 _LIMITATION_ON_SUBJECT_PATTERN = re.compile(
@@ -3133,6 +3138,7 @@ _LIMITATION_IMPLEMENTATION_PATTERN = re.compile(
     r"section_151)(?:_|\b|$)|\bmin\s*\(|\bmax\s*\(",
     flags=re.IGNORECASE,
 )
+_CONDITIONAL_FORMULA_PATTERN = re.compile(r"\bif\b[\s\S]*\belse\b", flags=re.IGNORECASE)
 _FINAL_AMOUNT_NAME_PATTERN = re.compile(
     r"(?:^|_)(?:amount|benefit|deduction|credit|tax|allotment|allowance)$",
     flags=re.IGNORECASE,
@@ -3147,30 +3153,42 @@ def _rulespec_payload(content: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
-    """Return `(rule_name, kind, formula)` entries from a RuleSpec payload."""
+def _rulespec_rule_formula_records(
+    payload: dict[str, Any],
+) -> list[tuple[str, str, str, Any]]:
+    """Return `(rule_name, kind, formula, source)` entries from a RuleSpec payload."""
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return []
 
-    formulas: list[tuple[str, str, str]] = []
+    formulas: list[tuple[str, str, str, Any]] = []
     for index, rule in enumerate(rules):
         if not isinstance(rule, dict):
             continue
         name = str(rule.get("name") or f"rules[{index}]").strip()
         kind = str(rule.get("kind") or "").strip().lower()
+        rule_source = rule.get("source")
         versions = rule.get("versions")
         if not isinstance(versions, list):
             continue
         for version in versions:
             if not isinstance(version, dict):
                 continue
+            source = version.get("source", rule_source)
             formula = version.get("formula")
             if isinstance(formula, (int, float)) and not isinstance(formula, bool):
-                formulas.append((name, kind, str(formula)))
+                formulas.append((name, kind, str(formula), source))
             elif isinstance(formula, str) and formula.strip():
-                formulas.append((name, kind, formula))
+                formulas.append((name, kind, formula, source))
     return formulas
+
+
+def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Return `(rule_name, kind, formula)` entries from a RuleSpec payload."""
+    return [
+        (name, kind, formula)
+        for name, kind, formula, _source in _rulespec_rule_formula_records(payload)
+    ]
 
 
 def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
@@ -3193,6 +3211,66 @@ def _source_limitation_subject_slugs(source_text: str) -> set[str]:
         if slug:
             slugs.add(slug)
     return slugs
+
+
+def _rule_source_subsection_tokens(source: Any) -> tuple[str, ...]:
+    if isinstance(source, dict):
+        source_text = " ".join(
+            str(value) for value in source.values() if isinstance(value, str)
+        )
+    elif isinstance(source, str):
+        source_text = source
+    else:
+        return ()
+    return tuple(
+        token
+        for token in re.findall(r"\(([A-Za-z0-9]+)\)", source_text)
+        if 1 <= len(token) <= 4
+    )
+
+
+def _slice_source_text_at_marker(source_text: str, token: str) -> str:
+    marker = re.compile(rf"\({re.escape(token)}\)", flags=re.IGNORECASE)
+    match = marker.search(source_text)
+    if match is None:
+        return ""
+
+    if token.isdigit():
+        next_token = str(int(token) + 1)
+    elif len(token) == 1 and token.isalpha():
+        next_token = chr(ord(token) + 1)
+    else:
+        next_token = ""
+    if not next_token:
+        return source_text[match.start() :].strip()
+    next_marker_pattern = rf"\({re.escape(next_token)}\)"
+    next_match = re.search(
+        next_marker_pattern,
+        source_text[match.end() :],
+        flags=re.IGNORECASE,
+    )
+    if next_match is None:
+        return source_text[match.start() :].strip()
+    return source_text[match.start() : match.end() + next_match.start()].strip()
+
+
+def _source_text_for_rule_source(source_text: str, source: Any) -> str:
+    scoped_source = source_text
+    for token in _rule_source_subsection_tokens(source):
+        next_scoped_source = _slice_source_text_at_marker(scoped_source, token)
+        if not next_scoped_source:
+            return scoped_source
+        scoped_source = next_scoped_source
+    return scoped_source
+
+
+def _formula_implements_limitation(formula: str, source_text: str) -> bool:
+    if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
+        return True
+    return bool(
+        _CONDITIONAL_SOURCE_LIMITATION_PATTERN.search(source_text)
+        and _CONDITIONAL_FORMULA_PATTERN.search(formula)
+    )
 
 
 def _source_supports_structural_relation_container(
@@ -3312,29 +3390,34 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
     if not source_text or not _SOURCE_LIMITATION_PATTERN.search(source_text):
         return []
 
-    limitation_subject_slugs = _source_limitation_subject_slugs(source_text)
+    formula_records = _rulespec_rule_formula_records(payload)
     formula_by_name = {
         name: formula
-        for name, kind, formula in _rulespec_rule_formulas(payload)
+        for name, kind, formula, _source in formula_records
         if kind == "derived"
     }
     issues: list[str] = []
-    for name, kind, formula in _rulespec_rule_formulas(payload):
+    for name, kind, formula, rule_source in formula_records:
         if kind != "derived":
             continue
         if not _FINAL_AMOUNT_NAME_PATTERN.search(name):
             continue
+        scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if not _SOURCE_LIMITATION_PATTERN.search(scoped_source_text):
+            continue
+        limitation_subject_slugs = _source_limitation_subject_slugs(scoped_source_text)
         candidate_text = f"{name} {formula}".lower()
         if limitation_subject_slugs and not any(
             slug in candidate_text for slug in limitation_subject_slugs
         ):
             continue
-        if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
+        if _formula_implements_limitation(formula, scoped_source_text):
             continue
         if _formula_or_referenced_helpers_implement_limitation(
             formula,
             formula_by_name=formula_by_name,
             current_name=name,
+            source_text=scoped_source_text,
         ):
             continue
         issues.append(
@@ -3352,9 +3435,10 @@ def _formula_or_referenced_helpers_implement_limitation(
     *,
     formula_by_name: dict[str, str],
     current_name: str,
+    source_text: str,
     seen: set[str] | None = None,
 ) -> bool:
-    if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
+    if _formula_implements_limitation(formula, source_text):
         return True
     visited = set(seen or set())
     visited.add(current_name)
@@ -3365,6 +3449,7 @@ def _formula_or_referenced_helpers_implement_limitation(
             formula_by_name[identifier],
             formula_by_name=formula_by_name,
             current_name=identifier,
+            source_text=source_text,
             seen=visited,
         ):
             return True
