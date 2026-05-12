@@ -2652,6 +2652,7 @@ Test file rules:
   companion tests for the positive path and the carve-out path so exclusions
   cannot be silently dropped.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change. For example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the same dependent/qualifying-child facts as its positive companion and flip only `noncitizen_exception_to_other_dependent_credit_applies`.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, preserve this file's public output names unless the source text proves the old interface was legally wrong. Do not rename an exported value just because a clearer friendly name is possible.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
@@ -2856,6 +2857,7 @@ RuleSpec requirements:
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change. For example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the same dependent/qualifying-child facts as its positive companion and flip only `noncitizen_exception_to_other_dependent_credit_applies`.
 - Every local executable `kind: parameter` and `kind: derived` rule must appear
   at least once under an `output:` block in the companion `.test.yaml`; do not
   leave scalar parameters, helper parameters, or helper derived rules

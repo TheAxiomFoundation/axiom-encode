@@ -2279,6 +2279,8 @@ class TestEvalPrompt:
         assert "dependent_of_tax_unit" in prompt
         assert "ctc_qualifying_child" in prompt
         assert "ctc_refundable_phase_in_threshold_under_subsection_h" in prompt
+        assert "only the exception input changes" in prompt
+        assert "noncitizen_exception_to_other_dependent_credit_applies" in prompt
         assert "service_injury_pension_excluded_amount" in prompt
         assert "TaxUnit-to-Payment" in prompt
         assert "section_104_a_4_amounts" in prompt

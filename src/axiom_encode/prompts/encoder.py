@@ -227,6 +227,12 @@ Hard requirements:
 - If a formula negates multiple exception predicates, include a separate
   companion test for each predicate that sets that exception input true and
   expects the directly affected Judgment rule to be `not_holds`.
+- For any negated exception predicate, include a paired positive case with the
+  same output rule where only the exception input changes from `false` to
+  `true`; do not combine the exception test with another branch change. For
+  example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the
+  same dependent/qualifying-child facts as its positive companion and flip only
+  `noncitizen_exception_to_other_dependent_credit_applies`.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into
   one aggregate fact such as `sections_..._do_not_preclude...`. Encode or
   import each cited exception separately, then combine them in a helper if
