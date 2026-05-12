@@ -63,6 +63,12 @@ Hard requirements:
   encode subparagraphs, import those child outputs and compose them. Do not
   redefine the child parameters, helper rules, or copied executable outputs in
   the parent file.
+- If a copied child-fragment file encodes a limitation, branch, amount, or
+  predicate needed by the requested parent provision, import the child output
+  and compose it. Do not copy the child formula or its factual inputs into the
+  parent file. For example, IRC section 63(c) should import
+  `us:statutes/26/63/c/5#dependent_standard_deduction` rather than reconstruct
+  the dependent earned-income limitation in `c.yaml`.
 - If copied context listings include exported symbols as `import_target#name`,
   use those exact references in `imports:` and proof atoms when composing from
   context.
@@ -95,6 +101,23 @@ Hard requirements:
   role set that is legally counted, such as `taxpayer_or_spouse`, not merely for
   the container entity. If a copied relation is legally too broad for the
   requested source, rename it; relation names are not stable public outputs.
+- If the source computes an amount by reference to an entitlement, status,
+  amount, or test "under" another section, subsection, paragraph, regulation, or
+  document, do not inline that cross-reference's mechanics into this file unless
+  that cross-referenced source text is included and this file is the canonical
+  home for those mechanics. Import the existing RuleSpec target when present. If
+  the cross-reference is not yet encoded, expose a semantic input/count named
+  for the cross-reference itself, such as
+  `additional_standard_deduction_entitlement_count_under_subsection_f`, rather
+  than inventing the cross-referenced age, blindness, household, or membership
+  tests locally. For example, IRC section 63(c)(3) should not count
+  `is_aged_65_or_over` or `is_blind` over `member_of_tax_unit`; those are
+  subsection 63(f) mechanics.
+- When an unencoded cross-reference must be represented as a semantic local
+  input, name it after the legal status with an `_under_section_<section>` or
+  `_under_subsection_<subsection>` suffix. Do not start a local input with
+  `section_<section>_` or `subsection_<subsection>_`; those names are reserved
+  for imported legal outputs and will be treated as missing imports.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility,
   availability, applicability, entitlement, and other holds/not-holds style
   outputs, especially when the formula contains `not`.

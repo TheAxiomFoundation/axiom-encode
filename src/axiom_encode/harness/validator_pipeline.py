@@ -3313,6 +3313,11 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
         return []
 
     limitation_subject_slugs = _source_limitation_subject_slugs(source_text)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula in _rulespec_rule_formulas(payload)
+        if kind == "derived"
+    }
     issues: list[str] = []
     for name, kind, formula in _rulespec_rule_formulas(payload):
         if kind != "derived":
@@ -3325,6 +3330,16 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
         ):
             continue
         if _LIMITATION_IMPLEMENTATION_PATTERN.search(formula):
+            continue
+        referenced_helper_formulas = [
+            formula_by_name[identifier]
+            for identifier in _formula_local_identifiers(formula)
+            if identifier in formula_by_name and identifier != name
+        ]
+        if any(
+            _LIMITATION_IMPLEMENTATION_PATTERN.search(helper_formula)
+            for helper_formula in referenced_helper_formulas
+        ):
             continue
         issues.append(
             "Source limitation not applied: "
@@ -3610,6 +3625,156 @@ def find_sibling_rule_name_collision_issues(
             f"rule `{name}` is also exported by sibling `{sibling.name}`. "
             "Use semantic branch-specific names so aggregate parent provisions "
             "can import sibling outputs without ambiguity."
+        )
+    return issues
+
+
+def _rulespec_executable_names_from_payload(payload: Any) -> set[str]:
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+        }:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _rulespec_payload_from_file(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _rulespec_import_export_names(
+    imports: set[str],
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> set[str]:
+    names: set[str] = set()
+    for import_path in imports:
+        import_file = _resolve_rulespec_import_file_static(
+            import_path,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if import_file is None:
+            continue
+        payload = _rulespec_payload_from_file(import_file)
+        names.update(_rulespec_executable_names_from_payload(payload))
+    return names
+
+
+def _rulespec_local_input_slots(
+    payload: dict[str, Any],
+    *,
+    imports: set[str],
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> set[str]:
+    local_symbols = _rulespec_executable_names_from_payload(payload)
+    local_symbols.update(_rulespec_data_relation_names(payload))
+    imported_symbols = _rulespec_import_export_names(
+        imports,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    return _rulespec_formula_identifiers(payload) - local_symbols - imported_symbols
+
+
+def find_child_fragment_reencoding_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Reject parent files that re-encode factual inputs owned by child fragments."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    child_dir = rules_file.with_suffix("")
+    if not child_dir.is_dir():
+        return []
+
+    try:
+        policy_repo_path = policy_repo_path.resolve()
+        rules_file.resolve().relative_to(policy_repo_path)
+    except ValueError:
+        return []
+
+    imports = {
+        _normalize_rulespec_import_path_static(import_path)
+        for import_path in _extract_import_paths_from_content(content)
+    }
+    parent_inputs = _rulespec_local_input_slots(
+        payload,
+        imports=imports,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    if not parent_inputs:
+        return []
+
+    issues: list[str] = []
+    for child in sorted(child_dir.rglob("*.yaml")):
+        if child.name.endswith(".test.yaml"):
+            continue
+        try:
+            child_import_base = (
+                child.resolve().relative_to(policy_repo_path).with_suffix("").as_posix()
+            )
+            child_display_path = (
+                child.resolve().relative_to(policy_repo_path).as_posix()
+            )
+        except ValueError:
+            continue
+        if _imports_cover_path_static(imports, child_import_base):
+            continue
+
+        child_payload = _rulespec_payload_from_file(child)
+        if child_payload is None:
+            continue
+        child_imports = {
+            _normalize_rulespec_import_path_static(import_path)
+            for import_path in _extract_import_paths_from_content(child.read_text())
+        }
+        child_inputs = _rulespec_local_input_slots(
+            child_payload,
+            imports=child_imports,
+            rules_file=child,
+            policy_repo_path=policy_repo_path,
+        )
+        shared_inputs = sorted(parent_inputs & child_inputs)
+        if not shared_inputs:
+            continue
+
+        child_exports = sorted(_rulespec_executable_names_from_payload(child_payload))
+        export_hint = (
+            f" such as `{child_exports[0]}`" if child_exports else " from that child"
+        )
+        shared = ", ".join(f"`{name}`" for name in shared_inputs[:4])
+        if len(shared_inputs) > 4:
+            shared += ", ..."
+        issues.append(
+            "Child fragment re-encoded: "
+            f"`{rules_file.name}` uses child-local input(s) {shared} also used by "
+            f"`{child_display_path}` without importing `{child_import_base}`. "
+            f"Import and compose the child output{export_hint} "
+            "instead of copying the child formula or factual inputs into the parent."
         )
     return issues
 
@@ -6654,6 +6819,13 @@ class ValidatorPipeline:
             )
         )
         issues.extend(find_sibling_rule_name_collision_issues(content, rules_file))
+        issues.extend(
+            find_child_fragment_reencoding_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         strict_layout_checks = (
             _strict_rules_repo_layout_checks_enabled(
                 policy_repo_path=self.policy_repo_path,

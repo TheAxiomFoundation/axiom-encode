@@ -25,6 +25,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_numeric_occurrences_from_text,
     find_aggregate_exception_predicate_issues,
     find_broad_application_passthrough_issues,
+    find_child_fragment_reencoding_issues,
     find_copied_cross_reference_source_issues,
     find_deprecated_source_url_issues,
     find_exception_test_coverage_issues,
@@ -3857,6 +3858,102 @@ rules:
     assert find_sibling_rule_name_collision_issues(content, rules_file) == []
 
 
+def test_child_fragment_reencoding_rejects_parent_copying_child_inputs(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "63" / "c.yaml"
+    child = repo / "statutes" / "26" / "63" / "c" / "5.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/standard-deduction
+rules:
+  - name: dependent_standard_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: earned_income + dependent_earned_income_addition
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/standard-deduction
+rules:
+  - name: basic_standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if deduction_allowable_to_another_taxpayer_under_section_151:
+              earned_income + dependent_earned_income_addition
+          else:
+              basic_standard_deduction_amount
+"""
+
+    issues = find_child_fragment_reencoding_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Child fragment re-encoded" in issues[0]
+    assert "earned_income" in issues[0]
+    assert "statutes/26/63/c/5" in issues[0]
+
+
+def test_child_fragment_reencoding_allows_imported_child_output(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "63" / "c.yaml"
+    child = repo / "statutes" / "26" / "63" / "c" / "5.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: dependent_standard_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: earned_income
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/63/c/5
+rules:
+  - name: basic_standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if deduction_allowable_to_another_taxpayer_under_section_151:
+              dependent_standard_deduction
+          else:
+              basic_standard_deduction_amount
+"""
+
+    assert (
+        find_child_fragment_reencoding_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
@@ -5297,6 +5394,42 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: dependent_limited_basic_standard_deduction + additional_standard_deduction_amount
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
+def test_source_limitation_application_accepts_indirect_limited_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The standard deduction means the sum of the basic standard deduction and
+    the additional standard deduction. Limitation on basic standard deduction
+    in the case of certain dependents: the basic standard deduction shall not
+    exceed the greater of $500 or earned income plus $250.
+rules:
+  - name: basic_standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if deduction_under_section_151_allowable_to_another_taxpayer:
+              dependent_standard_deduction
+          else:
+              basic_standard_deduction_amount
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_standard_deduction + additional_standard_deduction_amount
 """
 
     assert find_source_limitation_application_issues(content) == []

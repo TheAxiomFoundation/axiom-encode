@@ -2264,6 +2264,14 @@ class TestEvalPrompt:
         assert (
             "Use chained `if condition: value else: other_value` expressions" in prompt
         )
+        assert "do not inline that cross-reference's mechanics into this file" in prompt
+        assert (
+            "additional_standard_deduction_entitlement_count_under_subsection_f"
+            in prompt
+        )
+        assert "us:statutes/26/63/c/5#dependent_standard_deduction" in prompt
+        assert "Do not start a local input with" in prompt
+        assert "_under_section_<section>" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
