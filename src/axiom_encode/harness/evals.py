@@ -2737,7 +2737,7 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
-- A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header` and row/column keys. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell`.
+- A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header`, `source.table.row_key`, and `source.table.column_key`; header-only `parameter_table` proof atoms are invalid. Example: `source: {{table: {{header: "credit percentage table", row_key: "qualifying_child_count", column_key: "credit_percentage"}}}}`. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell` or `parameter_table`.
 - Every executable `parameter` and `derived` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for

@@ -31,9 +31,13 @@ Hard requirements:
 - A `kind: table_cell` proof atom must include
   `source.table.header`, `source.table.row`, and `source.table.column`.
   A `kind: parameter_table` proof atom with `source.table` must include
-  `source.table.header` and row/column keys. If you cannot identify table
-  coordinates, use a direct proof kind such as `amount`, `parameter`, or
-  `formula` instead of `table_cell`.
+  `source.table.header`, `source.table.row_key`, and
+  `source.table.column_key`. Header-only `parameter_table` proof atoms are
+  invalid. For example:
+  `source: {table: {header: "credit percentage table", row_key: "qualifying_child_count", column_key: "credit_percentage"}}`.
+  If you cannot identify table coordinates, use a direct proof kind such as
+  `amount`, `parameter`, or `formula` instead of `table_cell` or
+  `parameter_table`.
 - Do not emit `source_url`; RuleSpec validation reads normalized corpus provisions,
   not raw PDFs or web pages.
 - Use `rules:` as a list of rule objects.

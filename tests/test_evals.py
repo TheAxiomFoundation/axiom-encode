@@ -354,6 +354,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert (
         "A `kind: table_cell` proof atom must include `source.table.header`" in prompt
     )
+    assert "header-only `parameter_table` proof atoms are invalid" in prompt
+    assert "row_key" in prompt
+    assert "column_key" in prompt
     assert (
         "Adjacent bracket thresholds repeated as both an upper bound and the next"
         in prompt
