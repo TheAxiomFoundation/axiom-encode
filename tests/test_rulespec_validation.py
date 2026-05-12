@@ -5786,6 +5786,28 @@ rules:
     assert any("Filing status must use numeric enum" in issue for issue in issues)
 
 
+def test_filing_status_enum_rejects_quoted_named_match_arm():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              "married_filing_jointly" => standard_deduction_joint
+              "surviving_spouse" => standard_deduction_joint
+              "single" => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
 def test_filing_status_test_input_rejects_string_value():
     test_cases = [
         {
@@ -5868,6 +5890,29 @@ rules:
     assert any("different result" in issue for issue in issues)
 
 
+def test_filing_status_branch_rejects_comparison_surviving_spouse_different_result():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == 1: standard_deduction_joint else:
+          if filing_status == 4: standard_deduction_single else:
+          standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any("different result" in issue for issue in issues)
+
+
 def test_filing_status_branch_rejects_unrelated_surviving_spouse_code():
     content = """format: rulespec/v1
 module:
@@ -5927,6 +5972,23 @@ rules:
       - effective_from: '2025-10-01'
         formula: |-
           max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_allows_zero_branch_with_floored_else():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if ineligible: 0 else: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
 """
 
     assert find_nonnegative_amount_reduction_issues(content) == []

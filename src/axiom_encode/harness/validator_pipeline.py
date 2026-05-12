@@ -3254,16 +3254,18 @@ _FILING_STATUS_STRING_VALUE_PATTERN = re.compile(
     rf"|['\"][^'\"]+['\"]\s*(?:==|!=)\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}",
     flags=re.IGNORECASE,
 )
+_FILING_STATUS_NAMED_VALUE_ALTERNATIVES = (
+    r"single|joint|joint_return|married_filing_jointly|"
+    r"married_filing_separately|separate|head_of_household|surviving_spouse|"
+    r"qualifying_widow(?:er)?"
+)
 _FILING_STATUS_NAMED_VALUE_PATTERN = re.compile(
     rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=)\s*"
-    r"(?:single|joint|joint_return|married_filing_jointly|married_filing_separately|"
-    r"separate|head_of_household|surviving_spouse|qualifying_widow(?:er)?)\b",
+    rf"(?:{_FILING_STATUS_NAMED_VALUE_ALTERNATIVES})\b",
     flags=re.IGNORECASE,
 )
 _FILING_STATUS_MATCH_NAMED_ARM_PATTERN = re.compile(
-    r"^\s*(?:single|joint|joint_return|married_filing_jointly|"
-    r"married_filing_separately|separate|head_of_household|surviving_spouse|"
-    r"qualifying_widow(?:er)?)\s*=>",
+    rf"^\s*['\"]?(?:{_FILING_STATUS_NAMED_VALUE_ALTERNATIVES})['\"]?\s*=>",
     flags=re.IGNORECASE | re.MULTILINE,
 )
 
@@ -3346,6 +3348,29 @@ def _filing_status_surviving_spouse_branch_issue(
     if match_blocks:
         return None
 
+    conditional_results = _filing_status_conditional_branch_results(formula)
+    if conditional_results:
+        if 1 in conditional_results and 4 not in conditional_results:
+            return (
+                "Filing status branch missing surviving spouse: "
+                f"`{rule_name}` handles joint-return status code 1 while this source "
+                "mentions surviving spouse or qualifying widow(er), but the formula "
+                "does not handle status code 4 in the same filing-status branch. "
+                "Include code 4 when the source groups surviving spouse with joint "
+                "return, or encode a separate explicit branch."
+            )
+        if (
+            1 in conditional_results
+            and 4 in conditional_results
+            and (conditional_results[1] != conditional_results[4])
+        ):
+            return (
+                "Filing status branch routes surviving spouse to a different result: "
+                f"`{rule_name}` handles joint-return status code 1 and surviving-spouse "
+                "status code 4 with different branch results, but this source groups "
+                "surviving spouse with joint return."
+            )
+
     if _filing_status_has_code_comparison(formula, 1) and not (
         _filing_status_has_grouped_joint_surviving_spouse_condition(formula)
         or _filing_status_has_code_comparison(formula, 4)
@@ -3386,6 +3411,41 @@ def _filing_status_match_blocks(formula: str) -> list[dict[int, str]]:
                 arms[int(branch_match.group(1))] = branch_match.group(2)
         blocks.append(arms)
     return blocks
+
+
+def _filing_status_conditional_branch_results(formula: str) -> dict[int, set[str]]:
+    results: dict[int, set[str]] = {}
+    for raw_line in formula.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        branch = re.match(r"^(?:if|elif)\s+(.+?)\s*:\s*(.+)$", line)
+        if branch is None:
+            continue
+        condition = branch.group(1)
+        expression = re.split(
+            r"\s+else\s*:",
+            branch.group(2).strip(),
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip()
+        if not expression:
+            continue
+        for code in _filing_status_equality_codes_in_condition(condition):
+            results.setdefault(code, set()).add(_normalize_branch_result(expression))
+    return results
+
+
+def _filing_status_equality_codes_in_condition(condition: str) -> set[int]:
+    codes: set[int] = set()
+    for pattern in (
+        rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*==\s*(\d+)\b",
+        rf"\b(\d+)\s*==\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+    ):
+        for match in re.finditer(pattern, condition, flags=re.IGNORECASE):
+            with contextlib.suppress(ValueError):
+                codes.add(int(match.group(1)))
+    return codes
 
 
 def _normalize_branch_result(result: str) -> str:
@@ -3497,13 +3557,29 @@ def _formula_result_expressions(formula: str) -> list[str]:
         line = raw_line.strip()
         if not line:
             continue
+        inline_conditional = re.match(
+            r"^(?:if\b.+?|elif\b.+?)\s*:\s*(.+?)\s+else\s*:\s*(.+)$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if inline_conditional is not None:
+            expressions.append(inline_conditional.group(1).strip())
+            expressions.append(inline_conditional.group(2).strip())
+            continue
         match_arm = re.match(r"^(?:\d+|default|otherwise|_)\s*=>\s*(.+)$", line)
         if match_arm is not None:
             expressions.append(match_arm.group(1).strip())
             continue
         branch = re.match(r"^(?:if\b.+|elif\b.+|else)\s*:\s*(.+)$", line)
         if branch is not None:
-            expressions.append(branch.group(1).strip())
+            expression = re.split(
+                r"\s+else\s*:",
+                branch.group(1).strip(),
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0].strip()
+            if expression:
+                expressions.append(expression)
     if not expressions and formula.strip():
         expressions.append(formula.strip())
     return expressions
