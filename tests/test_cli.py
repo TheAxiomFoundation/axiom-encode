@@ -3798,7 +3798,7 @@ rules:
         target.write_text(
             """format: rulespec/v1
 module:
-  summary: joint / surviving spouse
+  summary: joint / surviving spouse and any other case
 rules:
   - name: additional_medicare_wage_tax_threshold
     kind: derived
@@ -3860,6 +3860,7 @@ rules:
 
         content = target.read_text()
         assert "4 => additional_medicare_wage_tax_joint_threshold" in content
+        assert "3 => additional_medicare_wage_tax_other_threshold" in content
         test_content = test_file.read_text()
         assert "surviving_spouse_uses_joint_threshold" in test_content
         assert "us:statutes/26/3101/b/2#input.filing_status: 4" in test_content

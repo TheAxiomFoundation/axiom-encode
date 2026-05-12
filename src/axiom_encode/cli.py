@@ -2989,46 +2989,85 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
     if (
         "surviving spouse" not in content.lower()
         and "qualifying widow" not in content.lower()
+        and "any other case" not in content.lower()
     ):
         return content, []
 
     lines = content.splitlines(keepends=True)
     repaired: list[str] = []
     repaired_rules: list[str] = []
-    in_filing_status_match = False
-    pending_insert: tuple[str, str] | None = None
+    needs_surviving_spouse = (
+        "surviving spouse" in content.lower() or "qualifying widow" in content.lower()
+    )
+    needs_other_case = "any other case" in content.lower()
     current_rule_name: str | None = None
+    index = 0
 
-    for line in lines:
+    while index < len(lines):
+        line = lines[index]
         stripped = line.strip()
         if stripped.startswith("- name: "):
             current_rule_name = stripped.removeprefix("- name: ").strip()
         if stripped == "match filing_status:":
-            in_filing_status_match = True
-            pending_insert = None
-        elif in_filing_status_match and "=>" in stripped:
-            arm_match = re.match(r"(\s*)1\s*=>\s*(.+)$", line.rstrip("\n"))
-            if arm_match is not None:
-                indent, expression = arm_match.groups()
-                pending_insert = (indent, expression)
-            elif re.match(r"\s*4\s*=>", line):
-                pending_insert = None
-        elif in_filing_status_match and stripped and not stripped[0].isdigit():
-            if pending_insert is not None:
-                indent, expression = pending_insert
-                repaired.append(f"{indent}4 => {expression}\n")
-                repaired_rules.append(current_rule_name or "<unknown>")
-                pending_insert = None
-            in_filing_status_match = False
+            match_block = [line]
+            index += 1
+            while index < len(lines):
+                block_line = lines[index]
+                block_stripped = block_line.strip()
+                if block_stripped and "=>" not in block_stripped:
+                    break
+                match_block.append(block_line)
+                index += 1
+            repaired_block, block_repairs = _repair_tax_filing_status_match_block(
+                match_block,
+                needs_surviving_spouse=needs_surviving_spouse,
+                needs_other_case=needs_other_case,
+            )
+            repaired.extend(repaired_block)
+            repaired_rules.extend(
+                current_rule_name or "<unknown>" for _ in block_repairs
+            )
+            continue
 
         repaired.append(line)
-
-    if in_filing_status_match and pending_insert is not None:
-        indent, expression = pending_insert
-        repaired.append(f"{indent}4 => {expression}\n")
-        repaired_rules.append(current_rule_name or "<unknown>")
+        index += 1
 
     return "".join(repaired), repaired_rules
+
+
+def _repair_tax_filing_status_match_block(
+    block: list[str],
+    *,
+    needs_surviving_spouse: bool,
+    needs_other_case: bool,
+) -> tuple[list[str], list[str]]:
+    arms: dict[int, tuple[str, str]] = {}
+    for line in block:
+        arm_match = re.match(r"(\s*)(\d+)\s*=>\s*(.+)$", line.rstrip("\n"))
+        if arm_match is None:
+            continue
+        indent, code, expression = arm_match.groups()
+        arms[int(code)] = (indent, expression)
+
+    should_add_surviving_spouse = needs_surviving_spouse and 1 in arms and 4 not in arms
+    should_add_other_case = needs_other_case and 0 in arms and 3 not in arms
+
+    repaired: list[str] = []
+    repairs: list[str] = []
+    for line in block:
+        repaired.append(line)
+        arm_match = re.match(r"(\s*)(\d+)\s*=>\s*(.+)$", line.rstrip("\n"))
+        if arm_match is None:
+            continue
+        indent, code, expression = arm_match.groups()
+        if code == "1" and should_add_surviving_spouse:
+            repaired.append(f"{indent}4 => {expression}\n")
+            repairs.append("surviving_spouse")
+        if code == "0" and should_add_other_case:
+            repaired.append(f"{indent}3 => {expression}\n")
+            repairs.append("other_case")
+
+    return repaired, repairs
 
 
 def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
