@@ -2789,6 +2789,14 @@ RuleSpec requirements:
   `_under_subsection_<subsection>` suffix. Do not start a local input with
   `section_<section>_` or `subsection_<subsection>_`; those names are reserved
   for imported legal outputs and will be treated as missing imports.
+- When a copied context file encodes a cited upstream source on a different
+  entity, import that upstream output and bridge entities with a structural
+  relation instead of replacing the import with a local cross-reference amount.
+  For example, if IRC section 22 excludes amounts described in section
+  104(a)(4), import
+  `us:statutes/26/104/a/4#service_injury_pension_excluded_amount` and aggregate
+  it over a TaxUnit-to-Payment relation; do not create local inputs named
+  `section_104_a_4_amounts` or `section_104_a_4_veterans_affairs_benefits`.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
 - Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
 - If the requested source text includes a limitation, cap, exception, or

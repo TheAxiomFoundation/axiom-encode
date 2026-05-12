@@ -2275,6 +2275,9 @@ class TestEvalPrompt:
         assert "For IRC section 22" in prompt
         assert "taxpayer_or_spouse_of_tax_unit" in prompt
         assert "elderly_disabled_member_of_tax_unit" in prompt
+        assert "service_injury_pension_excluded_amount" in prompt
+        assert "TaxUnit-to-Payment" in prompt
+        assert "section_104_a_4_amounts" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(

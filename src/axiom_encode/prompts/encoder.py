@@ -123,6 +123,14 @@ Hard requirements:
   `_under_subsection_<subsection>` suffix. Do not start a local input with
   `section_<section>_` or `subsection_<subsection>_`; those names are reserved
   for imported legal outputs and will be treated as missing imports.
+- When a copied context file encodes a cited upstream source on a different
+  entity, import that upstream output and bridge entities with a structural
+  relation instead of replacing the import with a local cross-reference amount.
+  For example, if IRC section 22 excludes amounts described in section
+  104(a)(4), import
+  `us:statutes/26/104/a/4#service_injury_pension_excluded_amount` and aggregate
+  it over a TaxUnit-to-Payment relation; do not create local inputs named
+  `section_104_a_4_amounts` or `section_104_a_4_veterans_affairs_benefits`.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility,
   availability, applicability, entitlement, and other holds/not-holds style
   outputs, especially when the formula contains `not`.
