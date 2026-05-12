@@ -1423,6 +1423,27 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert (
         registry.mapping_for_legal_id(
+            "us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction",
+            country="us",
+        ).policyengine_variable
+        == "standard_deduction"
+    )
+    assert (
+        registry.mapping_for_legal_id(
+            "us:statutes/26/63/c#basic_standard_deduction",
+            country="us",
+        ).policyengine_variable
+        == "basic_standard_deduction"
+    )
+    assert (
+        registry.mapping_for_legal_id(
+            "us:statutes/26/63/c#additional_standard_deduction",
+            country="us",
+        ).policyengine_variable
+        == "additional_standard_deduction"
+    )
+    assert (
+        registry.mapping_for_legal_id(
             "us:statutes/26/63/c#standard_deduction",
             country="us",
         ).policyengine_variable

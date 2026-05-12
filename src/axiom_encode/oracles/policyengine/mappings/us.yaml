@@ -2070,6 +2070,17 @@ mappings:
     comparison: money
     rationale: Same IRS single-filer basic standard deduction amount, stored in PE as parameter data.
 
+  - legal_id: us:policies/irs/rev-proc-2025-32/standard-deduction#standard_deduction
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: standard_deduction
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final standard deduction after the 2026 IRS inflation-adjusted amounts are selected.
+
   - legal_id: us:statutes/26/63/c#additional_std_ded_amount
     country: us
     program: tax
@@ -2080,6 +2091,28 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same additional standard deduction output for aged/blind conditions in these aged-only tests.
+
+  - legal_id: us:statutes/26/63/c#additional_standard_deduction
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: additional_standard_deduction
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 63(c) additional standard deduction output for aged/blind conditions.
+
+  - legal_id: us:statutes/26/63/c#basic_standard_deduction
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: basic_standard_deduction
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 63(c) basic standard deduction after filing-status and dependent limitations.
 
   - legal_id: us:statutes/26/63/c#num_aged_members
     country: us
@@ -2125,6 +2158,17 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same federal income tax after refundable credits for supported current-law cases.
+
+  - legal_id: us:statutes/26/163/a#interest_deduction
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: interest_deduction
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 163(a) interest deduction output for PE-supported interest categories.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_earned_income_amounts
     country: us
@@ -2188,6 +2232,8 @@ mappings:
     mapping_type: parameter_value
     policyengine_parameter: gov.irs.credits.eitc.phase_in_rate
     parameter_calc_input: qualifying_child_count
+    aliases:
+      - us:statutes/26/32#eitc_phase_in_rate
     period: year
     comparison: rate
     rationale: Same statutory EITC phase-in rate by qualifying-child count.
@@ -2198,6 +2244,8 @@ mappings:
     mapping_type: parameter_value
     policyengine_parameter: gov.irs.credits.eitc.phase_out.rate
     parameter_calc_input: qualifying_child_count
+    aliases:
+      - us:statutes/26/32#eitc_phase_out_rate
     period: year
     comparison: rate
     rationale: Same statutory EITC phase-out rate by qualifying-child count.
@@ -3916,3 +3964,105 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 25B saver-credit helper outputs use statutory formula inputs, base thresholds, and distribution exceptions that PolicyEngine does not expose as one-to-one variables unless an exact mapping overrides this prefix.
+
+  - legal_id_prefix: us:policies/irs/rev-proc-2025-32/standard-deduction#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: IRS standard-deduction revenue-procedure outputs are annual parameter rows and source-specific assembly outputs unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/104/a/4#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 104(a)(4) service-injury pension exclusion outputs are source-specific exclusion predicates and amounts that PolicyEngine does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/1411#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 1411 NIIT helper outputs are source-specific tax-base intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/163#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 163 interest-deduction helper outputs are source-specific predicates, caps, and phaseout intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/163/a#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 163(a) interest-deduction provision outputs are source-specific unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/163/h/4/A#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 163(h)(4)(A) passenger-vehicle-loan-interest outputs are source-specific statutory predicates not exposed as one-to-one PolicyEngine variables.
+
+  - legal_id_prefix: us:statutes/26/21#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 21 CDCC provision outputs are statutory parameters, predicates, and formula intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/22#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 22 elderly-and-disabled credit outputs are statutory parameters, predicates, and formula intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/24/d#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 24(d) refundable child-credit outputs are statutory intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/24/h#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 24(h) child-credit temporary-rule outputs are statutory intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/32#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 32 EITC provision outputs are statutory parameters, predicates, and formula intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/63#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 63 taxable-income and deduction-choice outputs are statutory assembly intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/63/c#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 63(c) standard-deduction outputs are statutory parameters and intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/63/c/5#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 63(c)(5) dependent-standard-deduction outputs are statutory intermediates not exposed as one-to-one PolicyEngine variables.
+
+  - legal_id_prefix: us:statutes/26/63/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 63(f) aged-or-blind additional-standard-deduction outputs are statutory parameters and predicates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/6401#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 6401 overpayment outputs are refundable-credit and overpayment intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/911/d/6#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 911(d)(6) double-benefit-denial outputs are foreign-income exclusion predicates and disallowance intermediates not exposed as one-to-one PolicyEngine variables.

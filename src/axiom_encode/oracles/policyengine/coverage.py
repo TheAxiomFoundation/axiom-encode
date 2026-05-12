@@ -214,6 +214,11 @@ def _iter_policyengine_coverage_items(
                     rule_name=rule_name,
                 )
                 mapping = registry.mapping_for_legal_id(legal_id, country="us")
+                test_output_count = _mapping_test_output_count(
+                    legal_id,
+                    mapping=mapping,
+                    test_output_counts=test_output_counts,
+                )
                 items.append(
                     _coverage_item_from_mapping(
                         legal_id=legal_id,
@@ -223,7 +228,7 @@ def _iter_policyengine_coverage_items(
                         rule_name=rule_name,
                         kind=kind,
                         mapping=mapping,
-                        test_output_count=test_output_counts.get(legal_id, 0),
+                        test_output_count=test_output_count,
                     )
                 )
     return items
@@ -443,6 +448,18 @@ def _rulespec_test_output_counts(path: Path) -> Counter[str]:
             continue
         output_counts.update(str(key) for key in outputs)
     return output_counts
+
+
+def _mapping_test_output_count(
+    legal_id: str,
+    *,
+    mapping: PolicyEngineMapping | None,
+    test_output_counts: Counter[str],
+) -> int:
+    count = test_output_counts.get(legal_id, 0)
+    if mapping is None:
+        return count
+    return count + sum(test_output_counts.get(alias, 0) for alias in mapping.aliases)
 
 
 def _canonical_rulespec_legal_id(

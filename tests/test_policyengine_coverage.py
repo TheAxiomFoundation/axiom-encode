@@ -211,6 +211,44 @@ rules:
     assert items_by_id["us:statutes/26/3101/a#oasdi_wage_tax"]["tested"] is True
 
 
+def test_policyengine_coverage_tracks_mapping_alias_test_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/32.yaml",
+        """format: rulespec/v1
+rules:
+  - name: eitc_phase_in_rates
+    kind: parameter
+    indexed_by: qualifying_child_count
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.0765
+          1: 0.34
+  - name: eitc_phase_in_rate
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: eitc_phase_in_rates[eitc_child_count]
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/32.test.yaml",
+        """- name: selected_rate
+  output:
+    us:statutes/26/32#eitc_phase_in_rate: 0.34
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    table_item = items_by_id["us:statutes/26/32#eitc_phase_in_rates"]
+    assert table_item["status"] == "comparable"
+    assert table_item["tested"] is True
+    assert table_item["test_output_count"] == 1
+    assert report["untested_comparable"] == 0
+
+
 def test_policyengine_candidates_prioritize_exact_unmapped_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/7/9999.yaml",
