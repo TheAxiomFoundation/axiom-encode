@@ -1588,9 +1588,12 @@ def _slice_legal_text_by_parenthetical_fragment(
     return text[start:end]
 
 
+_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL = (
+    r"(?:paragraphs?|subparagraphs?|clauses?|subclauses?|sections?|"
+    r"subsections?|chapters?|titles?|parts?|items?|sentences?|regulations?)"
+)
 _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX = re.compile(
-    r"\b(?:paragraph|subparagraph|clause|subclause|section|subsection|"
-    r"chapter|title|part|item|sentence|regulation)\s+$",
+    rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\s+$",
     re.IGNORECASE,
 )
 
@@ -1600,7 +1603,22 @@ def _parenthetical_marker_context_is_structural(text: str, marker_start: int) ->
     previous = prefix.rstrip()[-1:] if prefix.rstrip() else ""
     if previous == ")":
         return False
-    return _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX.search(prefix) is None
+    if _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX.search(prefix):
+        return False
+    return not _parenthetical_marker_is_in_reference_list(prefix)
+
+
+def _parenthetical_marker_is_in_reference_list(prefix: str) -> bool:
+    segment = re.split(r"(?:[.;]\s+|\n+)", prefix)[-1]
+    if not re.search(
+        rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\b",
+        segment,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    if not re.search(r"\([A-Za-z0-9]+\)", segment):
+        return False
+    return re.search(r"(?:,\s*|\b(?:or|and)\s+)$", segment) is not None
 
 
 def _sibling_parenthetical_marker_pattern(
@@ -2599,6 +2617,14 @@ Import and context rules:
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
 - In formulas, reference imported exports by their bare local rule name after adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
+- When source text cites a section or subsection and a copied context file for
+  that citation is listed, import and use the listed exported symbol from that
+  context instead of creating a local `section_...` or `subsection_...`
+  placeholder. For example, if a source references a deduction allowed by
+  section 163(a) and context lists `us:statutes/26/163/a#interest_deduction`,
+  import that exact export and use `interest_deduction`; a local fact such as
+  `section_163_a_deduction_attributable_to_section_163_h_4_A_exception` is
+  invalid.
 - If this target is an aggregate parent provision and copied child-fragment files
   already encode subparagraphs, import those child outputs and compose them.
   Do not redefine the child parameters, helper rules, or copied executable
@@ -2834,6 +2860,24 @@ RuleSpec requirements:
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
   inflation adjustment formula itself.
+- If a copied current-year authority exports the same concept or output name
+  that the requested statute formula would otherwise create, do not emit a
+  local executable duplicate with that name. Import and use the current-year
+  authority's output, keeping only statute-specific conditions or non-executable
+  `source_relation` records in the statute file. For IRC section 63(c)(5), if
+  Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
+  not recreate it in the statute file.
+- When the statute states pre-inflation base dollars that a current-year
+  authority adjusts, any local statute output must be named as a statutory/base
+  concept, not as the current-year value. For IRC section 63(c)(5), use a name
+  like `dependent_basic_standard_deduction_statutory_limit`, not
+  `dependent_standard_deduction_limit`.
+- When the source rounds an inflation or cost-of-living increase, round the
+  increase before adding it to the base amount unless the source explicitly
+  says to round the final total. Companion tests must assert the rounded
+  increase plus the base, not the unrounded total. For example, with base
+  15750, adjustment 0.1, and a next-lower $50 multiple, the increase is 1550
+  and the total is 17300, not 17325.
 - Do not invent new entities, periods, or dtypes.
 - Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
@@ -2842,9 +2886,25 @@ RuleSpec requirements:
 - Do not create derived `dtype: Boolean` helper rules with logical formulas. Use `dtype: Judgment` for derived legal predicates, or leave simple local facts as factual `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}` keys consumed by formulas and tests.
 - Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
 - Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Do not encode legal effective dates as `dtype: String` parameters or date
+  literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
+  Use `effective_from` metadata for version timing, or use a
+  source-stated boolean predicate such as
+  `taxable_year_begins_after_2024_and_before_2029` when a date window is a
+  runtime condition.
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
+- US tax `filing_status` is a structural enum: 0 single, 1 joint return,
+  2 married filing separately, 3 head of household, and 4 surviving spouse /
+  qualifying widow(er). Never encode US tax filing status as string literals
+  such as `"married_filing_jointly"` or as separate boolean facts such as
+  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`.
+  Formulas and tests must use the numeric `filing_status` enum input directly,
+  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`, and
+  `.test.yaml` should assign `#input.filing_status: 1` or `4`. If the source
+  groups surviving spouse with joint return, every branch or match that handles
+  status 1 must also handle status 4 in that same branch with the same result.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
@@ -2861,9 +2921,17 @@ RuleSpec requirements:
 - Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks.
 - Do not append a multiline conditional directly onto another expression, and do not use inline assignment syntax like `:=` inside formula blocks.
 - For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals.
+- Do not simplify source-stated ratios or fractions into new decimal literals.
+  If the source states `20/200`, encode grounded numerator and denominator
+  parameters and compare with `20 / 200` or with those named parameters; do not
+  emit an ungrounded decimal such as `0.10`.
 - Use concrete ISO calendar dates like `2025-03-21` for day-level tests; do not use ISO week strings like `2025-W13`.
 - Any substantive numeric literal in a formula must either appear in `./source.txt` or be one of -1, 0, 1, 2, or 3.
 - Every substantive numeric occurrence in `./source.txt` must be represented by a named scalar definition in RuleSpec when it is a legal amount, rate, threshold, cap, or limit.
+- If you encode a substantive numeric literal, `module.summary` or the rule's proof excerpt
+  must include the exact source phrase containing that number. Do not omit a
+  subsection, table row, or clause that grounds an encoded
+  numeric amount, rate, threshold, cap, or limit.
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.

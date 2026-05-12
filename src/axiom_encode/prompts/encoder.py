@@ -24,7 +24,8 @@ Hard requirements:
   do not put imported RuleSpec targets under `source:`. Import proof atoms must
   include `import.target`, `import.output`, and `import.hash` with a listed
   `sha256:` hash; if no `sha256:` hash is provided, do not emit an import proof
-  atom.
+  atom. When the imported proof target is in the same RuleSpec file, use
+  `hash: sha256:local` instead of the file's current content hash.
 - Proof atom `kind` must be one of: `amount`, `condition`, `definition`,
   `default`, `effective_period`, `exception`, `formula`, `import`, `ordering`,
   `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.
@@ -169,6 +170,24 @@ Hard requirements:
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
   inflation adjustment formula itself.
+- If a copied current-year authority exports the same concept or output name
+  that the requested statute formula would otherwise create, do not emit a
+  local executable duplicate with that name. Import and use the current-year
+  authority's output, keeping only statute-specific conditions or non-executable
+  `source_relation` records in the statute file. For IRC section 63(c)(5), if
+  Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
+  not recreate it in the statute file.
+- When the statute states pre-inflation base dollars that a current-year
+  authority adjusts, any local statute output must be named as a statutory/base
+  concept, not as the current-year value. For IRC section 63(c)(5), use a name
+  like `dependent_basic_standard_deduction_statutory_limit`, not
+  `dependent_standard_deduction_limit`.
+- When the source rounds an inflation or cost-of-living increase, round the
+  increase before adding it to the base amount unless the source explicitly
+  says to round the final total. Companion tests must assert the rounded
+  increase plus the base, not the unrounded total. For example, with base
+  15750, adjustment 0.1, and a next-lower $50 multiple, the increase is 1550
+  and the total is 17300, not 17325.
 - Use `kind: source_relation` for non-executable legal/provenance edges such as
   `restates`, `sets`, `amends`, `implements`, `delegates`, `defines`, or
   `cites`. It must include `source_relation.type` and
@@ -294,6 +313,12 @@ Hard requirements:
   state-residency input unless the provision itself is encoding a residency
   eligibility test.
 - Put formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
+- Do not encode legal effective dates as `dtype: String` parameters or date
+  literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
+  Use `effective_from` metadata for version timing, or use a
+  source-stated boolean predicate such as
+  `taxable_year_begins_after_2024_and_before_2029` when a date window is a
+  runtime condition.
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime
   does not yet support period-selecting versioned formulas. Use a single
   source-faithful conditional formula when the provision itself defines a
@@ -304,6 +329,10 @@ Hard requirements:
   `ceil(x)`. Do not use Python-only functions such as `round(...)`; express
   nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for
   nonnegative amounts.
+- Benefit, allotment, credit, deduction, allowance, and subsidy formulas must
+  never emit negative money. When subtracting an income, contribution, or other
+  reduction from a maximum amount, floor the result with `max(0, ...)` before
+  applying downstream minimum-benefit or issuance branches.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
@@ -326,6 +355,21 @@ Hard requirements:
   compact `not A and not B` line.
 - Formula strings reference indexed parameter tables with `table_name[index_expr]`.
 - Every substantive numeric literal must be grounded in the supplied source text unless it is -1, 0, 1, 2, or 3.
+- If you encode a substantive numeric literal, `module.summary` or the rule's proof excerpt
+  must include the exact source phrase containing that number. Do not omit a
+  subsection, table row, or clause that grounds an encoded
+  numeric amount, rate, threshold, cap, or limit.
+- US tax `filing_status` is a structural enum: 0 single, 1 joint return,
+  2 married filing separately, 3 head of household, and 4 surviving spouse /
+  qualifying widow(er). If the source groups surviving spouse with joint return,
+  every filing-status branch or match that handles status 1 must also handle
+  status 4 in that same branch.
+- Never encode US tax filing status as string literals such as
+  `"married_filing_jointly"` or as separate boolean facts such as
+  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`.
+  Formulas and tests must use the numeric `filing_status` enum input directly,
+  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...` and
+  `.test.yaml` should assign `#input.filing_status: 1` or `4`.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.
@@ -345,7 +389,9 @@ Hard requirements:
      defaults. If a test asserts an indexed `parameter` table output directly,
      the test must assign every `indexed_by` key as `#input.<key>`; otherwise
      assert the derived lookup output instead of the raw table. In ordinary
-     end-to-end tests, do not output raw indexed parameter tables at all.
+     end-to-end tests, do not output raw indexed parameter tables at all. If a
+     local amount formula has a branch returning 0, include a companion case that
+     asserts that local output is 0.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived

@@ -559,6 +559,9 @@ GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
 SOURCE_TEXT_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,]))(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
+SOURCE_TEXT_RATIO_NUMBER_PATTERN = re.compile(
+    r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w/])"
+)
 _UNICODE_FRACTION_VALUES = {
     "¼": 0.25,
     "½": 0.5,
@@ -761,6 +764,39 @@ _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN = re.compile(
 )
 _SCHEDULE_INDEX_NAME_PATTERN = r"[A-Za-z_]\w*_size(?:_[A-Za-z_]\w*)*"
 _STRUCTURAL_ENUM_INDEX_NAME_PATTERN = r"(?:filing_status|tax_filing_status)"
+_US_TAX_SURVIVING_SPOUSE_TEXT_PATTERN = re.compile(
+    r"(?:^|[^A-Za-z0-9])(?:surviving[\s_-]+spouse|qualifying[\s_-]+widow(?:er)?)\b",
+    flags=re.IGNORECASE,
+)
+_US_TAX_FILING_STATUS_NAME_PATTERN = re.compile(
+    rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+    flags=re.IGNORECASE,
+)
+_NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN = re.compile(
+    r"(?:^|_)(?:allotment|benefit|credit|deduction|allowance|subsidy)(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_NONNEGATIVE_REDUCTION_FORMULA_PATTERN = re.compile(
+    r"\b(?=[A-Za-z_][A-Za-z0-9_]*\b)(?=[A-Za-z0-9_]*max)[A-Za-z_][A-Za-z0-9_]*\b"
+    r"[\s\S]{0,180}-[\s\S]{0,220}"
+    r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
+    flags=re.IGNORECASE,
+)
+_ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*\b"
+    r"[\s\S]{0,180}-[\s\S]{0,220}"
+    r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
+    flags=re.IGNORECASE,
+)
+_FORMULA_ISO_DATE_LITERAL_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])\d{4}-\d{2}-\d{2}(?![A-Za-z0-9_])"
+)
+_ZERO_AMOUNT_BRANCH_PATTERN = re.compile(
+    r"(?:\bif\b[\s\S]{0,500}:\s*0(?:\.0+)?(?:\s+else\s*:|\s*$))"
+    r"|(?:\belse\s*:\s*0(?:\.0+)?(?:\s|$))"
+    r"|(?:=>\s*0(?:\.0+)?(?:\s|$))",
+    flags=re.IGNORECASE,
+)
 _CARDINAL_WORD_VALUES = {
     "zero": 0.0,
     "one": 1.0,
@@ -1513,6 +1549,16 @@ def _iter_normalized_special_numeric_matches(
     for match in _SUBPOUND_MONEY_PATTERN.finditer(text):
         with contextlib.suppress(ValueError):
             matches.append((match.span(), float(match.group(1).replace(",", "")) / 100))
+
+    for match in SOURCE_TEXT_RATIO_NUMBER_PATTERN.finditer(text):
+        for group_index in (1, 2):
+            with contextlib.suppress(ValueError):
+                matches.append(
+                    (
+                        match.span(),
+                        float(match.group(group_index).replace(",", "")),
+                    )
+                )
 
     for match in re.finditer(r"(?<=[=+])\s*(-?[\d,]+(?:\.\d+)?)\b", text):
         with contextlib.suppress(ValueError):
@@ -3207,6 +3253,652 @@ def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str
         (name, kind, formula)
         for name, kind, formula, _source in _rulespec_rule_formula_records(payload)
     ]
+
+
+def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
+    """Flag filing-status branches that omit surviving spouse when source groups it."""
+    payload = _rulespec_payload(content)
+    if payload is None or not _US_TAX_SURVIVING_SPOUSE_TEXT_PATTERN.search(content):
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived" or not _US_TAX_FILING_STATUS_NAME_PATTERN.search(formula):
+            continue
+        branch_issue = _filing_status_surviving_spouse_branch_issue(name, formula)
+        if branch_issue is not None:
+            issues.append(branch_issue)
+    return issues
+
+
+_FILING_STATUS_STRING_VALUE_PATTERN = re.compile(
+    rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=)\s*['\"][^'\"]+['\"]"
+    rf"|['\"][^'\"]+['\"]\s*(?:==|!=)\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}",
+    flags=re.IGNORECASE,
+)
+_FILING_STATUS_NAMED_VALUE_ALTERNATIVES = (
+    r"single|joint|joint_return|married_filing_jointly|"
+    r"married_filing_separately|separate|head_of_household|surviving_spouse|"
+    r"qualifying_widow(?:er)?"
+)
+_FILING_STATUS_NAMED_VALUE_PATTERN = re.compile(
+    rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=)\s*"
+    rf"(?:{_FILING_STATUS_NAMED_VALUE_ALTERNATIVES})\b",
+    flags=re.IGNORECASE,
+)
+_FILING_STATUS_MATCH_NAMED_ARM_PATTERN = re.compile(
+    rf"^\s*['\"]?(?:{_FILING_STATUS_NAMED_VALUE_ALTERNATIVES})['\"]?\s*=>",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
+
+
+def find_tax_filing_status_enum_representation_issues(content: str) -> list[str]:
+    """Reject string/boolean encodings of the structural US filing-status enum."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived" or not _US_TAX_FILING_STATUS_NAME_PATTERN.search(formula):
+            continue
+        if (
+            _FILING_STATUS_STRING_VALUE_PATTERN.search(formula)
+            or _FILING_STATUS_NAMED_VALUE_PATTERN.search(formula)
+            or _filing_status_match_has_named_arms(formula)
+        ):
+            issues.append(
+                "Filing status must use numeric enum: "
+                f"`{name}` compares `filing_status` to string/named status values. "
+                "Use numeric codes directly: 0 single, 1 joint return, 2 married "
+                "filing separately, 3 head of household, 4 surviving spouse / "
+                "qualifying widow(er)."
+            )
+    return issues
+
+
+def _filing_status_match_has_named_arms(formula: str) -> bool:
+    lines = formula.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(
+            rf"^(\s*)match\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:\s*(.*)$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            continue
+        if _match_fragment_has_named_arm(match.group(2)):
+            return True
+        base_indent = len(match.group(1))
+        for branch_line in lines[index + 1 :]:
+            if not branch_line.strip():
+                continue
+            branch_indent = len(branch_line) - len(branch_line.lstrip())
+            if branch_indent <= base_indent:
+                break
+            if _match_fragment_has_named_arm(branch_line):
+                return True
+    return False
+
+
+def _match_fragment_has_named_arm(fragment: str) -> bool:
+    return any(
+        _FILING_STATUS_MATCH_NAMED_ARM_PATTERN.match(part)
+        for part in re.split(r";", fragment)
+        if part.strip()
+    )
+
+
+def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
+    """Reject nonnumeric `#input.filing_status` test assignments."""
+    if not isinstance(test_cases, list):
+        return []
+
+    issues: list[str] = []
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        test_name = str(test_case.get("name") or "<unnamed>").strip() or "<unnamed>"
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        for key, value in inputs.items():
+            if _test_reference_fragment(key) != "input.filing_status":
+                continue
+            if isinstance(value, bool) or value not in {0, 1, 2, 3, 4}:
+                issues.append(
+                    "Filing status test input must use numeric enum: "
+                    f"`{test_name}` assigns `{key}: {value}`. Use 0 single, "
+                    "1 joint return, 2 married filing separately, 3 head of "
+                    "household, or 4 surviving spouse / qualifying widow(er)."
+                )
+    return issues
+
+
+def _filing_status_surviving_spouse_branch_issue(
+    rule_name: str,
+    formula: str,
+) -> str | None:
+    match_blocks = _filing_status_match_blocks(formula)
+    for arms in match_blocks:
+        if 1 not in arms:
+            continue
+        if 4 not in arms:
+            return (
+                "Filing status branch missing surviving spouse: "
+                f"`{rule_name}` handles joint-return status code 1 while this source "
+                "mentions surviving spouse or qualifying widow(er), but the formula "
+                "does not handle status code 4 in the same filing-status branch. "
+                "Include code 4 when the source groups surviving spouse with joint "
+                "return, or encode a separate explicit branch."
+            )
+        if _normalize_branch_result(arms[1]) != _normalize_branch_result(arms[4]):
+            return (
+                "Filing status branch routes surviving spouse to a different result: "
+                f"`{rule_name}` handles joint-return status code 1 and surviving-spouse "
+                "status code 4 with different branch results, but this source groups "
+                "surviving spouse with joint return."
+            )
+    if match_blocks:
+        return None
+
+    conditional_results = _filing_status_conditional_branch_results(formula)
+    if conditional_results:
+        if 1 in conditional_results and 4 not in conditional_results:
+            return (
+                "Filing status branch missing surviving spouse: "
+                f"`{rule_name}` handles joint-return status code 1 while this source "
+                "mentions surviving spouse or qualifying widow(er), but the formula "
+                "does not handle status code 4 in the same filing-status branch. "
+                "Include code 4 when the source groups surviving spouse with joint "
+                "return, or encode a separate explicit branch."
+            )
+        if (
+            1 in conditional_results
+            and 4 in conditional_results
+            and (conditional_results[1] != conditional_results[4])
+        ):
+            return (
+                "Filing status branch routes surviving spouse to a different result: "
+                f"`{rule_name}` handles joint-return status code 1 and surviving-spouse "
+                "status code 4 with different branch results, but this source groups "
+                "surviving spouse with joint return."
+            )
+
+    if _filing_status_has_code_comparison(formula, 1) and not (
+        _filing_status_has_grouped_joint_surviving_spouse_condition(formula)
+        or _filing_status_has_code_comparison(formula, 4)
+    ):
+        return (
+            "Filing status branch missing surviving spouse: "
+            f"`{rule_name}` handles joint-return status code 1 while this source "
+            "mentions surviving spouse or qualifying widow(er), but the formula "
+            "does not handle status code 4. Include code 4 when the source groups "
+            "surviving spouse with joint return, or encode a separate explicit branch."
+        )
+    return None
+
+
+def _filing_status_match_blocks(formula: str) -> list[dict[int, str]]:
+    blocks: list[dict[int, str]] = []
+    lines = formula.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(
+            rf"^(\s*)match\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:\s*$",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            continue
+        base_indent = len(match.group(1))
+        arms: dict[int, str] = {}
+        for branch_line in lines[index + 1 :]:
+            if not branch_line.strip():
+                continue
+            branch_indent = len(branch_line) - len(branch_line.lstrip())
+            if branch_indent <= base_indent:
+                break
+            branch_match = re.match(r"^\s*(\d+)\s*=>\s*(.+?)\s*$", branch_line)
+            if branch_match is None:
+                continue
+            with contextlib.suppress(ValueError):
+                arms[int(branch_match.group(1))] = branch_match.group(2)
+        blocks.append(arms)
+    return blocks
+
+
+def _filing_status_conditional_branch_results(formula: str) -> dict[int, set[str]]:
+    results: dict[int, set[str]] = {}
+    for raw_line in formula.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        branch = re.match(r"^(?:if|elif)\s+(.+?)\s*:\s*(.+)$", line)
+        if branch is None:
+            continue
+        condition = branch.group(1)
+        expression = re.split(
+            r"\s+else\s*:",
+            branch.group(2).strip(),
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip()
+        if not expression:
+            continue
+        for code in _filing_status_equality_codes_in_condition(condition):
+            results.setdefault(code, set()).add(_normalize_branch_result(expression))
+    return results
+
+
+def _filing_status_equality_codes_in_condition(condition: str) -> set[int]:
+    codes: set[int] = set()
+    for pattern in (
+        rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*==\s*(\d+)\b",
+        rf"\b(\d+)\s*==\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+    ):
+        for match in re.finditer(pattern, condition, flags=re.IGNORECASE):
+            with contextlib.suppress(ValueError):
+                codes.add(int(match.group(1)))
+    return codes
+
+
+def _normalize_branch_result(result: str) -> str:
+    return re.sub(r"\s+", "", result.strip().rstrip(",")).lower()
+
+
+def _filing_status_has_code_comparison(formula: str, code: int) -> bool:
+    return bool(
+        re.search(
+            rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=|>=|>|<=|<)\s*{code}\b"
+            rf"|\b{code}\s*(?:==|!=|>=|>|<=|<)\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+            formula,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _filing_status_has_grouped_joint_surviving_spouse_condition(formula: str) -> bool:
+    compact = re.sub(r"\s+", "", formula).lower()
+    for name in ("filing_status", "tax_filing_status"):
+        if re.search(rf"\b{name}in[\[\(\{{]1,4[\]\)\}}]", compact):
+            return True
+        if re.search(rf"\b{name}in[\[\(\{{]4,1[\]\)\}}]", compact):
+            return True
+        if f"{name}==1or{name}==4" in compact:
+            return True
+        if f"{name}==4or{name}==1" in compact:
+            return True
+        if f"1=={name}or4=={name}" in compact:
+            return True
+        if f"4=={name}or1=={name}" in compact:
+            return True
+    return False
+
+
+def _filing_status_codes_in_formula(formula: str) -> set[int]:
+    codes: set[int] = set()
+    normalized = re.sub(r"\s+", " ", formula)
+    for match in re.finditer(
+        rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=|>=|>|<=|<)\s*(\d+)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        with contextlib.suppress(ValueError):
+            codes.add(int(match.group(1)))
+    if re.search(
+        rf"\bmatch\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        for block in _filing_status_match_blocks(formula):
+            codes.update(block)
+    return codes
+
+
+def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
+    """Flag benefit-style reductions that can fall below zero."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"money", "currency", "decimal", "integer", "number"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            result_expressions = _formula_result_expressions(formula)
+            unfloored_expressions = [
+                expression
+                for expression in result_expressions
+                if _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(expression)
+                and not _final_expression_has_zero_floor(expression)
+            ]
+            if not unfloored_expressions:
+                continue
+            issues.append(
+                "Nonnegative amount reduction missing floor: "
+                f"`{name}` subtracts an income/contribution-style reduction from a "
+                "maximum amount but does not floor the result at zero. Benefit, "
+                "allotment, credit, deduction, allowance, and subsidy outputs must "
+                "use `max(0, ...)` before downstream minimums or eligibility branches."
+            )
+    return issues
+
+
+def find_formula_date_literal_issues(content: str) -> list[str]:
+    """Flag ISO date literals in executable formulas."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {"parameter", "derived"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            match = _FORMULA_ISO_DATE_LITERAL_PATTERN.search(formula)
+            if match is None:
+                continue
+            issues.append(
+                "Formula date literal unsupported: "
+                f"`{name}` uses `{match.group(0)}` inside an executable formula. "
+                "Axiom formula syntax has no date literal type; encode effective "
+                "windows with `effective_from` metadata or source-stated boolean "
+                "predicates such as `taxable_year_begins_after_2024_and_before_2029`."
+            )
+    return issues
+
+
+def _formula_result_expressions(formula: str) -> list[str]:
+    expressions: list[str] = []
+    for raw_line in formula.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(line)
+        if inline_conditional is not None:
+            expressions.extend(_split_inline_conditional_result_expressions(line))
+            continue
+        match_arm = re.match(r"^(?:\d+|default|otherwise|_)\s*=>\s*(.+)$", line)
+        if match_arm is not None:
+            expressions.extend(
+                _split_inline_conditional_result_expressions(match_arm.group(1))
+            )
+            continue
+        branch = re.match(r"^(?:if\b.+|elif\b.+|else)\s*:\s*(.+)$", line)
+        if branch is not None:
+            expression = _branch_result_expression(branch.group(1).strip())
+            expressions.extend(_split_inline_conditional_result_expressions(expression))
+    if not expressions and formula.strip():
+        expressions.append(formula.strip())
+    return expressions
+
+
+_INLINE_CONDITIONAL_RESULT_PATTERN = re.compile(
+    r"^(?:if\b.+?|elif\b.+?)\s*:\s*(.+?)\s+else\s*:\s*(.+)$",
+    flags=re.IGNORECASE,
+)
+
+
+def _branch_result_expression(branch_tail: str) -> str:
+    if _INLINE_CONDITIONAL_RESULT_PATTERN.match(branch_tail):
+        return branch_tail
+    return re.split(
+        r"\s+else\s*:",
+        branch_tail,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip()
+
+
+def _split_inline_conditional_result_expressions(expression: str) -> list[str]:
+    expression = expression.strip()
+    if not expression:
+        return []
+    inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(expression)
+    if inline_conditional is None:
+        return [expression]
+    return [
+        *(_split_inline_conditional_result_expressions(inline_conditional.group(1))),
+        *(_split_inline_conditional_result_expressions(inline_conditional.group(2))),
+    ]
+
+
+def _final_expression_has_zero_floor(expression: str) -> bool:
+    without_zero_floor_calls = _expression_without_zero_floor_calls(expression)
+    return not _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(
+        without_zero_floor_calls
+    ) and any(
+        _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(argument)
+        or _ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN.search(argument)
+        for argument in _zero_floor_argument_expressions(expression)
+    )
+
+
+_ZERO_FLOOR_CALL_PATTERN = re.compile(
+    r"\bmax\s*\(\s*0(?:\.0+)?\s*,",
+    flags=re.IGNORECASE,
+)
+
+
+def _zero_floor_argument_expressions(expression: str) -> list[str]:
+    argument_expressions: list[str] = []
+    for _start, _end, argument in _zero_floor_call_spans(expression):
+        argument_expressions.append(argument)
+    return argument_expressions
+
+
+def _expression_without_zero_floor_calls(expression: str) -> str:
+    chunks: list[str] = []
+    last_end = 0
+    for start, end, _argument in _zero_floor_call_spans(expression):
+        if start < last_end:
+            continue
+        chunks.append(expression[last_end:start])
+        chunks.append(" zero_floor_result ")
+        last_end = end
+    chunks.append(expression[last_end:])
+    return "".join(chunks)
+
+
+def _zero_floor_call_spans(expression: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    for match in _ZERO_FLOOR_CALL_PATTERN.finditer(expression):
+        depth = 1
+        index = match.end()
+        while index < len(expression):
+            char = expression[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    spans.append(
+                        (match.start(), index + 1, expression[match.end() : index])
+                    )
+                    break
+            index += 1
+    return spans
+
+
+def find_zero_branch_test_coverage_issues(
+    content: str,
+    test_cases: Any,
+) -> list[str]:
+    """Require a companion assertion for source-stated zero amount branches."""
+    if not isinstance(test_cases, list):
+        return []
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype in {"judgment", "boolean", "bool"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        if not any(
+            isinstance(version, dict)
+            and isinstance(version.get("formula"), str)
+            and _ZERO_AMOUNT_BRANCH_PATTERN.search(version["formula"])
+            for version in versions
+        ):
+            continue
+        if _has_zero_output_test(test_cases, name):
+            continue
+        issues.append(
+            "Zero branch test coverage missing: "
+            f"`{name}` has a formula branch that returns 0, but no companion test "
+            "asserts that output is zero. Add a case that exercises the zero branch "
+            "rather than only above-threshold positive cases."
+        )
+    return issues
+
+
+def _has_zero_output_test(test_cases: list[Any], rule_name: str) -> bool:
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for key, value in outputs.items():
+            if _test_reference_fragment(key) == rule_name and _is_zero_expected_value(
+                value
+            ):
+                return True
+    return False
+
+
+def _is_zero_expected_value(value: Any) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return float(value) == 0.0
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            return float(value.strip()) == 0.0
+    if isinstance(value, dict):
+        raw_value = value.get("value")
+        if isinstance(raw_value, dict):
+            return _is_zero_expected_value(raw_value.get("value"))
+        return _is_zero_expected_value(raw_value)
+    return False
+
+
+def find_proof_import_hash_consistency_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
+    """Validate proof import hashes against resolved RuleSpec source files."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    current_file = Path(rules_file).resolve()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+        proof = _rule_proof_payload(rule)
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom_index, atom in enumerate(atoms):
+            if not isinstance(atom, dict) or not isinstance(atom.get("import"), dict):
+                continue
+            raw_import = atom["import"]
+            target = str(raw_import.get("target") or "").strip()
+            hash_value = str(raw_import.get("hash") or "").strip()
+            target_ref = _parse_rulespec_target(target)
+            if target_ref is None:
+                continue
+            target_file = _resolve_rulespec_target_file(
+                target_ref,
+                policy_repo_path or _rulespec_repo_root(current_file),
+            )
+            if target_file is None or not target_file.exists():
+                continue
+            expected_hash = (
+                "sha256:local"
+                if target_file.resolve() == current_file
+                else f"sha256:{_file_sha256(target_file)}"
+            )
+            if hash_value == expected_hash:
+                continue
+            issues.append(
+                "Proof import hash mismatch: "
+                f"`{rule_name}` proof atom {atom_index} imports `{target}` with "
+                f"`hash: {hash_value or '<missing>'}`, expected `{expected_hash}`."
+            )
+    return issues
+
+
+def _rule_proof_payload(rule: dict[str, Any]) -> dict[str, Any] | None:
+    metadata = rule.get("metadata")
+    if isinstance(metadata, dict) and isinstance(metadata.get("proof"), dict):
+        return metadata["proof"]
+    proof = rule.get("proof")
+    return proof if isinstance(proof, dict) else None
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
@@ -6672,6 +7364,7 @@ class ValidatorPipeline:
             text=True,
             timeout=60,
             cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
+            env=self._rulespec_compile_env(),
         )
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
@@ -6796,10 +7489,10 @@ class ValidatorPipeline:
             parameter_outputs: list[str] = []
             for output_name in output_map:
                 output_key = str(output_name)
-                if output_key in derived_by_key:
-                    derived_outputs.append(output_key)
-                elif output_key in parameter_by_key:
+                if output_key in parameter_by_key:
                     parameter_outputs.append(output_key)
+                elif output_key in derived_by_key:
+                    derived_outputs.append(output_key)
                 else:
                     if _RULESPEC_ABSOLUTE_REFERENCE.match(output_key):
                         resolution_issue = _rulespec_absolute_test_reference_issue(
@@ -6953,11 +7646,22 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_tax_filing_status_enum_representation_issues(content))
+        issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
+        issues.extend(find_formula_date_literal_issues(content))
+        issues.extend(find_nonnegative_amount_reduction_issues(content))
         issues.extend(find_relation_aggregate_syntax_issues(content))
         issues.extend(find_role_limited_relation_scope_issues(content))
         issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
+        issues.extend(
+            find_proof_import_hash_consistency_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         issues.extend(
             find_copied_cross_reference_source_issues(
                 content,
@@ -7032,7 +7736,11 @@ class ValidatorPipeline:
                             )
                         )
                     issues.extend(find_test_input_assignment_issues(content, payload))
+                    issues.extend(find_tax_filing_status_test_input_issues(payload))
                     issues.extend(find_exception_test_coverage_issues(content, payload))
+                    issues.extend(
+                        find_zero_branch_test_coverage_issues(content, payload)
+                    )
                     if len(issues) == pre_test_issue_count:
                         issues.extend(
                             self._run_rulespec_test_cases(
@@ -7168,6 +7876,14 @@ class ValidatorPipeline:
 
     def _extract_import_paths(self, content: str) -> list[str]:
         """Extract import file references from an imports block."""
+        return [
+            item.split("#", 1)[0].strip()
+            for item in self._extract_import_items(content)
+            if item.split("#", 1)[0].strip()
+        ]
+
+    def _extract_import_items(self, content: str) -> list[str]:
+        """Extract raw import items from an imports block."""
         paths: list[str] = []
         in_imports = False
         imports_indent = 0
@@ -7198,9 +7914,9 @@ class ValidatorPipeline:
                 if not mapping_match:
                     continue
                 item = mapping_match.group(2).strip()
-            import_target = item.split("#", 1)[0].strip()
-            if import_target:
-                paths.append(import_target)
+            item = item.strip().strip("\"'")
+            if item:
+                paths.append(item)
 
         return paths
 
@@ -7287,10 +8003,7 @@ class ValidatorPipeline:
             return []
         current_section = self._infer_section_from_rulespec_path(rulespec_file)
 
-        imports = {
-            self._normalize_rulespec_import_path(import_path)
-            for import_path in self._extract_import_paths(content)
-        }
+        import_items = self._extract_import_items(content)
         issues: list[str] = []
         seen: set[tuple[str, str]] = set()
         for block in self._extract_definition_blocks(content):
@@ -7306,7 +8019,12 @@ class ValidatorPipeline:
                 )
                 if not import_base:
                     continue
-                if self._imports_cover_path(imports, import_base):
+                if self._imports_cover_placeholder_identifier(
+                    import_items,
+                    import_base,
+                    identifier,
+                    rulespec_file=rulespec_file,
+                ):
                     continue
                 key = (str(block["name"]), identifier)
                 if key in seen:
@@ -7319,6 +8037,44 @@ class ValidatorPipeline:
                     f"`{import_base}` instead of creating a local cross-reference input."
                 )
         return issues
+
+    def _imports_cover_placeholder_identifier(
+        self,
+        import_items: list[str],
+        expected_path: str,
+        identifier: str,
+        *,
+        rulespec_file: Path,
+    ) -> bool:
+        """Return whether an import covers a cross-reference placeholder symbol."""
+        expected = expected_path.strip("/")
+        for import_item in import_items:
+            normalized = self._normalize_rulespec_import_path(import_item)
+            if not self._imports_cover_path({normalized}, expected):
+                continue
+
+            fragment = self._import_item_fragment(import_item)
+            if fragment == identifier:
+                return True
+
+            import_file = _resolve_rulespec_import_file_static(
+                import_item,
+                rules_file=rulespec_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+            if import_file is None:
+                continue
+            with contextlib.suppress(OSError):
+                if identifier in self._extract_defined_symbols(import_file.read_text()):
+                    return True
+        return False
+
+    def _import_item_fragment(self, import_item: str) -> str | None:
+        """Return the imported symbol fragment for an import item, if any."""
+        if "#" not in import_item:
+            return None
+        fragment = import_item.split("#", 1)[1].strip().strip("\"'")
+        return fragment or None
 
     def _normalize_rulespec_import_path(self, import_path: str) -> str:
         """Normalize a RuleSpec import path for repository-local comparison."""

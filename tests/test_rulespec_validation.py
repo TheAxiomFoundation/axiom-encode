@@ -1,5 +1,7 @@
+import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
+    extract_numbers_from_text,
     extract_numeric_occurrences_from_text,
     find_aggregate_exception_predicate_issues,
     find_broad_application_passthrough_issues,
@@ -30,8 +33,11 @@ from axiom_encode.harness.validator_pipeline import (
     find_deprecated_source_url_issues,
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
+    find_formula_date_literal_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
+    find_nonnegative_amount_reduction_issues,
+    find_proof_import_hash_consistency_issues,
     find_relation_aggregate_syntax_issues,
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
@@ -41,10 +47,14 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_condition_coverage_issues,
     find_source_limitation_application_issues,
     find_source_verification_issues,
+    find_tax_filing_status_enum_representation_issues,
+    find_tax_filing_status_surviving_spouse_issues,
+    find_tax_filing_status_test_input_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
     find_versioned_derived_formula_issues,
+    find_zero_branch_test_coverage_issues,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -74,6 +84,74 @@ def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
     )
     assert roots[:2] == [str(policy_repo), str(repo_parent)]
     assert str(existing_root) in roots
+
+
+def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp_path):
+    repo_parent = tmp_path / "repos"
+    policy_repo = repo_parent / "rulespec-us"
+    policy_repo.mkdir(parents=True)
+    stale_root = tmp_path / "stale-rulespec-us"
+    stale_root.mkdir()
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_root))
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+    captured_env: dict[str, str] | None = None
+
+    def fake_run(cmd, **kwargs):
+        nonlocal captured_env
+        captured_env = kwargs.get("env")
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps(
+                {
+                    "results": [
+                        {
+                            "outputs": {
+                                "us:statutes/1/1#benefit": {
+                                    "kind": "scalar",
+                                    "id": "us:statutes/1/1#benefit",
+                                    "value": {"kind": "integer", "value": 6},
+                                }
+                            }
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case={"input": {}},
+        case_name="computes_benefit",
+        case_index=0,
+        period={
+            "period_kind": "month",
+            "start": "2026-01-01",
+            "end": "2026-01-31",
+        },
+        output_names=["us:statutes/1/1#benefit"],
+        derived_by_key={"us:statutes/1/1#benefit": {"entity": "Household"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        module_target=None,
+    )
+
+    assert issues == []
+    assert outputs is not None
+    assert outputs["us:statutes/1/1#benefit"]["value"]["value"] == 6
+    assert captured_env is not None
+    roots = captured_env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
+    assert roots[:2] == [str(policy_repo), str(repo_parent)]
+    assert str(stale_root) in roots
 
 
 def test_cross_statute_definition_import_check_uses_cited_title_and_existing_targets(
@@ -2745,6 +2823,26 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_accepts_slash_separated_source_measure_denominator():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/63
+rules:
+  - name: blindness_central_visual_acuity_denominator
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '200'
+"""
+
+    source_text = "Central visual acuity does not exceed 20/200."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert {20.0, 200.0}.issubset(extract_numbers_from_text(source_text))
+
+
 def test_rulespec_rejects_legacy_source_url_metadata():
     content = """format: rulespec/v1
 module:
@@ -3109,6 +3207,154 @@ rules:
     assert any("Proof table cell provenance incomplete" in issue for issue in issues)
     assert any("Proof claim outside declared claims" in issue for issue in issues)
     assert any("Proof import hash invalid" in issue for issue in issues)
+
+
+def test_proof_import_hash_consistency_rejects_same_file_content_hash(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes/26/22.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/22#section_22_age_threshold
+              output: section_22_age_threshold
+              hash: sha256:abc123
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= section_22_age_threshold
+"""
+    rules_file.write_text(content)
+
+    issues = find_proof_import_hash_consistency_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert any("expected `sha256:local`" in issue for issue in issues)
+
+
+def test_proof_import_hash_consistency_accepts_same_file_local_hash(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes/26/22.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/22#section_22_age_threshold
+              output: section_22_age_threshold
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= section_22_age_threshold
+"""
+    rules_file.write_text(content)
+
+    assert (
+        find_proof_import_hash_consistency_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_proof_import_hash_consistency_accepts_external_file_hash(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    current_file = repo / "statutes/26/22.yaml"
+    target_file = repo / "statutes/26/1.yaml"
+    current_file.parent.mkdir(parents=True)
+    target_file.write_text("format: rulespec/v1\nrules: []\n")
+    target_hash = target_file.read_bytes()
+    import_hash = hashlib.sha256(target_hash).hexdigest()
+    content = f"""format: rulespec/v1
+rules:
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1#section_1_tax
+              output: section_1_tax
+              hash: sha256:{import_hash}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_1_tax > 0
+"""
+    current_file.write_text(content)
+
+    assert (
+        find_proof_import_hash_consistency_issues(
+            content,
+            rules_file=current_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_proof_import_hash_consistency_rejects_external_file_hash_mismatch(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    current_file = repo / "statutes/26/22.yaml"
+    target_file = repo / "statutes/26/1.yaml"
+    current_file.parent.mkdir(parents=True)
+    target_file.write_text("format: rulespec/v1\nrules: []\n")
+    content = """format: rulespec/v1
+rules:
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1#section_1_tax
+              output: section_1_tax
+              hash: sha256:abc123
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_1_tax > 0
+"""
+    current_file.write_text(content)
+
+    issues = find_proof_import_hash_consistency_issues(
+        content,
+        rules_file=current_file,
+        policy_repo_path=repo,
+    )
+
+    assert any("Proof import hash mismatch" in issue for issue in issues)
 
 
 def test_rulespec_grounding_accepts_source_leading_decimal():
@@ -4070,7 +4316,22 @@ rules:
 def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
+    imported_file = repo / "statutes" / "7" / "2015" / "b.yaml"
     rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: section_2015_b_exception_applies
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_is_subject_to_section_2015_b_exception
+"""
+    )
     rules_file.write_text(
         """format: rulespec/v1
 module:
@@ -4098,6 +4359,63 @@ rules:
     )
 
     assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
+
+
+def test_cross_reference_placeholder_rejects_covering_import_without_export(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "63.yaml"
+    imported_file = repo / "statutes" / "26" / "163" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: interest_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: interest_paid_or_accrued_on_indebtedness
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/163/a#interest_deduction
+module:
+  summary: |-
+    Except as provided in subsection (b), taxable income subtracts so much of
+    the deduction allowed by section 163(a) as is attributable to the exception
+    under section 163(h)(4)(A).
+rules:
+  - name: subsection_b_deductions_for_nonitemizer
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          standard_deduction
+          + section_163_a_deduction_attributable_to_section_163_h_4_A_exception
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Cross-reference placeholder" in issues[0]
+    assert "interest_deduction" not in issues[0]
+    assert "section_163_a_deduction_attributable" in issues[0]
 
 
 def test_cross_reference_placeholder_allows_deeper_import_for_semantic_tail(
@@ -4928,6 +5246,92 @@ def test_rulespec_ci_rejects_mixed_derived_output_entities(tmp_path):
     ]
 
 
+def test_rulespec_ci_allows_scalar_parameters_with_entity_outputs(
+    tmp_path, monkeypatch
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "aged_additional_amount_age_threshold",
+                    "id": "us:statutes/26/63/f#aged_additional_amount_age_threshold",
+                    "entity": "Scalar",
+                },
+                {
+                    "name": "blind_under_subsection_f",
+                    "id": "us:statutes/26/63/f#blind_under_subsection_f",
+                    "entity": "Person",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "aged_additional_amount_age_threshold",
+                    "id": "us:statutes/26/63/f#aged_additional_amount_age_threshold",
+                    "versions": [
+                        {
+                            "effective_from": "2026-01-01",
+                            "values": {
+                                "0": {
+                                    "kind": "integer",
+                                    "value": "65",
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    cases = [
+        {
+            "name": "person_output_with_scalar_parameters",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {},
+            "output": {
+                "us:statutes/26/63/f#aged_additional_amount_age_threshold": 65,
+                "us:statutes/26/63/f#blind_under_subsection_f": "holds",
+            },
+        }
+    ]
+
+    monkeypatch.setattr(
+        pipeline,
+        "_axiom_rules_binary",
+        lambda: tmp_path / "missing-rules-engine",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_rulespec_derived_test_case",
+        lambda **_kwargs: (
+            {
+                "us:statutes/26/63/f#blind_under_subsection_f": {
+                    "kind": "judgment",
+                    "outcome": "holds",
+                }
+            },
+            [],
+        ),
+    )
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "statutes/26/63/f.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=cases,
+    )
+
+    assert issues == []
+
+
 def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -5492,6 +5896,596 @@ rules:
     )
 
     assert issues == []
+
+
+def test_filing_status_branch_rejects_missing_surviving_spouse_code():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => standard_deduction_joint
+              2 => standard_deduction_separate
+              3 => standard_deduction_head_of_household
+              0 => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any("status code 4" in issue for issue in issues)
+
+
+def test_filing_status_enum_rejects_string_formula():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == "married_filing_jointly": standard_deduction_joint else:
+          if filing_status == "surviving_spouse": standard_deduction_joint else:
+          standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
+def test_filing_status_enum_rejects_named_match_arm():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              married_filing_jointly => standard_deduction_joint
+              surviving_spouse => standard_deduction_joint
+              single => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
+def test_filing_status_enum_rejects_quoted_named_match_arm():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              "married_filing_jointly" => standard_deduction_joint
+              "surviving_spouse" => standard_deduction_joint
+              "single" => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
+def test_filing_status_enum_rejects_inline_named_match_arm():
+    content = """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status: married_filing_jointly => standard_deduction_joint; surviving_spouse => standard_deduction_joint; single => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_enum_representation_issues(content)
+
+    assert any("Filing status must use numeric enum" in issue for issue in issues)
+
+
+def test_filing_status_enum_allows_named_arms_in_unrelated_match_block():
+    content = """format: rulespec/v1
+rules:
+  - name: household_type_adjusted_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match household_type:
+              single => if filing_status == 1: joint_household_amount else: single_household_amount
+              family => family_household_amount
+"""
+
+    assert find_tax_filing_status_enum_representation_issues(content) == []
+
+
+def test_filing_status_test_input_rejects_string_value():
+    test_cases = [
+        {
+            "name": "joint_status_string",
+            "input": {
+                "us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status": "married_filing_jointly"
+            },
+            "output": {},
+        }
+    ]
+
+    issues = find_tax_filing_status_test_input_issues(test_cases)
+
+    assert any(
+        "Filing status test input must use numeric enum" in issue for issue in issues
+    )
+
+
+def test_filing_status_test_input_allows_numeric_value():
+    test_cases = [
+        {
+            "name": "joint_status_code",
+            "input": {
+                "us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status": 1
+            },
+            "output": {},
+        }
+    ]
+
+    assert find_tax_filing_status_test_input_issues(test_cases) == []
+
+
+def test_filing_status_branch_allows_surviving_spouse_code():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => standard_deduction_joint
+              4 => standard_deduction_joint
+              2 => standard_deduction_separate
+              3 => standard_deduction_head_of_household
+              0 => standard_deduction_single
+"""
+
+    assert find_tax_filing_status_surviving_spouse_issues(content) == []
+
+
+def test_filing_status_branch_rejects_surviving_spouse_different_result():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => standard_deduction_joint
+              4 => standard_deduction_single
+              2 => standard_deduction_separate
+              3 => standard_deduction_head_of_household
+              0 => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any("different result" in issue for issue in issues)
+
+
+def test_filing_status_branch_rejects_comparison_surviving_spouse_different_result():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == 1: standard_deduction_joint else:
+          if filing_status == 4: standard_deduction_single else:
+          standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any("different result" in issue for issue in issues)
+
+
+def test_filing_status_branch_rejects_unrelated_surviving_spouse_code():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => standard_deduction_joint
+              2 => standard_deduction_separate
+              0 => standard_deduction_single
+          match unrelated_enum:
+              4 => unrelated_result
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any("status code 4" in issue for issue in issues)
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_allotment():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_maximum_name_without_prefix():
+    content = """format: rulespec/v1
+rules:
+  - name: monthly_benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          maximum_benefit - income_reduction
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_max_name_without_prefix():
+    content = """format: rulespec/v1
+rules:
+  - name: monthly_benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max_benefit - income_reduction
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_allows_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_allows_zero_floor_for_limit_minus_reduction():
+    content = """format: rulespec/v1
+rules:
+  - name: qualified_passenger_vehicle_interest_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, passenger_vehicle_interest_after_dollar_limit - passenger_vehicle_interest_phaseout_reduction)
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_formula_date_literal_rejects_iso_dates_in_formulas():
+    content = """format: rulespec/v1
+rules:
+  - name: passenger_vehicle_loan_interest_period_start
+    kind: parameter
+    dtype: String
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          2025-01-01
+"""
+
+    issues = find_formula_date_literal_issues(content)
+
+    assert any("Formula date literal unsupported" in issue for issue in issues)
+    assert any(
+        "taxable_year_begins_after_2024_and_before_2029" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_allows_zero_branch_with_floored_else():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if ineligible: 0 else: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_allows_nested_inline_zero_branch_with_floored_inner_else():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if ineligible: 0 else: if has_utility_cost: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: 0
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_allows_downstream_min_wrapper_after_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          min(snap_maximum_allotment_for_household_size, max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_sibling_next_to_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          min(snap_maximum_allotment_for_household_size - snap_net_monthly_income_reduction, max(0, snap_maximum_allotment_for_household_size - snap_net_monthly_income_reduction))
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_sibling_after_leading_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, snap_maximum_allotment_for_household_size - snap_net_monthly_income_reduction) + (snap_maximum_allotment_for_household_size - snap_net_monthly_income_reduction)
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_rejects_intermediate_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_maximum_allotment_for_household_size - max(0, ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_zero_branch_test_coverage_rejects_untested_zero_output():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if household_initial_month and snap_amount < snap_minimum_issuance: 0 else: snap_amount
+"""
+    cases = [
+        {
+            "name": "above_threshold_initial_month",
+            "output": {"us:regulations/7-cfr/273/10#snap_monthly_allotment": 90},
+        }
+    ]
+
+    issues = find_zero_branch_test_coverage_issues(content, cases)
+
+    assert any("Zero branch test coverage missing" in issue for issue in issues)
+
+
+def test_zero_branch_test_coverage_allows_zero_output_case():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if household_initial_month and snap_amount < snap_minimum_issuance: 0 else: snap_amount
+"""
+    cases = [
+        {
+            "name": "below_threshold_initial_month",
+            "output": {"us:regulations/7-cfr/273/10#snap_monthly_allotment": 0},
+        }
+    ]
+
+    assert find_zero_branch_test_coverage_issues(content, cases) == []
+
+
+def test_zero_branch_test_coverage_rejects_untested_else_zero_output():
+    content = """format: rulespec/v1
+rules:
+  - name: refundable_credit_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if credit_eligible: tentative_credit else: 0
+"""
+    cases = [
+        {
+            "name": "eligible_credit",
+            "output": {"us:statutes/26/24#refundable_credit_amount": 500},
+        }
+    ]
+
+    issues = find_zero_branch_test_coverage_issues(content, cases)
+
+    assert any("Zero branch test coverage missing" in issue for issue in issues)
+
+
+def test_zero_branch_test_coverage_rejects_untested_match_zero_output():
+    content = """format: rulespec/v1
+rules:
+  - name: benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match eligibility_status:
+              0 => 0
+              1 => maximum_benefit
+"""
+    cases = [
+        {
+            "name": "eligible_benefit",
+            "output": {"us:regulations/example#benefit_amount": 100},
+        }
+    ]
+
+    issues = find_zero_branch_test_coverage_issues(content, cases)
+
+    assert any("Zero branch test coverage missing" in issue for issue in issues)
 
 
 def test_source_condition_coverage_rejects_cost_availability_as_only_exclusions():

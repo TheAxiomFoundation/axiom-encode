@@ -7,6 +7,7 @@ All external dependencies are mocked.
 
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -2006,6 +2007,112 @@ rules:
         output = json.loads(capsys.readouterr().out)
         assert output["success"] is True
 
+    def test_executes_companion_tests_passes_rulespec_env_to_engine(
+        self, capsys, monkeypatch, tmp_path
+    ):
+        repo = tmp_path / "workspace" / "rulespec-us"
+        rules_file = repo / "statutes/1/1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: income + 1
+"""
+        )
+        rules_file.with_name("1.test.yaml").write_text(
+            """- name: computes_benefit
+  period: 2026-01
+  input:
+    us:statutes/1/1#input.income: 5
+  output:
+    us:statutes/1/1#benefit: 6
+"""
+        )
+        stale_repo = tmp_path / "stale-rulespec-us"
+        stale_repo.mkdir()
+        monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
+
+        engine_root = tmp_path / "axiom-rules-engine"
+        binary = engine_root / "target/debug/axiom-rules-engine"
+        captured_envs: list[dict[str, str] | None] = []
+
+        def fake_binary(self):
+            return binary
+
+        def fake_run(cmd, **kwargs):
+            captured_envs.append(kwargs.get("env"))
+            if "compile" in cmd:
+                output_path = Path(cmd[cmd.index("--output") + 1])
+                output_path.write_text(
+                    json.dumps(
+                        {
+                            "program": {
+                                "parameters": [],
+                                "derived": [
+                                    {
+                                        "id": "us:statutes/1/1#benefit",
+                                        "name": "benefit",
+                                    }
+                                ],
+                            }
+                        }
+                    )
+                )
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if "run-compiled" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "results": [
+                                {
+                                    "outputs": {
+                                        "us:statutes/1/1#benefit": {
+                                            "kind": "scalar",
+                                            "value": {"kind": "integer", "value": 6},
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ),
+                    stderr="",
+                )
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        args = MagicMock()
+        args.root = repo
+        args.paths = []
+        args.json = True
+        args.axiom_rules_path = engine_root
+
+        monkeypatch.setattr(
+            "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
+            fake_binary,
+        )
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(args)
+
+        assert exc_info.value.code == 0
+        assert json.loads(capsys.readouterr().out)["success"] is True
+        assert len(captured_envs) == 2
+        for env in captured_envs:
+            assert env is not None
+            roots = env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
+            assert roots[:2] == [str(repo.resolve()), str(repo.resolve().parent)]
+            assert str(stale_repo) in roots
+
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"
         valid_test = root / "statutes/1/1.test.yaml"
@@ -2441,6 +2548,7 @@ class TestCmdEncode:
         policy_repo_path.mkdir(exist_ok=True)
         args = MagicMock()
         args.citation = overrides.get("citation", "26 USC 1(j)(2)")
+        args.source_id = overrides.get("source_id", None)
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
         args.backend = overrides.get("backend", "codex")
@@ -2451,6 +2559,8 @@ class TestCmdEncode:
         args.allow_context = overrides.get("allow_context", [])
         args.db = overrides.get("db", tmp_path / "encodings.db")
         args.sync = overrides.get("sync", True)
+        args.apply = overrides.get("apply", False)
+        args.apply_target_only = overrides.get("apply_target_only", False)
         return args
 
     def _make_eval_result(self, success=True):
@@ -2495,6 +2605,60 @@ class TestCmdEncode:
         assert (
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
+        )
+
+    def test_encode_with_source_id_uses_corpus_source_unit(self, capsys, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            citation="us/guidance/irs/rev-proc-2025-32/page-18",
+            source_id="us/policies/irs/rev-proc-2025-32/standard-deduction",
+            sync=False,
+        )
+        result = self._make_eval_result(True)
+        result.citation = args.source_id
+
+        with (
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=SimpleNamespace(
+                    body="standard deduction source text",
+                    citation_path="us/guidance/irs/rev-proc-2025-32/page-18",
+                    source="local",
+                    requested="us/guidance/irs/rev-proc-2025-32/page-18",
+                ),
+            ) as mock_resolve,
+            patch(
+                "axiom_encode.cli.run_source_eval", return_value=[result]
+            ) as mock_run_source,
+            patch("axiom_encode.cli.run_model_eval") as mock_run_model,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        mock_resolve.assert_called_once_with(args.citation, args.corpus_path)
+        mock_run_model.assert_not_called()
+        assert mock_run_source.call_args.kwargs["source_id"] == args.source_id
+        assert (
+            mock_run_source.call_args.kwargs["source_text"]
+            == "standard deduction source text"
+        )
+        assert mock_run_source.call_args.kwargs["runner_specs"] == ["codex:test-model"]
+        assert mock_run_source.call_args.kwargs["policy_path"] == args.policy_repo_path
+        assert (
+            mock_run_source.call_args.kwargs["runtime_axiom_rules_path"]
+            == args.axiom_rules_path
+        )
+        assert mock_run_source.call_args.kwargs["source_metadata_payload"] == {
+            "corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+            "corpus_source": "local",
+            "requested_source": "us/guidance/irs/rev-proc-2025-32/page-18",
+        }
+        output = capsys.readouterr().out
+        assert (
+            "RuleSpec source id: us/policies/irs/rev-proc-2025-32/standard-deduction"
+            in output
         )
 
     def test_encode_with_errors(self, capsys, tmp_path):
