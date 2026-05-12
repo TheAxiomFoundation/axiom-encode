@@ -559,6 +559,9 @@ GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
 SOURCE_TEXT_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,]))(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
+SOURCE_TEXT_RATIO_NUMBER_PATTERN = re.compile(
+    r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w/])"
+)
 _UNICODE_FRACTION_VALUES = {
     "¼": 0.25,
     "½": 0.5,
@@ -1537,6 +1540,16 @@ def _iter_normalized_special_numeric_matches(
     for match in _SUBPOUND_MONEY_PATTERN.finditer(text):
         with contextlib.suppress(ValueError):
             matches.append((match.span(), float(match.group(1).replace(",", "")) / 100))
+
+    for match in SOURCE_TEXT_RATIO_NUMBER_PATTERN.finditer(text):
+        for group_index in (1, 2):
+            with contextlib.suppress(ValueError):
+                matches.append(
+                    (
+                        match.span(),
+                        float(match.group(group_index).replace(",", "")),
+                    )
+                )
 
     for match in re.finditer(r"(?<=[=+])\s*(-?[\d,]+(?:\.\d+)?)\b", text):
         with contextlib.suppress(ValueError):

@@ -24,6 +24,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
+    extract_numbers_from_text,
     extract_numeric_occurrences_from_text,
     find_aggregate_exception_predicate_issues,
     find_broad_application_passthrough_issues,
@@ -2819,6 +2820,26 @@ rules:
     )
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_rulespec_grounding_accepts_slash_separated_source_measure_denominator():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/63
+rules:
+  - name: blindness_central_visual_acuity_denominator
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '200'
+"""
+
+    source_text = "Central visual acuity does not exceed 20/200."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert {20.0, 200.0}.issubset(extract_numbers_from_text(source_text))
 
 
 def test_rulespec_rejects_legacy_source_url_metadata():
