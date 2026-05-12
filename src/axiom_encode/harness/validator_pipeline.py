@@ -5503,6 +5503,7 @@ _RULESPEC_FORMULA_BUILTINS = {
     "floor",
     "if",
     "len",
+    "match",
     "max",
     "min",
     "not",

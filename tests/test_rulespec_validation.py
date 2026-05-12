@@ -3498,6 +3498,39 @@ rules:
     assert "disqualifying_condition" in issues[0]
 
 
+def test_test_input_assignment_ignores_match_keyword():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: credit_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match child_count:
+              0 => 0.0765
+              1 => 0.34
+"""
+    test_cases = [
+        {
+            "name": "one_child",
+            "input": {
+                "us:statutes/26/32#input.child_count": 1,
+            },
+            "output": {
+                "us:statutes/26/32#credit_rate": 0.34,
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
 def test_test_input_assignment_counts_relation_child_inputs():
     content = """format: rulespec/v1
 module:

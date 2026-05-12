@@ -339,6 +339,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
+    assert (
+        "If a test asserts an indexed `parameter` table output directly" in prompt
+    )
     assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
     assert (
         "Import inventory: every `imports:` entry is an exact copied/importable"
