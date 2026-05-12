@@ -4487,6 +4487,48 @@ class TestRepoAugmentedContext:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_cross_section_context(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        context_root = repo_root / "rulespec-us" / "statutes" / "26" / "104" / "a"
+        context_root.mkdir(parents=True)
+        context_file = context_root / "4.yaml"
+        context_test = context_root / "4.test.yaml"
+        context_file.write_text("format: rulespec/v1\nrules: []\n")
+        context_test.write_text("- name: service_injury_case\n  period: 2026\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 22",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=(
+                    "No reduction shall be made for any amount described in "
+                    "section 104(a)(4)."
+                ),
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
+        assert (
+            copied_sources[str(context_file)]["import_path"]
+            == "us:statutes/26/104/a/4"
+        )
+        assert (
+            copied_sources[str(context_test)]["kind"] == "implementation_test_context"
+        )
+
     def test_prepare_eval_workspace_adds_child_fragment_context(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "axiom-rules-engine"

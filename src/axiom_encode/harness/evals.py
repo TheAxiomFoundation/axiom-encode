@@ -1398,6 +1398,13 @@ def prepare_eval_workspace(
                 context_corpus_root,
             )
         )
+        selected.extend(
+            _select_cross_section_context_files(
+                citation,
+                source_text,
+                context_corpus_root,
+            )
+        )
         for extra_path in extra_context_paths or []:
             path = Path(extra_path)
             if path.exists():
@@ -1795,6 +1802,44 @@ def _select_same_section_subsection_context_files(
             continue
         candidate_rel = citation_to_relative_rulespec_path(
             CitationParts(parts.title, parts.section, (subsection,))
+        )
+        if candidate_rel == target_rel:
+            continue
+        candidate = policy_root / candidate_rel
+        resolved = candidate.resolve()
+        if candidate.exists() and resolved not in seen:
+            selected.append(candidate)
+            seen.add(resolved)
+    return selected
+
+
+def _select_cross_section_context_files(
+    citation: str,
+    source_text: str,
+    policy_root: Path,
+) -> list[Path]:
+    """Select existing RuleSpecs for cited USC sections outside this section."""
+    try:
+        parts = parse_usc_citation(citation)
+    except Exception:
+        return []
+
+    target_rel = citation_to_relative_rulespec_path(parts)
+    selected: list[Path] = []
+    seen: set[Path] = set()
+    for match in re.finditer(
+        r"\bsection\s+"
+        r"(?P<section>[0-9][A-Za-z0-9.-]*)"
+        r"(?P<fragments>(?:\([A-Za-z0-9]+\))*)",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        section = match.group("section")
+        if section == parts.section:
+            continue
+        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
+        candidate_rel = citation_to_relative_rulespec_path(
+            CitationParts(parts.title, section, fragments)
         )
         if candidate_rel == target_rel:
             continue
