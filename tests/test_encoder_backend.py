@@ -19,6 +19,7 @@ from axiom_encode.harness.backends import (
     EncoderRequest,
     EncoderResponse,
 )
+from axiom_encode.prompts import ENCODER_PROMPT, get_encoder_prompt
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +59,25 @@ class TestEncoderBackendInterface:
         assert resp.success
         assert "eitc" in resp.rulespec_content
         assert resp.duration_ms == 1500
+
+
+def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
+    prompt = get_encoder_prompt(
+        citation="26 USC 63(c)(5)",
+        output_path="statutes/26/63/c/5.yaml",
+        corpus_citation_path="us/statute/26/63",
+    )
+
+    assert "dependent_basic_standard_deduction_statutory_limit" in ENCODER_PROMPT
+    assert "dependent_standard_deduction_limit" in ENCODER_PROMPT
+    assert "round the" in ENCODER_PROMPT
+    assert "increase before adding it to the base amount" in ENCODER_PROMPT
+    assert "17300, not 17325" in ENCODER_PROMPT
+    assert "dependent_basic_standard_deduction_statutory_limit" in prompt
+    assert "dependent_standard_deduction_limit" in prompt
+    assert "round the" in prompt
+    assert "increase before adding it to the base amount" in prompt
+    assert "17300, not 17325" in prompt
 
 
 class TestClaudeCodeBackend:

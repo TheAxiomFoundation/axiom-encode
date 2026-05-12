@@ -6087,6 +6087,27 @@ rules:
     )
 
 
+def test_nonnegative_amount_reduction_rejects_unfloored_sibling_after_leading_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, snap_maximum_allotment_for_household_size - snap_net_monthly_income_reduction) + (snap_maximum_allotment_for_household_size - snap_net_monthly_income_reduction)
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
 def test_nonnegative_amount_reduction_rejects_intermediate_zero_floor():
     content = """format: rulespec/v1
 rules:

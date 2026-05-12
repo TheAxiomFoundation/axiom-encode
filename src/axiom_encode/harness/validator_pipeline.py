@@ -3639,9 +3639,6 @@ def _split_inline_conditional_result_expressions(expression: str) -> list[str]:
 
 
 def _final_expression_has_zero_floor(expression: str) -> bool:
-    compact = re.sub(r"\s+", "", expression).lower()
-    if re.match(r"^max\(0(?:\.0+)?,", compact):
-        return True
     without_zero_floor_calls = _expression_without_zero_floor_calls(expression)
     return not _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(
         without_zero_floor_calls

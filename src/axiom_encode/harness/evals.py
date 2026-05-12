@@ -2864,6 +2864,12 @@ RuleSpec requirements:
   concept, not as the current-year value. For IRC section 63(c)(5), use a name
   like `dependent_basic_standard_deduction_statutory_limit`, not
   `dependent_standard_deduction_limit`.
+- When the source rounds an inflation or cost-of-living increase, round the
+  increase before adding it to the base amount unless the source explicitly
+  says to round the final total. Companion tests must assert the rounded
+  increase plus the base, not the unrounded total. For example, with base
+  15750, adjustment 0.1, and a next-lower $50 multiple, the increase is 1550
+  and the total is 17300, not 17325.
 - Do not invent new entities, periods, or dtypes.
 - Allowed `entity:` values are {", ".join(f"`{entity}`" for entity in SUPPORTED_EVAL_ENTITIES)}.
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
