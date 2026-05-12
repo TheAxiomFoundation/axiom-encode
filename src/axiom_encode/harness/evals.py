@@ -2773,6 +2773,13 @@ RuleSpec requirements:
   child, or dependent. For IRC section 22, count qualified individuals over a
   relation like `taxpayer_or_spouse_of_tax_unit`, not
   `elderly_disabled_member_of_tax_unit`.
+- For child tax credit, dependent credit, or any source that says "qualifying
+  child", "dependent of the taxpayer", or "with respect to such child", do not
+  use `member_of_tax_unit`. Define a role-scoped relation such as
+  `dependent_of_tax_unit`, `qualifying_child_of_tax_unit`, or
+  `child_or_dependent_of_tax_unit`, and aggregate over that relation. For IRC
+  section 24(h), count `ctc_qualifying_child` and `ctc_other_dependent` over a
+  dependent/child relation, not over `member_of_tax_unit`.
 - If the source computes an amount by reference to an entitlement, status,
   amount, or test "under" another section, subsection, paragraph, regulation, or
   document, do not inline that cross-reference's mechanics into this file unless

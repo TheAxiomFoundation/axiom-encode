@@ -2275,6 +2275,9 @@ class TestEvalPrompt:
         assert "For IRC section 22" in prompt
         assert "taxpayer_or_spouse_of_tax_unit" in prompt
         assert "elderly_disabled_member_of_tax_unit" in prompt
+        assert "section 24(h)" in prompt
+        assert "dependent_of_tax_unit" in prompt
+        assert "ctc_qualifying_child" in prompt
         assert "service_injury_pension_excluded_amount" in prompt
         assert "TaxUnit-to-Payment" in prompt
         assert "section_104_a_4_amounts" in prompt
