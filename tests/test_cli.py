@@ -3160,7 +3160,7 @@ rules:
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
 
-    def test_apply_overlay_validation_does_not_block_on_dependents_by_default(
+    def test_apply_overlay_validation_checks_direct_dependents_by_default(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
@@ -3196,7 +3196,103 @@ rules:
         assert ok is True
         assert issues == []
         assert supplemental == {}
-        assert [path.name for path in validated_paths] == ["C.yaml"]
+        assert [path.name for path in validated_paths] == ["C.yaml", "2.yaml"]
+
+    def test_apply_overlay_validation_fills_dependent_inputs_from_baseline(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/63/c.yaml"
+        generated_test = generated.with_name("c.test.yaml")
+        dependent = policy_repo / "statutes/26/63.yaml"
+        dependent_test = dependent.with_name("63.test.yaml")
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated_test.write_text(
+            """- name: baseline
+  input:
+    us:statutes/26/63/c#input.married_filing_separately_and_either_spouse_itemizes: false
+    us:statutes/26/63/c#input.additional_standard_deduction_entitlement_count_under_subsection_f: 0
+    us:statutes/26/63/c/5#input.earned_income: 0
+  output:
+    us:statutes/26/63/c#standard_deduction: 16100
+"""
+        )
+        dependent.write_text(
+            "format: rulespec/v1\nimports:\n  - us:statutes/26/63/c\nrules: []\n"
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 80000
+  output:
+    us:statutes/26/63#taxable_income: 63900
+- name: case_two
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 90000
+  output:
+    us:statutes/26/63#taxable_income: 73900
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+        required = [
+            "married_filing_separately_and_either_spouse_itemizes",
+            "additional_standard_deduction_entitlement_count_under_subsection_f",
+            "earned_income",
+        ]
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if Path(path).name == "c.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                test_content = Path(path).with_name("63.test.yaml").read_text()
+                for input_name in required:
+                    if test_content.count(f"#input.{input_name}:") < 2:
+                        return SimpleNamespace(
+                            all_passed=False,
+                            results={
+                                "ci": SimpleNamespace(
+                                    error=(
+                                        "Test case `case_one` execution failed: "
+                                        f"missing input `{input_name}`"
+                                    )
+                                )
+                            },
+                        )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        updated = supplemental[Path("statutes/26/63.test.yaml")]
+        assert (
+            "us:statutes/26/63/c#input.married_filing_separately_and_either_spouse_itemizes: false"
+            in updated
+        )
+        assert (
+            "us:statutes/26/63/c#input.additional_standard_deduction_entitlement_count_under_subsection_f: 0"
+            in updated
+        )
+        assert "us:statutes/26/63/c/5#input.earned_income: 0" in updated
+        assert (
+            updated.count(
+                "us:statutes/26/63/c#input.married_filing_separately_and_either_spouse_itemizes"
+            )
+            == 2
+        )
 
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
         repo = tmp_path / "rulespec-us-ny"
