@@ -2617,6 +2617,7 @@ Import and context rules:
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
 - In formulas, reference imported exports by their bare local rule name after adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
+- If a copied current target file already has executable `parameter`, `derived`, or `data_relation` rules, do not replace it with `module.status: deferred`, `module.status: entity_not_supported`, or `rules: []`. Preserve the executable scope and make the smallest source-faithful repair.
 - When source text cites a section or subsection and a copied context file for
   that citation is listed, import and use the listed exported symbol from that
   context instead of creating a local `section_...` or `subsection_...`

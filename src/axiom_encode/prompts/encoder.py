@@ -68,6 +68,11 @@ Hard requirements:
   encode subparagraphs, import those child outputs and compose them. Do not
   redefine the child parameters, helper rules, or copied executable outputs in
   the parent file.
+- If an existing copied target file already has executable `parameter`,
+  `derived`, or `data_relation` rules, do not replace it with
+  `module.status: deferred`, `module.status: entity_not_supported`, or
+  `rules: []`. Preserve the executable scope and make the smallest
+  source-faithful repair.
 - If a copied child-fragment file encodes a limitation, branch, amount, or
   predicate needed by the requested parent provision, import the child output
   and compose it. Do not copy the child formula or its factual inputs into the

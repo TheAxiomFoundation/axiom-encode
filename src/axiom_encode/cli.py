@@ -3020,6 +3020,59 @@ def _source_relation_preservation_issues(
     return issues
 
 
+def _executable_rule_replacement_issues(
+    existing_content: str,
+    generated_content: str,
+) -> list[str]:
+    """Return issues for generated content that deletes executable rules."""
+    existing_executable = _executable_rule_names(existing_content)
+    if not existing_executable:
+        return []
+    generated_executable = _executable_rule_names(generated_content)
+    if generated_executable:
+        return []
+    generated_status = _rulespec_module_status(generated_content)
+    status_detail = (
+        f" with `module.status: {generated_status}`" if generated_status else ""
+    )
+    return [
+        "Generated RuleSpec cannot replace existing executable rules"
+        f"{status_detail} and no executable rules. Regenerate a focused repair "
+        "that preserves or updates the executable policy surface; do not defer "
+        "or empty an already executable file during apply."
+    ]
+
+
+def _executable_rule_names(content: str) -> list[str]:
+    try:
+        document = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return []
+    rules = document.get("rules") if isinstance(document, dict) else []
+    if not isinstance(rules, list):
+        return []
+    names: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind not in {"parameter", "derived", "data_relation"}:
+            continue
+        names.append(str(rule.get("name") or "<unnamed>").strip())
+    return names
+
+
+def _rulespec_module_status(content: str) -> str:
+    try:
+        document = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return ""
+    module = document.get("module") if isinstance(document, dict) else None
+    if not isinstance(module, dict):
+        return ""
+    return str(module.get("status") or "").strip()
+
+
 def _source_relation_records(content: str) -> list[dict[str, object]]:
     try:
         document = yaml.safe_load(content) or {}
@@ -3086,9 +3139,21 @@ def _validate_generated_encoding_in_policy_overlay(
 
     existing_output = policy_repo_path / relative_output
     if existing_output.exists():
+        existing_content = existing_output.read_text()
+        generated_content = output_file.read_text()
+        replacement_issues = _executable_rule_replacement_issues(
+            existing_content,
+            generated_content,
+        )
+        if replacement_issues:
+            return (
+                False,
+                [f"{relative_output}: {issue}" for issue in replacement_issues],
+                {},
+            )
         preservation_issues = _source_relation_preservation_issues(
-            existing_output.read_text(),
-            output_file.read_text(),
+            existing_content,
+            generated_content,
         )
         if preservation_issues:
             return (

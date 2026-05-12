@@ -3364,6 +3364,50 @@ rules:
         assert issues[0].startswith("regulations/18-nycrr/387/12/f/3/v/c.yaml: ")
         assert "dropped existing source_relation" in issues[0]
 
+    def test_apply_overlay_validation_rejects_deferred_replacement_of_executable_file(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/10.yaml"
+        generated = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        target.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_calculated_monthly_allotment
+"""
+        )
+        generated.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+rules: []
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        assert ok is False
+        assert supplemental == {}
+        assert len(issues) == 1
+        assert issues[0].startswith("regulations/7-cfr/273/10.yaml: ")
+        assert "cannot replace existing executable rules" in issues[0]
+
     def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us"
