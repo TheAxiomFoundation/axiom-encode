@@ -7440,10 +7440,10 @@ class ValidatorPipeline:
             parameter_outputs: list[str] = []
             for output_name in output_map:
                 output_key = str(output_name)
-                if output_key in derived_by_key:
-                    derived_outputs.append(output_key)
-                elif output_key in parameter_by_key:
+                if output_key in parameter_by_key:
                     parameter_outputs.append(output_key)
+                elif output_key in derived_by_key:
+                    derived_outputs.append(output_key)
                 else:
                     if _RULESPEC_ABSOLUTE_REFERENCE.match(output_key):
                         resolution_issue = _rulespec_absolute_test_reference_issue(

@@ -5245,6 +5245,92 @@ def test_rulespec_ci_rejects_mixed_derived_output_entities(tmp_path):
     ]
 
 
+def test_rulespec_ci_allows_scalar_parameters_with_entity_outputs(
+    tmp_path, monkeypatch
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "aged_additional_amount_age_threshold",
+                    "id": "us:statutes/26/63/f#aged_additional_amount_age_threshold",
+                    "entity": "Scalar",
+                },
+                {
+                    "name": "blind_under_subsection_f",
+                    "id": "us:statutes/26/63/f#blind_under_subsection_f",
+                    "entity": "Person",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "aged_additional_amount_age_threshold",
+                    "id": "us:statutes/26/63/f#aged_additional_amount_age_threshold",
+                    "versions": [
+                        {
+                            "effective_from": "2026-01-01",
+                            "values": {
+                                "0": {
+                                    "kind": "integer",
+                                    "value": "65",
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    cases = [
+        {
+            "name": "person_output_with_scalar_parameters",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {},
+            "output": {
+                "us:statutes/26/63/f#aged_additional_amount_age_threshold": 65,
+                "us:statutes/26/63/f#blind_under_subsection_f": "holds",
+            },
+        }
+    ]
+
+    monkeypatch.setattr(
+        pipeline,
+        "_axiom_rules_binary",
+        lambda: tmp_path / "missing-rules-engine",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_rulespec_derived_test_case",
+        lambda **_kwargs: (
+            {
+                "us:statutes/26/63/f#blind_under_subsection_f": {
+                    "kind": "judgment",
+                    "outcome": "holds",
+                }
+            },
+            [],
+        ),
+    )
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "statutes/26/63/f.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=cases,
+    )
+
+    assert issues == []
+
+
 def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
