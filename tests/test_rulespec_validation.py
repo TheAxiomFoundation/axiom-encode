@@ -34,6 +34,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
     find_formula_date_literal_issues,
+    find_judgment_conditional_formula_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
     find_nonnegative_amount_reduction_issues,
@@ -6289,6 +6290,26 @@ rules:
     assert any(
         "taxable_year_begins_after_2024_and_before_2029" in issue for issue in issues
     )
+
+
+def test_judgment_conditional_formula_rejects_if_else_returning_judgments():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_income_eligible_for_month
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if snap_household_has_elderly_or_disabled_member: snap_net_monthly_income <= monthly_net_income_eligibility_standard else: snap_net_monthly_income <= monthly_net_income_eligibility_standard and snap_countable_gross_monthly_income <= monthly_gross_income_eligibility_standard
+"""
+
+    issues = find_judgment_conditional_formula_issues(content)
+
+    assert any("Judgment conditional formula unsupported" in issue for issue in issues)
+    assert any("boolean expression" in issue for issue in issues)
 
 
 def test_nonnegative_amount_reduction_allows_zero_branch_with_floored_else():

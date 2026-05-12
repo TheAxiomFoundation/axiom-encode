@@ -791,6 +791,10 @@ _ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN = re.compile(
 _FORMULA_ISO_DATE_LITERAL_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_])\d{4}-\d{2}-\d{2}(?![A-Za-z0-9_])"
 )
+_FORMULA_AXIOM_CONDITIONAL_PATTERN = re.compile(
+    r"(?:^|[\s(])if\b[\s\S]*?:[\s\S]*?\belse\s*:",
+    flags=re.IGNORECASE,
+)
 _ZERO_AMOUNT_BRANCH_PATTERN = re.compile(
     r"(?:\bif\b[\s\S]{0,500}:\s*0(?:\.0+)?(?:\s+else\s*:|\s*$))"
     r"|(?:\belse\s*:\s*0(?:\.0+)?(?:\s|$))"
@@ -3641,6 +3645,46 @@ def find_formula_date_literal_issues(content: str) -> list[str]:
                 "windows with `effective_from` metadata or source-stated boolean "
                 "predicates such as `taxable_year_begins_after_2024_and_before_2029`."
             )
+    return issues
+
+
+def find_judgment_conditional_formula_issues(content: str) -> list[str]:
+    """Flag Judgment formulas that branch between judgment expressions."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip().lower() != "judgment":
+            continue
+        name = str(rule.get("name") or "").strip()
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            if _FORMULA_AXIOM_CONDITIONAL_PATTERN.search(formula):
+                issues.append(
+                    "Judgment conditional formula unsupported: "
+                    f"`{name}` uses `if ... else ...` in a Judgment formula. "
+                    "Judgment formulas must be boolean expressions using `and`, "
+                    "`or`, `not`, comparisons, and parentheses; rewrite branch "
+                    "logic as equivalent boolean logic instead of returning one "
+                    "judgment expression or another."
+                )
     return issues
 
 
@@ -7670,6 +7714,7 @@ class ValidatorPipeline:
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_formula_date_literal_issues(content))
+        issues.extend(find_judgment_conditional_formula_issues(content))
         issues.extend(find_nonnegative_amount_reduction_issues(content))
         issues.extend(find_relation_aggregate_syntax_issues(content))
         issues.extend(find_role_limited_relation_scope_issues(content))

@@ -2915,7 +2915,8 @@ RuleSpec requirements:
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
-- Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax. Judgment formulas should usually be boolean expressions, not `if` conditionals.
+- Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax.
+- `dtype: Judgment` formulas must not use `if ... else ...`. Write them as boolean expressions using `and`, `or`, `not`, comparisons, and parentheses. For example, encode `if exempt: net_ok else: net_ok and gross_ok` as `net_ok and (exempt or gross_ok)`.
 - When using negated conjuncts, write them as a multiline formula with each `not <predicate>` term on its own line joined by `and`, rather than one compact `not A and not B` line.
 - Do not use Python inline ternaries like `x if cond else y`.
 - Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks.
