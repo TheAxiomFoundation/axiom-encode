@@ -3642,9 +3642,12 @@ def _final_expression_has_zero_floor(expression: str) -> bool:
     compact = re.sub(r"\s+", "", expression).lower()
     if re.match(r"^max\(0(?:\.0+)?,", compact):
         return True
-    return any(
-        _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(inner_expression)
-        for inner_expression in _zero_floor_argument_expressions(expression)
+    without_zero_floor_calls = _expression_without_zero_floor_calls(expression)
+    return not _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(
+        without_zero_floor_calls
+    ) and any(
+        _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(argument)
+        for argument in _zero_floor_argument_expressions(expression)
     )
 
 
@@ -3656,6 +3659,26 @@ _ZERO_FLOOR_CALL_PATTERN = re.compile(
 
 def _zero_floor_argument_expressions(expression: str) -> list[str]:
     argument_expressions: list[str] = []
+    for _start, _end, argument in _zero_floor_call_spans(expression):
+        argument_expressions.append(argument)
+    return argument_expressions
+
+
+def _expression_without_zero_floor_calls(expression: str) -> str:
+    chunks: list[str] = []
+    last_end = 0
+    for start, end, _argument in _zero_floor_call_spans(expression):
+        if start < last_end:
+            continue
+        chunks.append(expression[last_end:start])
+        chunks.append(" zero_floor_result ")
+        last_end = end
+    chunks.append(expression[last_end:])
+    return "".join(chunks)
+
+
+def _zero_floor_call_spans(expression: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
     for match in _ZERO_FLOOR_CALL_PATTERN.finditer(expression):
         depth = 1
         index = match.end()
@@ -3666,10 +3689,12 @@ def _zero_floor_argument_expressions(expression: str) -> list[str]:
             elif char == ")":
                 depth -= 1
                 if depth == 0:
-                    argument_expressions.append(expression[match.end() : index])
+                    spans.append(
+                        (match.start(), index + 1, expression[match.end() : index])
+                    )
                     break
             index += 1
-    return argument_expressions
+    return spans
 
 
 def find_zero_branch_test_coverage_issues(
