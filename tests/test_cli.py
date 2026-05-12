@@ -41,6 +41,7 @@ from axiom_encode.cli import (
     cmd_log_event,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_repair_nonnegative_floors,
     cmd_runs,
     cmd_session_end,
     cmd_session_show,
@@ -3440,6 +3441,63 @@ rules: []
         assert issues == []
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
+
+    def test_repair_nonnegative_floors_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/10.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if state_agency_rounds_thirty_percent_net_income_up: snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate) else: floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("regulations/7-cfr/273/10.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_nonnegative_floors(args)
+
+        content = target.read_text()
+        assert "max(0, snap_maximum_allotment_for_household_size - ceil(" in content
+        assert "else: max(0, floor(snap_maximum_allotment_for_household_size" in content
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["backend"] == "deterministic"
+        assert payload["applied_files"][0]["path"] == "regulations/7-cfr/273/10.yaml"
 
     def test_apply_overlay_validation_checks_direct_dependents_by_default(
         self, tmp_path

@@ -52,7 +52,10 @@ from .harness.evals import (
     summarize_readiness,
 )
 from .harness.proof_validator import validate_rulespec_proofs
-from .harness.validator_pipeline import ValidatorPipeline
+from .harness.validator_pipeline import (
+    ValidatorPipeline,
+    repair_nonnegative_amount_reductions,
+)
 from .oracles.policyengine.coverage import (
     build_policyengine_candidate_report,
     build_policyengine_coverage_report,
@@ -560,6 +563,26 @@ def main():
     )
     guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
+    )
+
+    repair_floor_parser = subparsers.add_parser(
+        "repair-nonnegative-floors",
+        help="Apply signed deterministic repairs for nonnegative amount reductions",
+    )
+    repair_floor_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
+    repair_floor_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_floor_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
     # test command
@@ -1117,6 +1140,8 @@ def main():
         cmd_runs(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
+    elif args.command == "repair-nonnegative-floors":
+        cmd_repair_nonnegative_floors(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -2400,6 +2425,90 @@ def cmd_guard_generated(args):
     else:
         print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
+
+
+def cmd_repair_nonnegative_floors(args):
+    """Apply a signed deterministic zero-floor repair to a RuleSpec file."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    repaired_content, repaired_rules = repair_nonnegative_amount_reductions(
+        original_content
+    )
+    if repaired_content == original_content:
+        print("No nonnegative floor repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+
+        rules_file.write_text(repaired_content)
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        if not validation.all_passed:
+            rules_file.write_text(original_content)
+            issues = [
+                result.error for result in validation.results.values() if result.error
+            ]
+            print("Repair failed validation; restored original file.")
+            for issue in issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="nonnegative-floor-v1",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied nonnegative floor repair to "
+        f"{relative_output}: {', '.join(repaired_rules)}"
+    )
+    print(f"manifest={manifest_path}")
 
 
 def guard_generated_change_issues(

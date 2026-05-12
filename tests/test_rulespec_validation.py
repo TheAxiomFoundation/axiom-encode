@@ -56,6 +56,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_upstream_placement_issues,
     find_versioned_derived_formula_issues,
     find_zero_branch_test_coverage_issues,
+    repair_nonnegative_amount_reductions,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -6403,6 +6404,34 @@ rules:
     assert any(
         "Nonnegative amount reduction missing floor" in issue for issue in issues
     )
+
+
+def test_repair_nonnegative_amount_reductions_floors_conditional_rounding_branches():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if state_agency_rounds_thirty_percent_net_income_up: snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate) else: floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["snap_calculated_monthly_allotment_before_minimums"]
+    assert (
+        "if state_agency_rounds_thirty_percent_net_income_up: "
+        "max(0, snap_maximum_allotment_for_household_size - ceil("
+        "snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) "
+        "else: max(0, floor(snap_maximum_allotment_for_household_size - "
+        "(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))"
+        in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
 def test_nonnegative_amount_reduction_rejects_intermediate_zero_floor():

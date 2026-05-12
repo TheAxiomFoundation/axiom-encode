@@ -3609,6 +3609,102 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
     return issues
 
 
+def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
+    """Mechanically floor supported nonnegative amount reduction formulas."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return content, []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    repaired_content = content
+    repaired_rules: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"money", "currency", "decimal", "integer", "number"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            repaired_formula = _repair_nonnegative_amount_reduction_formula(formula)
+            if repaired_formula == formula:
+                continue
+            repaired_content = _replace_formula_text_once(
+                repaired_content,
+                formula,
+                repaired_formula,
+            )
+            repaired_rules.append(name or "<unknown>")
+    return repaired_content, repaired_rules
+
+
+def _repair_nonnegative_amount_reduction_formula(formula: str) -> str:
+    repaired_lines: list[str] = []
+    changed = False
+    for line in formula.splitlines() or [formula]:
+        repaired_line = _repair_nonnegative_amount_reduction_expression(line.strip())
+        if repaired_line != line.strip():
+            changed = True
+            prefix = line[: len(line) - len(line.lstrip())]
+            repaired_lines.append(f"{prefix}{repaired_line}")
+        else:
+            repaired_lines.append(line)
+    return "\n".join(repaired_lines) if changed else formula
+
+
+def _repair_nonnegative_amount_reduction_expression(expression: str) -> str:
+    if not expression:
+        return expression
+    conditional = re.match(
+        r"^(?P<head>if\b.+?)\s*:\s*(?P<then>.+?)\s+else\s*:\s*(?P<else>.+)$",
+        expression,
+        flags=re.IGNORECASE,
+    )
+    if conditional is not None:
+        then_expr = _repair_nonnegative_amount_reduction_expression(
+            conditional.group("then").strip()
+        )
+        else_expr = _repair_nonnegative_amount_reduction_expression(
+            conditional.group("else").strip()
+        )
+        return f"{conditional.group('head')}: {then_expr} else: {else_expr}"
+    if not (
+        _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(expression)
+        or _ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN.search(expression)
+    ):
+        return expression
+    if _final_expression_has_zero_floor(expression):
+        return expression
+    return f"max(0, {expression})"
+
+
+def _replace_formula_text_once(content: str, old: str, new: str) -> str:
+    if old in content:
+        return content.replace(old, new, 1)
+    updated = content
+    for old_line, new_line in zip(old.splitlines(), new.splitlines(), strict=False):
+        if old_line == new_line:
+            continue
+        if old_line.strip() and old_line.strip() in updated:
+            updated = updated.replace(old_line.strip(), new_line.strip(), 1)
+    return updated
+
+
 def find_formula_date_literal_issues(content: str) -> list[str]:
     """Flag ISO date literals in executable formulas."""
     payload = _rulespec_payload(content)
