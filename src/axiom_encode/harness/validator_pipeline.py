@@ -774,7 +774,7 @@ _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _NONNEGATIVE_REDUCTION_FORMULA_PATTERN = re.compile(
-    r"\b[A-Za-z_][A-Za-z0-9_]*(?:max(?:imum)?|maximum)[A-Za-z0-9_]*\b"
+    r"\b(?=[A-Za-z_][A-Za-z0-9_]*\b)(?=[A-Za-z0-9_]*max)[A-Za-z_][A-Za-z0-9_]*\b"
     r"[\s\S]{0,180}-[\s\S]{0,220}"
     r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
     flags=re.IGNORECASE,

@@ -5998,6 +5998,48 @@ rules:
     )
 
 
+def test_nonnegative_amount_reduction_rejects_unfloored_maximum_name_without_prefix():
+    content = """format: rulespec/v1
+rules:
+  - name: monthly_benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          maximum_benefit - income_reduction
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_max_name_without_prefix():
+    content = """format: rulespec/v1
+rules:
+  - name: monthly_benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max_benefit - income_reduction
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
 def test_nonnegative_amount_reduction_allows_zero_floor():
     content = """format: rulespec/v1
 rules:
