@@ -2084,35 +2084,26 @@ mappings:
   - legal_id: us:statutes/26/63/c#additional_std_ded_amount
     country: us
     program: tax
-    mapping_type: direct_variable
+    mapping_type: not_comparable
     policyengine_variable: additional_standard_deduction
-    entity: tax_unit
-    period: year
-    unit: USD
-    comparison: money
-    rationale: Same additional standard deduction output for aged/blind conditions in these aged-only tests.
+    candidate_priority: P4
+    rationale: Adjacent to PolicyEngine's current-law additional_standard_deduction, but section 63(c) is a statutory parameterized calculation with explicit inflation and condition inputs; exact current-year values belong to IRS revenue-procedure encodings.
 
   - legal_id: us:statutes/26/63/c#additional_standard_deduction
     country: us
     program: tax
-    mapping_type: direct_variable
+    mapping_type: not_comparable
     policyengine_variable: additional_standard_deduction
-    entity: tax_unit
-    period: year
-    unit: USD
-    comparison: money
-    rationale: Same section 63(c) additional standard deduction output for aged/blind conditions.
+    candidate_priority: P4
+    rationale: Adjacent to PolicyEngine's current-law additional_standard_deduction, but section 63(c) is a statutory parameterized calculation with explicit inflation and condition inputs; exact current-year values belong to IRS revenue-procedure encodings.
 
   - legal_id: us:statutes/26/63/c#basic_standard_deduction
     country: us
     program: tax
-    mapping_type: direct_variable
+    mapping_type: not_comparable
     policyengine_variable: basic_standard_deduction
-    entity: tax_unit
-    period: year
-    unit: USD
-    comparison: money
-    rationale: Same section 63(c) basic standard deduction after filing-status and dependent limitations.
+    candidate_priority: P4
+    rationale: Adjacent to PolicyEngine's current-law basic_standard_deduction, but section 63(c) is a statutory parameterized calculation with explicit inflation inputs; exact current-year values belong to IRS revenue-procedure encodings.
 
   - legal_id: us:statutes/26/63/c#num_aged_members
     country: us
@@ -2123,13 +2114,10 @@ mappings:
   - legal_id: us:statutes/26/63/c#standard_deduction
     country: us
     program: tax
-    mapping_type: direct_variable
+    mapping_type: not_comparable
     policyengine_variable: standard_deduction
-    entity: tax_unit
-    period: year
-    unit: USD
-    comparison: money
-    rationale: Same standard deduction output.
+    candidate_priority: P4
+    rationale: Adjacent to PolicyEngine's current-law standard_deduction, but section 63(c) is a statutory parameterized calculation with explicit inflation and limitation inputs; exact current-year values belong to IRS revenue-procedure encodings.
 
   - legal_id: us:statutes/26/63/c/5#dependent_standard_deduction
     country: us

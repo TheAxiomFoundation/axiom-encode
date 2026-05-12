@@ -2842,6 +2842,8 @@ def cmd_repair_oracle_parameter_tests(args):
         f"{_repo_jurisdiction_prefix(repo_path)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     repaired_test_cases = _append_oracle_parameter_tests_if_missing(
         rules_file=rules_file,
         test_file=test_file,
@@ -2851,8 +2853,6 @@ def cmd_repair_oracle_parameter_tests(args):
         print("No oracle parameter test repairs found.")
         return
 
-    signing_key = _require_applied_encoding_manifest_signing_key()
-    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
@@ -3734,6 +3734,13 @@ def _append_generated_zero_branch_tests_if_missing(
         relative_output=relative_output,
     ):
         repaired.append("not_after_limitation_period_zero_overpayment_part")
+    if _append_taxable_income_zero_floor_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("low_income_nonitemizer_zero_taxable_income")
     return repaired
 
 
@@ -4078,6 +4085,106 @@ def _append_limitation_period_zero_overpayment_test_if_missing(
     {target_base}#input.amount_of_internal_revenue_tax_payment_assessed_or_collected_after_limitation_period: 1200
   output:
     {overpayment_target}: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _append_taxable_income_zero_floor_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 63's nonnegative taxable income."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if "name: taxable_income" not in rules_content:
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    taxable_income_target = f"{target_base}#taxable_income"
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, taxable_income_target):
+        return False
+
+    test_content = test_file.read_text()
+    case_name = "low_income_nonitemizer_zero_taxable_income"
+    if case_name in test_content:
+        return False
+
+    case = f"""- name: {case_name}
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    {target_base}#input.adjusted_gross_income: 1000
+    {target_base}#input.gross_income: 1000
+    {target_base}#input.deductions_allowed_by_this_chapter_other_than_standard_deduction: 20000
+    {target_base}#input.deductions_allowable_under_this_chapter: 30000
+    {target_base}#input.deductions_allowable_in_arriving_at_adjusted_gross_income: 0
+    {target_base}#input.deduction_for_personal_exemptions_provided_in_section_151: 0
+    {target_base}#input.deduction_provided_in_section_199A: 0
+    {target_base}#input.deduction_provided_in_section_170_p: 0
+    {target_base}#input.deduction_provided_in_section_224: 0
+    {target_base}#input.deduction_provided_in_section_225: 0
+    {target_base}#input.individual_makes_election_to_itemize_deductions_for_taxable_year: false
+    {target_base}#input.individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: true
+    us:statutes/26/63/c#input.filing_status: 0
+    us:statutes/26/63/c#input.taxable_year_begins_after_2025: false
+    us:statutes/26/63/c#input.cost_of_living_adjustment_under_section_1_f_3: 0
+    us:statutes/26/63/c#input.married_individual_filing_separate_return_where_either_spouse_itemizes_deductions: false
+    us:statutes/26/63/c#input.nonresident_alien_individual: false
+    us:statutes/26/63/c#input.return_under_section_443_a_1_for_less_than_12_months_due_to_accounting_period_change: false
+    us:statutes/26/63/c#input.estate_or_trust_common_trust_fund_or_partnership: false
+    us:statutes/26/63/c/5#input.deduction_under_section_151_allowable_to_another_taxpayer: false
+    us:statutes/26/63/c/5#input.earned_income: 0
+    us:statutes/26/63/f#input.filing_status: 0
+    us:statutes/26/63/f#input.taxpayer_has_attained_age_65_before_close_of_taxable_year: false
+    us:statutes/26/63/f#input.spouse_has_attained_age_65_before_close_of_taxable_year: false
+    us:statutes/26/63/f#input.additional_exemption_allowable_for_spouse_under_section_151_b: false
+    us:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year: false
+    us:statutes/26/63/f#input.spouse_is_blind_as_of_close_of_taxable_year_or_time_of_death: false
+    us:statutes/26/163#input.filing_status: 0
+    us:statutes/26/163#input.adjusted_gross_income: 1000
+    us:statutes/26/163#input.amount_excluded_from_gross_income_under_section_911: 0
+    us:statutes/26/163#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/163#input.amount_excluded_from_gross_income_under_section_933: 0
+    us:statutes/26/163#input.taxable_year_begins_after_2024_and_before_2029: false
+    us:statutes/26/163#input.indebtedness_incurred_after_2024_for_purchase_of_vehicle: false
+    us:statutes/26/163#input.indebtedness_secured_by_first_lien_on_vehicle: false
+    us:statutes/26/163#input.vehicle_purchased_for_personal_use: false
+    us:statutes/26/163#input.vehicle_identification_number_included_on_return: false
+    us:statutes/26/163#input.vehicle_original_use_commences_with_taxpayer: false
+    us:statutes/26/163#input.vehicle_manufactured_primarily_for_public_streets_roads_and_highways: false
+    us:statutes/26/163#input.vehicle_operated_exclusively_on_rail_or_rails: false
+    us:statutes/26/163#input.vehicle_wheel_count: 0
+    us:statutes/26/163#input.vehicle_is_car_minivan_van_suv_pickup_truck_or_motorcycle: false
+    us:statutes/26/163#input.vehicle_treated_as_motor_vehicle_under_clean_air_act_title_II: false
+    us:statutes/26/163#input.vehicle_gross_vehicle_weight_rating: 0
+    us:statutes/26/163#input.vehicle_final_assembly_occurred_within_united_states: false
+    us:statutes/26/163#input.loan_finances_fleet_sales: false
+    us:statutes/26/163#input.loan_for_commercial_vehicle_not_used_for_personal_purposes: false
+    us:statutes/26/163#input.lease_financing: false
+    us:statutes/26/163#input.loan_finances_vehicle_with_salvage_title: false
+    us:statutes/26/163#input.loan_finances_vehicle_intended_for_scrap_or_parts: false
+    us:statutes/26/163#input.indebtedness_owed_to_related_person_under_section_267_b_or_707_b_1: false
+    us:statutes/26/163#input.passenger_vehicle_loan_interest_paid_or_accrued: 0
+  output:
+    {target_base}#taxable_income_for_individual_who_does_not_itemize: -5550
+    {target_base}#taxable_income_general_rule: -19000
+    {taxable_income_target}: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")

@@ -776,6 +776,10 @@ _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN = re.compile(
     r"(?:^|_)(?:allotment|benefit|credit|deduction|allowance|subsidy)(?:_|$)",
     flags=re.IGNORECASE,
 )
+_NONNEGATIVE_TAXABLE_INCOME_NAME_PATTERN = re.compile(
+    r"^(?:[A-Za-z0-9_]+_)?taxable_income$",
+    flags=re.IGNORECASE,
+)
 _NONNEGATIVE_REDUCTION_FORMULA_PATTERN = re.compile(
     r"\b(?=[A-Za-z_][A-Za-z0-9_]*\b)(?=[A-Za-z0-9_]*max)[A-Za-z_][A-Za-z0-9_]*\b"
     r"[\s\S]{0,180}-[\s\S]{0,220}"
@@ -3579,7 +3583,13 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
         if dtype not in {"money", "currency", "decimal", "integer", "number"}:
             continue
         name = str(rule.get("name") or "").strip()
-        if not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name):
+        is_taxable_income = bool(
+            _NONNEGATIVE_TAXABLE_INCOME_NAME_PATTERN.fullmatch(name)
+        )
+        if (
+            not is_taxable_income
+            and not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name)
+        ):
             continue
         versions = rule.get("versions")
         if not isinstance(versions, list):
@@ -3589,6 +3599,15 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
                 continue
             formula = version.get("formula")
             if not isinstance(formula, str):
+                continue
+            if is_taxable_income:
+                if not _taxable_income_formula_has_zero_floor(formula):
+                    issues.append(
+                        "Nonnegative taxable income missing floor: "
+                        f"`{name}` can return a negative amount. Taxable income "
+                        "outputs used for current-law tax calculations must floor "
+                        "the selected branch at zero."
+                    )
                 continue
             result_expressions = _formula_result_expressions(formula)
             unfloored_expressions = [
@@ -3630,7 +3649,13 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
         if dtype not in {"money", "currency", "decimal", "integer", "number"}:
             continue
         name = str(rule.get("name") or "").strip()
-        if not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name):
+        is_taxable_income = bool(
+            _NONNEGATIVE_TAXABLE_INCOME_NAME_PATTERN.fullmatch(name)
+        )
+        if (
+            not is_taxable_income
+            and not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name)
+        ):
             continue
         versions = rule.get("versions")
         if not isinstance(versions, list):
@@ -3641,7 +3666,11 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            repaired_formula = _repair_nonnegative_amount_reduction_formula(formula)
+            repaired_formula = (
+                _repair_nonnegative_taxable_income_formula(formula)
+                if is_taxable_income
+                else _repair_nonnegative_amount_reduction_formula(formula)
+            )
             if repaired_formula == formula:
                 continue
             repaired_content = _replace_formula_text_once(
@@ -3651,6 +3680,47 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
             )
             repaired_rules.append(name or "<unknown>")
     return repaired_content, repaired_rules
+
+
+def _taxable_income_formula_has_zero_floor(formula: str) -> bool:
+    expressions = _formula_result_expressions(formula)
+    return bool(expressions) and all(
+        _taxable_income_expression_has_zero_floor(expression)
+        for expression in expressions
+    )
+
+
+def _repair_nonnegative_taxable_income_formula(formula: str) -> str:
+    return _repair_nonnegative_taxable_income_expression(formula.strip())
+
+
+def _repair_nonnegative_taxable_income_expression(expression: str) -> str:
+    if not expression or _taxable_income_expression_has_zero_floor(expression):
+        return expression
+    conditional = re.match(
+        r"^(?P<head>if\b.+?)\s*:\s*(?P<then>.+?)\s+else\s*:\s*(?P<else>.+)$",
+        expression,
+        flags=re.IGNORECASE,
+    )
+    if conditional is not None:
+        then_expr = _repair_nonnegative_taxable_income_expression(
+            conditional.group("then").strip()
+        )
+        else_expr = _repair_nonnegative_taxable_income_expression(
+            conditional.group("else").strip()
+        )
+        return f"{conditional.group('head')}: {then_expr} else: {else_expr}"
+    return f"max(0, {expression})"
+
+
+def _taxable_income_expression_has_zero_floor(expression: str) -> bool:
+    expression = expression.strip()
+    if _ZERO_LITERAL_PATTERN.fullmatch(expression):
+        return True
+    return any(
+        start == 0 and end == len(expression)
+        for start, end, _argument in _zero_floor_call_spans(expression)
+    )
 
 
 def _repair_nonnegative_amount_reduction_formula(formula: str) -> str:
@@ -4901,15 +4971,29 @@ def _normalize_rulespec_import_path_static(import_path: str) -> str:
     return normalized.strip("/")
 
 
+_RULESPEC_IMPORT_SOURCE_ROOTS = {"policies", "regulations", "statutes"}
+
+
+def _rulespec_import_path_aliases_static(import_path: str) -> set[str]:
+    normalized = _normalize_rulespec_import_path_static(import_path)
+    aliases = {normalized} if normalized else set()
+    head, separator, tail = normalized.partition("/")
+    if separator and head in _RULESPEC_IMPORT_SOURCE_ROOTS:
+        aliases.add(tail)
+    return aliases
+
+
 def _imports_cover_path_static(imports: set[str], expected_path: str) -> bool:
-    expected = expected_path.strip("/")
+    expected_aliases = _rulespec_import_path_aliases_static(expected_path)
     for import_path in imports:
-        if import_path == expected:
-            return True
-        if import_path.startswith(expected + "/"):
-            return True
-        if expected.startswith(import_path + "/"):
-            return True
+        for import_alias in _rulespec_import_path_aliases_static(import_path):
+            for expected in expected_aliases:
+                if import_alias == expected:
+                    return True
+                if import_alias.startswith(expected + "/"):
+                    return True
+                if expected.startswith(import_alias + "/"):
+                    return True
     return False
 
 
@@ -8039,7 +8123,7 @@ class ValidatorPipeline:
     def _extract_import_paths(self, content: str) -> list[str]:
         """Extract import file references from an imports block."""
         return [
-            item.split("#", 1)[0].strip()
+            self._normalize_rulespec_import_path(item)
             for item in self._extract_import_items(content)
             if item.split("#", 1)[0].strip()
         ]
@@ -8084,7 +8168,7 @@ class ValidatorPipeline:
 
     def _import_to_relative_rulespec_path(self, import_target: str) -> Path:
         """Convert an import target like 26/24/c#name into 26/24/c.yaml."""
-        normalized = import_target.strip().strip('"').strip("'")
+        normalized = self._normalize_rulespec_import_path(import_target)
         if normalized.endswith((".yaml", ".yml")):
             return Path(normalized)
         return Path(f"{normalized}.yaml")
@@ -8117,17 +8201,14 @@ class ValidatorPipeline:
         if not title:
             return []
 
-        imports = self._extract_import_paths(content)
+        imports = set(self._extract_import_paths(content))
         issues: list[str] = []
         for citation, import_path in self._extract_definition_cross_references(
             source_text, title
         ):
             if not self._rulespec_import_target_exists(import_path):
                 continue
-            if any(
-                existing == import_path or existing.startswith(import_path + "/")
-                for existing in imports
-            ):
+            if self._imports_cover_path(imports, import_path):
                 continue
             issues.append(
                 "Cross-statute definition import missing: "
@@ -8248,14 +8329,16 @@ class ValidatorPipeline:
 
     def _imports_cover_path(self, imports: set[str], expected_path: str) -> bool:
         """Return whether any import covers an expected repo-relative path."""
-        expected = expected_path.strip("/")
+        expected_aliases = _rulespec_import_path_aliases_static(expected_path)
         for import_path in imports:
-            if import_path == expected:
-                return True
-            if import_path.startswith(expected + "/"):
-                return True
-            if expected.startswith(import_path + "/"):
-                return True
+            for import_alias in _rulespec_import_path_aliases_static(import_path):
+                for expected in expected_aliases:
+                    if import_alias == expected:
+                        return True
+                    if import_alias.startswith(expected + "/"):
+                        return True
+                    if expected.startswith(import_alias + "/"):
+                        return True
         return False
 
     def _cross_reference_placeholder_import_base(
@@ -8338,14 +8421,11 @@ class ValidatorPipeline:
         if not source_text:
             return []
 
-        imports = self._extract_import_paths(content)
+        imports = set(self._extract_import_paths(content))
         issues: list[str] = []
         for term in resolve_defined_terms_from_text(source_text):
             import_base = term.import_target.split("#", 1)[0]
-            if any(
-                existing == import_base or existing.startswith(import_base + "/")
-                for existing in imports
-            ):
+            if self._imports_cover_path(imports, import_base):
                 continue
             issues.append(
                 "Defined term import missing: "
@@ -8363,7 +8443,7 @@ class ValidatorPipeline:
         if not source_text:
             return []
 
-        imports = self._extract_import_paths(content)
+        imports = set(self._extract_import_paths(content))
         source_root = self._validation_source_root(rulespec_file)
         issues: list[str] = []
         for concept in resolve_canonical_concepts_from_text(
@@ -8372,10 +8452,7 @@ class ValidatorPipeline:
             current_file=rulespec_file,
         ):
             import_base = concept.import_target.split("#", 1)[0]
-            if any(
-                existing == import_base or existing.startswith(import_base + "/")
-                for existing in imports
-            ):
+            if self._imports_cover_path(imports, import_base):
                 continue
             issues.append(
                 "Canonical concept import missing: "

@@ -4339,6 +4339,45 @@ rules:
             "statutes/26/32.test.yaml",
         ]
 
+    def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/32.yaml"
+        test_file = policy_repo / "statutes/26/32.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: eitc_phase_in_rates
+    kind: parameter
+    dtype: Rate
+    indexed_by: qualifying_child_count
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.0765
+"""
+        )
+        original_test_content = """- name: existing
+  output:
+    us:statutes/26/32#some_other_output: 1
+"""
+        test_file.write_text(original_test_content)
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/32.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(RuntimeError, match=APPLIED_ENCODING_SIGNING_KEY_ENV),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        assert test_file.read_text() == original_test_content
+
     def test_apply_overlay_validation_checks_direct_dependents_by_default(
         self, tmp_path
     ):

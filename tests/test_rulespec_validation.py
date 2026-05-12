@@ -187,6 +187,19 @@ rules: []
         "section 2014(e) but file does not import from 7/2014/e"
     ]
 
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/7/2014/e#snap_earned_income_deduction
+module:
+  summary: |-
+    Eligibility is described in section 2014(e).
+rules: []
+"""
+    )
+
+    assert pipeline._check_cross_statute_definition_imports(rules_file) == []
+
 
 def test_formula_absolute_reference_rejects_import_targets_in_formula():
     content = """format: rulespec/v1
@@ -1428,27 +1441,33 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "standard_deduction"
     )
+    basic_standard_deduction_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/63/c#basic_standard_deduction",
+        country="us",
+    )
+    assert basic_standard_deduction_mapping.mapping_type == "not_comparable"
     assert (
-        registry.mapping_for_legal_id(
-            "us:statutes/26/63/c#basic_standard_deduction",
-            country="us",
-        ).policyengine_variable
+        basic_standard_deduction_mapping.policyengine_variable
         == "basic_standard_deduction"
     )
+    assert basic_standard_deduction_mapping.candidate_priority == "P4"
+    additional_standard_deduction_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/63/c#additional_standard_deduction",
+        country="us",
+    )
+    assert additional_standard_deduction_mapping.mapping_type == "not_comparable"
     assert (
-        registry.mapping_for_legal_id(
-            "us:statutes/26/63/c#additional_standard_deduction",
-            country="us",
-        ).policyengine_variable
+        additional_standard_deduction_mapping.policyengine_variable
         == "additional_standard_deduction"
     )
-    assert (
-        registry.mapping_for_legal_id(
-            "us:statutes/26/63/c#standard_deduction",
-            country="us",
-        ).policyengine_variable
-        == "standard_deduction"
+    assert additional_standard_deduction_mapping.candidate_priority == "P4"
+    standard_deduction_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/63/c#standard_deduction",
+        country="us",
     )
+    assert standard_deduction_mapping.mapping_type == "not_comparable"
+    assert standard_deduction_mapping.policyengine_variable == "standard_deduction"
+    assert standard_deduction_mapping.candidate_priority == "P4"
     ctc_phase_out_threshold_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/24/h#ctc_phase_out_threshold",
         country="us",
@@ -6258,6 +6277,50 @@ rules:
 """
 
     assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_taxable_income_branch():
+    content = """format: rulespec/v1
+rules:
+  - name: taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: taxable_income_for_individual_who_does_not_itemize else: taxable_income_general_rule
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any("Nonnegative taxable income missing floor" in issue for issue in issues)
+
+
+def test_repair_nonnegative_amount_reductions_floors_taxable_income_branches():
+    content = """format: rulespec/v1
+rules:
+  - name: taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: taxable_income_for_individual_who_does_not_itemize else: taxable_income_general_rule
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["taxable_income"]
+    assert (
+        "if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: "
+        "max(0, taxable_income_for_individual_who_does_not_itemize) "
+        "else: max(0, taxable_income_general_rule)" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
 def test_nonnegative_amount_reduction_allows_zero_floor_for_limit_minus_reduction():
