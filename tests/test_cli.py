@@ -7,6 +7,7 @@ All external dependencies are mocked.
 
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -2005,6 +2006,112 @@ rules:
         assert exc_info.value.code == 0
         output = json.loads(capsys.readouterr().out)
         assert output["success"] is True
+
+    def test_executes_companion_tests_passes_rulespec_env_to_engine(
+        self, capsys, monkeypatch, tmp_path
+    ):
+        repo = tmp_path / "workspace" / "rulespec-us"
+        rules_file = repo / "statutes/1/1.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: income + 1
+"""
+        )
+        rules_file.with_name("1.test.yaml").write_text(
+            """- name: computes_benefit
+  period: 2026-01
+  input:
+    us:statutes/1/1#input.income: 5
+  output:
+    us:statutes/1/1#benefit: 6
+"""
+        )
+        stale_repo = tmp_path / "stale-rulespec-us"
+        stale_repo.mkdir()
+        monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
+
+        engine_root = tmp_path / "axiom-rules-engine"
+        binary = engine_root / "target/debug/axiom-rules-engine"
+        captured_envs: list[dict[str, str] | None] = []
+
+        def fake_binary(self):
+            return binary
+
+        def fake_run(cmd, **kwargs):
+            captured_envs.append(kwargs.get("env"))
+            if "compile" in cmd:
+                output_path = Path(cmd[cmd.index("--output") + 1])
+                output_path.write_text(
+                    json.dumps(
+                        {
+                            "program": {
+                                "parameters": [],
+                                "derived": [
+                                    {
+                                        "id": "us:statutes/1/1#benefit",
+                                        "name": "benefit",
+                                    }
+                                ],
+                            }
+                        }
+                    )
+                )
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if "run-compiled" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "results": [
+                                {
+                                    "outputs": {
+                                        "us:statutes/1/1#benefit": {
+                                            "kind": "scalar",
+                                            "value": {"kind": "integer", "value": 6},
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ),
+                    stderr="",
+                )
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        args = MagicMock()
+        args.root = repo
+        args.paths = []
+        args.json = True
+        args.axiom_rules_path = engine_root
+
+        monkeypatch.setattr(
+            "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
+            fake_binary,
+        )
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(args)
+
+        assert exc_info.value.code == 0
+        assert json.loads(capsys.readouterr().out)["success"] is True
+        assert len(captured_envs) == 2
+        for env in captured_envs:
+            assert env is not None
+            roots = env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
+            assert roots[:2] == [str(repo.resolve()), str(repo.resolve().parent)]
+            assert str(stale_repo) in roots
 
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"

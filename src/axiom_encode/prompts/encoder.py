@@ -24,7 +24,8 @@ Hard requirements:
   do not put imported RuleSpec targets under `source:`. Import proof atoms must
   include `import.target`, `import.output`, and `import.hash` with a listed
   `sha256:` hash; if no `sha256:` hash is provided, do not emit an import proof
-  atom.
+  atom. When the imported proof target is in the same RuleSpec file, use
+  `hash: sha256:local` instead of the file's current content hash.
 - Proof atom `kind` must be one of: `amount`, `condition`, `definition`,
   `default`, `effective_period`, `exception`, `formula`, `import`, `ordering`,
   `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.
@@ -304,6 +305,10 @@ Hard requirements:
   `ceil(x)`. Do not use Python-only functions such as `round(...)`; express
   nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for
   nonnegative amounts.
+- Benefit, allotment, credit, deduction, allowance, and subsidy formulas must
+  never emit negative money. When subtracting an income, contribution, or other
+  reduction from a maximum amount, floor the result with `max(0, ...)` before
+  applying downstream minimum-benefit or issuance branches.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
@@ -326,6 +331,11 @@ Hard requirements:
   compact `not A and not B` line.
 - Formula strings reference indexed parameter tables with `table_name[index_expr]`.
 - Every substantive numeric literal must be grounded in the supplied source text unless it is -1, 0, 1, 2, or 3.
+- US tax `filing_status` is a structural enum: 0 single, 1 joint return,
+  2 married filing separately, 3 head of household, and 4 surviving spouse /
+  qualifying widow(er). If the source groups surviving spouse with joint return,
+  every filing-status branch or match that handles status 1 must also handle
+  status 4 in that same branch.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.
@@ -345,7 +355,9 @@ Hard requirements:
      defaults. If a test asserts an indexed `parameter` table output directly,
      the test must assign every `indexed_by` key as `#input.<key>`; otherwise
      assert the derived lookup output instead of the raw table. In ordinary
-     end-to-end tests, do not output raw indexed parameter tables at all.
+     end-to-end tests, do not output raw indexed parameter tables at all. If a
+     local amount formula has a branch returning 0, include a companion case that
+     asserts that local output is 0.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived

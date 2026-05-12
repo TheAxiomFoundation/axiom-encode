@@ -761,6 +761,28 @@ _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN = re.compile(
 )
 _SCHEDULE_INDEX_NAME_PATTERN = r"[A-Za-z_]\w*_size(?:_[A-Za-z_]\w*)*"
 _STRUCTURAL_ENUM_INDEX_NAME_PATTERN = r"(?:filing_status|tax_filing_status)"
+_US_TAX_SURVIVING_SPOUSE_TEXT_PATTERN = re.compile(
+    r"(?:^|[^A-Za-z0-9])(?:surviving[\s_-]+spouse|qualifying[\s_-]+widow(?:er)?)\b",
+    flags=re.IGNORECASE,
+)
+_US_TAX_FILING_STATUS_NAME_PATTERN = re.compile(
+    rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+    flags=re.IGNORECASE,
+)
+_NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN = re.compile(
+    r"(?:^|_)(?:allotment|benefit|credit|deduction|allowance|subsidy)(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_NONNEGATIVE_REDUCTION_FORMULA_PATTERN = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:max(?:imum)?|maximum)[A-Za-z0-9_]*\b"
+    r"[\s\S]{0,180}-[\s\S]{0,220}"
+    r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
+    flags=re.IGNORECASE,
+)
+_ZERO_AMOUNT_BRANCH_PATTERN = re.compile(
+    r"\bif\b[\s\S]{0,500}:\s*0(?:\.0+)?\s+else\s*:",
+    flags=re.IGNORECASE,
+)
 _CARDINAL_WORD_VALUES = {
     "zero": 0.0,
     "one": 1.0,
@@ -3207,6 +3229,240 @@ def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str
         (name, kind, formula)
         for name, kind, formula, _source in _rulespec_rule_formula_records(payload)
     ]
+
+
+def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
+    """Flag filing-status branches that omit surviving spouse when source groups it."""
+    payload = _rulespec_payload(content)
+    if payload is None or not _US_TAX_SURVIVING_SPOUSE_TEXT_PATTERN.search(content):
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived" or not _US_TAX_FILING_STATUS_NAME_PATTERN.search(formula):
+            continue
+        codes = _filing_status_codes_in_formula(formula)
+        if 1 in codes and 4 not in codes:
+            issues.append(
+                "Filing status branch missing surviving spouse: "
+                f"`{name}` handles joint-return status code 1 while this source "
+                "mentions surviving spouse or qualifying widow(er), but the formula "
+                "does not handle status code 4. Include code 4 when the source groups "
+                "surviving spouse with joint return, or encode a separate explicit branch."
+            )
+    return issues
+
+
+def _filing_status_codes_in_formula(formula: str) -> set[int]:
+    codes: set[int] = set()
+    normalized = re.sub(r"\s+", " ", formula)
+    for match in re.finditer(
+        rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=|>=|>|<=|<)\s*(\d+)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        with contextlib.suppress(ValueError):
+            codes.add(int(match.group(1)))
+    if re.search(
+        rf"\bmatch\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        for match in re.finditer(r"\b(\d+)\s*=>", normalized):
+            with contextlib.suppress(ValueError):
+                codes.add(int(match.group(1)))
+    return codes
+
+
+def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
+    """Flag benefit-style reductions that can fall below zero."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"money", "currency", "decimal", "integer", "number"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            compact = re.sub(r"\s+", "", formula).lower()
+            if "max(0" in compact or "max(0.0" in compact:
+                continue
+            if not _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(formula):
+                continue
+            issues.append(
+                "Nonnegative amount reduction missing floor: "
+                f"`{name}` subtracts an income/contribution-style reduction from a "
+                "maximum amount but does not floor the result at zero. Benefit, "
+                "allotment, credit, deduction, allowance, and subsidy outputs must "
+                "use `max(0, ...)` before downstream minimums or eligibility branches."
+            )
+    return issues
+
+
+def find_zero_branch_test_coverage_issues(
+    content: str,
+    test_cases: Any,
+) -> list[str]:
+    """Require a companion assertion for source-stated zero amount branches."""
+    if not isinstance(test_cases, list):
+        return []
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype in {"judgment", "boolean", "bool"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        if not any(
+            isinstance(version, dict)
+            and isinstance(version.get("formula"), str)
+            and _ZERO_AMOUNT_BRANCH_PATTERN.search(version["formula"])
+            for version in versions
+        ):
+            continue
+        if _has_zero_output_test(test_cases, name):
+            continue
+        issues.append(
+            "Zero branch test coverage missing: "
+            f"`{name}` has a formula branch that returns 0, but no companion test "
+            "asserts that output is zero. Add a case that exercises the zero branch "
+            "rather than only above-threshold positive cases."
+        )
+    return issues
+
+
+def _has_zero_output_test(test_cases: list[Any], rule_name: str) -> bool:
+    for test_case in test_cases:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for key, value in outputs.items():
+            if _test_reference_fragment(key) == rule_name and _is_zero_expected_value(
+                value
+            ):
+                return True
+    return False
+
+
+def _is_zero_expected_value(value: Any) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return float(value) == 0.0
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            return float(value.strip()) == 0.0
+    if isinstance(value, dict):
+        raw_value = value.get("value")
+        if isinstance(raw_value, dict):
+            return _is_zero_expected_value(raw_value.get("value"))
+        return _is_zero_expected_value(raw_value)
+    return False
+
+
+def find_proof_import_hash_consistency_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
+    """Validate proof import hashes against resolved RuleSpec source files."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    current_file = Path(rules_file).resolve()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+        proof = _rule_proof_payload(rule)
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom_index, atom in enumerate(atoms):
+            if not isinstance(atom, dict) or not isinstance(atom.get("import"), dict):
+                continue
+            raw_import = atom["import"]
+            target = str(raw_import.get("target") or "").strip()
+            hash_value = str(raw_import.get("hash") or "").strip()
+            target_ref = _parse_rulespec_target(target)
+            if target_ref is None:
+                continue
+            target_file = _resolve_rulespec_target_file(
+                target_ref,
+                policy_repo_path or _rulespec_repo_root(current_file),
+            )
+            if target_file is None or not target_file.exists():
+                continue
+            expected_hash = (
+                "sha256:local"
+                if target_file.resolve() == current_file
+                else f"sha256:{_file_sha256(target_file)}"
+            )
+            if hash_value == expected_hash:
+                continue
+            issues.append(
+                "Proof import hash mismatch: "
+                f"`{rule_name}` proof atom {atom_index} imports `{target}` with "
+                f"`hash: {hash_value or '<missing>'}`, expected `{expected_hash}`."
+            )
+    return issues
+
+
+def _rule_proof_payload(rule: dict[str, Any]) -> dict[str, Any] | None:
+    metadata = rule.get("metadata")
+    if isinstance(metadata, dict) and isinstance(metadata.get("proof"), dict):
+        return metadata["proof"]
+    proof = rule.get("proof")
+    return proof if isinstance(proof, dict) else None
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
@@ -6672,6 +6928,7 @@ class ValidatorPipeline:
             text=True,
             timeout=60,
             cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
+            env=self._rulespec_compile_env(),
         )
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
@@ -6953,11 +7210,20 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
+        issues.extend(find_nonnegative_amount_reduction_issues(content))
         issues.extend(find_relation_aggregate_syntax_issues(content))
         issues.extend(find_role_limited_relation_scope_issues(content))
         issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
+        issues.extend(
+            find_proof_import_hash_consistency_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         issues.extend(
             find_copied_cross_reference_source_issues(
                 content,
@@ -7033,6 +7299,9 @@ class ValidatorPipeline:
                         )
                     issues.extend(find_test_input_assignment_issues(content, payload))
                     issues.extend(find_exception_test_coverage_issues(content, payload))
+                    issues.extend(
+                        find_zero_branch_test_coverage_issues(content, payload)
+                    )
                     if len(issues) == pre_test_issue_count:
                         issues.extend(
                             self._run_rulespec_test_cases(

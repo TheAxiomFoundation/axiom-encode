@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,8 @@ from axiom_encode.harness.validator_pipeline import (
     find_formula_absolute_reference_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
+    find_nonnegative_amount_reduction_issues,
+    find_proof_import_hash_consistency_issues,
     find_relation_aggregate_syntax_issues,
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
@@ -41,10 +44,12 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_condition_coverage_issues,
     find_source_limitation_application_issues,
     find_source_verification_issues,
+    find_tax_filing_status_surviving_spouse_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
     find_upstream_placement_issues,
     find_versioned_derived_formula_issues,
+    find_zero_branch_test_coverage_issues,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -74,6 +79,74 @@ def test_rulespec_compile_env_exposes_policy_repo_roots(monkeypatch, tmp_path):
     )
     assert roots[:2] == [str(policy_repo), str(repo_parent)]
     assert str(existing_root) in roots
+
+
+def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp_path):
+    repo_parent = tmp_path / "repos"
+    policy_repo = repo_parent / "rulespec-us"
+    policy_repo.mkdir(parents=True)
+    stale_root = tmp_path / "stale-rulespec-us"
+    stale_root.mkdir()
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_root))
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+    captured_env: dict[str, str] | None = None
+
+    def fake_run(cmd, **kwargs):
+        nonlocal captured_env
+        captured_env = kwargs.get("env")
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps(
+                {
+                    "results": [
+                        {
+                            "outputs": {
+                                "us:statutes/1/1#benefit": {
+                                    "kind": "scalar",
+                                    "id": "us:statutes/1/1#benefit",
+                                    "value": {"kind": "integer", "value": 6},
+                                }
+                            }
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case={"input": {}},
+        case_name="computes_benefit",
+        case_index=0,
+        period={
+            "period_kind": "month",
+            "start": "2026-01-01",
+            "end": "2026-01-31",
+        },
+        output_names=["us:statutes/1/1#benefit"],
+        derived_by_key={"us:statutes/1/1#benefit": {"entity": "Household"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        module_target=None,
+    )
+
+    assert issues == []
+    assert outputs is not None
+    assert outputs["us:statutes/1/1#benefit"]["value"]["value"] == 6
+    assert captured_env is not None
+    roots = captured_env["AXIOM_RULESPEC_REPO_ROOTS"].split(os.pathsep)
+    assert roots[:2] == [str(policy_repo), str(repo_parent)]
+    assert str(stale_root) in roots
 
 
 def test_cross_statute_definition_import_check_uses_cited_title_and_existing_targets(
@@ -3111,6 +3184,77 @@ rules:
     assert any("Proof import hash invalid" in issue for issue in issues)
 
 
+def test_proof_import_hash_consistency_rejects_same_file_content_hash(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes/26/22.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/22#section_22_age_threshold
+              output: section_22_age_threshold
+              hash: sha256:abc123
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= section_22_age_threshold
+"""
+    rules_file.write_text(content)
+
+    issues = find_proof_import_hash_consistency_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert any("expected `sha256:local`" in issue for issue in issues)
+
+
+def test_proof_import_hash_consistency_accepts_same_file_local_hash(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes/26/22.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/22#section_22_age_threshold
+              output: section_22_age_threshold
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= section_22_age_threshold
+"""
+    rules_file.write_text(content)
+
+    assert (
+        find_proof_import_hash_consistency_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_rulespec_grounding_accepts_source_leading_decimal():
     content = """format: rulespec/v1
 rules:
@@ -5492,6 +5636,141 @@ rules:
     )
 
     assert issues == []
+
+
+def test_filing_status_branch_rejects_missing_surviving_spouse_code():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => standard_deduction_joint
+              2 => standard_deduction_separate
+              3 => standard_deduction_head_of_household
+              0 => standard_deduction_single
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any("status code 4" in issue for issue in issues)
+
+
+def test_filing_status_branch_allows_surviving_spouse_code():
+    content = """format: rulespec/v1
+module:
+  summary: The basic standard deduction is doubled for a joint return or surviving spouse.
+rules:
+  - name: basic_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => standard_deduction_joint
+              4 => standard_deduction_joint
+              2 => standard_deduction_separate
+              3 => standard_deduction_head_of_household
+              0 => standard_deduction_single
+"""
+
+    assert find_tax_filing_status_surviving_spouse_issues(content) == []
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_allotment():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_allows_zero_floor():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate))
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_zero_branch_test_coverage_rejects_untested_zero_output():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if household_initial_month and snap_amount < snap_minimum_issuance: 0 else: snap_amount
+"""
+    cases = [
+        {
+            "name": "above_threshold_initial_month",
+            "output": {"us:regulations/7-cfr/273/10#snap_monthly_allotment": 90},
+        }
+    ]
+
+    issues = find_zero_branch_test_coverage_issues(content, cases)
+
+    assert any("Zero branch test coverage missing" in issue for issue in issues)
+
+
+def test_zero_branch_test_coverage_allows_zero_output_case():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_monthly_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if household_initial_month and snap_amount < snap_minimum_issuance: 0 else: snap_amount
+"""
+    cases = [
+        {
+            "name": "below_threshold_initial_month",
+            "output": {"us:regulations/7-cfr/273/10#snap_monthly_allotment": 0},
+        }
+    ]
+
+    assert find_zero_branch_test_coverage_issues(content, cases) == []
 
 
 def test_source_condition_coverage_rejects_cost_availability_as_only_exclusions():
