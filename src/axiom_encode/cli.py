@@ -2699,7 +2699,7 @@ def cmd_repair_local_proof_hashes(args):
         policy_repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
         enable_oracles=False,
-        require_policy_proofs=True,
+        require_policy_proofs=False,
     ).validate(rules_file, skip_reviewers=True)
     if not validation.all_passed:
         rules_file.write_text(original_content)

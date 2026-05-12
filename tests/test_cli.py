@@ -3489,8 +3489,8 @@ rules:
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
 
             def validate(self, path, *, skip_reviewers):
                 assert path == target.resolve()
@@ -3571,8 +3571,8 @@ rules:
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
 
             def validate(self, path, *, skip_reviewers):
                 assert path == target.resolve()
@@ -3657,8 +3657,8 @@ rules:
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
 
             def validate(self, path, *, skip_reviewers):
                 assert path == target.resolve()
@@ -3727,8 +3727,8 @@ rules:
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
 
             def validate(self, path, *, skip_reviewers):
                 assert path == target.resolve()
