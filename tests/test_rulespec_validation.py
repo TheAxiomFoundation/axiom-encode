@@ -4100,6 +4100,44 @@ rules:
     assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
 
 
+def test_cross_reference_placeholder_allows_deeper_import_for_semantic_tail(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1411.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
+module:
+  summary: |-
+    Modified adjusted gross income is adjusted gross income increased by the
+    excess of the amount excluded from gross income under section 911(a)(1)
+    over deductions or exclusions disallowed under section 911(d)(6).
+rules:
+  - name: niit_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          adjusted_gross_income
+          + gross_income_excluded_under_section_911_a_1
+          - section_911_disallowed_deductions_and_exclusions
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
+
+
 def test_validate_rulespec_proofs_can_require_policy_proofs_without_module_flag():
     content = """format: rulespec/v1
 module:
@@ -6430,6 +6468,31 @@ rules:
         "Ungrounded generated numeric literal" in issue and "452" in issue
         for issue in result.issues
     )
+
+
+def test_ungrounded_numeric_accepts_source_unicode_fraction():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1411
+rules:
+  - name: married_separate_threshold_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          0.5
+"""
+
+    assert (
+        find_ungrounded_numeric_issues(
+            content,
+            source_text="The amount is ½ of the dollar amount determined elsewhere.",
+        )
+        == []
+    )
+    assert 0.5 in extract_numeric_occurrences_from_text("The amount is ½.")
 
 
 def test_non_rulespec_yaml_artifact_is_rejected(tmp_path):

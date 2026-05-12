@@ -559,6 +559,17 @@ GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
 SOURCE_TEXT_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,]))(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
+_UNICODE_FRACTION_VALUES = {
+    "¼": 0.25,
+    "½": 0.5,
+    "¾": 0.75,
+    "⅓": 1 / 3,
+    "⅔": 2 / 3,
+    "⅛": 0.125,
+    "⅜": 0.375,
+    "⅝": 0.625,
+    "⅞": 0.875,
+}
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -1462,6 +1473,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
         if phrase in text_lower:
             numbers.add(value)
 
+    for glyph, value in _UNICODE_FRACTION_VALUES.items():
+        if glyph in text:
+            numbers.add(value)
+
     for match in _CARDINAL_WORD_PATTERN.finditer(text_lower):
         numbers.add(_CARDINAL_WORD_VALUES[match.group(1)])
 
@@ -1680,6 +1695,9 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
             if _ordinal_is_calendar_day_reference(cleaned, match.end(), value):
                 continue
             occurrences.append(value)
+
+    for glyph, value in _UNICODE_FRACTION_VALUES.items():
+        occurrences.extend(value for _ in re.finditer(re.escape(glyph), cleaned))
 
     occurrence_counts = Counter(occurrences)
     normalized: list[float] = []
@@ -7341,6 +7359,7 @@ class ValidatorPipeline:
         fragments: list[str] = []
         for fragment in (match.group("tail") or "").split("_"):
             if fragment in {
+                "and",
                 "exception",
                 "exceptions",
                 "except",
@@ -7358,9 +7377,18 @@ class ValidatorPipeline:
                 "met",
             }:
                 break
-            if fragment:
+            if fragment and self._is_cross_reference_path_fragment(fragment):
                 fragments.append(fragment)
+                continue
+            break
         return "/".join(["statutes", title, match.group("section"), *fragments])
+
+    def _is_cross_reference_path_fragment(self, fragment: str) -> bool:
+        """Return whether an identifier tail fragment is a citation path token."""
+        return bool(
+            re.fullmatch(r"\d+[A-Za-z]?|[A-Za-z]|[ivxlcdm]+", fragment)
+            and fragment.lower() not in {"and"}
+        )
 
     def _check_resolved_defined_term_imports(self, rulespec_file: Path) -> list[str]:
         """Flag missing imports for known legally-defined terms mentioned in source text."""
