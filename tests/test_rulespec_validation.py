@@ -6323,6 +6323,36 @@ rules:
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
+def test_repair_nonnegative_amount_reductions_does_not_replace_identifier_substrings():
+    content = """format: rulespec/v1
+rules:
+  - name: capital_gains_excluded_from_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxable_income
+          - max(
+              taxable_income - net_capital_gain,
+              min(
+                  min(max(taxable_income, 0), capital_gains_zero_rate_threshold),
+                  taxable_income - adjusted_net_capital_gain
+              )
+          )
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["capital_gains_excluded_from_taxable_income"]
+    assert "name: capital_gains_excluded_from_taxable_income" in repaired
+    assert "capital_gains_excluded_from_max" not in repaired
+    assert "max(0, taxable_income" in repaired
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
 def test_nonnegative_amount_reduction_allows_zero_floor_for_limit_minus_reduction():
     content = """format: rulespec/v1
 rules:

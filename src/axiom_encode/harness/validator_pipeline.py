@@ -3766,13 +3766,58 @@ def _repair_nonnegative_amount_reduction_expression(expression: str) -> str:
 def _replace_formula_text_once(content: str, old: str, new: str) -> str:
     if old in content:
         return content.replace(old, new, 1)
+    replaced_block = _replace_indented_block_text_once(content, old, new)
+    if replaced_block != content:
+        return replaced_block
     updated = content
     for old_line, new_line in zip(old.splitlines(), new.splitlines(), strict=False):
         if old_line == new_line:
             continue
-        if old_line.strip() and old_line.strip() in updated:
-            updated = updated.replace(old_line.strip(), new_line.strip(), 1)
+        old_stripped = old_line.strip()
+        if not old_stripped:
+            continue
+        lines = updated.splitlines(keepends=True)
+        for index, line in enumerate(lines):
+            line_end = "\n" if line.endswith("\n") else ""
+            body = line[:-1] if line_end else line
+            if body.strip() != old_stripped:
+                continue
+            indent = body[: len(body) - len(body.lstrip())]
+            lines[index] = f"{indent}{new_line.strip()}{line_end}"
+            updated = "".join(lines)
+            break
     return updated
+
+
+def _replace_indented_block_text_once(content: str, old: str, new: str) -> str:
+    old_lines = old.splitlines()
+    if not old_lines:
+        return content
+    content_lines = content.splitlines(keepends=True)
+    for start in range(0, len(content_lines) - len(old_lines) + 1):
+        first_body = content_lines[start].removesuffix("\n")
+        indent = first_body[: len(first_body) - len(first_body.lstrip())]
+        if first_body[len(indent) :] != old_lines[0]:
+            continue
+        for offset, old_line in enumerate(old_lines):
+            body = content_lines[start + offset].removesuffix("\n")
+            if not body.startswith(indent):
+                break
+            if body[len(indent) :] != old_line:
+                break
+        else:
+            replacement = [
+                f"{indent}{new_line}{_line_ending(content_lines[start])}"
+                for new_line in new.splitlines()
+            ]
+            return "".join(
+                content_lines[:start] + replacement + content_lines[start + len(old_lines) :]
+            )
+    return content
+
+
+def _line_ending(line: str) -> str:
+    return "\n" if line.endswith("\n") else ""
 
 
 def find_formula_date_literal_issues(content: str) -> list[str]:
