@@ -25,6 +25,7 @@ from axiom_encode.cli import (
     _find_rulespec_dependents,
     _has_zero_output_test,
     _insert_false_input_default,
+    _repair_mixed_scalar_output_tests,
     _rewrite_gpt_runner_backend,
     _sha256_file,
     _sign_applied_encoding_manifest,
@@ -3116,6 +3117,78 @@ class TestCmdEncode:
             "encode_request",
             "encode_result",
             "encode_outcome",
+        ]
+
+    def test_mixed_scalar_output_test_repair_splits_parameter_outputs(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        rules_file = policy_repo / "statutes/26/164/f.yaml"
+        test_file = policy_repo / "statutes/26/164/f.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_tax_deduction_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1 / 2
+  - name: self_employment_tax_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_tax * self_employment_tax_deduction_fraction
+"""
+        )
+        test_file.write_text(
+            """- name: zero_liability_individual
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/164/f#input.self_employment_tax: 0
+  output:
+    us:statutes/26/164/f#self_employment_tax_deduction_fraction: 0.5
+    us:statutes/26/164/f#self_employment_tax_deduction: 0
+"""
+        )
+
+        repaired = _repair_mixed_scalar_output_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/164/f.yaml"),
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["zero_liability_individual"]
+        assert cases == [
+            {
+                "name": "zero_liability_individual",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {"us:statutes/26/164/f#input.self_employment_tax": 0},
+                "output": {"us:statutes/26/164/f#self_employment_tax_deduction": 0},
+            },
+            {
+                "name": "zero_liability_individual_scalar_outputs",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {"us:statutes/26/164/f#input.self_employment_tax": 0},
+                "output": {
+                    "us:statutes/26/164/f#self_employment_tax_deduction_fraction": 0.5
+                },
+            },
         ]
 
 

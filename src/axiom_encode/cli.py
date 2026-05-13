@@ -5113,6 +5113,24 @@ def _validate_generated_encoding_in_policy_overlay(
         for _ in range(10):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
+            mixed_scalar_repairs = _repair_mixed_scalar_output_tests(
+                rules_file=overlay_target,
+                test_file=_rulespec_test_path(overlay_target),
+                repo_path=overlay_repo,
+                relative_output=relative_output,
+            )
+            if mixed_scalar_repairs:
+                test_path = _rulespec_test_path(overlay_target)
+                supplemental_files[test_path.relative_to(overlay_repo)] = (
+                    test_path.read_text()
+                )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             changed_tests = _complete_missing_dependent_test_inputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,
@@ -5137,6 +5155,99 @@ def _validate_generated_encoding_in_policy_overlay(
                         f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
+
+
+def _repair_mixed_scalar_output_tests(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> list[str]:
+    """Split scalar parameter outputs out of mixed entity companion tests."""
+    if not test_file.exists():
+        return []
+    try:
+        rules_document = yaml.safe_load(rules_file.read_text()) or {}
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(rules_document, dict) or not isinstance(test_cases, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    scalar_outputs: set[str] = set()
+    for rule in rules_document.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            scalar_outputs.add(f"{target_base}#{name}")
+    if not scalar_outputs:
+        return []
+
+    repaired_cases: list[object] = []
+    repaired_names: list[str] = []
+    existing_names = {
+        str(case.get("name") or "")
+        for case in test_cases
+        if isinstance(case, dict)
+    }
+    for case in test_cases:
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            repaired_cases.append(case)
+            continue
+        scalar_items = {
+            key: value for key, value in output.items() if str(key) in scalar_outputs
+        }
+        if not scalar_items or len(scalar_items) == len(output):
+            repaired_cases.append(case)
+            continue
+
+        entity_items = {
+            key: value for key, value in output.items() if str(key) not in scalar_outputs
+        }
+        repaired_case = dict(case)
+        repaired_case["output"] = entity_items
+        repaired_cases.append(repaired_case)
+
+        case_name = str(case.get("name") or "case").strip() or "case"
+        scalar_case_name = _unique_test_case_name(
+            f"{case_name}_scalar_outputs",
+            existing_names,
+        )
+        existing_names.add(scalar_case_name)
+        scalar_case = {
+            "name": scalar_case_name,
+            "period": case.get("period"),
+            "input": case.get("input", {}),
+            "output": scalar_items,
+        }
+        repaired_cases.append(scalar_case)
+        repaired_names.append(case_name)
+
+    if not repaired_names:
+        return []
+    test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
+    return repaired_names
+
+
+def _unique_test_case_name(base: str, existing_names: set[str]) -> str:
+    if base not in existing_names:
+        return base
+    index = 2
+    while f"{base}_{index}" in existing_names:
+        index += 1
+    return f"{base}_{index}"
 
 
 def _validate_overlay_files(
