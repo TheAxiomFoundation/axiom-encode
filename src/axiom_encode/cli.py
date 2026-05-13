@@ -13,6 +13,7 @@ Self-contained -- no external plugin dependencies.
 
 import argparse
 import contextlib
+import copy
 import csv
 import hashlib
 import hmac
@@ -3743,6 +3744,13 @@ def _append_generated_zero_branch_tests_if_missing(
         repaired.append(
             "post_2026_no_able_contributions_zero_savers_credit_gross_contributions"
         )
+    if _append_section_86_zero_initial_inclusion_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("single_taxpayer_below_base_zero_social_security_inclusion")
     if _append_limitation_period_zero_overpayment_test_if_missing(
         rules_file=rules_file,
         test_file=test_file,
@@ -4051,6 +4059,69 @@ def _append_savers_credit_zero_gross_contributions_test_if_missing(
     {target_base}#savers_credit_qualified_retirement_savings_contributions: 0
     {target_base}#savers_credit_contributions_taken_into_account: 0
     {target_base}#savers_credit: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _append_section_86_zero_initial_inclusion_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 86's below-base zero branch."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if (
+        "name: social_security_benefits_includible_under_paragraph_1"
+        not in rules_content
+        or "name: taxpayer_described_in_subsection_b" not in rules_content
+        or "name: social_security_base_amount" not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    inclusion_target = (
+        f"{target_base}#social_security_benefits_includible_under_paragraph_1"
+    )
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, inclusion_target):
+        return False
+
+    test_content = test_file.read_text()
+    case_name = "single_taxpayer_below_base_zero_social_security_inclusion"
+    if case_name in test_content:
+        return False
+
+    input_prefix = f"{target_base}#input."
+    case = f"""- name: {case_name}
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    {input_prefix}filing_status: 0
+    {input_prefix}married_as_of_close_of_taxable_year_and_does_not_live_apart_from_spouse_at_all_times: false
+    {input_prefix}adjusted_gross_income_determined_without_section_86_85c_135_137_221_911_931_933: 10000
+    {input_prefix}tax_exempt_interest_received_or_accrued: 0
+    {input_prefix}gross_social_security_benefits_received: 10000
+    {input_prefix}workers_compensation_benefits_substituted_for_social_security_benefits: 0
+    {input_prefix}social_security_benefit_repayments_made_during_taxable_year: 0
+  output:
+    {target_base}#social_security_combined_income_excess: 0
+    {inclusion_target}: 0
+    {target_base}#social_security_benefits_includible_before_lump_sum_limit: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")
@@ -5043,6 +5114,24 @@ def _validate_generated_encoding_in_policy_overlay(
         for _ in range(10):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
+            mixed_scalar_repairs = _repair_mixed_scalar_output_tests(
+                rules_file=overlay_target,
+                test_file=_rulespec_test_path(overlay_target),
+                repo_path=overlay_repo,
+                relative_output=relative_output,
+            )
+            if mixed_scalar_repairs:
+                test_path = _rulespec_test_path(overlay_target)
+                supplemental_files[test_path.relative_to(overlay_repo)] = (
+                    test_path.read_text()
+                )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             changed_tests = _complete_missing_dependent_test_inputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,
@@ -5067,6 +5156,99 @@ def _validate_generated_encoding_in_policy_overlay(
                         f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
+
+
+def _repair_mixed_scalar_output_tests(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> list[str]:
+    """Split scalar parameter outputs out of mixed entity companion tests."""
+    if not test_file.exists():
+        return []
+    try:
+        rules_document = yaml.safe_load(rules_file.read_text()) or {}
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(rules_document, dict) or not isinstance(test_cases, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    scalar_outputs: set[str] = set()
+    for rule in rules_document.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            scalar_outputs.add(f"{target_base}#{name}")
+    if not scalar_outputs:
+        return []
+
+    repaired_cases: list[object] = []
+    repaired_names: list[str] = []
+    existing_names = {
+        str(case.get("name") or "") for case in test_cases if isinstance(case, dict)
+    }
+    for case in test_cases:
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            repaired_cases.append(case)
+            continue
+        scalar_items = {
+            key: value for key, value in output.items() if str(key) in scalar_outputs
+        }
+        if not scalar_items or len(scalar_items) == len(output):
+            repaired_cases.append(case)
+            continue
+
+        entity_items = {
+            key: value
+            for key, value in output.items()
+            if str(key) not in scalar_outputs
+        }
+        repaired_case = dict(case)
+        repaired_case["output"] = entity_items
+        repaired_cases.append(repaired_case)
+
+        case_name = str(case.get("name") or "case").strip() or "case"
+        scalar_case_name = _unique_test_case_name(
+            f"{case_name}_scalar_outputs",
+            existing_names,
+        )
+        existing_names.add(scalar_case_name)
+        scalar_case = {
+            "name": scalar_case_name,
+            "period": copy.deepcopy(case.get("period")),
+            "input": copy.deepcopy(case.get("input", {})),
+            "output": scalar_items,
+        }
+        repaired_cases.append(scalar_case)
+        repaired_names.append(case_name)
+
+    if not repaired_names:
+        return []
+    test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
+    return repaired_names
+
+
+def _unique_test_case_name(base: str, existing_names: set[str]) -> str:
+    if base not in existing_names:
+        return base
+    index = 2
+    while f"{base}_{index}" in existing_names:
+        index += 1
+    return f"{base}_{index}"
 
 
 def _validate_overlay_files(

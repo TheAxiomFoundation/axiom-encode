@@ -25,6 +25,7 @@ from axiom_encode.cli import (
     _find_rulespec_dependents,
     _has_zero_output_test,
     _insert_false_input_default,
+    _repair_mixed_scalar_output_tests,
     _rewrite_gpt_runner_backend,
     _sha256_file,
     _sign_applied_encoding_manifest,
@@ -3118,6 +3119,81 @@ class TestCmdEncode:
             "encode_outcome",
         ]
 
+    def test_mixed_scalar_output_test_repair_splits_parameter_outputs(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        rules_file = policy_repo / "statutes/26/164/f.yaml"
+        test_file = policy_repo / "statutes/26/164/f.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_tax_deduction_fraction
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1 / 2
+  - name: self_employment_tax_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_tax * self_employment_tax_deduction_fraction
+"""
+        )
+        test_file.write_text(
+            """- name: zero_liability_individual
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/164/f#input.self_employment_tax: 0
+  output:
+    us:statutes/26/164/f#self_employment_tax_deduction_fraction: 0.5
+    us:statutes/26/164/f#self_employment_tax_deduction: 0
+"""
+        )
+
+        repaired = _repair_mixed_scalar_output_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/164/f.yaml"),
+        )
+
+        repaired_content = test_file.read_text()
+        assert "&id" not in repaired_content
+        assert "*id" not in repaired_content
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["zero_liability_individual"]
+        assert cases == [
+            {
+                "name": "zero_liability_individual",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {"us:statutes/26/164/f#input.self_employment_tax": 0},
+                "output": {"us:statutes/26/164/f#self_employment_tax_deduction": 0},
+            },
+            {
+                "name": "zero_liability_individual_scalar_outputs",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {"us:statutes/26/164/f#input.self_employment_tax": 0},
+                "output": {
+                    "us:statutes/26/164/f#self_employment_tax_deduction_fraction": 0.5
+                },
+            },
+        ]
+
 
 class TestGuardGenerated:
     def test_rejects_rulespec_change_without_encoder_manifest(self, tmp_path):
@@ -3597,7 +3673,9 @@ rules:
         test_content = test_file.read_text()
         assert "low_income_nonitemizer_zero_taxable_income" in test_content
         assert "us:statutes/26/63#taxable_income: 0" in test_content
-        assert "taxable_income_for_individual_who_does_not_itemize: -" not in test_content
+        assert (
+            "taxable_income_for_individual_who_does_not_itemize: -" not in test_content
+        )
         assert "taxable_income_general_rule: -" not in test_content
 
     def test_repair_zero_branch_tests_writes_signed_manifest(self, tmp_path):
@@ -3915,6 +3993,177 @@ rules:
         assert "us:statutes/26/25B#input.able_account_contributions: 0" in test_content
         assert "us:statutes/26/25B#savers_credit_gross_contributions: 0" in test_content
 
+    def test_repair_zero_branch_tests_handles_section_86_below_base_amount(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/86.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: initial_social_security_inclusion_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          1 / 2
+
+  - name: social_security_base_amount_default
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          25000
+
+  - name: social_security_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          adjusted_gross_income_determined_without_section_86_85c_135_137_221_911_931_933
+          + tax_exempt_interest_received_or_accrued
+
+  - name: social_security_benefits_received
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              gross_social_security_benefits_received
+              + workers_compensation_benefits_substituted_for_social_security_benefits
+              - social_security_benefit_repayments_made_during_taxable_year
+          )
+
+  - name: social_security_base_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          social_security_base_amount_default
+
+  - name: social_security_combined_income_excess
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              social_security_modified_adjusted_gross_income
+              + initial_social_security_inclusion_rate * social_security_benefits_received
+              - social_security_base_amount
+          )
+
+  - name: taxpayer_described_in_subsection_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          social_security_modified_adjusted_gross_income
+          + initial_social_security_inclusion_rate * social_security_benefits_received
+          > social_security_base_amount
+
+  - name: social_security_benefits_includible_under_paragraph_1
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if taxpayer_described_in_subsection_b:
+              min(
+                  initial_social_security_inclusion_rate * social_security_benefits_received,
+                  initial_social_security_inclusion_rate * social_security_combined_income_excess
+              )
+          else:
+              0
+"""
+        )
+        test_file = policy_repo / "statutes/26/86.test.yaml"
+        test_file.write_text(
+            """- name: existing_positive_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/86#input.adjusted_gross_income_determined_without_section_86_85c_135_137_221_911_931_933: 30000
+    us:statutes/26/86#input.tax_exempt_interest_received_or_accrued: 0
+    us:statutes/26/86#input.gross_social_security_benefits_received: 12000
+    us:statutes/26/86#input.workers_compensation_benefits_substituted_for_social_security_benefits: 0
+    us:statutes/26/86#input.social_security_benefit_repayments_made_during_taxable_year: 0
+  output:
+    us:statutes/26/86#social_security_benefits_includible_under_paragraph_1: 5500
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/86.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        test_content = test_file.read_text()
+        assert (
+            "single_taxpayer_below_base_zero_social_security_inclusion" in test_content
+        )
+        assert (
+            "us:statutes/26/86#input.adjusted_gross_income_determined_without_section_86_85c_135_137_221_911_931_933: 10000"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/86#input.lump_sum_social_security_benefits_attributable_to_prior_taxable_years"
+            not in test_content
+        )
+        assert (
+            "us:statutes/26/86#social_security_benefits_includible_under_paragraph_1: 0"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/86#social_security_benefits_includible_before_lump_sum_limit: 0"
+            in test_content
+        )
+
     def test_repair_zero_branch_tests_handles_limitation_period_overpayment(
         self, tmp_path
     ):
@@ -4000,9 +4249,7 @@ rules:
             }
         ]
 
-        assert (
-            _has_zero_output_test(cases, "us:statutes/26/63#taxable_income") is False
-        )
+        assert _has_zero_output_test(cases, "us:statutes/26/63#taxable_income") is False
         assert _has_zero_output_test(cases, "us:statutes/26/1#taxable_income") is True
 
     def test_repair_tax_filing_status_branches_writes_signed_manifest(self, tmp_path):

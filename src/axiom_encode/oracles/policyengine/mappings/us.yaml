@@ -813,6 +813,35 @@ mappings:
     candidate_priority: P4
     rationale: Axiom's current 1401 slice includes self-employment tax components at the section boundary; PE's self_employment_tax excludes additional_medicare_tax and applies 1402 taxable-income rules.
 
+  - legal_id: us:statutes/26/1402/a#self_employment_tax_equivalent_deduction_fraction
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.ald.misc.employer_share
+    period: year
+    comparison: rate
+    rationale: Same section 1402(a)(12)(B) one-half factor used in PE to compute the employer-share deduction from net earnings.
+
+  - legal_id: us:statutes/26/164/f#self_employment_tax_deduction_fraction
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.ald.self_employment_tax.percent_deductible
+    period: year
+    comparison: rate
+    rationale: Same section 164(f)(1) one-half deduction fraction, stored in PE as an above-the-line deduction parameter.
+
+  - legal_id: us:statutes/26/164/f#self_employment_tax_deduction
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: self_employment_tax_ald
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same above-the-line deduction for one-half of self-employment taxes for supported individual cases.
+
   - legal_id: us:statutes/26/3101/a#oasdi_wage_tax_rate
     country: us
     program: tax
@@ -1604,6 +1633,121 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same federal taxable income after exemptions and taxable-income deductions.
+
+  - legal_id: us:statutes/26/86#social_security_one_half_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.combined_income_ss_fraction
+    period: year
+    comparison: rate
+    rationale: Same section 86 one-half rate used for provisional income and base-tier inclusion.
+
+  - legal_id: us:statutes/26/86#social_security_additional_inclusion_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.rate.additional.excess
+    period: year
+    comparison: rate
+    rationale: Same section 86(a)(2)(A)(i) 85 percent additional inclusion rate.
+
+  - legal_id: us:statutes/26/86#social_security_base_amount_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.threshold.base.main
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86(c)(1)(A) base amount for non-joint filers represented by PE's single-filer table cell.
+
+  - legal_id: us:statutes/26/86#social_security_base_amount_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.threshold.base.main
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86(c)(1)(B) joint-return base amount.
+
+  - legal_id: us:statutes/26/86#social_security_base_amount_married_separate_not_apart
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.threshold.base.separate_cohabitating
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86(c)(1)(C) zero base amount for married separate filers who did not live apart.
+
+  - legal_id: us:statutes/26/86#social_security_adjusted_base_amount_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.threshold.adjusted_base.main
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86(c)(2)(A) adjusted base amount for non-joint filers represented by PE's single-filer table cell.
+
+  - legal_id: us:statutes/26/86#social_security_adjusted_base_amount_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.threshold.adjusted_base.main
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86(c)(2)(B) joint-return adjusted base amount.
+
+  - legal_id: us:statutes/26/86#social_security_adjusted_base_amount_married_separate_not_apart
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.social_security.taxability.threshold.adjusted_base.separate_cohabitating
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86(c)(2)(C) zero adjusted base amount for married separate filers who did not live apart.
+
+  - legal_id: us:statutes/26/86#social_security_provisional_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: tax_unit_combined_income_for_social_security_taxability
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86(b)(1) provisional income concept for supported current-law cases.
+
+  - legal_id: us:statutes/26/86#social_security_excess_over_base_amount
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: tax_unit_ss_combined_income_excess
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same excess of section 86 provisional income over the applicable base amount.
+
+  - legal_id: us:statutes/26/86#social_security_benefits_included_in_gross_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: tax_unit_taxable_social_security
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 86 taxable Social Security amount included in federal gross income.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/alternative-minimum-tax#amt_exemption_joint
     country: us
@@ -3989,6 +4133,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 163(h)(4)(A) passenger-vehicle-loan-interest outputs are source-specific statutory predicates not exposed as one-to-one PolicyEngine variables.
 
+  - legal_id_prefix: us:statutes/26/1402/a#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 1402(a) net-earnings-from-self-employment intermediates use statutory trade-or-business gross income, deduction, partnership, and paragraph (12) components that PE folds into taxable_self_employment_income unless an exact mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/164/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 164(f) self-employment-tax deduction intermediates are source-specific assembly outputs unless an exact PolicyEngine mapping overrides this prefix.
+
   - legal_id_prefix: us:statutes/26/21#
     country: us
     program: tax
@@ -4042,6 +4198,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 63(f) aged-or-blind additional-standard-deduction outputs are statutory parameters and predicates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/86#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 86 Social Security taxability outputs are statutory thresholds, predicates, and lump-sum or repayment intermediates unless an exact PolicyEngine mapping overrides this prefix.
 
   - legal_id_prefix: us:statutes/26/6401#
     country: us
