@@ -3743,6 +3743,13 @@ def _append_generated_zero_branch_tests_if_missing(
         repaired.append(
             "post_2026_no_able_contributions_zero_savers_credit_gross_contributions"
         )
+    if _append_section_86_zero_initial_inclusion_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("single_taxpayer_below_base_zero_social_security_inclusion")
     if _append_limitation_period_zero_overpayment_test_if_missing(
         rules_file=rules_file,
         test_file=test_file,
@@ -4051,6 +4058,69 @@ def _append_savers_credit_zero_gross_contributions_test_if_missing(
     {target_base}#savers_credit_qualified_retirement_savings_contributions: 0
     {target_base}#savers_credit_contributions_taken_into_account: 0
     {target_base}#savers_credit: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
+def _append_section_86_zero_initial_inclusion_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 86's below-base zero branch."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if (
+        "name: social_security_benefits_includible_under_paragraph_1"
+        not in rules_content
+        or "name: taxpayer_described_in_subsection_b" not in rules_content
+        or "name: social_security_base_amount" not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    inclusion_target = (
+        f"{target_base}#social_security_benefits_includible_under_paragraph_1"
+    )
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, inclusion_target):
+        return False
+
+    test_content = test_file.read_text()
+    case_name = "single_taxpayer_below_base_zero_social_security_inclusion"
+    if case_name in test_content:
+        return False
+
+    input_prefix = f"{target_base}#input."
+    case = f"""- name: {case_name}
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    {input_prefix}filing_status: 0
+    {input_prefix}married_as_of_close_of_taxable_year_and_does_not_live_apart_from_spouse_at_all_times: false
+    {input_prefix}adjusted_gross_income_determined_without_section_86_85c_135_137_221_911_931_933: 10000
+    {input_prefix}tax_exempt_interest_received_or_accrued: 0
+    {input_prefix}gross_social_security_benefits_received: 10000
+    {input_prefix}workers_compensation_benefits_substituted_for_social_security_benefits: 0
+    {input_prefix}social_security_benefit_repayments_made_during_taxable_year: 0
+  output:
+    {target_base}#social_security_combined_income_excess: 0
+    {inclusion_target}: 0
+    {target_base}#social_security_benefits_includible_before_lump_sum_limit: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")
