@@ -1484,6 +1484,45 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).mapping_type
         == "not_comparable"
     )
+    assert (
+        registry.mapping_for_legal_id(
+            "us:statutes/26/1402/a#self_employment_tax_equivalent_deduction_fraction",
+            country="us",
+        ).policyengine_parameter
+        == "gov.irs.ald.misc.employer_share"
+    )
+    assert (
+        registry.mapping_for_legal_id(
+            "us:statutes/26/1402/a#net_earnings_from_self_employment",
+            country="us",
+        ).match_type
+        == "prefix"
+    )
+    self_employment_tax_deduction_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/164/f#self_employment_tax_deduction",
+        country="us",
+    )
+    assert self_employment_tax_deduction_mapping.mapping_type == "direct_variable"
+    assert (
+        self_employment_tax_deduction_mapping.policyengine_variable
+        == "self_employment_tax_ald"
+    )
+    social_security_taxable_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/86#social_security_benefits_included_in_gross_income",
+        country="us",
+    )
+    assert social_security_taxable_mapping.mapping_type == "direct_variable"
+    assert (
+        social_security_taxable_mapping.policyengine_variable
+        == "tax_unit_taxable_social_security"
+    )
+    assert (
+        registry.mapping_for_legal_id(
+            "us:statutes/26/86#social_security_base_amount_joint",
+            country="us",
+        ).policyengine_parameter
+        == "gov.irs.social_security.taxability.threshold.base.main"
+    )
     savers_credit_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/25B#savers_credit",
         country="us",
