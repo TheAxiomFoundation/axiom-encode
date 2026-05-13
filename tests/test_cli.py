@@ -3164,6 +3164,9 @@ rules:
             relative_output=Path("statutes/26/164/f.yaml"),
         )
 
+        repaired_content = test_file.read_text()
+        assert "&id" not in repaired_content
+        assert "*id" not in repaired_content
         cases = yaml.safe_load(test_file.read_text())
         assert repaired == ["zero_liability_individual"]
         assert cases == [

@@ -13,6 +13,7 @@ Self-contained -- no external plugin dependencies.
 
 import argparse
 import contextlib
+import copy
 import csv
 import hashlib
 import hmac
@@ -5228,8 +5229,8 @@ def _repair_mixed_scalar_output_tests(
         existing_names.add(scalar_case_name)
         scalar_case = {
             "name": scalar_case_name,
-            "period": case.get("period"),
-            "input": case.get("input", {}),
+            "period": copy.deepcopy(case.get("period")),
+            "input": copy.deepcopy(case.get("input", {})),
             "output": scalar_items,
         }
         repaired_cases.append(scalar_case)
