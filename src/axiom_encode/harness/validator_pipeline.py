@@ -3811,7 +3811,9 @@ def _replace_indented_block_text_once(content: str, old: str, new: str) -> str:
                 for new_line in new.splitlines()
             ]
             return "".join(
-                content_lines[:start] + replacement + content_lines[start + len(old_lines) :]
+                content_lines[:start]
+                + replacement
+                + content_lines[start + len(old_lines) :]
             )
     return content
 

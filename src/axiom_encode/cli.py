@@ -5195,9 +5195,7 @@ def _repair_mixed_scalar_output_tests(
     repaired_cases: list[object] = []
     repaired_names: list[str] = []
     existing_names = {
-        str(case.get("name") or "")
-        for case in test_cases
-        if isinstance(case, dict)
+        str(case.get("name") or "") for case in test_cases if isinstance(case, dict)
     }
     for case in test_cases:
         if not isinstance(case, dict):
@@ -5215,7 +5213,9 @@ def _repair_mixed_scalar_output_tests(
             continue
 
         entity_items = {
-            key: value for key, value in output.items() if str(key) not in scalar_outputs
+            key: value
+            for key, value in output.items()
+            if str(key) not in scalar_outputs
         }
         repaired_case = dict(case)
         repaired_case["output"] = entity_items

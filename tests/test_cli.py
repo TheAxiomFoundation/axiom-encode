@@ -3673,7 +3673,9 @@ rules:
         test_content = test_file.read_text()
         assert "low_income_nonitemizer_zero_taxable_income" in test_content
         assert "us:statutes/26/63#taxable_income: 0" in test_content
-        assert "taxable_income_for_individual_who_does_not_itemize: -" not in test_content
+        assert (
+            "taxable_income_for_individual_who_does_not_itemize: -" not in test_content
+        )
         assert "taxable_income_general_rule: -" not in test_content
 
     def test_repair_zero_branch_tests_writes_signed_manifest(self, tmp_path):
@@ -4142,7 +4144,9 @@ rules:
             cmd_repair_zero_branch_tests(args)
 
         test_content = test_file.read_text()
-        assert "single_taxpayer_below_base_zero_social_security_inclusion" in test_content
+        assert (
+            "single_taxpayer_below_base_zero_social_security_inclusion" in test_content
+        )
         assert (
             "us:statutes/26/86#input.adjusted_gross_income_determined_without_section_86_85c_135_137_221_911_931_933: 10000"
             in test_content
@@ -4245,9 +4249,7 @@ rules:
             }
         ]
 
-        assert (
-            _has_zero_output_test(cases, "us:statutes/26/63#taxable_income") is False
-        )
+        assert _has_zero_output_test(cases, "us:statutes/26/63#taxable_income") is False
         assert _has_zero_output_test(cases, "us:statutes/26/1#taxable_income") is True
 
     def test_repair_tax_filing_status_branches_writes_signed_manifest(self, tmp_path):
