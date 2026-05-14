@@ -8,8 +8,15 @@ format: axiom-encode/concepts/v1
 #
 # Source of truth for canonical names is the federal regulation/statute
 # producer. Where no federal producer exists yet, set `producer_missing: true`
-# and Task #21 (encode missing federal producers) will fill it in.
+# so the validator allows the canonical name in consumers while the producer
+# is encoded in a follow-up pass.
+#
+# Entries flagged "# REVIEW:" need a human decision on the canonical name
+# or anchor — usage looked ambiguous in the audit data.
 concepts:
+  # ---------------------------------------------------------------------------
+  # Household income concepts
+  # ---------------------------------------------------------------------------
   - id: snap.household.gross_monthly_income
     canonical_name: snap_total_gross_income
     producer_anchor: us:regulations/7-cfr/273/10
@@ -17,11 +24,73 @@ concepts:
       Household total gross monthly income for SNAP eligibility and benefit
       calculation. 7 CFR 273.10(c)(1) defines income for eligibility; this is
       the sum of earned + unearned income before exclusions and deductions.
+      In statutes/7/2014/e/6/A.yaml the same value appears as
+      snap_monthly_household_income — same legal value, drifting name.
     blocked_synonyms:
       - snap_gross_monthly_income
       - snap_monthly_gross_income
       - snap_monthly_household_income
 
+  - id: snap.income.earned.gross_monthly
+    canonical_name: snap_gross_monthly_earned_income
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Earned-income component of household gross monthly income. Consumed by
+      snap_total_gross_income (273/10) and snap_earned_income_deduction
+      (273/10) but no federal producer exists yet. Follow-up task encodes it
+      as an input/derived rule on the 273/10 module.
+    blocked_synonyms: []
+
+  - id: snap.income.unearned.total_monthly
+    canonical_name: snap_total_monthly_unearned_income
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Unearned-income component of household gross monthly income. Consumed by
+      snap_total_gross_income (273/10) but no federal producer exists yet.
+    blocked_synonyms: []
+
+  - id: snap.income.exclusions_monthly
+    canonical_name: snap_income_exclusions
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Total monthly income exclusions subtracted from gross income per
+      7 CFR 273.9(c). Consumed by snap_total_gross_income but no producer
+      rule encoded yet.
+    blocked_synonyms: []
+
+  - id: snap.income.countable_earned
+    canonical_name: snap_countable_earned_income
+    producer_anchor: us:statutes/7/2014/e/2
+    producer_missing: true
+    description: >-
+      Countable earned income for SNAP per 7 U.S.C. 2014(e)(2). Producer rule
+      not yet encoded.
+    blocked_synonyms: []
+
+  # ---------------------------------------------------------------------------
+  # Net income
+  # ---------------------------------------------------------------------------
+  # REVIEW: snap_net_income (statute 7/2014/e/6/A) and snap_net_monthly_income
+  # (regulation 7-cfr/273/10) may be the same legal concept. Treating the
+  # statutory name as canonical and the regulatory name as blocked synonym;
+  # confirm before re-encode.
+  - id: snap.household.net_monthly_income
+    canonical_name: snap_net_income
+    producer_anchor: us:statutes/7/2014/e/6/A
+    description: >-
+      Household net monthly income per 7 U.S.C. 2014(e). The federal
+      regulation 7 CFR 273.10(e)(1) computes the same value under the name
+      snap_net_monthly_income — registered here as a blocked synonym so the
+      regulatory file aligns with the statute.
+    blocked_synonyms:
+      - snap_net_monthly_income
+
+  # ---------------------------------------------------------------------------
+  # Deductions
+  # ---------------------------------------------------------------------------
   - id: snap.deduction.excess_shelter
     canonical_name: snap_excess_shelter_deduction
     producer_anchor: us:regulations/7-cfr/273/10
@@ -31,6 +100,59 @@ concepts:
     blocked_synonyms:
       - snap_excess_shelter_deduction_for_net_income
 
+  - id: snap.deduction.homeless_shelter_claimed
+    canonical_name: snap_claimed_homeless_shelter_deduction
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Whether the household has claimed the homeless shelter deduction per
+      7 CFR 273.10(e)(1)(i)(G). Consumed by snap_homeless_shelter_deduction
+      but no producer rule encoded yet.
+    blocked_synonyms: []
+
+  - id: snap.deduction.allowable_dependent_care
+    canonical_name: snap_allowable_monthly_dependent_care_expenses
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Allowable monthly dependent-care expenses for the SNAP household per
+      7 CFR 273.10(d)(1)(iv). Consumed by snap_net_income_before_shelter but
+      no producer rule encoded yet.
+    blocked_synonyms: []
+
+  - id: snap.deduction.allowable_child_support
+    canonical_name: snap_allowable_monthly_child_support_payments
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Allowable monthly legally-obligated child support payments per
+      7 CFR 273.10(d)(1)(v). Consumed by snap_net_income_before_shelter but
+      no producer rule encoded yet.
+    blocked_synonyms: []
+
+  - id: snap.deduction.total_medical_expenses
+    canonical_name: snap_total_medical_expenses
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Total monthly medical expenses claimed by the elderly/disabled SNAP
+      household per 7 CFR 273.10(e)(1)(i)(D). Consumed by the excess medical
+      deduction rule but no producer encoded yet.
+    blocked_synonyms: []
+
+  - id: snap.shelter.total_allowable_monthly_expenses
+    canonical_name: snap_total_allowable_shelter_expenses
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Sum of allowable shelter expenses (rent/mortgage + utilities) per
+      7 CFR 273.10(d)(6). Consumed by snap_excess_shelter_cost but no producer
+      encoded yet.
+    blocked_synonyms: []
+
+  # ---------------------------------------------------------------------------
+  # Household composition
+  # ---------------------------------------------------------------------------
   - id: snap.household.has_elderly_or_disabled_member
     canonical_name: snap_household_has_elderly_or_disabled_member
     producer_anchor: us:statutes/7/2012/j
@@ -41,11 +163,159 @@ concepts:
     blocked_synonyms:
       - snap_member_is_elderly_or_disabled
 
-  - id: snap.income.countable_earned
-    canonical_name: snap_countable_earned_income
-    producer_anchor: us:statutes/7/2014/e/2
+  # ---------------------------------------------------------------------------
+  # Resources / assets
+  # ---------------------------------------------------------------------------
+  - id: snap.resources.countable_financial
+    canonical_name: snap_countable_financial_resources
+    producer_anchor: us:regulations/7-cfr/273/8
     producer_missing: true
     description: >-
-      Countable earned income for SNAP per 7 U.S.C. 2014(e)(2). Producer rule
-      not yet encoded; Task #21 backfills.
+      Countable financial resources under 7 CFR 273.8 (liquid + non-liquid +
+      real property, minus exclusions). Consumed by
+      snap_financial_resources_within_limit but no producer encoded yet.
+    blocked_synonyms: []
+
+  - id: snap.resources.categorical_exemption
+    canonical_name: snap_categorically_eligible_for_resource_exemption
+    producer_anchor: us:regulations/7-cfr/273/8
+    producer_missing: true
+    description: >-
+      Whether the household is categorically eligible such that the resource
+      limit is waived per 7 CFR 273.8(a)(3). Consumed by
+      snap_resource_limit_categorical_exemption_applies but no producer yet.
+    blocked_synonyms: []
+
+  # ---------------------------------------------------------------------------
+  # ABAWD
+  # ---------------------------------------------------------------------------
+  - id: snap.abawd.countable_months_three_year_period
+    canonical_name: snap_abawd_countable_months_in_three_year_period
+    producer_anchor: us:regulations/7-cfr/273/24
+    producer_missing: true
+    description: >-
+      Count of months in the rolling three-year period during which an
+      ABAWD has received SNAP without meeting work requirements per
+      7 CFR 273.24. No producer encoded yet.
+    blocked_synonyms: []
+
+  # ---------------------------------------------------------------------------
+  # Allotment
+  # ---------------------------------------------------------------------------
+  - id: snap.allotment.max_for_household_size
+    canonical_name: snap_maximum_allotment_for_household_size
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Maximum monthly SNAP allotment for the household's size in the
+      applicable region. The fy-2026-cola policies produce per-region
+      tables; this concept aggregates them by region selection. Producer
+      lookup rule not yet encoded on the 273/10 module.
+    blocked_synonyms: []
+
+  - id: snap.allotment.max_for_one_person
+    canonical_name: snap_maximum_allotment_for_one_person_household
+    producer_anchor: us:regulations/7-cfr/273/10
+    producer_missing: true
+    description: >-
+      Maximum allotment for a one-person household, used to compute the
+      minimum benefit per 7 CFR 273.10(e)(2)(ii)(C). No producer encoded yet.
+    blocked_synonyms: []
+
+  # ---------------------------------------------------------------------------
+  # Utility allowances (regional)
+  # ---------------------------------------------------------------------------
+  # REVIEW: utility allowances are typically state-elected (SUA/LUA/IUA).
+  # Placing canonicals here so federal-anchor consumers in composed policies
+  # all use the same names. Producer rules will be encoded in state-level
+  # files; setting producer_anchor to 7-cfr/273/9 since federal regs define
+  # the SUA framework even though states publish the dollar tables.
+  - id: snap.utility.standard_allowance
+    canonical_name: snap_standard_utility_allowance
+    producer_anchor: us:regulations/7-cfr/273/9
+    producer_missing: true
+    description: >-
+      Standard utility allowance (SUA) used in shelter-cost computation per
+      7 CFR 273.9(d)(6)(iii). State agencies set the dollar value; this is
+      the concept regardless of which state lookup feeds it.
+    blocked_synonyms: []
+
+  - id: snap.utility.limited_allowance
+    canonical_name: snap_limited_utility_allowance
+    producer_anchor: us:regulations/7-cfr/273/9
+    producer_missing: true
+    description: >-
+      Limited utility allowance per 7 CFR 273.9(d)(6)(iii)(B), for
+      households with at least two but not all utility expenses covered by
+      the SUA.
+    blocked_synonyms: []
+
+  - id: snap.utility.individual_allowance
+    canonical_name: snap_individual_utility_allowance
+    producer_anchor: us:regulations/7-cfr/273/9
+    producer_missing: true
+    description: >-
+      Individual utility allowance — actual itemized utility costs claimed
+      when the household does not use SUA/LUA.
+    blocked_synonyms: []
+
+  - id: snap.utility.one_allowance
+    canonical_name: snap_one_utility_allowance
+    producer_anchor: us:regulations/7-cfr/273/9
+    producer_missing: true
+    description: >-
+      Single-utility allowance per 7 CFR 273.9(d)(6)(iii)(C), used when only
+      one utility expense (typically telephone) is incurred.
+    blocked_synonyms: []
+
+  # ---------------------------------------------------------------------------
+  # Self-employment income components
+  # ---------------------------------------------------------------------------
+  - id: snap.income.self_employment_monthly
+    canonical_name: snap_monthly_self_employment_income
+    producer_anchor: us:regulations/7-cfr/273/11
+    producer_missing: true
+    description: >-
+      Total monthly net self-employment income per 7 CFR 273.11. Consumed by
+      state composed policies but no federal producer encoded yet.
+    blocked_synonyms: []
+
+  - id: snap.income.self_employment_capital_goods
+    canonical_name: snap_capital_goods_sale_self_employment_income
+    producer_anchor: us:regulations/7-cfr/273/11
+    producer_missing: true
+    description: >-
+      Self-employment income from sale of capital goods per
+      7 CFR 273.11(a)(1). State policies reference this; producer not yet
+      encoded federally.
+    blocked_synonyms: []
+
+  # ---------------------------------------------------------------------------
+  # Resource value components (273/8)
+  # ---------------------------------------------------------------------------
+  - id: snap.resources.liquid_value
+    canonical_name: snap_liquid_resource_value
+    producer_anchor: us:regulations/7-cfr/273/8
+    producer_missing: true
+    description: >-
+      Total liquid resource value (cash, checking, savings, etc.) per
+      7 CFR 273.8(c)(1). Consumed by state resource calculations.
+    blocked_synonyms: []
+
+  - id: snap.resources.non_liquid_value
+    canonical_name: snap_non_liquid_resource_value
+    producer_anchor: us:regulations/7-cfr/273/8
+    producer_missing: true
+    description: >-
+      Total non-liquid resource value per 7 CFR 273.8(c)(2) (vehicles other
+      than excluded, etc.).
+    blocked_synonyms: []
+
+  - id: snap.resources.real_property_value
+    canonical_name: snap_real_property_resource_value
+    producer_anchor: us:regulations/7-cfr/273/8
+    producer_missing: true
+    description: >-
+      Real property resource value per 7 CFR 273.8(e)(1), excluding the
+      home and lot.
     blocked_synonyms: []

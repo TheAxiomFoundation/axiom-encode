@@ -55,7 +55,8 @@ def validate_generated_against_registry(
         except Exception:
             doc = None
 
-        # 1. Anchored-ref scan: catch any `us:file#name` whose name is a blocked synonym.
+        # 1. Anchored-ref scan: catch any `us:file#name` whose name is a blocked synonym,
+        #    or whose name is a registered canonical but referenced under the wrong anchor.
         for m in ANCHORED_REF_RE.finditer(text):
             anchor, name = m.group(1), m.group(2)
             blocked = registry.lookup_synonym(name)
@@ -68,6 +69,26 @@ def validate_generated_against_registry(
                         concept_id=blocked.id,
                         detail=(
                             f"use canonical {blocked.canonical_name!r} instead"
+                        ),
+                    )
+                )
+                continue
+            canonical = registry.lookup_canonical(name)
+            if (
+                canonical is not None
+                and canonical.producer_anchor is not None
+                and canonical.producer_anchor != anchor
+                and not canonical.producer_missing
+            ):
+                violations.append(
+                    CanonicalNameViolation(
+                        kind="anchored_ref_miss",
+                        name=name,
+                        where=f"{path}:{anchor}#{name}",
+                        concept_id=canonical.id,
+                        detail=(
+                            f"canonical {name!r} is anchored at "
+                            f"{canonical.producer_anchor}, not {anchor}"
                         ),
                     )
                 )

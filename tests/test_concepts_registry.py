@@ -162,6 +162,26 @@ def test_validator_passes_canonical_only_yaml(tmp_path: Path):
     assert violations == []
 
 
+def test_validator_flags_consumer_anchored_ref_to_canonical_wrong_anchor(tmp_path: Path):
+    """Consumer references a registered canonical name at the wrong producer anchor."""
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        format: rulespec/v1
+        cases:
+          - inputs:
+              us:regulations/7-cfr/273/9#snap_net_income: 500
+        """,
+    )
+    violations = validate_generated_against_registry([drift], registry)
+    assert any(
+        v.kind == "anchored_ref_miss" and v.name == "snap_net_income"
+        for v in violations
+    )
+
+
 def test_validator_flags_canonical_under_wrong_anchor(tmp_path: Path):
     registry = load_concept_registry()
     wrong = _write(

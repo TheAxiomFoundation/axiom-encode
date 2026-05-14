@@ -145,6 +145,8 @@ def audit_corpus(
     for (anchor, name), files in graph.anchored_refs.items():
         if not _in_scope(name):
             continue
+        if registry.lookup_synonym(name) is not None:
+            continue  # already covered by the blocked_synonym finding
         produced_here = graph.file_to_producers.get(anchor)
         if produced_here is None:
             continue  # anchor file outside the walked corpus
@@ -171,6 +173,8 @@ def audit_corpus(
             continue
         if name in graph.producers:
             continue
+        if registry.lookup_synonym(name) is not None:
+            continue  # already covered by the blocked_synonym finding
         # If registry says producer_missing or the name is a registered canonical
         # whose producer isn't encoded yet, classify as missing_producer (lower severity).
         registered = registry.concept_for_name(name)
