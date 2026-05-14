@@ -1,0 +1,51 @@
+format: axiom-encode/concepts/v1
+# SNAP canonical concept registry.
+#
+# Each entry locks one legal concept to one variable name so the encoder
+# cannot reintroduce name drift across runs. `producer_anchor` is the
+# RuleSpec file that owns the producer rule; `blocked_synonyms` lists the
+# alternative names that have appeared in drifting encoder output.
+#
+# Source of truth for canonical names is the federal regulation/statute
+# producer. Where no federal producer exists yet, set `producer_missing: true`
+# and Task #21 (encode missing federal producers) will fill it in.
+concepts:
+  - id: snap.household.gross_monthly_income
+    canonical_name: snap_total_gross_income
+    producer_anchor: us:regulations/7-cfr/273/10
+    description: >-
+      Household total gross monthly income for SNAP eligibility and benefit
+      calculation. 7 CFR 273.10(c)(1) defines income for eligibility; this is
+      the sum of earned + unearned income before exclusions and deductions.
+    blocked_synonyms:
+      - snap_gross_monthly_income
+      - snap_monthly_gross_income
+      - snap_monthly_household_income
+
+  - id: snap.deduction.excess_shelter
+    canonical_name: snap_excess_shelter_deduction
+    producer_anchor: us:regulations/7-cfr/273/10
+    description: >-
+      Excess shelter deduction applied when computing SNAP net income, capped
+      per 7 CFR 273.10(e)(1)(i)(H)–(J) except for elderly/disabled households.
+    blocked_synonyms:
+      - snap_excess_shelter_deduction_for_net_income
+
+  - id: snap.household.has_elderly_or_disabled_member
+    canonical_name: snap_household_has_elderly_or_disabled_member
+    producer_anchor: us:statutes/7/2012/j
+    description: >-
+      Whether the SNAP household contains at least one elderly or disabled
+      member per 7 U.S.C. 2012(j). Drives the excess-shelter cap exemption
+      and the medical-expense deduction availability.
+    blocked_synonyms:
+      - snap_member_is_elderly_or_disabled
+
+  - id: snap.income.countable_earned
+    canonical_name: snap_countable_earned_income
+    producer_anchor: us:statutes/7/2014/e/2
+    producer_missing: true
+    description: >-
+      Countable earned income for SNAP per 7 U.S.C. 2014(e)(2). Producer rule
+      not yet encoded; Task #21 backfills.
+    blocked_synonyms: []
