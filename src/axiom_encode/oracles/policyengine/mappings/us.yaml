@@ -8118,6 +8118,21 @@ mappings:
     mapping_type: not_comparable
     rationale: California CalFresh MPP §63-503.434 state-specific rule; no direct PolicyEngine variable equivalent.
 
+  # Renamed during sibling-collision fix on rulespec-us-ca#4 (2026-05-14):
+  # 63-405/532.yaml and 63-503/312.yaml had rule-name collisions with their
+  # respective siblings; appending __per_532 / __per_312 made names unique.
+  - legal_id: us-ca:regulations/mpp/63-405/532#person_meets_requirement_under_section_63_405_512__per_532
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: California CalFresh MPP §63-405.532 state-specific rule (renamed sibling); no direct PolicyEngine variable equivalent.
+
+  - legal_id: us-ca:regulations/mpp/63-503/312#net_monthly_earned_income_after_earned_income_deduction__per_312
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: California CalFresh MPP §63-503.312 state-specific rule (renamed sibling); no direct PolicyEngine variable equivalent.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
