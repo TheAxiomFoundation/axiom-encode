@@ -24,7 +24,7 @@ ANCHORED_REF_RE = re.compile(
 
 @dataclass(frozen=True)
 class CanonicalNameViolation:
-    kind: str  # "blocked_synonym" | "canonical_conflict" | "anchored_ref_miss"
+    kind: str  # "blocked_synonym" | "canonical_conflict" | "anchored_ref_miss" | "parse_error"
     name: str
     where: str  # file:rule or file:anchored-ref
     concept_id: str | None
@@ -54,8 +54,17 @@ def validate_generated_against_registry(
         text = path.read_text()
         try:
             doc = yaml.safe_load(text)
-        except Exception:
+        except Exception as exc:
             doc = None
+            violations.append(
+                CanonicalNameViolation(
+                    kind="parse_error",
+                    name="",
+                    where=str(path),
+                    concept_id=None,
+                    detail=f"YAML did not parse, validator cannot scan rules: {exc}",
+                )
+            )
 
         # 1. Anchored-ref scan: catch any `us:file#name` whose name is a blocked synonym,
         #    or whose name is a registered canonical but referenced under the wrong anchor.
@@ -78,9 +87,8 @@ def validate_generated_against_registry(
             canonical = registry.lookup_canonical(name)
             if (
                 canonical is not None
-                and canonical.producer_anchor is not None
+                and canonical.has_producer
                 and canonical.producer_anchor != anchor
-                and not canonical.producer_missing
             ):
                 violations.append(
                     CanonicalNameViolation(
@@ -122,9 +130,8 @@ def validate_generated_against_registry(
                 if (
                     canonical is not None
                     and apply_anchor is not None
-                    and canonical.producer_anchor is not None
+                    and canonical.has_producer
                     and canonical.producer_anchor != apply_anchor
-                    and not canonical.producer_missing
                     and not path.name.endswith(".test.yaml")
                 ):
                     violations.append(

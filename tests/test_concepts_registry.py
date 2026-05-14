@@ -215,6 +215,28 @@ def test_validator_flags_consumer_anchored_ref_to_canonical_wrong_anchor(tmp_pat
     )
 
 
+def test_validator_flags_unparseable_yaml_explicitly(tmp_path: Path):
+    """If a generated YAML doesn't parse, the validator must emit a parse_error
+    violation so the apply hook still refuses — silent skip would let a
+    drifting rule through whenever the rest of the file is malformed."""
+    registry = load_concept_registry()
+    bad = _write(
+        tmp_path,
+        "broken.yaml",
+        """
+        format: rulespec/v1
+        rules:
+          - name: snap_total_gross_income
+            kind: parameter
+            versions:
+              - effective_from: '2025-10-01'
+                formula: "0
+        """,
+    )
+    violations = validate_generated_against_registry([bad], registry)
+    assert any(v.kind == "parse_error" for v in violations)
+
+
 def test_validator_flags_canonical_under_wrong_anchor(tmp_path: Path):
     registry = load_concept_registry()
     wrong = _write(
@@ -310,6 +332,36 @@ def test_audit_name_prefix_filters_blocked_synonyms(tmp_path: Path):
 
     findings = audit_corpus([root], registry, name_prefixes=("ny_snap_",))
     assert findings == []
+
+
+def test_audit_suppresses_missing_producer_for_producer_missing_canonical(
+    tmp_path: Path,
+):
+    """A registered canonical with producer_missing: true must not surface as
+    missing_producer in the audit, since the registry already approves its
+    use ahead of the encoder back-filling the producer rule."""
+    registry = load_concept_registry()
+    root = tmp_path / "rulespec-us"
+    path = root / "policies/example.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        textwrap.dedent(
+            """
+            format: rulespec/v1
+            rules:
+              - name: example_rule
+                kind: derived
+                versions:
+                  - effective_from: '2025-10-01'
+                    formula: snap_countable_earned_income
+            """
+        )
+    )
+    findings = audit_corpus([root], registry, name_prefixes=("snap_",))
+    assert not any(
+        f.kind == "missing_producer" and f.name == "snap_countable_earned_income"
+        for f in findings
+    ), findings
 
 
 def test_audit_scans_uppercase_path_anchored_refs(tmp_path: Path):

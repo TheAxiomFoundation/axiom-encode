@@ -15,6 +15,7 @@ from typing import Iterable
 
 import yaml
 
+from .jurisdiction import jurisdiction_prefix
 from .registry import ConceptRegistry
 
 IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
@@ -199,11 +200,12 @@ def audit_corpus(
     # Canonical-name conflicts: registered canonical produced under a different anchor
     for canonical, concept in registry.canonical_to_concept.items():
         producer_sites = graph.producers.get(canonical, [])
-        if not producer_sites or concept.producer_anchor is None or concept.producer_missing:
+        if not producer_sites or not concept.has_producer:
             continue
         bad = [(a, p) for a, p in producer_sites if a != concept.producer_anchor]
         if not bad:
             continue
+        bad_anchors = ", ".join(sorted({a for a, _ in bad}))
         findings.append(
             DriftFinding(
                 kind="canonical_conflict",
@@ -211,7 +213,7 @@ def audit_corpus(
                 anchor=concept.producer_anchor,
                 site_paths=tuple(p for _, p in bad),
                 detail=(
-                    f"{canonical} produced under {[a for a,_ in bad]} but registry "
+                    f"{canonical} produced under {bad_anchors} but registry "
                     f"expects {concept.producer_anchor}"
                 ),
             )
@@ -224,16 +226,7 @@ def _anchor_for(path: Path, root: Path) -> str:
     rel = path.relative_to(root).with_suffix("")
     if rel.name.endswith(".test"):
         rel = rel.with_name(rel.name[:-5])
-    return f"{_jurisdiction_prefix(root)}:{rel.as_posix()}"
-
-
-def _jurisdiction_prefix(root: Path) -> str:
-    name = root.name
-    if name.startswith("rulespec-"):
-        return name.removeprefix("rulespec-")
-    if name.startswith("rules-"):
-        return name.removeprefix("rules-")
-    return name
+    return f"{jurisdiction_prefix(root)}:{rel.as_posix()}"
 
 
 def _similar(a: str, b: str) -> bool:
