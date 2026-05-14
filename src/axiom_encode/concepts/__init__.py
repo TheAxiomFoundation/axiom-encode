@@ -7,14 +7,14 @@ to apply generated RuleSpec that uses a blocked synonym or conflicts with a
 registered canonical.
 """
 
+from .audit import (
+    DriftFinding,
+    audit_corpus,
+)
 from .registry import (
     Concept,
     ConceptRegistry,
     load_concept_registry,
-)
-from .audit import (
-    DriftFinding,
-    audit_corpus,
 )
 from .validator import (
     CanonicalNameViolation,

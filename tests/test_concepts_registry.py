@@ -7,10 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from axiom_encode.concepts.audit import audit_corpus
 from axiom_encode.concepts.registry import (
     REGISTRY_FORMAT,
-    Concept,
-    ConceptRegistry,
     load_concept_registry,
 )
 from axiom_encode.concepts.validator import validate_generated_against_registry
@@ -141,6 +140,22 @@ def test_validator_flags_anchored_ref_to_blocked_synonym(tmp_path: Path):
     assert any(v.name == "snap_gross_monthly_income" for v in violations)
 
 
+def test_validator_flags_state_anchored_ref_to_blocked_synonym(tmp_path: Path):
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        format: rulespec/v1
+        cases:
+          - inputs:
+              us-co:regulations/10-ccr-2506-1/4.401#snap_gross_monthly_income: 1000
+        """,
+    )
+    violations = validate_generated_against_registry([drift], registry)
+    assert any(v.name == "snap_gross_monthly_income" for v in violations)
+
+
 def test_validator_passes_canonical_only_yaml(tmp_path: Path):
     registry = load_concept_registry()
     good = _write(
@@ -201,3 +216,79 @@ def test_validator_flags_canonical_under_wrong_anchor(tmp_path: Path):
         [wrong], registry, apply_anchor="us:regulations/7-cfr/273/9"
     )
     assert any(v.kind == "canonical_conflict" for v in violations)
+
+
+def test_validator_allows_producer_missing_canonical_under_temporary_anchor(
+    tmp_path: Path,
+):
+    registry = load_concept_registry()
+    state_producer = _write(
+        tmp_path,
+        "4.407.31.yaml",
+        """
+        format: rulespec/v1
+        rules:
+          - name: snap_standard_utility_allowance
+            kind: parameter
+            versions:
+              - effective_from: '2025-10-01'
+                formula: "594"
+        """,
+    )
+    violations = validate_generated_against_registry(
+        [state_producer],
+        registry,
+        apply_anchor="us-co:regulations/10-ccr-2506-1/4.407.31",
+    )
+    assert violations == []
+
+
+def test_audit_uses_state_jurisdiction_prefix_for_rules_roots(tmp_path: Path):
+    registry = load_concept_registry()
+    root = tmp_path / "rules-us-co"
+    path = root / "regulations/10-ccr-2506-1/4.401.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        textwrap.dedent(
+            """
+            format: rulespec/v1
+            rules:
+              - name: snap_total_gross_income
+                kind: parameter
+                versions:
+                  - effective_from: '2025-10-01'
+                    formula: "0"
+            """
+        )
+    )
+
+    findings = audit_corpus([root], registry, name_prefixes=("snap_",))
+    assert any(
+        f.kind == "canonical_conflict"
+        and f.name == "snap_total_gross_income"
+        and f.detail.endswith("expects us:regulations/7-cfr/273/10")
+        for f in findings
+    )
+
+
+def test_audit_name_prefix_filters_blocked_synonyms(tmp_path: Path):
+    registry = load_concept_registry()
+    root = tmp_path / "rulespec-us"
+    path = root / "policies/example.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        textwrap.dedent(
+            """
+            format: rulespec/v1
+            rules:
+              - name: example
+                kind: derived
+                versions:
+                  - effective_from: '2025-10-01'
+                    formula: snap_gross_monthly_income
+            """
+        )
+    )
+
+    findings = audit_corpus([root], registry, name_prefixes=("ny_snap_",))
+    assert findings == []

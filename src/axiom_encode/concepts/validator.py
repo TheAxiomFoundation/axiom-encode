@@ -14,10 +14,12 @@ from typing import Iterable
 
 import yaml
 
-from .registry import Concept, ConceptRegistry
+from .registry import ConceptRegistry
 
 IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
-ANCHORED_REF_RE = re.compile(r"(us:[a-z0-9\-/\.]+)#(?:input\.)?([a-z][a-z0-9_]*)")
+ANCHORED_REF_RE = re.compile(
+    r"([a-z][a-z0-9-]*:[a-z0-9\-/\.]+)#(?:input\.)?([a-z][a-z0-9_]*)"
+)
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,7 @@ def validate_generated_against_registry(
                     and apply_anchor is not None
                     and canonical.producer_anchor is not None
                     and canonical.producer_anchor != apply_anchor
+                    and not canonical.producer_missing
                     and not path.name.endswith(".test.yaml")
                 ):
                     violations.append(

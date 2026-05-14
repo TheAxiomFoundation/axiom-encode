@@ -15,10 +15,12 @@ from typing import Iterable
 
 import yaml
 
-from .registry import Concept, ConceptRegistry
+from .registry import ConceptRegistry
 
 IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
-ANCHORED_REF_RE = re.compile(r"(us:[a-z0-9\-/\.]+)#(?:input\.)?([a-z][a-z0-9_]*)")
+ANCHORED_REF_RE = re.compile(
+    r"([a-z][a-z0-9-]*:[a-z0-9\-/\.]+)#(?:input\.)?([a-z][a-z0-9_]*)"
+)
 
 
 @dataclass(frozen=True)
@@ -113,6 +115,8 @@ def audit_corpus(
 
     # Blocked synonyms in use anywhere
     for syn, concept in registry.synonym_to_concept.items():
+        if not _in_scope(syn):
+            continue
         sites_consumer = graph.consumers.get(syn, [])
         sites_producer = graph.producers.get(syn, [])
         ref_paths = [
@@ -195,7 +199,7 @@ def audit_corpus(
     # Canonical-name conflicts: registered canonical produced under a different anchor
     for canonical, concept in registry.canonical_to_concept.items():
         producer_sites = graph.producers.get(canonical, [])
-        if not producer_sites or concept.producer_anchor is None:
+        if not producer_sites or concept.producer_anchor is None or concept.producer_missing:
             continue
         bad = [(a, p) for a, p in producer_sites if a != concept.producer_anchor]
         if not bad:
@@ -220,7 +224,16 @@ def _anchor_for(path: Path, root: Path) -> str:
     rel = path.relative_to(root).with_suffix("")
     if rel.name.endswith(".test"):
         rel = rel.with_name(rel.name[:-5])
-    return f"us:{rel.as_posix()}"
+    return f"{_jurisdiction_prefix(root)}:{rel.as_posix()}"
+
+
+def _jurisdiction_prefix(root: Path) -> str:
+    name = root.name
+    if name.startswith("rulespec-"):
+        return name.removeprefix("rulespec-")
+    if name.startswith("rules-"):
+        return name.removeprefix("rules-")
+    return name
 
 
 def _similar(a: str, b: str) -> bool:

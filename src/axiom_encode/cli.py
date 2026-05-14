@@ -34,6 +34,13 @@ import yaml
 
 from axiom_encode import __version__
 
+from .concepts import (
+    audit_corpus as audit_concept_corpus,
+)
+from .concepts import (
+    load_concept_registry,
+    validate_generated_against_registry,
+)
 from .constants import DEFAULT_OPENAI_MODEL
 from .harness.encoding_db import (
     EncodingDB,
@@ -67,11 +74,6 @@ from .oracles.policyengine.ecps_snap import (
 )
 from .oracles.policyengine.ecps_snap import (
     main as run_snap_ecps_compare,
-)
-from .concepts import (
-    audit_corpus as audit_concept_corpus,
-    load_concept_registry,
-    validate_generated_against_registry,
 )
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
@@ -4854,14 +4856,22 @@ def _relative_generated_output_path(
     return relative_output
 
 
-def _relative_output_to_anchor(relative_output: Path) -> str:
+def _relative_output_to_anchor(
+    relative_output: Path, *, policy_repo_path: Path | None = None
+) -> str:
     """Convert a generated file's relative path to its `us:...` anchor."""
     rel = relative_output.with_suffix("")
-    return f"us:{rel.as_posix()}"
+    jurisdiction = (
+        _repo_jurisdiction_prefix(policy_repo_path) if policy_repo_path else "us"
+    )
+    return f"{jurisdiction}:{rel.as_posix()}"
 
 
 def _enforce_canonical_concept_registry(
-    *, candidate_files: list[Path], relative_output: Path
+    *,
+    candidate_files: list[Path],
+    relative_output: Path,
+    policy_repo_path: Path | None = None,
 ) -> None:
     """Refuse to apply a generated encoding that violates the concept registry.
 
@@ -4870,7 +4880,10 @@ def _enforce_canonical_concept_registry(
     the live rules repo.
     """
     registry = load_concept_registry()
-    apply_anchor = _relative_output_to_anchor(relative_output)
+    apply_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
     files = [f for f in candidate_files if f and f.exists()]
     violations = validate_generated_against_registry(
         files, registry, apply_anchor=apply_anchor
@@ -4901,6 +4914,7 @@ def _apply_generated_encoding_result(
     _enforce_canonical_concept_registry(
         candidate_files=[output_file, _rulespec_test_path(output_file)],
         relative_output=relative_output,
+        policy_repo_path=policy_repo_path,
     )
 
     applied: list[Path] = []
@@ -5605,6 +5619,8 @@ def _repo_jurisdiction_prefix(policy_repo_path: Path) -> str:
     name = policy_repo_path.name
     if name.startswith("rulespec-"):
         return name.removeprefix("rulespec-")
+    if name.startswith("rules-"):
+        return name.removeprefix("rules-")
     return name
 
 
