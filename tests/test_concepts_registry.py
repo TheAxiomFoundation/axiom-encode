@@ -156,6 +156,24 @@ def test_validator_flags_state_anchored_ref_to_blocked_synonym(tmp_path: Path):
     assert any(v.name == "snap_gross_monthly_income" for v in violations)
 
 
+def test_validator_flags_uppercase_path_anchored_ref_to_blocked_synonym(
+    tmp_path: Path,
+):
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        format: rulespec/v1
+        cases:
+          - inputs:
+              us:statutes/7/2014/e/6/A#input.snap_monthly_household_income: 1000
+        """,
+    )
+    violations = validate_generated_against_registry([drift], registry)
+    assert any(v.name == "snap_monthly_household_income" for v in violations)
+
+
 def test_validator_passes_canonical_only_yaml(tmp_path: Path):
     registry = load_concept_registry()
     good = _write(
@@ -292,3 +310,26 @@ def test_audit_name_prefix_filters_blocked_synonyms(tmp_path: Path):
 
     findings = audit_corpus([root], registry, name_prefixes=("ny_snap_",))
     assert findings == []
+
+
+def test_audit_scans_uppercase_path_anchored_refs(tmp_path: Path):
+    registry = load_concept_registry()
+    root = tmp_path / "rulespec-us"
+    path = root / "policies/example.test.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        textwrap.dedent(
+            """
+            format: rulespec/v1
+            cases:
+              - inputs:
+                  us:statutes/7/2014/e/6/A#input.snap_monthly_household_income: 1000
+            """
+        )
+    )
+
+    findings = audit_corpus([root], registry, name_prefixes=("snap_",))
+    assert any(
+        f.kind == "blocked_synonym" and f.name == "snap_monthly_household_income"
+        for f in findings
+    )

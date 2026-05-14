@@ -19,7 +19,7 @@ from .registry import ConceptRegistry
 
 IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
 ANCHORED_REF_RE = re.compile(
-    r"([a-z][a-z0-9-]*:[a-z0-9\-/\.]+)#(?:input\.)?([a-z][a-z0-9_]*)"
+    r"([a-z][a-z0-9-]*:[A-Za-z0-9_\-/\.]+)#(?:input\.)?([a-z][a-z0-9_]*)"
 )
 
 
