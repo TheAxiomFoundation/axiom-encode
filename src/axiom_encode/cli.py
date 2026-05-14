@@ -34,6 +34,13 @@ import yaml
 
 from axiom_encode import __version__
 
+from .concepts import (
+    audit_corpus as audit_concept_corpus,
+)
+from .concepts import (
+    load_concept_registry,
+    validate_generated_against_registry,
+)
 from .constants import DEFAULT_OPENAI_MODEL
 from .harness.encoding_db import (
     EncodingDB,
@@ -538,6 +545,34 @@ def main():
     runs_parser = subparsers.add_parser("runs", help="List recent encoding runs")
     runs_parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     runs_parser.add_argument("--limit", type=int, default=20)
+
+    concepts_audit_parser = subparsers.add_parser(
+        "concepts-audit",
+        help="Report canonical-concept drift across sibling rules/rulespec repos",
+    )
+    concepts_audit_parser.add_argument(
+        "--roots",
+        nargs="+",
+        type=Path,
+        required=True,
+        help="Roots to walk (e.g. ~/rulespec-us ~/rulespec-us-co ~/rules-us-co)",
+    )
+    concepts_audit_parser.add_argument(
+        "--path-filter",
+        default=None,
+        help="Optional regex applied to file paths to narrow the walk",
+    )
+    concepts_audit_parser.add_argument(
+        "--name-prefix",
+        action="append",
+        default=None,
+        help="Restrict findings to identifiers with this prefix (repeatable)",
+    )
+    concepts_audit_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit findings as JSON instead of human-readable text",
+    )
 
     guard_generated_parser = subparsers.add_parser(
         "guard-generated",
@@ -1245,6 +1280,8 @@ def main():
         cmd_calibration(args)
     elif args.command == "runs":
         cmd_runs(args)
+    elif args.command == "concepts-audit":
+        cmd_concepts_audit(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
     elif args.command == "repair-nonnegative-floors":
@@ -2515,6 +2552,61 @@ def cmd_runs(args):
         print(
             f"{run.id:<10} {run.citation:<30} {run.iterations_needed:<5} {time_s:>6.1f}s {result}"
         )
+
+
+# =========================================================================
+# Canonical Concept Audit
+# =========================================================================
+
+
+def cmd_concepts_audit(args):
+    """Walk one or more rules/rulespec roots and report concept drift."""
+    registry = load_concept_registry()
+    path_filter = (
+        re.compile(args.path_filter, re.IGNORECASE) if args.path_filter else None
+    )
+    findings = audit_concept_corpus(
+        [Path(r).expanduser() for r in args.roots],
+        registry,
+        path_filter=path_filter,
+        name_prefixes=tuple(args.name_prefix) if args.name_prefix else None,
+    )
+    if args.json:
+        payload = [
+            {
+                "kind": f.kind,
+                "name": f.name,
+                "anchor": f.anchor,
+                "site_paths": [str(p) for p in f.site_paths],
+                "detail": f.detail,
+                "nearby_producers": list(f.nearby_producers),
+            }
+            for f in findings
+        ]
+        print(json.dumps({"findings": payload, "count": len(findings)}, indent=2))
+        return
+    by_kind: dict[str, list] = {}
+    for f in findings:
+        by_kind.setdefault(f.kind, []).append(f)
+    print(f"Concept-drift findings: {len(findings)}")
+    for kind in (
+        "blocked_synonym",
+        "canonical_conflict",
+        "anchored_ref_miss",
+        "missing_producer",
+    ):
+        items = by_kind.get(kind, [])
+        if not items:
+            continue
+        print(f"\n[{kind}] {len(items)}")
+        for f in items:
+            anchor = f" @ {f.anchor}" if f.anchor else ""
+            nearby = (
+                f" (nearby: {', '.join(f.nearby_producers[:4])})"
+                if f.nearby_producers
+                else ""
+            )
+            print(f"  - {f.name}{anchor} — {len(f.site_paths)} site(s){nearby}")
 
 
 # =========================================================================
@@ -4775,6 +4867,47 @@ def _relative_generated_output_path(
     return relative_output
 
 
+def _relative_output_to_anchor(
+    relative_output: Path, *, policy_repo_path: Path | None = None
+) -> str:
+    """Convert a generated file's relative path to its `us:...` anchor."""
+    rel = relative_output.with_suffix("")
+    jurisdiction = (
+        _repo_jurisdiction_prefix(policy_repo_path) if policy_repo_path else "us"
+    )
+    return f"{jurisdiction}:{rel.as_posix()}"
+
+
+def _enforce_canonical_concept_registry(
+    *,
+    candidate_files: list[Path],
+    relative_output: Path,
+    policy_repo_path: Path | None = None,
+) -> None:
+    """Refuse to apply a generated encoding that violates the concept registry.
+
+    Raises RuntimeError listing every violation so the encoder caller can
+    surface them. Run before any file copy so a bad encode never lands in
+    the live rules repo.
+    """
+    registry = load_concept_registry()
+    apply_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    files = [f for f in candidate_files if f and f.exists()]
+    violations = validate_generated_against_registry(
+        files, registry, apply_anchor=apply_anchor
+    )
+    if not violations:
+        return
+    lines = [str(v) for v in violations]
+    raise RuntimeError(
+        "Canonical concept registry violations — refusing to apply:\n  "
+        + "\n  ".join(lines)
+    )
+
+
 def _apply_generated_encoding_result(
     result,
     *,
@@ -4788,6 +4921,12 @@ def _apply_generated_encoding_result(
     relative_output = _relative_generated_output_path(result, output_root=output_root)
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    _enforce_canonical_concept_registry(
+        candidate_files=[output_file, _rulespec_test_path(output_file)],
+        relative_output=relative_output,
+        policy_repo_path=policy_repo_path,
+    )
 
     applied: list[Path] = []
     for source in (output_file, _rulespec_test_path(output_file)):
@@ -5491,6 +5630,8 @@ def _repo_jurisdiction_prefix(policy_repo_path: Path) -> str:
     name = policy_repo_path.name
     if name.startswith("rulespec-"):
         return name.removeprefix("rulespec-")
+    if name.startswith("rules-"):
+        return name.removeprefix("rules-")
     return name
 
 
