@@ -41,6 +41,7 @@ from .concepts import (
     load_concept_registry,
     validate_generated_against_registry,
 )
+from .concepts.jurisdiction import jurisdiction_prefix as _repo_jurisdiction_prefix
 from .constants import DEFAULT_OPENAI_MODEL
 from .harness.encoding_db import (
     EncodingDB,
@@ -5624,15 +5625,6 @@ def _find_rulespec_dependents(
 
 def _relative_rulespec_import_target(relative_output: Path) -> str:
     return relative_output.with_suffix("").as_posix()
-
-
-def _repo_jurisdiction_prefix(policy_repo_path: Path) -> str:
-    name = policy_repo_path.name
-    if name.startswith("rulespec-"):
-        return name.removeprefix("rulespec-")
-    if name.startswith("rules-"):
-        return name.removeprefix("rules-")
-    return name
 
 
 def _rulespec_file_imports_target(

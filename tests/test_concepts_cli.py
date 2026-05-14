@@ -146,3 +146,44 @@ def test_concepts_audit_cli_runs_and_emits_json(tmp_path: Path):
     payload = json.loads(result.stdout)
     assert "findings" in payload
     assert payload["count"] == 0
+
+
+def test_concepts_audit_cli_surfaces_blocked_synonym(tmp_path: Path):
+    """Real-content smoke test: the CLI must surface a blocked-synonym finding
+    with the expected structure when the corpus actually contains drift."""
+    root = tmp_path / "rulespec-us"
+    drift = root / "policies/example.yaml"
+    drift.parent.mkdir(parents=True)
+    drift.write_text(
+        textwrap.dedent(
+            """
+            format: rulespec/v1
+            rules:
+              - name: example_rule
+                kind: derived
+                versions:
+                  - effective_from: '2025-10-01'
+                    formula: snap_gross_monthly_income
+            """
+        )
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "axiom_encode.cli",
+            "concepts-audit",
+            "--roots",
+            str(root),
+            "--name-prefix",
+            "snap_",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = json.loads(result.stdout)
+    assert payload["count"] >= 1
+    blocked = [f for f in payload["findings"] if f["kind"] == "blocked_synonym"]
+    assert any(f["name"] == "snap_gross_monthly_income" for f in blocked), payload
