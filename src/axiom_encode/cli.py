@@ -2562,7 +2562,9 @@ def cmd_runs(args):
 def cmd_concepts_audit(args):
     """Walk one or more rules/rulespec roots and report concept drift."""
     registry = load_concept_registry()
-    path_filter = re.compile(args.path_filter, re.IGNORECASE) if args.path_filter else None
+    path_filter = (
+        re.compile(args.path_filter, re.IGNORECASE) if args.path_filter else None
+    )
     findings = audit_concept_corpus(
         [Path(r).expanduser() for r in args.roots],
         registry,
@@ -2587,14 +2589,23 @@ def cmd_concepts_audit(args):
     for f in findings:
         by_kind.setdefault(f.kind, []).append(f)
     print(f"Concept-drift findings: {len(findings)}")
-    for kind in ("blocked_synonym", "canonical_conflict", "anchored_ref_miss", "missing_producer"):
+    for kind in (
+        "blocked_synonym",
+        "canonical_conflict",
+        "anchored_ref_miss",
+        "missing_producer",
+    ):
         items = by_kind.get(kind, [])
         if not items:
             continue
         print(f"\n[{kind}] {len(items)}")
         for f in items:
             anchor = f" @ {f.anchor}" if f.anchor else ""
-            nearby = f" (nearby: {', '.join(f.nearby_producers[:4])})" if f.nearby_producers else ""
+            nearby = (
+                f" (nearby: {', '.join(f.nearby_producers[:4])})"
+                if f.nearby_producers
+                else ""
+            )
             print(f"  - {f.name}{anchor} — {len(f.site_paths)} site(s){nearby}")
 
 

@@ -195,7 +195,9 @@ def test_validator_passes_canonical_only_yaml(tmp_path: Path):
     assert violations == []
 
 
-def test_validator_flags_consumer_anchored_ref_to_canonical_wrong_anchor(tmp_path: Path):
+def test_validator_flags_consumer_anchored_ref_to_canonical_wrong_anchor(
+    tmp_path: Path,
+):
     """Consumer references a registered canonical name at the wrong producer anchor."""
     registry = load_concept_registry()
     drift = _write(

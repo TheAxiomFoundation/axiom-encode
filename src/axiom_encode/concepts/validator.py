@@ -69,9 +69,7 @@ def validate_generated_against_registry(
                         name=name,
                         where=f"{path}:{anchor}#{name}",
                         concept_id=blocked.id,
-                        detail=(
-                            f"use canonical {blocked.canonical_name!r} instead"
-                        ),
+                        detail=(f"use canonical {blocked.canonical_name!r} instead"),
                     )
                 )
                 continue

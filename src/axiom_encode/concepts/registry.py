@@ -101,7 +101,10 @@ def load_concept_registry(data_root: Path | None = None) -> ConceptRegistry:
                         f"{syn!r} is canonical for "
                         f"{canonical_to_concept[syn].id} but blocked by {concept.id}"
                     )
-                if syn in synonym_to_concept and synonym_to_concept[syn].id != concept.id:
+                if (
+                    syn in synonym_to_concept
+                    and synonym_to_concept[syn].id != concept.id
+                ):
                     raise ValueError(
                         f"{syn!r} is blocked synonym for both "
                         f"{synonym_to_concept[syn].id} and {concept.id}"
@@ -125,7 +128,9 @@ def _concept_from_payload(payload: Any, *, source_file: Path) -> Concept:
     required = ("id", "canonical_name")
     for key in required:
         if key not in payload:
-            raise ValueError(f"{source_file}: concept missing required {key!r}: {payload!r}")
+            raise ValueError(
+                f"{source_file}: concept missing required {key!r}: {payload!r}"
+            )
     blocked = payload.get("blocked_synonyms") or ()
     if isinstance(blocked, str):
         blocked = (blocked,)

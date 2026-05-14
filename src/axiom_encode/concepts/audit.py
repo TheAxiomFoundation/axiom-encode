@@ -45,7 +45,9 @@ class CorpusGraph:
     file_to_producers: dict[str, set[str]]
 
 
-def build_corpus_graph(roots: Iterable[Path], *, path_filter: re.Pattern[str] | None = None) -> CorpusGraph:
+def build_corpus_graph(
+    roots: Iterable[Path], *, path_filter: re.Pattern[str] | None = None
+) -> CorpusGraph:
     producers: dict[str, list[tuple[str, Path]]] = defaultdict(list)
     consumers: dict[str, list[tuple[str, Path, str]]] = defaultdict(list)
     anchored_refs: dict[tuple[str, str], list[Path]] = defaultdict(list)
@@ -120,8 +122,10 @@ def audit_corpus(
         sites_consumer = graph.consumers.get(syn, [])
         sites_producer = graph.producers.get(syn, [])
         ref_paths = [
-            p for (anchor, name), files in graph.anchored_refs.items()
-            if name == syn for p in files
+            p
+            for (anchor, name), files in graph.anchored_refs.items()
+            if name == syn
+            for p in files
         ]
         all_paths = tuple(
             dict.fromkeys(
@@ -199,7 +203,11 @@ def audit_corpus(
     # Canonical-name conflicts: registered canonical produced under a different anchor
     for canonical, concept in registry.canonical_to_concept.items():
         producer_sites = graph.producers.get(canonical, [])
-        if not producer_sites or concept.producer_anchor is None or concept.producer_missing:
+        if (
+            not producer_sites
+            or concept.producer_anchor is None
+            or concept.producer_missing
+        ):
             continue
         bad = [(a, p) for a, p in producer_sites if a != concept.producer_anchor]
         if not bad:
@@ -211,7 +219,7 @@ def audit_corpus(
                 anchor=concept.producer_anchor,
                 site_paths=tuple(p for _, p in bad),
                 detail=(
-                    f"{canonical} produced under {[a for a,_ in bad]} but registry "
+                    f"{canonical} produced under {[a for a, _ in bad]} but registry "
                     f"expects {concept.producer_anchor}"
                 ),
             )
