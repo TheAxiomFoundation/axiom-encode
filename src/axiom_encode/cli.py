@@ -5054,17 +5054,21 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_test_cases = (
-                    _try_repair_generated_test_input_assignments_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
+                repaired_input_cases: list[str] = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_test_input_assignments_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_test_cases:
+                    if not repaired_test_cases:
+                        break
+                    repaired_input_cases.extend(repaired_test_cases)
                     outcome["auto_repaired_test_input_assignments"] = (
-                        repaired_test_cases
+                        repaired_input_cases
                     )
                     print(
                         "  apply=auto_repaired_test_input_assignments:"
@@ -5082,6 +5086,10 @@ def cmd_encode(args):
                         )
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_input_cases:
+                    outcome["auto_repaired_test_input_assignments"] = (
+                        repaired_input_cases
+                    )
             if not can_apply:
                 detail = (
                     apply_issues[0]
