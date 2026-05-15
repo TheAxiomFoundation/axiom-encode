@@ -4433,6 +4433,12 @@ def _append_nonitemizer_charitable_deduction_zero_test_if_missing(
   input:
     {input_prefix}filing_status: 0
     {input_prefix}{itemization_input}: false
+    {input_prefix}contribution_made_in_cash_during_taxable_year: false
+    {input_prefix}contribution_to_organization_described_in_section_170_b_1_A: false
+    {input_prefix}contribution_to_organization_described_in_section_509_a_3: false
+    {input_prefix}contribution_for_establishment_or_maintenance_of_donor_advised_fund: false
+    {input_prefix}payment_amount: 0
+    {input_prefix}contribution_amount: 0
 {amount_input_line.rstrip()}
   output:
     {deduction_target}: 0

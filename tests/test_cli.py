@@ -3040,6 +3040,11 @@ rules:
             in test_content
         )
         assert (
+            "us:statutes/26/170/p#input.contribution_made_in_cash_during_taxable_year: false"
+            in test_content
+        )
+        assert "us:statutes/26/170/p#input.payment_amount: 0" in test_content
+        assert (
             "us:statutes/26/170/p#nonitemizer_charitable_deduction: 0" in test_content
         )
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
@@ -4406,6 +4411,11 @@ rules:
             "us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: false"
             in test_content
         )
+        assert (
+            "us:statutes/26/170/p#input.contribution_for_establishment_or_maintenance_of_donor_advised_fund: false"
+            in test_content
+        )
+        assert "us:statutes/26/170/p#input.contribution_amount: 0" in test_content
         assert (
             "us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500"
             in test_content
