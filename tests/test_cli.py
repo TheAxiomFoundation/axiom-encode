@@ -3040,10 +3040,9 @@ rules:
             in test_content
         )
         assert (
-            "us:statutes/26/170/p#input.contribution_made_in_cash_during_taxable_year: false"
+            "us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 0"
             in test_content
         )
-        assert "us:statutes/26/170/p#input.payment_amount: 0" in test_content
         assert (
             "us:statutes/26/170/p#nonitemizer_charitable_deduction: 0" in test_content
         )
@@ -4349,6 +4348,21 @@ rules:
         target.write_text(
             """format: rulespec/v1
 rules:
+  - name: nonitemizer_cash_charitable_contributions_taken_into_account
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(
+              0,
+              cash_contributions_to_organizations_described_in_section_170_b_1_A
+              - cash_contributions_to_organizations_described_in_section_509_a_3
+              - cash_contributions_for_establishment_or_maintenance_of_donor_advised_fund
+          )
+
   - name: nonitemizer_charitable_deduction
     kind: derived
     entity: TaxUnit
@@ -4412,12 +4426,15 @@ rules:
             in test_content
         )
         assert (
-            "us:statutes/26/170/p#input.contribution_for_establishment_or_maintenance_of_donor_advised_fund: false"
+            "us:statutes/26/170/p#input.cash_contributions_for_establishment_or_maintenance_of_donor_advised_fund: 0"
             in test_content
         )
-        assert "us:statutes/26/170/p#input.contribution_amount: 0" in test_content
         assert (
-            "us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500"
+            "us:statutes/26/170/p#input.cash_contributions_to_organizations_described_in_section_170_b_1_A: 0"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 0"
             in test_content
         )
         assert (
