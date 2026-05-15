@@ -3305,9 +3305,7 @@ def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
             rule=rule,
             source=source,
         )
-        if not _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(
-            source_context
-        ):
+        if not _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(source_context):
             continue
         branch_issue = _filing_status_surviving_spouse_branch_issue(name, formula)
         if branch_issue is not None:
@@ -4330,9 +4328,7 @@ def _slice_source_text_at_marker(source_text: str, token: str) -> str:
         if token.isdigit():
             sibling_marker_pattern = r"\(\d+\)"
         elif len(token) == 1 and token.isalpha():
-            sibling_marker_pattern = (
-                r"\([a-z]\)" if token.islower() else r"\([A-Z]\)"
-            )
+            sibling_marker_pattern = r"\([a-z]\)" if token.islower() else r"\([A-Z]\)"
         if sibling_marker_pattern:
             next_match = re.search(
                 sibling_marker_pattern,
