@@ -3805,6 +3805,7 @@ def _append_generated_zero_branch_tests_if_missing(
     test_file: Path,
     repo_path: Path,
     relative_output: Path,
+    issues: list[str] | None = None,
 ) -> list[str]:
     repaired: list[str] = []
     if _append_snap_zero_allotment_test_if_missing(
@@ -3865,7 +3866,117 @@ def _append_generated_zero_branch_tests_if_missing(
         relative_output=relative_output,
     ):
         repaired.append("itemizer_zero_nonitemizer_charitable_deduction")
+    repaired.extend(
+        _append_generic_zero_branch_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=relative_output,
+            issues=issues or [],
+        )
+    )
     return repaired
+
+
+def _append_generic_zero_branch_tests_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    """Append deterministic zero-output tests named by validator issues."""
+    if not issues or not test_file.exists() or not rules_file.exists():
+        return []
+    output_names = _zero_branch_output_names_from_issues(issues)
+    if not output_names:
+        return []
+
+    try:
+        rules_content = rules_file.read_text()
+        rules_payload = yaml.safe_load(rules_content) or {}
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
+        return []
+
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    rule_names = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
+    input_defaults = {
+        f"{target_base}#input.{input_name}": _default_generated_test_input_value(
+            input_name,
+            rules_payload=rules_payload,
+        )
+        for input_name in sorted(factual_inputs)
+    }
+
+    repaired: list[str] = []
+    existing_case_names = {
+        str(test_case.get("name") or "").strip()
+        for test_case in test_payload
+        if isinstance(test_case, dict)
+    }
+    for output_name in output_names:
+        if output_name not in rule_names:
+            continue
+        target = f"{target_base}#{output_name}"
+        if _has_zero_output_test(test_payload, target):
+            continue
+        case_name = f"auto_zero_{_safe_test_name(output_name)}"
+        if case_name in existing_case_names:
+            continue
+        test_payload.append(
+            {
+                "name": case_name,
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": dict(input_defaults),
+                "output": {target: 0},
+            }
+        )
+        existing_case_names.add(case_name)
+        repaired.append(case_name)
+
+    if not repaired:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _zero_branch_output_names_from_issues(issues: list[str]) -> list[str]:
+    output_names: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        match = re.search(
+            r"Zero branch test coverage missing:\s*`(?P<name>[^`]+)`",
+            str(issue),
+        )
+        if not match:
+            continue
+        name = match["name"].strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        output_names.append(name)
+    return output_names
 
 
 def _append_snap_zero_allotment_test_if_missing(
@@ -5064,6 +5175,7 @@ def _try_repair_generated_zero_branch_tests_for_apply(
         test_file=test_file,
         repo_path=policy_repo_path,
         relative_output=relative_output,
+        issues=issues,
     )
 
 
