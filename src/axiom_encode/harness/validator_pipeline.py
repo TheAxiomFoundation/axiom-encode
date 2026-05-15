@@ -3240,11 +3240,23 @@ def _rulespec_rule_formula_records(
     payload: dict[str, Any],
 ) -> list[tuple[str, str, str, Any]]:
     """Return `(rule_name, kind, formula, source)` entries from a RuleSpec payload."""
+    return [
+        (name, kind, formula, source)
+        for name, kind, formula, source, _rule in _rulespec_rule_formula_rule_records(
+            payload
+        )
+    ]
+
+
+def _rulespec_rule_formula_rule_records(
+    payload: dict[str, Any],
+) -> list[tuple[str, str, str, Any, dict[str, Any]]]:
+    """Return formula records with their owning rule payload."""
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return []
 
-    formulas: list[tuple[str, str, str, Any]] = []
+    formulas: list[tuple[str, str, str, Any, dict[str, Any]]] = []
     for index, rule in enumerate(rules):
         if not isinstance(rule, dict):
             continue
@@ -3260,9 +3272,9 @@ def _rulespec_rule_formula_records(
             source = version.get("source", rule_source)
             formula = version.get("formula")
             if isinstance(formula, (int, float)) and not isinstance(formula, bool):
-                formulas.append((name, kind, str(formula), source))
+                formulas.append((name, kind, str(formula), source, rule))
             elif isinstance(formula, str) and formula.strip():
-                formulas.append((name, kind, formula, source))
+                formulas.append((name, kind, formula, source, rule))
     return formulas
 
 
@@ -3277,19 +3289,81 @@ def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str
 def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
     """Flag filing-status branches that omit surviving spouse when source groups it."""
     payload = _rulespec_payload(content)
-    if payload is None or not _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(
-        content
-    ):
+    if payload is None:
         return []
 
+    module_source_text = extract_embedded_source_text(content) or content
     issues: list[str] = []
-    for name, kind, formula in _rulespec_rule_formulas(payload):
+    for name, kind, formula, source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
         if kind != "derived" or not _US_TAX_FILING_STATUS_NAME_PATTERN.search(formula):
+            continue
+        source_context = _filing_status_rule_source_context(
+            content=content,
+            module_source_text=module_source_text,
+            rule=rule,
+            source=source,
+        )
+        if not _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(
+            source_context
+        ):
             continue
         branch_issue = _filing_status_surviving_spouse_branch_issue(name, formula)
         if branch_issue is not None:
             issues.append(branch_issue)
     return issues
+
+
+def _filing_status_rule_source_context(
+    *,
+    content: str,
+    module_source_text: str,
+    rule: dict[str, Any],
+    source: Any,
+) -> str:
+    """Return the source text relevant to one filing-status formula."""
+    candidates: list[str] = []
+    if module_source_text:
+        scoped = _source_text_for_rule_source(module_source_text, source)
+        if scoped:
+            candidates.append(scoped)
+    candidates.extend(_rule_proof_source_texts(rule))
+    candidates.extend(_source_field_texts(source))
+    return "\n".join(item for item in candidates if item.strip()) or content
+
+
+def _rule_proof_source_texts(rule: dict[str, Any]) -> list[str]:
+    proof = _rule_proof_payload(rule)
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if not isinstance(atoms, list):
+        return []
+
+    texts: list[str] = []
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        source = atom.get("source")
+        if isinstance(source, dict):
+            for key in ("text", "quote", "span"):
+                value = source.get(key)
+                if isinstance(value, str) and value.strip():
+                    texts.append(value.strip())
+        elif isinstance(source, str) and source.strip():
+            texts.append(source.strip())
+    return texts
+
+
+def _source_field_texts(source: Any) -> list[str]:
+    if isinstance(source, dict):
+        return [
+            value.strip()
+            for value in source.values()
+            if isinstance(value, str) and value.strip()
+        ]
+    if isinstance(source, str) and source.strip():
+        return [source.strip()]
+    return []
 
 
 _FILING_STATUS_STRING_VALUE_PATTERN = re.compile(
@@ -4251,6 +4325,20 @@ def _slice_source_text_at_marker(source_text: str, token: str) -> str:
         source_text[match.end() :],
         flags=marker_flags,
     )
+    if next_match is None:
+        sibling_marker_pattern = ""
+        if token.isdigit():
+            sibling_marker_pattern = r"\(\d+\)"
+        elif len(token) == 1 and token.isalpha():
+            sibling_marker_pattern = (
+                r"\([a-z]\)" if token.islower() else r"\([A-Z]\)"
+            )
+        if sibling_marker_pattern:
+            next_match = re.search(
+                sibling_marker_pattern,
+                source_text[match.end() :],
+                flags=marker_flags,
+            )
     if next_match is None:
         return source_text[match.start() :].strip()
     return source_text[match.start() : match.end() + next_match.start()].strip()

@@ -6301,6 +6301,49 @@ rules:
     assert any("different result" in issue for issue in issues)
 
 
+def test_filing_status_branch_scopes_surviving_spouse_group_to_rule_source():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Threshold amount means $110,000 in the case of a joint return, $75,000 in the case of an individual who is not married, and $55,000 in the case of a married individual filing a separate return.
+    (j) Applicable income threshold means $60,000 in the case of a joint return or surviving spouse, $50,000 in the case of a head of household, and $40,000 in any other case.
+rules:
+  - name: ctc_phaseout_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 24(b)(2)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => joint_threshold
+              4 => unmarried_threshold
+              2 => separate_threshold
+              3 => unmarried_threshold
+              0 => unmarried_threshold
+
+  - name: ctc_excess_advance_applicable_income_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 24(j)(2)(B)(iii)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => joint_or_surviving_spouse_threshold
+              4 => joint_or_surviving_spouse_threshold
+              3 => head_of_household_threshold
+              2 => other_threshold
+              0 => other_threshold
+"""
+
+    assert find_tax_filing_status_surviving_spouse_issues(content) == []
+
+
 def test_filing_status_branch_allows_joint_return_exclusion_without_surviving_spouse():
     content = """format: rulespec/v1
 module:
