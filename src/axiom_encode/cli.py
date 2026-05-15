@@ -4943,6 +4943,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_test_cases = (
+                    _try_repair_generated_test_input_assignments_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_test_cases:
+                    outcome["auto_repaired_test_input_assignments"] = (
+                        repaired_test_cases
+                    )
+                    print(
+                        "  apply=auto_repaired_test_input_assignments:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 detail = (
                     apply_issues[0]
                     if apply_issues
@@ -5036,6 +5065,181 @@ def _try_repair_generated_zero_branch_tests_for_apply(
         repo_path=policy_repo_path,
         relative_output=relative_output,
     )
+
+
+def _try_repair_generated_test_input_assignments_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Fill deterministic explicit defaults for generated tests missing facts."""
+    if not _only_pending_test_input_assignment_issues(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _fill_missing_test_input_assignments(
+        rules_file=rules_file,
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
+def _only_pending_test_input_assignment_issues(issues: list[str]) -> bool:
+    return bool(issues) and all(
+        "Test input assignment missing:" in str(issue) for issue in issues
+    )
+
+
+def _fill_missing_test_input_assignments(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    if not rules_file.exists() or not test_file.exists():
+        return []
+
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
+        return []
+
+    repairs_by_case: dict[str, set[str]] = {}
+    for issue in issues:
+        parsed = _parse_test_input_assignment_issue(str(issue))
+        if parsed is None:
+            return []
+        case_name, missing_inputs = parsed
+        repairs_by_case.setdefault(case_name, set()).update(missing_inputs)
+    if not repairs_by_case:
+        return []
+
+    anchor = _relative_output_to_anchor(
+        relative_output, policy_repo_path=policy_repo_path
+    )
+    repaired_cases: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_name = str(test_case.get("name") or "").strip()
+        missing_inputs = repairs_by_case.get(case_name)
+        if not missing_inputs:
+            continue
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            inputs = {}
+            test_case["input"] = inputs
+        changed = False
+        for input_name in sorted(missing_inputs):
+            key = f"{anchor}#input.{input_name}"
+            if key in inputs:
+                continue
+            inputs[key] = _default_generated_test_input_value(
+                input_name, rules_payload=rules_payload
+            )
+            changed = True
+        if changed:
+            repaired_cases.append(case_name)
+
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
+
+
+def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | None:
+    match = re.search(
+        r"Test input assignment missing:\s*`(?P<case>[^`]+)`\s+"
+        r"does not assign\s+(?P<inputs>.+?)\.\s+Every test",
+        issue,
+    )
+    if not match:
+        return None
+    missing_inputs = {
+        name.strip()
+        for name in re.findall(r"#input\.([A-Za-z_][A-Za-z0-9_]*)", match["inputs"])
+    }
+    if not missing_inputs:
+        return None
+    return match["case"].strip(), missing_inputs
+
+
+def _default_generated_test_input_value(
+    input_name: str, *, rules_payload: dict[str, object]
+) -> bool | int:
+    if _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+        return 0
+    return False
+
+
+def _factual_input_appears_numeric(
+    input_name: str, *, rules_payload: dict[str, object]
+) -> bool:
+    if input_name == "filing_status":
+        return True
+    numeric_name_fragments = (
+        "amount",
+        "income",
+        "wage",
+        "salary",
+        "age",
+        "threshold",
+        "rate",
+        "value",
+        "count",
+        "cost",
+        "expense",
+        "deduction",
+        "credit",
+        "tax",
+        "gross",
+        "net",
+    )
+    if any(fragment in input_name for fragment in numeric_name_fragments):
+        return True
+
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    pattern = re.compile(rf"\b{re.escape(input_name)}\b")
+    numeric_context = re.compile(
+        rf"(\b{re.escape(input_name)}\b\s*(?:[+\-*/<>]=?|==|!=)"
+        rf"|(?:[+\-*/]\s*)\b{re.escape(input_name)}\b)"
+    )
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str) or not pattern.search(formula):
+                continue
+            if numeric_context.search(formula):
+                return True
+    return False
 
 
 def _relative_generated_output_path(

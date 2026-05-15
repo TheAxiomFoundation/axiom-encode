@@ -3053,6 +3053,108 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_auto_repairs_missing_test_input_assignments(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "151.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: section_151_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if dependent_under_section_152 and tin_included_on_return:
+              adjusted_gross_income
+          else:
+              0
+"""
+        )
+        test_file = output_file.with_name("151.test.yaml")
+        test_file.write_text(
+            """- name: single_senior_after_2017_exemption_zero_and_senior_deduction_allowed
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/151#input.filing_status: 0
+  output:
+    us:statutes/26/151#section_151_deduction: 0
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/151.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/151.yaml: ci: "
+                            "Test input assignment missing: "
+                            "`single_senior_after_2017_exemption_zero_and_senior_deduction_allowed` "
+                            "does not assign #input.adjusted_gross_income, "
+                            "#input.dependent_under_section_152, "
+                            "#input.tin_included_on_return. Every test for a "
+                            "proof-required RuleSpec module must set all local "
+                            "factual inputs, including false facts, so tests "
+                            "cannot pass through implicit defaults."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_test_input_assignments:"
+            "single_senior_after_2017_exemption_zero_and_senior_deduction_allowed"
+        ) in output
+        assert "outcome=apply_applied final_success=True" in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert "us:statutes/26/151#input.adjusted_gross_income: 0" in test_content
+        assert (
+            "us:statutes/26/151#input.dependent_under_section_152: false"
+            in test_content
+        )
+        assert "us:statutes/26/151#input.tin_included_on_return: false" in test_content
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_test_input_assignments"] == [
+            "single_senior_after_2017_exemption_zero_and_senior_deduction_allowed"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_allows_overlay_to_rescue_failed_standalone_validation(
         self, capsys, tmp_path
     ):
