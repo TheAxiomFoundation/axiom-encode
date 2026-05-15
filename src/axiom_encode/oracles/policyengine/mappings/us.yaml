@@ -8452,6 +8452,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 213 provision-level medical-care outputs include source-specific lodging, medicine-or-drug, long-term-care, decedent, cosmetic-surgery, section 21 exclusion, and expense assembly surfaces that PolicyEngine folds into itemized_medical_expenses/medical_expense_deduction unless an exact mapping overrides this prefix.
 
+  - legal_id_prefix: us:statutes/26/6012#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 6012 provision-level filing-requirement outputs include 2018-2025 return exceptions, estate/trust filing thresholds, gross-income adjustments, and tax-exempt-interest reporting amounts that PolicyEngine folds into broader filer variables or does not expose as one-to-one federal tax outputs unless an exact mapping overrides this prefix.
+
   - legal_id_prefix: us:statutes/26/1411#
     country: us
     program: tax
