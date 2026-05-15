@@ -1565,6 +1565,22 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert qbi_formula_mapping.mapping_type == "not_comparable"
     assert qbi_formula_mapping.match_type == "prefix"
+    medical_floor_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/213#medical_expense_agi_floor_rate",
+        country="us",
+    )
+    assert medical_floor_mapping.mapping_type == "parameter_value"
+    assert (
+        medical_floor_mapping.policyengine_parameter
+        == "gov.irs.deductions.itemized.medical.floor"
+    )
+    assert medical_floor_mapping.match_type == "exact"
+    medical_formula_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/213#medical_care_deduction",
+        country="us",
+    )
+    assert medical_formula_mapping.mapping_type == "not_comparable"
+    assert medical_formula_mapping.match_type == "prefix"
     self_employment_tax_deduction_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/164/f#self_employment_tax_deduction",
         country="us",
