@@ -2974,7 +2974,7 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if individual_does_not_elect_to_itemize_deductions_for_taxable_year:
+          if individual_does_not_elect_to_itemize_deductions:
               nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1
           else:
               0
@@ -2988,7 +2988,7 @@ rules:
     start: '2026-01-01'
     end: '2026-12-31'
   input:
-    us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: true
+    us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions: true
     us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500
   output:
     us:statutes/26/170/p#nonitemizer_charitable_deduction: 500
@@ -3036,7 +3036,7 @@ rules:
         test_content = test_file.read_text()
         assert "itemizer_zero_nonitemizer_charitable_deduction" in test_content
         assert (
-            "us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: false"
+            "us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions: false"
             in test_content
         )
         assert (

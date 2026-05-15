@@ -4388,11 +4388,17 @@ def _append_nonitemizer_charitable_deduction_zero_test_if_missing(
         return False
 
     rules_content = rules_file.read_text()
-    if (
-        "name: nonitemizer_charitable_deduction" not in rules_content
-        or "individual_does_not_elect_to_itemize_deductions_for_taxable_year"
-        not in rules_content
+    if "name: nonitemizer_charitable_deduction" not in rules_content:
+        return False
+    itemization_input = None
+    for candidate in (
+        "individual_does_not_elect_to_itemize_deductions_for_taxable_year",
+        "individual_does_not_elect_to_itemize_deductions",
     ):
+        if candidate in rules_content:
+            itemization_input = candidate
+            break
+    if itemization_input is None:
         return False
 
     target_base = (
@@ -4413,6 +4419,12 @@ def _append_nonitemizer_charitable_deduction_zero_test_if_missing(
         return False
 
     input_prefix = f"{target_base}#input."
+    amount_input = "nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1"
+    amount_input_line = (
+        f"    {input_prefix}{amount_input}: 500\n"
+        if amount_input in rules_content
+        else ""
+    )
     case = f"""- name: {case_name}
   period:
     period_kind: tax_year
@@ -4420,8 +4432,8 @@ def _append_nonitemizer_charitable_deduction_zero_test_if_missing(
     end: '2026-12-31'
   input:
     {input_prefix}filing_status: 0
-    {input_prefix}individual_does_not_elect_to_itemize_deductions_for_taxable_year: false
-    {input_prefix}nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500
+    {input_prefix}{itemization_input}: false
+{amount_input_line.rstrip()}
   output:
     {deduction_target}: 0
 """
