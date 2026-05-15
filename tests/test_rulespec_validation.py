@@ -6295,6 +6295,28 @@ rules:
     assert any("different result" in issue for issue in issues)
 
 
+def test_filing_status_branch_allows_joint_return_exclusion_without_surviving_spouse():
+    content = """format: rulespec/v1
+module:
+  summary: The source mentions surviving spouse elsewhere, but this rule excludes joint returns from the unmarried individual exception.
+rules:
+  - name: unmarried_individual_filing_exception
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxpayer_is_individual
+          and filing_status != 1
+          and filing_status != 2
+          and gross_income <= standard_deduction
+"""
+
+    assert find_tax_filing_status_surviving_spouse_issues(content) == []
+
+
 def test_filing_status_branch_rejects_unrelated_surviving_spouse_code():
     content = """format: rulespec/v1
 module:
