@@ -2569,6 +2569,80 @@ mappings:
     comparison: money
     rationale: Same IRS maximum refundable child tax credit amount per qualifying child.
 
+  - legal_id: us:statutes/26/24#ctc_phaseout_reduction_per_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.phase_out.amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same CTC phaseout reduction amount per increment.
+
+  - legal_id: us:statutes/26/24#ctc_phaseout_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.credits.ctc.phase_out.increment
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same CTC phaseout income increment.
+
+  - legal_id: us:statutes/26/24#ctc_qualifying_children_count
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_qualifying_children
+    entity: tax_unit
+    period: year
+    comparison: count
+    rationale: Same tax-unit count of CTC qualifying children.
+
+  - legal_id: us:statutes/26/24#ctc_phaseout_threshold
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_phase_out_threshold
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same filing-status-selected CTC phaseout threshold.
+
+  - legal_id: us:statutes/26/24#ctc_maximum_before_phaseout
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_maximum
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same pre-phaseout maximum child tax credit.
+
+  - legal_id: us:statutes/26/24#ctc_phaseout_amount
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc_phase_out
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same CTC income-based phaseout amount.
+
+  - legal_id: us:statutes/26/24#ctc_before_advance_payments
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ctc
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same total child tax credit before advance-payment reconciliation.
+
   - legal_id: us:statutes/26/24/d#ctc_refundable_phase_in_rate
     country: us
     program: tax
@@ -8523,6 +8597,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 22 elderly-and-disabled credit outputs are statutory parameters, predicates, and formula intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/24#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 24 child-tax-credit root outputs include statutory base amounts, identification predicates, advance-payment reconciliation, and formula helpers that PolicyEngine folds into CTC variables or does not expose unless an exact mapping overrides this prefix.
 
   - legal_id_prefix: us:statutes/26/24/d#
     country: us
