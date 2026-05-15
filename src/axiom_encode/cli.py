@@ -3799,6 +3799,241 @@ def _only_pending_zero_branch_coverage_issues(issues: list[str]) -> bool:
     )
 
 
+def _only_pending_exception_test_coverage_issues(issues: list[str]) -> bool:
+    return bool(issues) and all(
+        "Exception test coverage missing: " in issue for issue in issues
+    )
+
+
+def _append_exception_positive_companion_tests_if_missing(
+    *,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    """Clone generated negative exception tests into paired positive companions."""
+    if not issues or not test_file.exists():
+        return []
+    repair_specs = _exception_test_repair_specs_from_issues(issues)
+    if not repair_specs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    repaired: list[str] = []
+    existing_case_names = {
+        str(test_case.get("name") or "").strip()
+        for test_case in test_payload
+        if isinstance(test_case, dict)
+    }
+    for rule_name, exception_input in repair_specs:
+        case_name = (
+            f"auto_positive_{_safe_test_name(rule_name)}_"
+            f"{_safe_test_name(exception_input)}"
+        )
+        if case_name in existing_case_names:
+            continue
+        if _has_exception_positive_companion_case(
+            test_payload,
+            rule_name=rule_name,
+            exception_input=exception_input,
+        ):
+            continue
+        companion = _build_exception_positive_companion_case(
+            test_payload,
+            target_base=target_base,
+            case_name=case_name,
+            rule_name=rule_name,
+            exception_input=exception_input,
+        )
+        if companion is None:
+            continue
+        test_payload.append(companion)
+        existing_case_names.add(case_name)
+        repaired.append(case_name)
+
+    if not repaired:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _exception_test_repair_specs_from_issues(
+    issues: list[str],
+) -> list[tuple[str, str]]:
+    specs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for issue in issues:
+        match = re.search(
+            r"Exception test coverage missing:\s*`(?P<rule>[^`]+)`\s+"
+            r"negates\s+`(?P<input>[^`]+)`",
+            str(issue),
+        )
+        if not match:
+            continue
+        spec = (match["rule"].strip(), match["input"].strip())
+        if not all(spec) or spec in seen:
+            continue
+        seen.add(spec)
+        specs.append(spec)
+    return specs
+
+
+def _build_exception_positive_companion_case(
+    test_payload: list[object],
+    *,
+    target_base: str,
+    case_name: str,
+    rule_name: str,
+    exception_input: str,
+) -> dict[str, object] | None:
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if not _case_sets_exception_input(
+            inputs, exception_input=exception_input, value=True
+        ):
+            continue
+        if not _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value="not_holds"
+        ):
+            continue
+        companion = copy.deepcopy(test_case)
+        companion["name"] = case_name
+        companion_inputs = companion.get("input")
+        companion_outputs = companion.get("output")
+        if not isinstance(companion_inputs, dict) or not isinstance(
+            companion_outputs, dict
+        ):
+            return None
+        _set_exception_input_value(
+            companion_inputs,
+            target_base=target_base,
+            exception_input=exception_input,
+            value=False,
+        )
+        _set_rule_output_value(
+            companion_outputs,
+            target_base=target_base,
+            rule_name=rule_name,
+            value="holds",
+        )
+        return companion
+    return None
+
+
+def _has_exception_positive_companion_case(
+    test_payload: list[object],
+    *,
+    rule_name: str,
+    exception_input: str,
+) -> bool:
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        if not _case_sets_exception_input(
+            inputs, exception_input=exception_input, value=False
+        ):
+            continue
+        if _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value="holds"
+        ):
+            return True
+    return False
+
+
+def _case_sets_exception_input(
+    inputs: dict[object, object],
+    *,
+    exception_input: str,
+    value: bool,
+) -> bool:
+    expected_fragment = f"input.{exception_input}"
+    return any(
+        _rulespec_test_key_fragment(key) == expected_fragment
+        and _is_boolean_test_value(raw_value, value)
+        for key, raw_value in inputs.items()
+    )
+
+
+def _case_asserts_rule_value(
+    outputs: dict[object, object],
+    *,
+    rule_name: str,
+    normalized_value: str,
+) -> bool:
+    return any(
+        _rulespec_test_key_fragment(key) == rule_name
+        and _normalized_generated_test_scalar(raw_value) == normalized_value
+        for key, raw_value in outputs.items()
+    )
+
+
+def _set_exception_input_value(
+    inputs: dict[object, object],
+    *,
+    target_base: str,
+    exception_input: str,
+    value: bool,
+) -> None:
+    expected_fragment = f"input.{exception_input}"
+    for key in list(inputs):
+        if _rulespec_test_key_fragment(key) == expected_fragment:
+            inputs[key] = value
+            return
+    inputs[f"{target_base}#{expected_fragment}"] = value
+
+
+def _set_rule_output_value(
+    outputs: dict[object, object],
+    *,
+    target_base: str,
+    rule_name: str,
+    value: str,
+) -> None:
+    for key in list(outputs):
+        if _rulespec_test_key_fragment(key) == rule_name:
+            outputs[key] = value
+            return
+    outputs[f"{target_base}#{rule_name}"] = value
+
+
+def _rulespec_test_key_fragment(key: object) -> str:
+    raw = str(key)
+    return raw.split("#", 1)[1] if "#" in raw else raw
+
+
+def _is_boolean_test_value(value: object, expected: bool) -> bool:
+    if isinstance(value, bool):
+        return value is expected
+    normalized = _normalized_generated_test_scalar(value)
+    return normalized == ("true" if expected else "false")
+
+
+def _normalized_generated_test_scalar(value: object) -> str:
+    return str(value).strip().lower().replace("-", "_")
+
+
 def _append_generated_zero_branch_tests_if_missing(
     *,
     rules_file: Path,
@@ -5054,6 +5289,31 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_test_cases = _try_repair_generated_exception_tests_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_test_cases:
+                    outcome["auto_repaired_exception_tests"] = repaired_test_cases
+                    print(
+                        "  apply=auto_repaired_exception_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_input_cases: list[str] = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -5180,6 +5440,34 @@ def _try_repair_generated_zero_branch_tests_for_apply(
     test_file = _rulespec_test_path(rules_file)
     return _append_generated_zero_branch_tests_if_missing(
         rules_file=rules_file,
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
+def _try_repair_generated_exception_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Append deterministic positive companions for generated exception tests."""
+    if not _only_pending_exception_test_coverage_issues(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _append_exception_positive_companion_tests_if_missing(
         test_file=test_file,
         repo_path=policy_repo_path,
         relative_output=relative_output,

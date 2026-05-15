@@ -3153,6 +3153,89 @@ rules:
         )
         assert "us:statutes/26/213#lodging_medical_care_amount: 0" in test_content
 
+    def test_encode_apply_auto_repairs_exception_positive_companion(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "24.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file = output_file.with_name("24.test.yaml")
+        test_file.write_text(
+            """- name: noncitizen_exception_denies_qualifying_child
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/24#input.qualifying_child_under_section_152_c: true
+    us:statutes/26/24#input.age: 10
+    us:statutes/26/24#input.noncitizen_exception_to_qualifying_child_under_section_24: true
+  output:
+    us:statutes/26/24#ctc_qualifying_child: not_holds
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/24.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/24.yaml: ci: "
+                            "Exception test coverage missing: "
+                            "`ctc_qualifying_child` negates "
+                            "`noncitizen_exception_to_qualifying_child_under_section_24`, "
+                            "but no companion test sets "
+                            "`#input.noncitizen_exception_to_qualifying_child_under_section_24` "
+                            "true and expects `ctc_qualifying_child` to be not_holds "
+                            "while an otherwise identical positive companion sets that "
+                            "exception false and expects holds."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        case_name = (
+            "auto_positive_ctc_qualifying_child_"
+            "noncitizen_exception_to_qualifying_child_under_section_24"
+        )
+        assert f"apply=auto_repaired_exception_tests:{case_name}" in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert case_name in test_content
+        assert (
+            "us:statutes/26/24#input.noncitizen_exception_to_qualifying_child_under_section_24: false"
+            in test_content
+        )
+        assert "us:statutes/26/24#ctc_qualifying_child: holds" in test_content
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_exception_tests"] == [case_name]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_auto_repairs_missing_test_input_assignments(
         self, capsys, tmp_path
     ):
