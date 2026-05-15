@@ -4908,6 +4908,204 @@ def _rulespec_local_input_slots(
     return _rulespec_formula_identifiers(payload) - local_symbols - imported_symbols
 
 
+def _rulespec_executable_numeric_values_by_name(
+    payload: Any,
+) -> dict[str, set[float]]:
+    if not isinstance(payload, dict):
+        return {}
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+
+    values_by_name: dict[str, set[float]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+        }:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+
+        values: set[float] = set()
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                extracted = _numeric_rule_value(formula)
+                if extracted is not None:
+                    values.add(extracted[1])
+            elif isinstance(formula, str) and formula.strip():
+                values.update(
+                    value
+                    for _line_number, _raw, value in _extract_formula_grounding_values(
+                        1,
+                        formula,
+                    )
+                )
+
+            table_values = version.get("values")
+            if isinstance(table_values, dict):
+                for table_value in table_values.values():
+                    extracted = _numeric_rule_value(table_value)
+                    if extracted is not None:
+                        values.add(extracted[1])
+        if values:
+            values_by_name[name] = values
+    return values_by_name
+
+
+def _rule_formula_numeric_values_by_name_for_child_source(
+    payload: dict[str, Any],
+    *,
+    title: str,
+    section: str,
+    fragments: tuple[str, ...],
+) -> dict[str, set[float]]:
+    values_by_name: dict[str, set[float]] = {}
+    for name, kind, formula, source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind not in {"parameter", "derived"}:
+            continue
+        context = "\n".join(
+            [
+                *_source_field_texts(source),
+                *_rule_proof_source_texts(rule),
+            ]
+        )
+        if not _source_context_mentions_statute_fragment(
+            context,
+            title=title,
+            section=section,
+            fragments=fragments,
+        ):
+            continue
+        values = {
+            value
+            for _line_number, _raw, value in _extract_formula_grounding_values(
+                1,
+                formula,
+            )
+        }
+        if values:
+            values_by_name.setdefault(name, set()).update(values)
+    return values_by_name
+
+
+def _source_context_mentions_statute_fragment(
+    context: str,
+    *,
+    title: str,
+    section: str,
+    fragments: tuple[str, ...],
+) -> bool:
+    if not context.strip() or not fragments:
+        return False
+
+    fragment_pattern = "".join(
+        rf"\s*\(\s*{re.escape(fragment)}\s*\)" for fragment in fragments
+    )
+    section_fragment_pattern = re.compile(
+        rf"\b(?:{re.escape(title)}\s+U\.?S\.?C\.?\s+)?"
+        rf"{re.escape(section)}{fragment_pattern}",
+        flags=re.IGNORECASE,
+    )
+    if section_fragment_pattern.search(context):
+        return True
+
+    first_fragment = re.escape(fragments[0])
+    subsection_pattern = re.compile(
+        rf"\bsubsection\s+\(\s*{first_fragment}\s*\)",
+        flags=re.IGNORECASE,
+    )
+    return bool(subsection_pattern.search(context))
+
+
+def _child_numeric_output_reencoding_issues(
+    *,
+    parent_payload: dict[str, Any],
+    child_payload: dict[str, Any],
+    child_display_path: str,
+    rules_file: Path,
+    child: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    statute_path = _statute_path_parts_for_file(child, policy_repo_path)
+    if statute_path is None:
+        return []
+    title, section, child_fragments = statute_path
+
+    child_values_by_name = _rulespec_executable_numeric_values_by_name(child_payload)
+    if not child_values_by_name:
+        return []
+
+    parent_values_by_name = _rule_formula_numeric_values_by_name_for_child_source(
+        parent_payload,
+        title=title,
+        section=section,
+        fragments=child_fragments,
+    )
+    if not parent_values_by_name:
+        return []
+
+    value_to_child_names: dict[float, list[str]] = {}
+    for child_name, child_values in child_values_by_name.items():
+        for value in child_values:
+            value_to_child_names.setdefault(value, []).append(child_name)
+
+    matches: list[tuple[float, list[str], list[str]]] = []
+    for value in sorted(set(value_to_child_names)):
+        parent_names = sorted(
+            name
+            for name, parent_values in parent_values_by_name.items()
+            if value in parent_values
+        )
+        if not parent_names:
+            continue
+        matches.append((value, sorted(value_to_child_names[value]), parent_names))
+    if not matches:
+        return []
+
+    copied_values = ", ".join(
+        f"`{_format_numeric_literal(value)}`" for value, _, _ in matches[:4]
+    )
+    if len(matches) > 4:
+        copied_values += ", ..."
+    parent_rules = sorted(
+        {name for _value, _child_names, names in matches for name in names}
+    )
+    parent_hint = ", ".join(f"`{name}`" for name in parent_rules[:4])
+    if len(parent_rules) > 4:
+        parent_hint += ", ..."
+    child_exports = sorted(
+        {name for _value, names, _parent_names in matches for name in names}
+    )
+    export_hint = (
+        f" such as `{child_exports[0]}`" if child_exports else " from that child"
+    )
+    return [
+        "Child fragment numeric output re-encoded: "
+        f"`{rules_file.name}` copies numeric literal(s) {copied_values} from child "
+        f"`{child_display_path}` in rule(s) {parent_hint}. Import and reference "
+        f"the child output{export_hint} instead of copying the child value into "
+        "the parent formula."
+    ]
+
+
+def _format_numeric_literal(value: float) -> str:
+    if value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def find_child_fragment_reencoding_issues(
     content: str,
     *,
@@ -4939,8 +5137,6 @@ def find_child_fragment_reencoding_issues(
         rules_file=rules_file,
         policy_repo_path=policy_repo_path,
     )
-    if not parent_inputs:
-        return []
 
     issues: list[str] = []
     for child in sorted(child_dir.rglob("*.yaml")):
@@ -4954,8 +5150,6 @@ def find_child_fragment_reencoding_issues(
                 child.resolve().relative_to(policy_repo_path).as_posix()
             )
         except ValueError:
-            continue
-        if _imports_cover_path_static(imports, child_import_base):
             continue
 
         child_payload = _rulespec_payload_from_file(child)
@@ -4971,23 +5165,36 @@ def find_child_fragment_reencoding_issues(
             rules_file=child,
             policy_repo_path=policy_repo_path,
         )
-        shared_inputs = sorted(parent_inputs & child_inputs)
-        if not shared_inputs:
-            continue
-
-        child_exports = sorted(_rulespec_executable_names_from_payload(child_payload))
-        export_hint = (
-            f" such as `{child_exports[0]}`" if child_exports else " from that child"
-        )
-        shared = ", ".join(f"`{name}`" for name in shared_inputs[:4])
-        if len(shared_inputs) > 4:
-            shared += ", ..."
-        issues.append(
-            "Child fragment re-encoded: "
-            f"`{rules_file.name}` uses child-local input(s) {shared} also used by "
-            f"`{child_display_path}` without importing `{child_import_base}`. "
-            f"Import and compose the child output{export_hint} "
-            "instead of copying the child formula or factual inputs into the parent."
+        if parent_inputs:
+            shared_inputs = sorted(parent_inputs & child_inputs)
+            if shared_inputs:
+                child_exports = sorted(
+                    _rulespec_executable_names_from_payload(child_payload)
+                )
+                export_hint = (
+                    f" such as `{child_exports[0]}`"
+                    if child_exports
+                    else " from that child"
+                )
+                shared = ", ".join(f"`{name}`" for name in shared_inputs[:4])
+                if len(shared_inputs) > 4:
+                    shared += ", ..."
+                issues.append(
+                    "Child fragment re-encoded: "
+                    f"`{rules_file.name}` uses child-local input(s) {shared} also used by "
+                    f"`{child_display_path}` without importing `{child_import_base}`. "
+                    f"Import and compose the child output{export_hint} "
+                    "instead of copying the child formula or factual inputs into the parent."
+                )
+        issues.extend(
+            _child_numeric_output_reencoding_issues(
+                parent_payload=payload,
+                child_payload=child_payload,
+                child_display_path=child_display_path,
+                rules_file=rules_file,
+                child=child,
+                policy_repo_path=policy_repo_path,
+            )
         )
     return issues
 

@@ -4483,6 +4483,112 @@ rules:
     )
 
 
+def test_child_fragment_reencoding_rejects_parent_copying_child_numeric_output(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "24.yaml"
+    child = repo / "statutes" / "26" / "24" / "h.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: ctc_joint_phase_out_threshold_under_subsection_h
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2018-01-01'
+        formula: 400000
+
+  - name: ctc_other_phase_out_threshold_under_subsection_h
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2018-01-01'
+        formula: 200000
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/24/h#ctc_maximum_before_phase_out_under_subsection_h
+rules:
+  - name: ctc_phaseout_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    source: 26 USC 24(b)(2), 24(h)(3)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if taxable_year_begins_after_2017:
+              if filing_status == 1 or filing_status == 4:
+                  400000
+              else:
+                  200000
+          else:
+              ctc_joint_threshold_before_subsection_h
+"""
+
+    issues = find_child_fragment_reencoding_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Child fragment numeric output re-encoded" in issues[0]
+    assert "400000" in issues[0]
+    assert "200000" in issues[0]
+    assert "statutes/26/24/h.yaml" in issues[0]
+    assert "ctc_joint_phase_out_threshold_under_subsection_h" in issues[0]
+
+
+def test_child_fragment_reencoding_allows_parent_using_imported_child_numeric_output(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "24.yaml"
+    child = repo / "statutes" / "26" / "24" / "h.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: ctc_joint_phase_out_threshold_under_subsection_h
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2018-01-01'
+        formula: 400000
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/24/h#ctc_joint_phase_out_threshold_under_subsection_h
+rules:
+  - name: ctc_phaseout_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    source: 26 USC 24(b)(2), 24(h)(3)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if taxable_year_begins_after_2017:
+              ctc_joint_phase_out_threshold_under_subsection_h
+          else:
+              ctc_joint_threshold_before_subsection_h
+"""
+
+    assert (
+        find_child_fragment_reencoding_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_cross_reference_exception_placeholder_allows_covering_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"

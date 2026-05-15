@@ -67,7 +67,11 @@ Hard requirements:
 - If the target is an aggregate parent provision and child-fragment files already
   encode subparagraphs, import those child outputs and compose them. Do not
   redefine the child parameters, helper rules, or copied executable outputs in
-  the parent file.
+  the parent file. This includes source-stated numeric values: if a child
+  fragment already exports a threshold, amount, rate, cap, or limit, the parent
+  formula must reference the imported child output by name rather than copying
+  the child literal, even when the parent source excerpt includes the child
+  subsection text.
 - If an existing copied target file already has executable `parameter`,
   `derived`, or `data_relation` rules, do not replace it with
   `module.status: deferred`, `module.status: entity_not_supported`, or
@@ -83,7 +87,9 @@ Hard requirements:
   and compose it. Do not copy the child formula or its factual inputs into the
   parent file. For example, IRC section 63(c) should import
   `us:statutes/26/63/c/5#dependent_standard_deduction` rather than reconstruct
-  the dependent earned-income limitation in `c.yaml`.
+  the dependent earned-income limitation in `c.yaml`. Importing one output from
+  a child file does not make it okay to copy another child output as a raw
+  literal; import each child output you use.
 - If copied context listings include exported symbols as `import_target#name`,
   use those exact references in `imports:` and proof atoms when composing from
   context.
