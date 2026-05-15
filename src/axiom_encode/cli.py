@@ -3858,6 +3858,13 @@ def _append_generated_zero_branch_tests_if_missing(
         relative_output=relative_output,
     ):
         repaired.append("low_income_nonitemizer_zero_taxable_income")
+    if _append_nonitemizer_charitable_deduction_zero_test_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        relative_output=relative_output,
+    ):
+        repaired.append("itemizer_zero_nonitemizer_charitable_deduction")
     return repaired
 
 
@@ -4369,6 +4376,60 @@ def _append_taxable_income_zero_floor_test_if_missing(
     return True
 
 
+def _append_nonitemizer_charitable_deduction_zero_test_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    """Append a generated proof case for 26 USC 170(p)'s itemizer exclusion."""
+    if not test_file.exists():
+        return False
+
+    rules_content = rules_file.read_text()
+    if (
+        "name: nonitemizer_charitable_deduction" not in rules_content
+        or "individual_does_not_elect_to_itemize_deductions_for_taxable_year"
+        not in rules_content
+    ):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    deduction_target = f"{target_base}#nonitemizer_charitable_deduction"
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except yaml.YAMLError:
+        test_payload = []
+    if _has_zero_output_test(test_payload, deduction_target):
+        return False
+
+    test_content = test_file.read_text()
+    case_name = "itemizer_zero_nonitemizer_charitable_deduction"
+    if case_name in test_content:
+        return False
+
+    input_prefix = f"{target_base}#input."
+    case = f"""- name: {case_name}
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    {input_prefix}filing_status: 0
+    {input_prefix}individual_does_not_elect_to_itemize_deductions_for_taxable_year: false
+    {input_prefix}nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500
+  output:
+    {deduction_target}: 0
+"""
+    separator = "" if test_content.endswith("\n") else "\n"
+    test_file.write_text(f"{test_content}{separator}{case}")
+    return True
+
+
 def _has_zero_output_test(test_cases: object, target: str) -> bool:
     if not isinstance(test_cases, list):
         return False
@@ -4782,6 +4843,31 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_test_cases:
+                    outcome["auto_repaired_zero_branch_tests"] = repaired_test_cases
+                    print(
+                        "  apply=auto_repaired_zero_branch_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 detail = (
                     apply_issues[0]
                     if apply_issues
@@ -4847,6 +4933,34 @@ def _can_attempt_apply(result) -> bool:
         "Generated RuleSpec failed compile validation",
         "Generated RuleSpec failed CI validation",
     }
+
+
+def _try_repair_generated_zero_branch_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Append deterministic generated zero-branch tests before applying."""
+    if not _only_pending_zero_branch_coverage_issues(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _append_generated_zero_branch_tests_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        relative_output=relative_output,
+    )
 
 
 def _relative_generated_output_path(
