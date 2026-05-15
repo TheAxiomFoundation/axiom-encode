@@ -8225,6 +8225,97 @@ mappings:
     comparison: money
     rationale: Same statutory personal-exemption phaseout increment for married filing separately.
 
+  - legal_id: us:statutes/26/199A#qbi_deduction_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.max.rate
+    period: year
+    comparison: rate
+    rationale: Same statutory twenty-percent qualified-business-income deduction rate.
+
+  - legal_id: us:statutes/26/199A#wage_limit_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.max.w2_wages.rate
+    period: year
+    comparison: rate
+    rationale: Same statutory fifty-percent W-2 wage limit rate.
+
+  - legal_id: us:statutes/26/199A#alternate_wage_limit_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.max.w2_wages.alt_rate
+    period: year
+    comparison: rate
+    rationale: Same statutory twenty-five-percent alternative W-2 wage limit rate.
+
+  - legal_id: us:statutes/26/199A#qualified_property_limit_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.max.business_property.rate
+    period: year
+    comparison: rate
+    rationale: Same statutory two-and-a-half-percent unadjusted-basis limit rate.
+
+  - legal_id: us:statutes/26/199A#qbi_phasein_range_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.phase_out.length
+    parameter_keys:
+      - SINGLE
+      - SEPARATE
+      - HEAD_OF_HOUSEHOLD
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory phase-in range for filers other than joint and surviving-spouse filers.
+
+  - legal_id: us:statutes/26/199A#qbi_phasein_range_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.phase_out.length
+    parameter_keys:
+      - JOINT
+      - SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory joint-return phase-in range, including surviving-spouse filing status in PolicyEngine.
+
+  - legal_id: us:statutes/26/199A#minimum_active_qbi_deduction_base
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.deduction_floor.amount
+    parameter_key_path:
+      - brackets
+      - 1
+      - amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory minimum active-QBI deduction floor amount.
+
+  - legal_id: us:statutes/26/199A#active_qbi_minimum_threshold_base
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.qbi.deduction_floor.amount
+    parameter_key_path:
+      - brackets
+      - 1
+      - threshold
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory active-QBI threshold for the deduction floor.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
@@ -8339,6 +8430,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 151 provision-level exemption and senior-deduction outputs use source-specific eligibility predicates, phaseout helpers, or current-law assembly surfaces that PolicyEngine folds into exemptions/additional_senior_deduction or stores through different parameter structures unless an exact mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/199A#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 199A provision-level QBI outputs use source-specific threshold bases, trade-or-business, cooperative, floor, phase-in, and taxable-income-limit intermediates that PolicyEngine folds into qualified_business_income_deduction/qbid_amount or stores as annual parameter surfaces unless an exact mapping overrides this prefix.
 
   - legal_id_prefix: us:statutes/26/1411#
     country: us

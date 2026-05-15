@@ -1532,6 +1532,39 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert section_151_formula_mapping.mapping_type == "not_comparable"
     assert section_151_formula_mapping.match_type == "prefix"
+    qbi_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/199A#qbi_deduction_rate",
+        country="us",
+    )
+    assert qbi_rate_mapping.mapping_type == "parameter_value"
+    assert qbi_rate_mapping.policyengine_parameter == "gov.irs.deductions.qbi.max.rate"
+    assert qbi_rate_mapping.match_type == "exact"
+    qbi_phasein_other_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/199A#qbi_phasein_range_other",
+        country="us",
+    )
+    assert qbi_phasein_other_mapping.mapping_type == "parameter_value"
+    assert qbi_phasein_other_mapping.parameter_keys == (
+        "SINGLE",
+        "SEPARATE",
+        "HEAD_OF_HOUSEHOLD",
+    )
+    qbi_floor_amount_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/199A#minimum_active_qbi_deduction_base",
+        country="us",
+    )
+    assert qbi_floor_amount_mapping.mapping_type == "parameter_value"
+    assert qbi_floor_amount_mapping.parameter_key_path == (
+        "brackets",
+        1,
+        "amount",
+    )
+    qbi_formula_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/199A#qualified_business_income_deduction",
+        country="us",
+    )
+    assert qbi_formula_mapping.mapping_type == "not_comparable"
+    assert qbi_formula_mapping.match_type == "prefix"
     self_employment_tax_deduction_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/164/f#self_employment_tax_deduction",
         country="us",
