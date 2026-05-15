@@ -8316,6 +8316,15 @@ mappings:
     comparison: money
     rationale: Same statutory active-QBI threshold for the deduction floor.
 
+  - legal_id: us:statutes/26/213#medical_expense_agi_floor_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.itemized.medical.floor
+    period: year
+    comparison: rate
+    rationale: Same statutory percentage of adjusted gross income that floors deductible medical-care expenses.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
@@ -8436,6 +8445,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 199A provision-level QBI outputs use source-specific threshold bases, trade-or-business, cooperative, floor, phase-in, and taxable-income-limit intermediates that PolicyEngine folds into qualified_business_income_deduction/qbid_amount or stores as annual parameter surfaces unless an exact mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/213#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 213 provision-level medical-care outputs include source-specific lodging, medicine-or-drug, long-term-care, decedent, cosmetic-surgery, section 21 exclusion, and expense assembly surfaces that PolicyEngine folds into itemized_medical_expenses/medical_expense_deduction unless an exact mapping overrides this prefix.
 
   - legal_id_prefix: us:statutes/26/1411#
     country: us
