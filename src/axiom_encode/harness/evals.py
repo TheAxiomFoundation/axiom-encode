@@ -2826,6 +2826,10 @@ RuleSpec requirements:
   `child_or_dependent_of_tax_unit`, and aggregate over that relation. For IRC
   section 24(h), count `ctc_qualifying_child` and `ctc_other_dependent` over a
   dependent/child relation, not over `member_of_tax_unit`.
+- If a generic role-scoped relation name is already exported by a copied
+  sibling file, do not reuse it. Make the relation source-specific, such as
+  `ctc_qualifying_child_of_tax_unit` for section 24 rather than a sibling's
+  `qualifying_child_of_tax_unit`.
 - If the source computes an amount by reference to an entitlement, status,
   amount, or test "under" another section, subsection, paragraph, regulation, or
   document, do not inline that cross-reference's mechanics into this file unless
@@ -3183,20 +3187,26 @@ def _format_branch_child_naming_guidance(
         return ""
 
     reserved = _format_rule_name_list(sorted(sibling_exports))
-    colliding = _format_rule_name_list(sorted(target_exports & sibling_exports.keys()))
+    colliding_exports = target_exports & sibling_exports.keys()
+    colliding = _format_rule_name_list(sorted(colliding_exports))
     collision_note = ""
-    if colliding:
+    if colliding_exports:
         collision_note = (
             "\n- The copied target currently exports invalid colliding names: "
             f"{colliding}; do not preserve those names."
         )
 
     return f"""
-Branch child naming for this target:
-- Copied sibling child files already reserve these exported names: {reserved}.
+Sibling export naming for this target:
+- Copied sibling files already reserve these exported names: {reserved}.
 {collision_note}
-- This target is a child branch. If the source states a shared parent
-  consequence such as "shall be exempt if (A) ...", define the condition in this branch, not the shared parent consequence. Use a concise semantic output
+- Do not export any local rule with a copied sibling's name. If a suggested
+  generic relation name is already reserved, use a source-specific semantic
+  name, such as `ctc_qualifying_child_of_tax_unit` for section 24 rather than
+  `qualifying_child_of_tax_unit`.
+- If this target is a child branch and the source states a shared parent
+  consequence such as "shall be exempt if (A) ...", define the condition in this
+  branch, not the shared parent consequence. Use a concise semantic output
   name based on this branch's condition.
 - If the copied target exports a name that mainly describes the shared parent outcome rather than this branch's source-stated condition, treat that name as stale and rename it even when no sibling currently collides with it.
 """

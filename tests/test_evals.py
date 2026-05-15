@@ -13,6 +13,7 @@ import yaml
 
 from axiom_encode.harness.evals import (
     EvalArtifactMetrics,
+    EvalContextFile,
     EvalReadinessGates,
     EvalResult,
     EvalSuiteCase,
@@ -4826,15 +4827,69 @@ class TestRepoAugmentedContext:
             runner_backend="openai",
         )
 
-        assert "Branch child naming for this target" in prompt
+        assert "Sibling export naming for this target" in prompt
         assert "`person_exempt_from_paragraph_1_work_requirements`" in prompt
-        assert "copied target currently exports invalid colliding names" in prompt
-        assert "do not preserve those names" in prompt
-        assert (
-            "define the condition in this branch, not the shared parent consequence"
-            in prompt
-        )
+        assert "copied target currently exports invalid colliding names" not in prompt
+        assert "Do not export any local rule with a copied sibling's name" in prompt
+        assert "not the shared parent consequence" in prompt
         assert "treat that name as stale and rename it" in prompt
+
+    def test_build_eval_prompt_qualifies_generic_relation_when_sibling_reserved(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        statute_root = repo_root / "rulespec-us" / "statutes" / "26"
+        statute_root.mkdir(parents=True)
+        sibling_file = statute_root / "32.yaml"
+        sibling_file.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: qualifying_child_of_tax_unit\n"
+            "    kind: data_relation\n"
+            "    data_relation:\n"
+            "      predicate: qualifying_child_of_tax_unit\n"
+            "      arity: 2\n"
+            "      arguments:\n"
+            "        - TaxUnit\n"
+            "        - Person\n"
+        )
+
+        workspace = prepare_eval_workspace(
+            citation="26 USC 24",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "There shall be allowed a credit with respect to each qualifying "
+                "child of the taxpayer."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+        context_file = EvalContextFile(
+            source_path=sibling_file,
+            workspace_path=Path("context/statutes/26/32.yaml"),
+            import_path="us:statutes/26/32",
+            kind="implementation_precedent",
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 24",
+            "repo-augmented",
+            workspace,
+            [context_file],
+            target_file_name="24.yaml",
+            target_ref_prefix="us:statutes/26/24",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Sibling export naming for this target" in prompt
+        assert "`qualifying_child_of_tax_unit`" in prompt
+        assert "ctc_qualifying_child_of_tax_unit" in prompt
+        assert "copied target currently exports invalid colliding names" not in prompt
 
     def test_hydrate_eval_root_copies_context_into_import_tree(self, tmp_path):
         repo_root = tmp_path / "repos"

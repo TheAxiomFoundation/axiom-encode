@@ -134,6 +134,10 @@ Hard requirements:
   `child_or_dependent_of_tax_unit`, and aggregate over that relation. For IRC
   section 24(h), count `ctc_qualifying_child` and `ctc_other_dependent` over a
   dependent/child relation, not over `member_of_tax_unit`.
+- If a generic role-scoped relation name is already exported by a copied
+  sibling file, do not reuse it. Make the relation source-specific, such as
+  `ctc_qualifying_child_of_tax_unit` for section 24 rather than a sibling's
+  `qualifying_child_of_tax_unit`.
 - If the source computes an amount by reference to an entitlement, status,
   amount, or test "under" another section, subsection, paragraph, regulation, or
   document, do not inline that cross-reference's mechanics into this file unless
