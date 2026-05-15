@@ -4380,6 +4380,7 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
         return []
 
     formula_records = _rulespec_rule_formula_records(payload)
+    dtype_by_name = _rulespec_rule_dtype_by_name(payload)
     formula_by_name = {
         name: formula
         for name, kind, formula, _source in formula_records
@@ -4388,6 +4389,8 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
     issues: list[str] = []
     for name, kind, formula, rule_source in formula_records:
         if kind != "derived":
+            continue
+        if dtype_by_name.get(name) in {"judgment", "boolean", "bool"}:
             continue
         if not _FINAL_AMOUNT_NAME_PATTERN.search(name):
             continue
@@ -4417,6 +4420,21 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
             "compose it into the final exported amount."
         )
     return issues
+
+
+def _rulespec_rule_dtype_by_name(payload: dict[str, Any]) -> dict[str, str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+    dtype_by_name: dict[str, str] = {}
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or f"rules[{index}]").strip()
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if name and dtype:
+            dtype_by_name[name] = dtype
+    return dtype_by_name
 
 
 def _formula_or_referenced_helpers_implement_limitation(
