@@ -1516,6 +1516,22 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert nonitemizer_charitable_mapping.mapping_type == "not_comparable"
     assert nonitemizer_charitable_mapping.match_type == "prefix"
+    senior_deduction_amount_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/151#senior_deduction_base_amount",
+        country="us",
+    )
+    assert senior_deduction_amount_mapping.mapping_type == "parameter_value"
+    assert (
+        senior_deduction_amount_mapping.policyengine_parameter
+        == "gov.irs.deductions.senior_deduction.amount"
+    )
+    assert senior_deduction_amount_mapping.match_type == "exact"
+    section_151_formula_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/151#senior_deduction",
+        country="us",
+    )
+    assert section_151_formula_mapping.mapping_type == "not_comparable"
+    assert section_151_formula_mapping.match_type == "prefix"
     self_employment_tax_deduction_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/164/f#self_employment_tax_deduction",
         country="us",

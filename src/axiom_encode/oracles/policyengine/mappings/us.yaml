@@ -8133,6 +8133,98 @@ mappings:
     mapping_type: not_comparable
     rationale: California CalFresh MPP §63-503.312 state-specific rule (renamed sibling); no direct PolicyEngine variable equivalent.
 
+  - legal_id: us:statutes/26/151#senior_deduction_base_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.senior_deduction.amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory senior-deduction base amount.
+
+  - legal_id: us:statutes/26/151#senior_deduction_age_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.standard.aged_or_blind.age_threshold
+    period: year
+    comparison: count
+    rationale: Same age-65 threshold reused by PolicyEngine's senior-deduction eligibility formula.
+
+  - legal_id: us:statutes/26/151#senior_deduction_phaseout_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.senior_deduction.phase_out_rate.other
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    comparison: rate
+    rationale: Same six-percent statutory senior-deduction phaseout rate.
+
+  - legal_id: us:statutes/26/151#senior_deduction_phaseout_threshold_other
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.senior_deduction.phase_out_rate.other
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same senior-deduction phaseout threshold for non-joint filers.
+
+  - legal_id: us:statutes/26/151#senior_deduction_phaseout_threshold_joint
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.deductions.senior_deduction.phase_out_rate.joint
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same senior-deduction phaseout threshold for joint filers.
+
+  - legal_id: us:statutes/26/151#exemption_phaseout_rate_per_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.exemption.phase_out.rate
+    period: year
+    comparison: rate
+    rationale: Same statutory personal-exemption phaseout rate per increment.
+
+  - legal_id: us:statutes/26/151#exemption_phaseout_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.exemption.phase_out.step_size
+    parameter_keys:
+      - SINGLE
+      - JOINT
+      - HEAD_OF_HOUSEHOLD
+      - SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory personal-exemption phaseout increment for filers other than married filing separately.
+
+  - legal_id: us:statutes/26/151#exemption_phaseout_increment_separate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.income.exemption.phase_out.step_size
+    parameter_key: SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory personal-exemption phaseout increment for married filing separately.
+
 prefixes:
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
@@ -8241,6 +8333,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 104(a)(4) service-injury pension exclusion outputs are source-specific exclusion predicates and amounts that PolicyEngine does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/151#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 151 provision-level exemption and senior-deduction outputs use source-specific eligibility predicates, phaseout helpers, or current-law assembly surfaces that PolicyEngine folds into exemptions/additional_senior_deduction or stores through different parameter structures unless an exact mapping overrides this prefix.
 
   - legal_id_prefix: us:statutes/26/1411#
     country: us
