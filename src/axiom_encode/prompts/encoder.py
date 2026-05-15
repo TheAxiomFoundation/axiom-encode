@@ -90,6 +90,13 @@ Hard requirements:
   the dependent earned-income limitation in `c.yaml`. Importing one output from
   a child file does not make it okay to copy another child output as a raw
   literal; import each child output you use.
+- If the requested provision adjusts, indexes, caps, phases out, or otherwise
+  modifies "the $X amount in" a child subsection or paragraph, do not create a
+  local `*_base_for_inflation` or similar parameter with that child literal.
+  Import the child output that defines the referenced amount and use that
+  imported output as the base in the adjustment formula. For IRC section 24(i),
+  import the subsection 24(h) child amount and refundable-cap outputs rather
+  than defining local `1400` or `2200` base parameters in `24.yaml`.
 - If copied context listings include exported symbols as `import_target#name`,
   use those exact references in `imports:` and proof atoms when composing from
   context.
