@@ -764,8 +764,19 @@ _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN = re.compile(
 )
 _SCHEDULE_INDEX_NAME_PATTERN = r"[A-Za-z_]\w*_size(?:_[A-Za-z_]\w*)*"
 _STRUCTURAL_ENUM_INDEX_NAME_PATTERN = r"(?:filing_status|tax_filing_status)"
-_US_TAX_SURVIVING_SPOUSE_TEXT_PATTERN = re.compile(
-    r"(?:^|[^A-Za-z0-9])(?:surviving[\s_-]+spouse|qualifying[\s_-]+widow(?:er)?)\b",
+_US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN = re.compile(
+    r"(?:"
+    r"(?:joint(?:[\s_-]+return)?|married[\s_-]+filing[\s_-]+jointly)"
+    r"\s*(?:/|,|\bor\b|\band\b)\s*"
+    r"(?:surviving[\s_-]+spouse|qualifying[\s_-]+widow(?:er)?)"
+    r"|"
+    r"(?:surviving[\s_-]+spouse|qualifying[\s_-]+widow(?:er)?)"
+    r"\s*(?:/|,|\bor\b|\band\b)\s*"
+    r"(?:joint(?:[\s_-]+return)?|married[\s_-]+filing[\s_-]+jointly)"
+    r"|"
+    r"(?:surviving[\s_-]+spouse|qualifying[\s_-]+widow(?:er)?)"
+    r"\s+with\s+joint(?:[\s_-]+return)?"
+    r")",
     flags=re.IGNORECASE,
 )
 _US_TAX_FILING_STATUS_NAME_PATTERN = re.compile(
@@ -3266,7 +3277,9 @@ def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str
 def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
     """Flag filing-status branches that omit surviving spouse when source groups it."""
     payload = _rulespec_payload(content)
-    if payload is None or not _US_TAX_SURVIVING_SPOUSE_TEXT_PATTERN.search(content):
+    if payload is None or not _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(
+        content
+    ):
         return []
 
     issues: list[str] = []
@@ -3433,9 +3446,9 @@ def _filing_status_surviving_spouse_branch_issue(
                 "surviving spouse with joint return."
             )
 
-    if _filing_status_has_code_comparison(formula, 1) and not (
+    if _filing_status_has_code_equality(formula, 1) and not (
         _filing_status_has_grouped_joint_surviving_spouse_condition(formula)
-        or _filing_status_has_code_comparison(formula, 4)
+        or _filing_status_has_code_equality(formula, 4)
     ):
         return (
             "Filing status branch missing surviving spouse: "
@@ -3514,11 +3527,11 @@ def _normalize_branch_result(result: str) -> str:
     return re.sub(r"\s+", "", result.strip().rstrip(",")).lower()
 
 
-def _filing_status_has_code_comparison(formula: str, code: int) -> bool:
+def _filing_status_has_code_equality(formula: str, code: int) -> bool:
     return bool(
         re.search(
-            rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=|>=|>|<=|<)\s*{code}\b"
-            rf"|\b{code}\s*(?:==|!=|>=|>|<=|<)\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+            rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*==\s*{code}\b"
+            rf"|\b{code}\s*==\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
             formula,
             flags=re.IGNORECASE,
         )
