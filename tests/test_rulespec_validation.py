@@ -1510,6 +1510,12 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert qualified_overtime_mapping.mapping_type == "not_comparable"
     assert qualified_overtime_mapping.match_type == "prefix"
+    nonitemizer_charitable_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/170/p#nonitemizer_charitable_deduction",
+        country="us",
+    )
+    assert nonitemizer_charitable_mapping.mapping_type == "not_comparable"
+    assert nonitemizer_charitable_mapping.match_type == "prefix"
     self_employment_tax_deduction_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/164/f#self_employment_tax_deduction",
         country="us",
