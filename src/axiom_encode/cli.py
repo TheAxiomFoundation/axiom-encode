@@ -4419,33 +4419,90 @@ def _append_nonitemizer_charitable_deduction_zero_test_if_missing(
         return False
 
     input_prefix = f"{target_base}#input."
-    amount_input = "nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1"
-    amount_input_line = (
-        f"    {input_prefix}{amount_input}: 500\n"
-        if amount_input in rules_content
-        else ""
-    )
+    factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
+    factual_inputs.update({"filing_status", itemization_input})
+    input_lines: list[str] = []
+    for input_name in sorted(factual_inputs):
+        value = _infer_missing_input_default(input_name)
+        if input_name == "filing_status":
+            value = 0
+        elif input_name == itemization_input:
+            value = False
+        elif input_name.startswith(
+            ("cash_contributions_", "charitable_contributions_")
+        ):
+            value = 0
+        input_lines.append(
+            f"    {input_prefix}{input_name}: {_format_yaml_scalar(value)}"
+        )
+    input_block = "\n".join(input_lines)
     case = f"""- name: {case_name}
   period:
     period_kind: tax_year
     start: '2026-01-01'
     end: '2026-12-31'
   input:
-    {input_prefix}filing_status: 0
-    {input_prefix}{itemization_input}: false
-    {input_prefix}contribution_made_in_cash_during_taxable_year: false
-    {input_prefix}contribution_to_organization_described_in_section_170_b_1_A: false
-    {input_prefix}contribution_to_organization_described_in_section_509_a_3: false
-    {input_prefix}contribution_for_establishment_or_maintenance_of_donor_advised_fund: false
-    {input_prefix}payment_amount: 0
-    {input_prefix}contribution_amount: 0
-{amount_input_line.rstrip()}
+{input_block}
   output:
     {deduction_target}: 0
 """
     separator = "" if test_content.endswith("\n") else "\n"
     test_file.write_text(f"{test_content}{separator}{case}")
     return True
+
+
+def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str]:
+    try:
+        payload = yaml.safe_load(rules_content) or {}
+    except yaml.YAMLError:
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+
+    defined_symbols = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    dsl_symbols = {
+        "abs",
+        "and",
+        "ceil",
+        "else",
+        "false",
+        "floor",
+        "if",
+        "match",
+        "max",
+        "min",
+        "not",
+        "or",
+        "round",
+        "sum",
+        "sum_where",
+        "true",
+    }
+    factual_inputs: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            identifiers = set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", formula))
+            factual_inputs.update(identifiers - defined_symbols - dsl_symbols)
+    return factual_inputs
 
 
 def _has_zero_output_test(test_cases: object, target: str) -> bool:
