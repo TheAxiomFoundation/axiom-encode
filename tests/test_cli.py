@@ -3053,6 +3053,106 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_auto_repairs_generic_zero_branch_test(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "213.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: lodging_treated_as_medical_care
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          lodging_not_lavish_or_extravagant
+          and lodging_away_from_home_primarily_for_and_essential_to_medical_care
+  - name: lodging_medical_care_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if lodging_treated_as_medical_care:
+              min(lodging_amount_paid, lodging_medical_care_nightly_cap * lodging_nights * lodging_individuals)
+          else:
+              0
+"""
+        )
+        test_file = output_file.with_name("213.test.yaml")
+        test_file.write_text(
+            """- name: qualifying_lodging_positive
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/213#input.lodging_not_lavish_or_extravagant: true
+    us:statutes/26/213#input.lodging_away_from_home_primarily_for_and_essential_to_medical_care: true
+    us:statutes/26/213#input.lodging_amount_paid: 300
+    us:statutes/26/213#input.lodging_medical_care_nightly_cap: 50
+    us:statutes/26/213#input.lodging_nights: 2
+    us:statutes/26/213#input.lodging_individuals: 2
+  output:
+    us:statutes/26/213#lodging_medical_care_amount: 200
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/213.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/213.yaml: ci: "
+                            "Zero branch test coverage missing: "
+                            "`lodging_medical_care_amount` has a formula branch "
+                            "that returns 0."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_zero_branch_tests:"
+            "auto_zero_lodging_medical_care_amount"
+        ) in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert "auto_zero_lodging_medical_care_amount" in test_content
+        assert (
+            "us:statutes/26/213#input.lodging_not_lavish_or_extravagant: false"
+            in test_content
+        )
+        assert "us:statutes/26/213#lodging_medical_care_amount: 0" in test_content
+
     def test_encode_apply_auto_repairs_missing_test_input_assignments(
         self, capsys, tmp_path
     ):
