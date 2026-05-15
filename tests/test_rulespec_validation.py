@@ -6927,6 +6927,27 @@ rules:
     assert "standard_deduction" in issues[0]
 
 
+def test_source_limitation_application_ignores_judgment_predicates():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A deduction is allowed subject to a limitation. An applicable taxpayer
+    means a taxpayer whose active qualified business income is at least $1,000.
+rules:
+  - name: applicable_taxpayer_for_minimum_active_qbi_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    source: example
+    versions:
+      - effective_from: '2026-01-01'
+        formula: active_qbi >= active_qbi_threshold
+"""
+
+    assert find_source_limitation_application_issues(content) == []
+
+
 def test_source_limitation_application_accepts_final_amount_with_limit_helper():
     content = """format: rulespec/v1
 module:
