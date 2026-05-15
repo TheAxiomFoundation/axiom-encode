@@ -8272,6 +8272,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 224 qualified-tips deduction outputs are new statutory caps, phaseouts, eligibility predicates, and formula intermediates that PolicyEngine does not yet expose as one-to-one variables.
 
+  - legal_id_prefix: us:statutes/26/225#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 225 qualified-overtime deduction outputs are new statutory caps, phaseouts, eligibility predicates, and formula intermediates that PolicyEngine does not yet expose as one-to-one variables.
+
   - legal_id_prefix: us:statutes/26/1402/a#
     country: us
     program: tax

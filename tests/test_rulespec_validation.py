@@ -1504,6 +1504,12 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert qualified_tips_mapping.mapping_type == "not_comparable"
     assert qualified_tips_mapping.match_type == "prefix"
+    qualified_overtime_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/225#qualified_overtime_deduction",
+        country="us",
+    )
+    assert qualified_overtime_mapping.mapping_type == "not_comparable"
+    assert qualified_overtime_mapping.match_type == "prefix"
     self_employment_tax_deduction_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/164/f#self_employment_tax_deduction",
         country="us",
