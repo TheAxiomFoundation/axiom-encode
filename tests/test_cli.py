@@ -2953,6 +2953,101 @@ class TestCmdEncode:
             "encode_issue",
         ]
 
+    def test_encode_apply_auto_repairs_generated_zero_branch_tests(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(True)
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "170" / "p.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: nonitemizer_charitable_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_does_not_elect_to_itemize_deductions_for_taxable_year:
+              nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1
+          else:
+              0
+"""
+        )
+        test_file = output_file.with_name("p.test.yaml")
+        test_file.write_text(
+            """- name: positive_nonitemizer_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: true
+    us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500
+  output:
+    us:statutes/26/170/p#nonitemizer_charitable_deduction: 500
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/170/p.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "Zero branch test coverage missing: "
+                            "`nonitemizer_charitable_deduction` has a formula branch "
+                            "that returns 0."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_zero_branch_tests:"
+            "itemizer_zero_nonitemizer_charitable_deduction"
+        ) in output
+        assert "outcome=apply_applied final_success=True" in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert "itemizer_zero_nonitemizer_charitable_deduction" in test_content
+        assert (
+            "us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: false"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/170/p#nonitemizer_charitable_deduction: 0" in test_content
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_zero_branch_tests"] == [
+            "itemizer_zero_nonitemizer_charitable_deduction"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_allows_overlay_to_rescue_failed_standalone_validation(
         self, capsys, tmp_path
     ):
@@ -4238,6 +4333,93 @@ rules:
         assert (
             "us:statutes/26/6401#limitation_period_overpayment_part: 0" in test_content
         )
+
+    def test_repair_zero_branch_tests_handles_nonitemizer_charitable_deduction(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/170/p.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: nonitemizer_charitable_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_does_not_elect_to_itemize_deductions_for_taxable_year:
+              nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1
+          else:
+              0
+"""
+        )
+        test_file = policy_repo / "statutes/26/170/p.test.yaml"
+        test_file.write_text(
+            """- name: positive_nonitemizer_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: true
+    us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500
+  output:
+    us:statutes/26/170/p#nonitemizer_charitable_deduction: 500
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/170/p.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_zero_branch_tests(args)
+
+        test_content = test_file.read_text()
+        assert "itemizer_zero_nonitemizer_charitable_deduction" in test_content
+        assert (
+            "us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: false"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/170/p#input.nonitemizer_section_170_deduction_determined_for_eligible_cash_contributions_without_regard_to_subsections_b_1_G_ii_b_1_I_and_d_1: 500"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/170/p#nonitemizer_charitable_deduction: 0" in test_content
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/170/p.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert payload["model"] == "zero-branch-test-v1"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/170/p.yaml",
+            "statutes/26/170/p.test.yaml",
+        ]
 
     def test_has_zero_output_test_requires_exact_legal_id(self):
         cases = [
