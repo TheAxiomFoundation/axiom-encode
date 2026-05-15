@@ -3795,7 +3795,7 @@ def _safe_test_name(value: str) -> str:
 
 def _only_pending_zero_branch_coverage_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
-        issue.startswith("Zero branch test coverage missing: ") for issue in issues
+        "Zero branch test coverage missing: " in issue for issue in issues
     )
 
 
