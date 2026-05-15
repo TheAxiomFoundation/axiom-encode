@@ -1581,6 +1581,12 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert medical_formula_mapping.mapping_type == "not_comparable"
     assert medical_formula_mapping.match_type == "prefix"
+    filing_requirement_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/6012#individual_income_tax_return_required_under_2018_2025_rule",
+        country="us",
+    )
+    assert filing_requirement_mapping.mapping_type == "not_comparable"
+    assert filing_requirement_mapping.match_type == "prefix"
     self_employment_tax_deduction_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/164/f#self_employment_tax_deduction",
         country="us",
