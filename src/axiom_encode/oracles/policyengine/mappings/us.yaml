@@ -8266,6 +8266,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 163(h)(4)(A) passenger-vehicle-loan-interest outputs are source-specific statutory predicates not exposed as one-to-one PolicyEngine variables.
 
+  - legal_id_prefix: us:statutes/26/224#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 224 qualified-tips deduction outputs are new statutory caps, phaseouts, eligibility predicates, and formula intermediates that PolicyEngine does not yet expose as one-to-one variables.
+
   - legal_id_prefix: us:statutes/26/1402/a#
     country: us
     program: tax
