@@ -6341,6 +6341,8 @@ def _factual_input_appears_numeric(
 ) -> bool:
     if input_name == "filing_status":
         return True
+    if _factual_input_name_looks_boolean(input_name):
+        return False
     input_tokens = set(input_name.split("_"))
     numeric_name_fragments = (
         "amount",
@@ -6389,6 +6391,44 @@ def _factual_input_appears_numeric(
             if numeric_context.search(formula):
                 return True
     return False
+
+
+def _factual_input_name_looks_boolean(input_name: str) -> bool:
+    normalized = input_name.lower()
+    boolean_prefixes = (
+        "any_",
+        "all_",
+        "is_",
+        "are_",
+        "has_",
+        "have_",
+        "had_",
+        "was_",
+        "were_",
+        "can_",
+        "must_",
+        "does_",
+        "do_",
+        "did_",
+    )
+    boolean_suffixes = (
+        "_applies",
+        "_applicable",
+        "_eligible",
+        "_ineligible",
+        "_qualified",
+        "_unqualified",
+        "_allowable",
+        "_disallowed",
+        "_exempt",
+        "_excluded",
+        "_included",
+        "_true",
+        "_false",
+    )
+    return normalized.startswith(boolean_prefixes) or normalized.endswith(
+        boolean_suffixes
+    )
 
 
 def _relative_generated_output_path(
