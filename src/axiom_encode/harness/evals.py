@@ -1778,6 +1778,8 @@ def _auto_select_context_files(citation: str, policy_root: Path) -> list[Path]:
     target_rel = _target_rel_for_eval_identifier(citation)
     if target_rel is not None:
         target_path = policy_root / target_rel
+        if target_path.exists():
+            selected.append(target_path)
         if target_path.parent.exists():
             for sibling in sorted(target_path.parent.glob("*.yaml")):
                 if sibling.name.endswith(".test.yaml") or sibling == target_path:
@@ -3342,15 +3344,19 @@ def _expand_context_files(
         seen.add(resolved)
         expanded.append((source_path, kind))
         if (
-            kind != "existing_target"
-            and source_path.suffix in {".yaml", ".yml"}
+            source_path.suffix in {".yaml", ".yml"}
             and not source_path.name.endswith(".test.yaml")
         ):
             test_path = _rulespec_test_path(source_path)
             resolved_test = test_path.resolve()
             if test_path.exists() and resolved_test not in seen:
                 seen.add(resolved_test)
-                expanded.append((test_path, "implementation_test_context"))
+                test_kind = (
+                    "existing_target_test_context"
+                    if kind == "existing_target"
+                    else "implementation_test_context"
+                )
+                expanded.append((test_path, test_kind))
 
         if not _is_under_root(source_path, policy_root):
             continue

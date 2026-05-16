@@ -4421,7 +4421,7 @@ class TestRepoAugmentedContext:
         copied = workspace.root / manifest["context_files"][0]["workspace_path"]
         assert copied.exists()
 
-    def test_prepare_eval_workspace_omits_existing_corpus_target(self, tmp_path):
+    def test_prepare_eval_workspace_copies_existing_corpus_target(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "rulespec-us-ny"
         target_file = (
@@ -4451,8 +4451,11 @@ class TestRepoAugmentedContext:
         copied_sources = {
             item["source_path"]: item for item in manifest["context_files"]
         }
-        assert str(target_file) not in copied_sources
-        assert str(target_file.with_name("f.test.yaml")) not in copied_sources
+        assert copied_sources[str(target_file)]["kind"] == "existing_target"
+        assert (
+            copied_sources[str(target_file.with_name("f.test.yaml"))]["kind"]
+            == "existing_target_test_context"
+        )
 
     def test_select_context_files_excludes_target(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
@@ -4538,6 +4541,45 @@ class TestRepoAugmentedContext:
             workspace.root / copied_sources[str(context_test)]["workspace_path"]
         )
         assert copied_test.read_text() == "- name: context_case\n  period: 2026-01\n"
+
+    def test_prepare_eval_workspace_copies_existing_target_file_as_context(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "rulespec-us"
+        policy_repo_root.mkdir(parents=True)
+        target = policy_repo_root / "statutes" / "26" / "3111" / "a.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: employer_oasdi_excise_tax\n"
+            "    kind: derived\n"
+        )
+        target_test = target.with_name("a.test.yaml")
+        target_test.write_text("- name: existing_case\n  period: 2026-01\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = prepare_eval_workspace(
+            citation="us/statute/26/3111/a",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="3111(a) imposes 6.2 percent employer OASDI tax.",
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(target)]["kind"] == "existing_target"
+        assert copied_sources[str(target)]["import_path"] == "us:statutes/26/3111/a"
+        assert (
+            copied_sources[str(target_test)]["kind"]
+            == "existing_target_test_context"
+        )
 
     def test_prepare_eval_workspace_adds_same_section_subsection_context(
         self, tmp_path
@@ -4829,7 +4871,7 @@ class TestRepoAugmentedContext:
 
         assert "Sibling export naming for this target" in prompt
         assert "`person_exempt_from_paragraph_1_work_requirements`" in prompt
-        assert "copied target currently exports invalid colliding names" not in prompt
+        assert "copied target currently exports invalid colliding names" in prompt
         assert "Do not export any local rule with a copied sibling's name" in prompt
         assert "not the shared parent consequence" in prompt
         assert "treat that name as stale and rename it" in prompt
