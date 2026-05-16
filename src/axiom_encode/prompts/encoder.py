@@ -199,12 +199,13 @@ Hard requirements:
   `_provided_in_section_<section>`, `_allowed_under_section_<section>`,
   `_deduction_under_section_<section>`, or `_credit_allowed_under_section_<section>`
   are only allowed for non-exception factual interfaces when the cited source is
-  not available as RuleSpec. If the citation appears in an exception,
-  exclusion, `unless`, `notwithstanding`, shall-not-apply, or not-treated-as
-  clause and the cited source is unavailable, emit `module.status: deferred` or
-  `module.status: entity_not_supported` with `rules: []` instead of inventing
-  a local cross-reference fact. If that section is present in repo context,
-  import it and use its exported output instead.
+  not available as RuleSpec. If the citation appears in definition,
+  same-meaning, treated-as, rules-similar, exception, exclusion, `unless`,
+  `notwithstanding`, shall-not-apply, or not-treated-as logic and the cited
+  source is unavailable, emit `module.status: deferred` or
+  `module.status: entity_not_supported` with `rules: []` instead of inventing a
+  local cross-reference fact. If that section is present in repo context, import
+  it and use its exported output instead.
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.
@@ -313,6 +314,10 @@ Hard requirements:
   inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys
   referenced directly by formulas.
+- For proration tests with a source-stated denominator, choose input amounts
+  divisible by that denominator so expected outputs are exact decimals, not
+  rounded approximations. For example, if the denominator is 365, use a base
+  amount like 36500 so `36500 * 182 / 365 = 18200`.
 - Every test case for a local derived formula must assign every local factual
   `#input.<fact>` referenced by that formula, including facts that are false in
   the case. Missing false inputs make the executable test invalid.

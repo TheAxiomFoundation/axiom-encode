@@ -1852,7 +1852,7 @@ def _select_cross_section_context_files(
         source_text,
         flags=re.IGNORECASE,
     ):
-        section = match.group("section")
+        section = match.group("section").rstrip(".")
         if section == parts.section:
             continue
         fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
@@ -2677,9 +2677,10 @@ Import and context rules:
         canonical_target_rule = ""
         if target_ref_prefix:
             canonical_target_rule = f"""
-- The canonical RuleSpec reference prefix for `{target_file_name}` is `{target_ref_prefix}`.
-- In tests for this file, use `{target_ref_prefix}#input.<fact>` for local factual inputs and `{target_ref_prefix}#<rule>` for outputs. Never use `{target_file_name}#...` keys.
-"""
+	- The canonical RuleSpec reference prefix for `{target_file_name}` is `{target_ref_prefix}`.
+	- In tests for this file, use `{target_ref_prefix}#input.<fact>` for local factual inputs and `{target_ref_prefix}#<rule>` for outputs. Never use `{target_file_name}#...` keys.
+	"""
+        proration_test_guidance = _format_proration_test_guidance(source_text)
         output_rules = f"""
 Return exactly this two-file bundle and nothing else:
 === FILE: {target_file_name} ===
@@ -2707,6 +2708,7 @@ Test file rules:
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines both `Person` and `TaxUnit` outputs, create separate cases: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
+- For proration tests with a source-stated denominator, choose input amounts divisible by that denominator so expected outputs are exact decimals, not rounded approximations. For example, if the denominator is 365, use a base amount like 36500 so `36500 * 182 / 365 = 18200`.
 - Every test case for a local derived formula must assign every local factual
   `#input.<fact>` referenced by that formula, including facts that are false in
   the case. Missing false inputs make the executable test invalid.
@@ -2723,6 +2725,7 @@ Test file rules:
   legal RuleSpec reference that resolves to an actual file and fragment; do not
   use bare friendly keys or absolute-looking placeholders.
 - Do not add speculative future-period tests that rely on uprating or amendments not stated in `./source.txt`.
+{proration_test_guidance.rstrip()}
 {canonical_target_rule.rstrip()}
 {oracle_rule.rstrip()}
 """
@@ -2877,12 +2880,13 @@ RuleSpec requirements:
   `_provided_in_section_<section>`, `_allowed_under_section_<section>`,
   `_deduction_under_section_<section>`, or `_credit_allowed_under_section_<section>`
   are only allowed for non-exception factual interfaces when the cited source is
-  not available as RuleSpec. If the citation appears in an exception,
-  exclusion, `unless`, `notwithstanding`, shall-not-apply, or not-treated-as
-  clause and the cited source is unavailable, emit `module.status: deferred` or
-  `module.status: entity_not_supported` with `rules: []` instead of inventing
-  a local cross-reference fact. If that section is present in repo context,
-  import it and use its exported output instead.
+  not available as RuleSpec. If the citation appears in definition,
+  same-meaning, treated-as, rules-similar, exception, exclusion, `unless`,
+  `notwithstanding`, shall-not-apply, or not-treated-as logic and the cited
+  source is unavailable, emit `module.status: deferred` or
+  `module.status: entity_not_supported` with `rules: []` instead of inventing a
+  local cross-reference fact. If that section is present in repo context, import
+  it and use its exported output instead.
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.
@@ -3385,9 +3389,10 @@ def _format_missing_cited_source_guidance(
     return f"""
 Missing cited RuleSpec sources detected:
 {chr(10).join(lines)}
-For exception, exclusion, `unless`, `notwithstanding`, shall-not-apply,
-not-treated-as, carryback/carryover, or special-rule logic, these citations are
-upstream legal dependencies. Do not create local facts such as
+For definition, same-meaning, treated-as, rules-similar, exception, exclusion,
+`unless`, `notwithstanding`, shall-not-apply, not-treated-as,
+carryback/carryover, or special-rule logic, these citations are upstream legal
+dependencies. Do not create local facts such as
 `section_{example_suffix}...`, `transaction_to_which_section_{example_suffix}_applies`,
 `*_under_section_{example_suffix}`, or `*_provided_in_section_{example_suffix}`.
 If an executable output would depend on any missing target above, emit
@@ -3409,6 +3414,14 @@ def _source_text_has_cross_reference_dependency(source_text: str) -> bool:
             r"|tax\s+imposed\s+by\s+section",
             source_text,
             flags=re.IGNORECASE,
+        )
+        or re.search(
+            r"\bsame\s+meaning\b.*\bsection\s+[0-9]"
+            r"|\btreated\s+as\b.*\bunder\s+section\s+[0-9]"
+            r"|\brules\s+similar\s+to\b.*\bsection\s+[0-9]"
+            r"|\bin\s+accordance\s+with\s+section\s+[0-9]",
+            source_text,
+            flags=re.IGNORECASE | re.DOTALL,
         )
     )
 
@@ -3438,7 +3451,7 @@ def _missing_cited_statute_targets(
     ):
         if _citation_match_points_to_other_act(source_text, match.end()):
             continue
-        section = match.group("section")
+        section = match.group("section").rstrip(".")
         if section == parts.section:
             continue
         fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
@@ -3448,7 +3461,10 @@ def _missing_cited_statute_targets(
             prefix="us",
         )
         normalized = _normalize_prompt_import_target(target)
-        if any(_prompt_import_covers(available_target, normalized) for available_target in available):
+        if any(
+            _prompt_import_covers(available_target, normalized)
+            for available_target in available
+        ):
             continue
         if normalized in seen:
             continue
@@ -3495,6 +3511,23 @@ def _citation_example_suffix(import_target: str) -> str:
     if len(parts) >= 3 and parts[0] == "statutes":
         return "_".join(parts[2:])
     return "_".join(parts[-2:]) if len(parts) >= 2 else "cited"
+
+
+def _format_proration_test_guidance(source_text: str) -> str:
+    """Return source-specific guidance for exact proration companion tests."""
+    if not re.search(
+        r"\bfraction\b.*\bdenominator\b.*\b[0-9]",
+        source_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        return ""
+    return """
+Source-specific proration test guidance:
+- For proration tests with a source-stated denominator, choose input amounts
+  divisible by that denominator so expected outputs are exact decimals, not
+  rounded approximations. For denominator 365, prefer values like 36500 with
+  182 days, so `36500 * 182 / 365 = 18200`, rather than 100000 with 182 days.
+"""
 
 
 @dataclass(frozen=True)

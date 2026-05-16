@@ -5214,6 +5214,43 @@ rules:
     assert pipeline._check_encoded_cross_reference_placeholders(rules_file) == []
 
 
+def test_encoded_cross_reference_placeholder_rejects_missing_definition_dependency(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "45A" / "e.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The term wages has the same meaning given to such term in section 51.
+rules:
+  - name: wages_definition_proxy
+    kind: derived
+    entity: Business
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages_have_same_meaning_under_section_51
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_encoded_cross_reference_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Encoded cross-reference placeholder" in issues[0]
+    assert "wages_have_same_meaning_under_section_51" in issues[0]
+    assert "statutes/26/51" in issues[0]
+    assert "deferred" in issues[0]
+
+
 def test_encoded_cross_reference_placeholder_allows_covering_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "1222.yaml"

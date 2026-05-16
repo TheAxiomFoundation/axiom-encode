@@ -3086,6 +3086,73 @@ class TestEvalPrompt:
         assert "emit `module.status: deferred` or `module.status: entity_not_supported`" in prompt
         assert "leave the companion `.test.yaml` empty" in prompt
 
+    def test_build_eval_prompt_for_missing_definition_dependency_requires_defer(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="26 USC 45A(e)",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "The term wages has the same meaning given to such term in "
+                "section 51. All employers treated as a single employer under "
+                "section 52 shall be treated as a single employer for purposes "
+                "of this section."
+            ),
+            axiom_rules_path=tmp_path / "rulespec-us",
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 45A(e)",
+            "repo-augmented",
+            workspace,
+            [],
+            target_file_name="e.yaml",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Missing cited RuleSpec sources detected" in prompt
+        assert "`us:statutes/26/51`" in prompt
+        assert "`us:statutes/26/52`" in prompt
+        assert "same-meaning" in prompt
+        assert "treated-as" in prompt
+        assert "emit `module.status: deferred` or `module.status: entity_not_supported`" in prompt
+
+    def test_build_eval_prompt_for_proration_tests_prefers_exact_division(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="26 USC 45A(e)(5)",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "For any taxable year having less than 12 months, the amount "
+                "shall be multiplied by a fraction, the numerator of which is "
+                "the number of days in the taxable year and the denominator of "
+                "which is 365."
+            ),
+            axiom_rules_path=tmp_path / "rulespec-us",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 45A(e)(5)",
+            "cold",
+            workspace,
+            [],
+            target_file_name="5.yaml",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "For proration tests with a source-stated denominator" in prompt
+        assert "choose input amounts divisible by that denominator" in prompt
+        assert "36500 * 182 / 365 = 18200" in prompt
+
     def test_build_eval_prompt_for_pure_cross_reference_computation_preserves_distinct_cited_alternatives(
         self, tmp_path
     ):

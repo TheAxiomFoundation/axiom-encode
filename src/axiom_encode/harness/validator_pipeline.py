@@ -9207,7 +9207,10 @@ class ValidatorPipeline:
                 if not import_base:
                     continue
                 target_import_base = import_base.removeprefix("statutes/")
-                if not self._rulespec_import_target_exists(target_import_base):
+                target_exists = self._rulespec_import_target_exists(target_import_base)
+                if not target_exists and not self._source_text_requires_upstream_import(
+                    source_text
+                ):
                     continue
                 if self._imports_cover_placeholder_identifier(
                     import_items,
@@ -9220,14 +9223,38 @@ class ValidatorPipeline:
                 if key in seen:
                     continue
                 seen.add(key)
+                resolution = (
+                    f"Import `{import_base}` and reference "
+                    "the upstream output instead of keeping a local "
+                    "cross-reference input."
+                )
+                if not target_exists:
+                    resolution = (
+                        f"Encode `{import_base}` first, or emit "
+                        "`module.status: deferred` or "
+                        "`module.status: entity_not_supported` with `rules: []` "
+                        "if this provision cannot be computed without that "
+                        "upstream source."
+                    )
                 issues.append(
                     "Encoded cross-reference placeholder: "
                     f"`{block['name']}` uses local `{identifier}` for an already "
-                    f"encoded cited source. Import `{import_base}` and reference "
-                    "the upstream output instead of keeping a local cross-reference "
-                    "input."
+                    f"encoded or required cited source. {resolution}"
                 )
         return issues
+
+    def _source_text_requires_upstream_import(self, source_text: str) -> bool:
+        """Return whether cited-section semantics must import or defer."""
+        return bool(
+            re.search(
+                r"\bsame\s+meaning\b.*\bsection\s+[0-9]"
+                r"|\btreated\s+as\b.*\bunder\s+section\s+[0-9]"
+                r"|\brules\s+similar\s+to\b.*\bsection\s+[0-9]"
+                r"|\bin\s+accordance\s+with\s+section\s+[0-9]",
+                source_text,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+        )
 
     def _imports_cover_placeholder_identifier(
         self,
