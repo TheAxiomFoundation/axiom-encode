@@ -2910,6 +2910,15 @@ RuleSpec requirements:
   fully encoded yet. Preserve the executable public surface and improve the
   source-faithful formulas/tests; only defer an already executable target when
   the existing executable surface is legally impossible to preserve.
+- If the requested source itself defines a legal status or test through
+  relationship, age, abode/residence, support, filing, income, or tie-breaker
+  conditions, encode those conditions as executable predicates with boundary
+  inputs for facts not defined in the source. Do not emit
+  `module.status: deferred` merely because some facts must be supplied by the
+  caller or because tie-breaker facts require relation inputs. For example, IRC
+  section 152(c) should export qualifying-child predicates over a
+  taxpayer-child relation with inputs for relationship, abode, age/student or
+  disability, support, joint-return, and competing-claimant facts.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,
