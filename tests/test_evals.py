@@ -3719,6 +3719,7 @@ rules:
         assert "Hard requirement for IRC section 112" in prompt
         assert "amount_excluded_from_gross_income_by_reason_of_section_112" in prompt
         assert "TaxUnit/Year Money output" in prompt
+        assert "Do not create Person helper outputs" in prompt
         assert "same concept or output name" in prompt
         assert "dependent_standard_deduction_limit" in prompt
         assert "dependent_basic_standard_deduction_statutory_limit" in prompt

@@ -258,6 +258,9 @@ Hard requirements:
   executable TaxUnit/Year Money output, using boundary inputs for qualifying annual
   compensation, commissioned-officer status, maximum enlisted amount,
   combat-zone service, hospitalization, and Vietnam missing-status facts.
+  Do not create Person helper outputs or a `data_relation` aggregate for this
+  Section 112 encoding; use direct TaxUnit/Year annual input amounts and
+  conditions so downstream tax-unit rules can import the result directly.
 - Do not create parallel statutory-dollar executable parameters when a copied
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the

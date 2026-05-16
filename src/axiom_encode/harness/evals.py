@@ -2932,6 +2932,9 @@ RuleSpec requirements:
   executable TaxUnit/Year Money output, using boundary inputs for qualifying annual
   compensation, commissioned-officer status, maximum enlisted amount,
   combat-zone service, hospitalization, and Vietnam missing-status facts.
+  Do not create Person helper outputs or a `data_relation` aggregate for this
+  Section 112 encoding; use direct TaxUnit/Year annual input amounts and
+  conditions so downstream tax-unit rules can import the result directly.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,
