@@ -4892,6 +4892,10 @@ class TestRepoAugmentedContext:
             child_file = child_root / f"{fragment}.yaml"
             child_file.write_text("format: rulespec/v1\nrules: []\n")
             child_files.append(child_file)
+        nested_child_file = child_root / "G" / "1.yaml"
+        nested_child_file.parent.mkdir()
+        nested_child_file.write_text("format: rulespec/v1\nrules: []\n")
+        child_files.append(nested_child_file)
 
         runner = parse_runner_spec("codex:gpt-5.4")
         with patch(
@@ -4914,8 +4918,10 @@ class TestRepoAugmentedContext:
         }
         for child_file in child_files:
             assert copied_sources[str(child_file)]["kind"] == "implementation_precedent"
-            assert copied_sources[str(child_file)]["import_path"] == (
-                f"us:statutes/7/2015/d/2/{child_file.stem}"
+            assert copied_sources[str(child_file)]["import_path"] == "us:" + (
+                child_file.relative_to(repo_root / "rulespec-us")
+                .with_suffix("")
+                .as_posix()
             )
 
     def test_prepare_eval_workspace_materializes_corpus_source_metadata(self, tmp_path):

@@ -1881,7 +1881,7 @@ def _select_child_fragment_context_files(
         return []
     return sorted(
         path
-        for path in child_root.glob("*.yaml")
+        for path in child_root.rglob("*.yaml")
         if not path.name.endswith(".test.yaml")
     )
 
