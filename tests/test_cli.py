@@ -4539,6 +4539,38 @@ rules:
         assert "'Employer'" in issues[0]
         assert "'Business'" in issues[0]
 
+    def test_executable_output_preservation_allows_exemption_amount_person_migration(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: post_2017_exemption_amount
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: post_2017_exemption_amount
+"""
+
+        issues = _executable_output_preservation_issues(existing, generated)
+
+        assert issues == []
+
     def test_executable_input_preservation_rejects_dropped_input_slots(self):
         existing = """format: rulespec/v1
 rules:

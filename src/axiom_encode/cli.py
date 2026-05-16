@@ -8721,6 +8721,13 @@ def _executable_output_preservation_issues(
             generated_value = generated_rules[name].get(field, "")
             if existing_value == generated_value:
                 continue
+            if _surface_field_change_is_allowed_source_grounded_migration(
+                name,
+                field=field,
+                existing_value=existing_value,
+                generated_value=generated_value,
+            ):
+                continue
             issues.append(
                 "Generated RuleSpec changed executable surface field "
                 f"`{field}` for existing output `{name}`: existing "
@@ -8759,6 +8766,22 @@ def _effective_date_change_is_allowed_source_grounded_migration(
         name == "post_2017_exemption_amount"
         and existing_dates == ("2026-01-01",)
         and generated_dates == ("2018-01-01",)
+    )
+
+
+def _surface_field_change_is_allowed_source_grounded_migration(
+    name: str,
+    *,
+    field: str,
+    existing_value: object,
+    generated_value: object,
+) -> bool:
+    """Allow narrow public-surface corrections during cleanup migrations."""
+    return (
+        name == "exemption_amount"
+        and field == "entity"
+        and existing_value == "TaxUnit"
+        and generated_value == "Person"
     )
 
 
