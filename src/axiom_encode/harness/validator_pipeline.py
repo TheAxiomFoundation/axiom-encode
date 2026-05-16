@@ -3970,21 +3970,30 @@ def repair_current_year_final_amount_tables(
     if payload is None:
         return content, []
 
+    rule_names = _rulespec_rule_names(payload)
     imported_exports = _imported_rulespec_exports(
         payload,
         rules_file=rules_file,
         policy_repo_path=policy_repo_path,
     )
-    if not imported_exports:
-        return content, []
 
-    rule_names = _rulespec_rule_names(payload)
     repaired = content
     repaired_rules: list[str] = []
     for name, kind, formula, _source, _rule in _rulespec_rule_formula_rule_records(
         payload
     ):
         if kind != "derived":
+            continue
+        phased_in_repair = _current_year_phased_in_cap_repair(
+            name=name,
+            formula=formula,
+            rule_names=rule_names,
+        )
+        if phased_in_repair is not None:
+            repaired = _replace_formula_text_once(repaired, formula, phased_in_repair)
+            repaired_rules.append(name)
+            continue
+        if not imported_exports:
             continue
         if not _CURRENT_YEAR_FINAL_AMOUNT_RULE_PATTERN.search(name):
             continue
@@ -4016,6 +4025,26 @@ def repair_current_year_final_amount_tables(
         repaired_rules.append(name)
 
     return repaired, repaired_rules
+
+
+def _current_year_phased_in_cap_repair(
+    *,
+    name: str,
+    formula: str,
+    rule_names: set[str],
+) -> str | None:
+    if not name.endswith("_phased_in"):
+        return None
+    prefix = name.removesuffix("_phased_in")
+    maximum_name = f"{prefix}_maximum"
+    if maximum_name not in rule_names:
+        return None
+    stripped = formula.strip()
+    if stripped.startswith(f"min({maximum_name},"):
+        return None
+    if "phase_in_rate" not in stripped or "earned_income_amount" not in stripped:
+        return None
+    return f"min({maximum_name}, {stripped})"
 
 
 def _rulespec_rule_names(payload: dict[str, Any]) -> set[str]:

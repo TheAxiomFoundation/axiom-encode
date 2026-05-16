@@ -7692,6 +7692,44 @@ rules:
     )
 
 
+def test_repair_current_year_final_amount_tables_caps_phased_in_by_maximum(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes/26/32.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: eitc_maximum
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '4427'
+  - name: eitc_phased_in
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount)
+"""
+
+    repaired, rules = repair_current_year_final_amount_tables(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert rules == ["eitc_phased_in"]
+    assert (
+        "min(eitc_maximum, eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount))"
+        in repaired
+    )
+
+
 def test_repair_nonnegative_amount_reductions_floors_conditional_rounding_branches():
     content = """format: rulespec/v1
 rules:
