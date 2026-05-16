@@ -3052,6 +3052,40 @@ class TestEvalPrompt:
             in prompt
         )
 
+    def test_build_eval_prompt_for_missing_cross_reference_exception_requires_defer(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="26 USC 45A(d)",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Paragraph (1) shall not apply to a transaction to which section "
+                "381(a) applies if the employee continues to be employed by the "
+                "acquiring corporation."
+            ),
+            axiom_rules_path=tmp_path / "rulespec-us",
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 45A(d)",
+            "repo-augmented",
+            workspace,
+            [],
+            target_file_name="d.yaml",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Missing cited RuleSpec sources detected" in prompt
+        assert "`us:statutes/26/381/a`" in prompt
+        assert "Do not create local facts such as" in prompt
+        assert "`section_381_a...`" in prompt
+        assert "emit `module.status: deferred` or `module.status: entity_not_supported`" in prompt
+        assert "leave the companion `.test.yaml` empty" in prompt
+
     def test_build_eval_prompt_for_pure_cross_reference_computation_preserves_distinct_cited_alternatives(
         self, tmp_path
     ):

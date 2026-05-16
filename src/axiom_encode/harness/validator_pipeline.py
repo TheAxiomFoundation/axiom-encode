@@ -9103,7 +9103,9 @@ class ValidatorPipeline:
         content = rulespec_file.read_text()
         source_text = extract_embedded_source_text(content)
         if not source_text or not re.search(
-            r"\b(?:except|unless|notwithstanding)\b",
+            r"\b(?:except|unless|notwithstanding)\b"
+            r"|shall\s+not\s+apply"
+            r"|not\s+(?:be\s+)?treated",
             source_text,
             flags=re.IGNORECASE,
         ):
@@ -9129,6 +9131,13 @@ class ValidatorPipeline:
                     source_text=source_text,
                 )
                 if not import_base:
+                    import_base = self._semantic_section_placeholder_import_base(
+                        identifier,
+                        title=title,
+                        current_section=current_section,
+                        source_text=source_text,
+                    )
+                if not import_base:
                     continue
                 if self._imports_cover_placeholder_identifier(
                     import_items,
@@ -9141,11 +9150,24 @@ class ValidatorPipeline:
                 if key in seen:
                     continue
                 seen.add(key)
+                resolution = (
+                    f"Import `{import_base}` instead of creating a local "
+                    "cross-reference input."
+                )
+                if not self._rulespec_import_target_exists(
+                    import_base.removeprefix("statutes/")
+                ):
+                    resolution = (
+                        f"Encode `{import_base}` first, or emit "
+                        "`module.status: deferred` or "
+                        "`module.status: entity_not_supported` with `rules: []` "
+                        "if this provision cannot be computed without that "
+                        "upstream source."
+                    )
                 issues.append(
                     "Cross-reference placeholder: "
                     f"`{block['name']}` uses local fact `{identifier}` "
-                    f"for a cited legal section. Encode the cited source and import "
-                    f"`{import_base}` instead of creating a local cross-reference input."
+                    f"for a cited legal section. {resolution}"
                 )
         return issues
 
@@ -9360,6 +9382,7 @@ class ValidatorPipeline:
             r"|deduction_provided_in"
             r"|credit_allowed_under"
             r"|credits_allowable_under"
+            r"|to_which"
             r")_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
             r"(?P<tail>(?:_[A-Za-z0-9]+)*)",
             identifier,

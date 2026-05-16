@@ -4305,6 +4305,47 @@ rules:
     assert "statutes/7/2015/e" in issues[0]
 
 
+def test_cross_reference_exception_placeholder_rejects_semantic_to_which_section(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "45A" / "d.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Paragraph (1) shall not apply to a transaction to which section 381(a)
+    applies if the employee continues to be employed by the acquiring
+    corporation.
+rules:
+  - name: early_termination_recapture_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          employment_terminated_by_taxpayer_before_one_year
+          and not transaction_to_which_section_381_a_applies_with_employee_continuing
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Cross-reference placeholder" in issues[0]
+    assert "transaction_to_which_section_381_a_applies" in issues[0]
+    assert "statutes/26/381/a" in issues[0]
+    assert "deferred" in issues[0]
+
+
 def test_copied_cross_reference_source_rejects_cited_subsection_body(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"

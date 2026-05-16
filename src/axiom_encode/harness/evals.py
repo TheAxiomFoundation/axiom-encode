@@ -2657,6 +2657,12 @@ Import and context rules:
 {scaffold_dates_section}
 """
 
+    missing_cited_source_section = _format_missing_cited_source_guidance(
+        citation,
+        source_text,
+        context_files,
+    )
+
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
     if include_tests:
         oracle_rule = ""
@@ -2771,7 +2777,7 @@ Primary legal authority:
 - Treat that source text as the only source of legal truth for this artifact.
 {corpus_source_section.rstrip()}
 {inline_source}
-{source_metadata_section}{context_section}
+{source_metadata_section}{context_section}{missing_cited_source_section}
 {backend_section}
 
 RuleSpec requirements:
@@ -2870,9 +2876,13 @@ RuleSpec requirements:
   Cross-reference local inputs such as `_under_section_<section>`,
   `_provided_in_section_<section>`, `_allowed_under_section_<section>`,
   `_deduction_under_section_<section>`, or `_credit_allowed_under_section_<section>`
-  are only allowed when the cited source is not available as RuleSpec. If that
-  section is present in repo context, import it and use its exported output
-  instead.
+  are only allowed for non-exception factual interfaces when the cited source is
+  not available as RuleSpec. If the citation appears in an exception,
+  exclusion, `unless`, `notwithstanding`, shall-not-apply, or not-treated-as
+  clause and the cited source is unavailable, emit `module.status: deferred` or
+  `module.status: entity_not_supported` with `rules: []` instead of inventing
+  a local cross-reference fact. If that section is present in repo context,
+  import it and use its exported output instead.
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.
@@ -3348,6 +3358,143 @@ input, or a local `_provided_in_section_...`, `_allowed_under_section_...`,
 `_deduction_under_section_...`, or `_credit_allowed_under_section_...` input,
 for an already copied RuleSpec context target.
 """
+
+
+def _format_missing_cited_source_guidance(
+    citation: str,
+    source_text: str,
+    context_files: list[EvalContextFile],
+) -> str:
+    """Warn when exception-like logic cites upstream RuleSpec not in context."""
+    if not _source_text_has_cross_reference_dependency(source_text):
+        return ""
+
+    missing_targets = _missing_cited_statute_targets(
+        citation,
+        source_text,
+        context_files,
+    )
+    if not missing_targets:
+        return ""
+
+    lines = [
+        f"- Source cites `{label}`, but no copied context provides `{target}`."
+        for label, target in missing_targets
+    ]
+    example_suffix = _citation_example_suffix(missing_targets[0][1])
+    return f"""
+Missing cited RuleSpec sources detected:
+{chr(10).join(lines)}
+For exception, exclusion, `unless`, `notwithstanding`, shall-not-apply,
+not-treated-as, carryback/carryover, or special-rule logic, these citations are
+upstream legal dependencies. Do not create local facts such as
+`section_{example_suffix}...`, `transaction_to_which_section_{example_suffix}_applies`,
+`*_under_section_{example_suffix}`, or `*_provided_in_section_{example_suffix}`.
+If an executable output would depend on any missing target above, emit
+`module.status: deferred` or `module.status: entity_not_supported` with
+`rules: []`, preserve the source text in `module.summary`, and leave the
+companion `.test.yaml` empty. Encode the upstream cited source first, then retry
+this provision.
+"""
+
+
+def _source_text_has_cross_reference_dependency(source_text: str) -> bool:
+    """Return whether text has dependency phrasing that should not be stubbed."""
+    return bool(
+        re.search(
+            r"\b(?:except|unless|notwithstanding)\b"
+            r"|shall\s+not\s+apply"
+            r"|not\s+be\s+treated"
+            r"|carrybacks?\s+and\s+carryovers?\s+under\s+section"
+            r"|tax\s+imposed\s+by\s+section",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _missing_cited_statute_targets(
+    citation: str,
+    source_text: str,
+    context_files: list[EvalContextFile],
+) -> list[tuple[str, str]]:
+    """Return cited statute targets that are not available as copied context."""
+    try:
+        parts = parse_usc_citation(citation)
+    except Exception:
+        return []
+
+    available = {
+        _normalize_prompt_import_target(item.import_path) for item in context_files
+    }
+    missing: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r"\bsection\s+"
+        r"(?P<section>[0-9][A-Za-z0-9.-]*)"
+        r"(?P<fragments>(?:\([A-Za-z0-9]+\))*)",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        if _citation_match_points_to_other_act(source_text, match.end()):
+            continue
+        section = match.group("section")
+        if section == parts.section:
+            continue
+        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
+        cited_parts = CitationParts(parts.title, section, fragments)
+        target = _relative_rulespec_path_to_import_target(
+            citation_to_relative_rulespec_path(cited_parts).with_suffix(""),
+            prefix="us",
+        )
+        normalized = _normalize_prompt_import_target(target)
+        if any(_prompt_import_covers(available_target, normalized) for available_target in available):
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        label = "section " + section + "".join(f"({fragment})" for fragment in fragments)
+        missing.append((label, target))
+    return missing
+
+
+def _normalize_prompt_import_target(import_target: str) -> str:
+    """Normalize an import target for prompt-context availability checks."""
+    normalized = import_target.strip().strip("\"'")
+    normalized = normalized.split("#", 1)[0]
+    if ":" in normalized:
+        _, normalized = normalized.split(":", 1)
+    return normalized.strip("/")
+
+
+def _prompt_import_covers(available: str, expected: str) -> bool:
+    """Return whether an available prompt import covers an expected target."""
+    return (
+        available == expected
+        or available.startswith(expected + "/")
+        or expected.startswith(available + "/")
+    )
+
+
+def _citation_match_points_to_other_act(source_text: str, match_end: int) -> bool:
+    """Heuristically skip `section X of the Other Act` references."""
+    following = source_text[match_end : match_end + 80]
+    return bool(
+        re.match(
+            r"\s+of\s+(?!this\s+(?:section|title)\b)(?!the\s+Internal\s+Revenue\s+Code\b)",
+            following,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _citation_example_suffix(import_target: str) -> str:
+    """Return identifier-style suffix for a cited import target."""
+    normalized = _normalize_prompt_import_target(import_target)
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) >= 3 and parts[0] == "statutes":
+        return "_".join(parts[2:])
+    return "_".join(parts[-2:]) if len(parts) >= 2 else "cited"
 
 
 @dataclass(frozen=True)
