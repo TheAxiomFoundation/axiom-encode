@@ -2927,6 +2927,11 @@ RuleSpec requirements:
   should export an executable amount excluded from gross income by reason of
   section 112; it should not be `module.status: deferred` solely because combat
   zone designation or military pay facts are supplied by the caller.
+- Hard requirement for IRC section 112: do not emit `module.status: deferred`.
+  Export `amount_excluded_from_gross_income_by_reason_of_section_112` as an
+  executable Money output, using boundary inputs for qualifying monthly
+  compensation, commissioned-officer status, maximum enlisted amount,
+  combat-zone service, hospitalization, and Vietnam missing-status facts.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,

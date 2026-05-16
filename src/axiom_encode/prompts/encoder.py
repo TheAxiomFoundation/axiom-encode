@@ -253,6 +253,11 @@ Hard requirements:
   should export an executable amount excluded from gross income by reason of
   section 112; it should not be `module.status: deferred` solely because combat
   zone designation or military pay facts are supplied by the caller.
+- Hard requirement for IRC section 112: do not emit `module.status: deferred`.
+  Export `amount_excluded_from_gross_income_by_reason_of_section_112` as an
+  executable Money output, using boundary inputs for qualifying monthly
+  compensation, commissioned-officer status, maximum enlisted amount,
+  combat-zone service, hospitalization, and Vietnam missing-status facts.
 - Do not create parallel statutory-dollar executable parameters when a copied
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
