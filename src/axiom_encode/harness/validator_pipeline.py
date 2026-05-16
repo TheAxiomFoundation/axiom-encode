@@ -2705,6 +2705,8 @@ def _find_duplicate_upstream_executable_issues(
                 continue
             if Path(candidate.source_file).resolve() == current_file:
                 continue
+            if _rulespec_target_is_descendant_of(current_target, candidate.target):
+                continue
             issues.append(
                 "Upstream placement violation: "
                 f"executable rule `{name}` duplicates existing RuleSpec target "
@@ -2715,6 +2717,17 @@ def _find_duplicate_upstream_executable_issues(
             )
             break
     return issues
+
+
+def _rulespec_target_is_descendant_of(target: str, ancestor: str) -> bool:
+    """Return whether a RuleSpec target is a more-specific path under ancestor."""
+    target_base = _rulespec_target_base(target)
+    ancestor_base = _rulespec_target_base(ancestor)
+    return target_base.startswith(f"{ancestor_base}/")
+
+
+def _rulespec_target_base(target: str) -> str:
+    return target.split("#", 1)[0].strip().strip("/").strip("\"'")
 
 
 def _rulespec_repo_root(rules_file: Path) -> Path | None:

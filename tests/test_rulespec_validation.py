@@ -5427,6 +5427,82 @@ rules:
     assert "us:policies/example/fy-2026#benefit_limit" in issues[0]
 
 
+def test_upstream_placement_allows_subsection_extraction_from_ancestor(tmp_path):
+    repo_parent = tmp_path / "repos"
+    _write_rulespec_file(
+        repo_parent / "rulespec-us" / "statutes/26/151.yaml",
+        """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '500'
+""",
+    )
+    rules_file = _write_rulespec_file(
+        repo_parent / "rulespec-us" / "statutes/26/151/d.yaml",
+        """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '500'
+""",
+    )
+
+    issues = find_upstream_placement_issues(
+        rules_file.read_text(encoding="utf-8"),
+        rules_file=rules_file,
+    )
+
+    assert issues == []
+
+
+def test_upstream_placement_rejects_ancestor_after_subsection_extraction(tmp_path):
+    repo_parent = tmp_path / "repos"
+    _write_rulespec_file(
+        repo_parent / "rulespec-us" / "statutes/26/151/d.yaml",
+        """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '500'
+""",
+    )
+    rules_file = _write_rulespec_file(
+        repo_parent / "rulespec-us" / "statutes/26/151.yaml",
+        """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '500'
+""",
+    )
+
+    issues = find_upstream_placement_issues(
+        rules_file.read_text(encoding="utf-8"),
+        rules_file=rules_file,
+    )
+
+    assert len(issues) == 1
+    assert "duplicates existing RuleSpec target" in issues[0]
+    assert "us:statutes/26/151/d#exemption_amount" in issues[0]
+
+
 def test_upstream_placement_allows_distinct_local_rule_with_same_name(tmp_path):
     repo_parent = tmp_path / "repos"
     _write_rulespec_file(
