@@ -3394,8 +3394,8 @@ def _only_pending_tax_filing_status_branch_issues(issues: list[str]) -> bool:
 
 def _only_pending_nonnegative_amount_reduction_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
-        issue.startswith("Nonnegative amount reduction missing floor:")
-        or issue.startswith("Nonnegative taxable income missing floor:")
+        "Nonnegative amount reduction missing floor:" in issue
+        or "Nonnegative taxable income missing floor:" in issue
         for issue in issues
     )
 
@@ -5369,6 +5369,29 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_rules = _try_repair_generated_nonnegative_floors_for_apply(
+                    result,
+                    issues=apply_issues,
+                )
+                if repaired_rules:
+                    outcome["auto_repaired_nonnegative_floors"] = repaired_rules
+                    print(
+                        "  apply=auto_repaired_nonnegative_floors:"
+                        + ",".join(repaired_rules)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
                     result,
                     output_root=args.output,
@@ -5552,6 +5575,34 @@ def _can_attempt_apply(result) -> bool:
         "Generated RuleSpec failed compile validation",
         "Generated RuleSpec failed CI validation",
     }
+
+
+def _try_repair_generated_nonnegative_floors_for_apply(
+    result,
+    *,
+    issues: list[str],
+) -> list[str]:
+    """Apply deterministic nonnegative-floor repairs to the generated candidate."""
+    if not _only_pending_nonnegative_amount_reduction_issues(issues):
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+
+    try:
+        original_content = rules_file.read_text()
+    except OSError:
+        return []
+
+    repaired_content, repaired_rules = repair_nonnegative_amount_reductions(
+        original_content
+    )
+    if repaired_content == original_content:
+        return []
+
+    rules_file.write_text(repaired_content)
+    return repaired_rules
 
 
 def _try_repair_generated_zero_branch_tests_for_apply(

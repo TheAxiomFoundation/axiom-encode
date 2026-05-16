@@ -3002,6 +3002,78 @@ class TestCmdEncode:
             "encode_issue",
         ]
 
+    def test_encode_apply_auto_repairs_nonnegative_taxable_income_floor(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "63.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: taxable_income_for_individual_who_does_not_itemize else: taxable_income_general_rule
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/63.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/63.yaml: ci: "
+                            "Nonnegative taxable income missing floor: "
+                            "`taxable_income` can return a negative amount."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_nonnegative_floors:taxable_income" in output
+        assert "outcome=apply_applied final_success=True" in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert (
+            "if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: "
+            "max(0, taxable_income_for_individual_who_does_not_itemize) "
+            "else: max(0, taxable_income_general_rule)"
+            in output_file.read_text()
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_nonnegative_floors"] == ["taxable_income"]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_auto_repairs_generated_zero_branch_tests(
         self, capsys, tmp_path
     ):
