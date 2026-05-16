@@ -2608,6 +2608,13 @@ import or re-export that exact canonical concept instead of duplicating it local
             source_text,
             context_files,
         )
+        partial_extent_child_schema_section = (
+            _format_partial_extent_child_schema_limit_guidance(
+                source_text,
+                context_files,
+                target_ref_prefix=target_ref_prefix,
+            )
+        )
         context_section = f"""
 Context mode: `{mode}`.
 Context files are precedent and dependency context, not independent legal authority for new values:
@@ -2616,6 +2623,7 @@ Context files are precedent and dependency context, not independent legal author
 {resolved_guidance}
 {branch_child_naming_section}
 {cited_context_imports_section}
+{partial_extent_child_schema_section}
 Import and context rules:
 - Use the listed import target rather than the `./context/...` inspection path.
 - do not wrap import targets in quotes.
@@ -3190,6 +3198,43 @@ def _format_context_file_listing(
         f"- inspect `{item.workspace_path}`; import target `{item.import_path}`"
         f"{hash_detail}{export_detail}{details}{kind}"
     )
+
+
+def _format_partial_extent_child_schema_limit_guidance(
+    source_text: str,
+    context_files: list[EvalContextFile],
+    *,
+    target_ref_prefix: str | None,
+) -> str:
+    """Return target-specific guidance for unsupported partial child rewiring."""
+    if not target_ref_prefix:
+        return ""
+    if not re.search(r"\bto\s+the\s+extent\b", source_text, flags=re.IGNORECASE):
+        return ""
+    child_prefix = f"{target_ref_prefix.rstrip('/')}/"
+    child_terminal_refs: list[str] = []
+    for item in context_files:
+        if not item.import_path.startswith(child_prefix):
+            continue
+        for export in _context_file_terminal_exports(item.source_path):
+            child_terminal_refs.append(f"{item.import_path}#{export}")
+    if not child_terminal_refs:
+        return ""
+
+    refs = ", ".join(f"`{ref}`" for ref in child_terminal_refs[:6])
+    if len(child_terminal_refs) > 6:
+        refs += ", ..."
+    return f"""
+Target-specific schema limit:
+- `./source.txt` uses `to the extent` and copied child-fragment files already
+  export executable results ({refs}). Under the current executable schema, this
+  parent cannot faithfully recompute those child results using a locally
+  adjusted basis, and it cannot wire that adjusted basis into imported child
+  results. Emit `module.status: entity_not_supported` or `deferred` with
+  `rules: []` and an empty companion test file. Do not create a
+  `*_before_exemption` executable output or an adjusted local wage/base helper
+  for this parent.
+"""
 
 
 def _format_branch_child_naming_guidance(

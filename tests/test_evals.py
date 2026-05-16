@@ -3727,6 +3727,61 @@ rules:
             in prompt
         )
 
+    def test_build_eval_prompt_forces_partial_extent_child_parent_defer(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_file = policy_repo_root / "statutes" / "26" / "3101" / "a.yaml"
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: oasdi_wage_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.062
+  - name: oasdi_wage_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages * oasdi_wage_tax_rate
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 3101",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Wages shall be exempt from the taxes imposed by this section "
+                "to the extent that such wages are subject exclusively to "
+                "another country's social security laws."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 3101",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="3101.yaml",
+            target_ref_prefix="us:statutes/26/3101",
+            include_tests=True,
+        )
+
+        assert "Target-specific schema limit" in prompt
+        assert "`us:statutes/26/3101/a#oasdi_wage_tax`" in prompt
+        assert "entity_not_supported" in prompt
+        assert "`rules: []`" in prompt
+        assert "`*_before_exemption`" in prompt
+
     def test_build_eval_prompt_recommends_final_deduction_imports(
         self, tmp_path
     ):
