@@ -4,6 +4,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     additional_standard_deduction_entitlement_count,
     filing_status_code,
     individual_is_unmarried_and_not_surviving_spouse,
+    person_entity_id,
     project_ctc_h_person_inputs,
     project_ctc_person_inputs,
     project_standard_deduction_inputs,
@@ -27,6 +28,10 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
 )
 def test_filing_status_code_maps_policyengine_enum(value, expected):
     assert filing_status_code(value) == expected
+
+
+def test_person_entity_id_is_stable_and_namespaced():
+    assert person_entity_id(42) == "person_42"
 
 
 @pytest.mark.parametrize(

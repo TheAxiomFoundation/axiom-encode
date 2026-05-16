@@ -38,6 +38,14 @@ STANDARD_DEDUCTION_PROGRAM_PATH = Path(
     "policies/irs/rev-proc-2025-32/standard-deduction.yaml"
 )
 STANDARD_DEDUCTION_BASE = "us:policies/irs/rev-proc-2025-32/standard-deduction"
+EMPLOYEE_OASDI_PROGRAM_PATH = Path("statutes/26/3101/a.yaml")
+EMPLOYEE_OASDI_BASE = "us:statutes/26/3101/a"
+EMPLOYEE_MEDICARE_PROGRAM_PATH = Path("statutes/26/3101/b/1.yaml")
+EMPLOYEE_MEDICARE_BASE = "us:statutes/26/3101/b/1"
+EMPLOYER_OASDI_PROGRAM_PATH = Path("statutes/26/3111/a.yaml")
+EMPLOYER_OASDI_BASE = "us:statutes/26/3111/a"
+EMPLOYER_MEDICARE_PROGRAM_PATH = Path("statutes/26/3111/b.yaml")
+EMPLOYER_MEDICARE_BASE = "us:statutes/26/3111/b"
 
 CTC_OUTPUTS = {
     "ctc_before_advance_payments": {
@@ -75,13 +83,61 @@ STANDARD_DEDUCTION_OUTPUTS = {
         "pe": "standard_deduction",
     },
 }
+PAYROLL_SURFACES = {
+    "employee-oasdi": {
+        "program": EMPLOYEE_OASDI_PROGRAM_PATH,
+        "base": EMPLOYEE_OASDI_BASE,
+        "wage_input": "taxable_earnings_for_social_security",
+        "outputs": {
+            "employee_social_security_tax": {
+                "axiom": f"{EMPLOYEE_OASDI_BASE}#oasdi_wage_tax",
+                "pe": "employee_social_security_tax",
+            },
+        },
+    },
+    "employee-medicare": {
+        "program": EMPLOYEE_MEDICARE_PROGRAM_PATH,
+        "base": EMPLOYEE_MEDICARE_BASE,
+        "wage_input": "payroll_tax_gross_wages",
+        "outputs": {
+            "employee_medicare_tax": {
+                "axiom": f"{EMPLOYEE_MEDICARE_BASE}#hospital_insurance_wage_tax",
+                "pe": "employee_medicare_tax",
+            },
+        },
+    },
+    "employer-oasdi": {
+        "program": EMPLOYER_OASDI_PROGRAM_PATH,
+        "base": EMPLOYER_OASDI_BASE,
+        "wage_input": "taxable_earnings_for_social_security",
+        "outputs": {
+            "employer_social_security_tax": {
+                "axiom": f"{EMPLOYER_OASDI_BASE}#employer_oasdi_excise_tax",
+                "pe": "employer_social_security_tax",
+            },
+        },
+    },
+    "employer-medicare": {
+        "program": EMPLOYER_MEDICARE_PROGRAM_PATH,
+        "base": EMPLOYER_MEDICARE_BASE,
+        "wage_input": "payroll_tax_gross_wages",
+        "outputs": {
+            "employer_medicare_tax": {
+                "axiom": f"{EMPLOYER_MEDICARE_BASE}#hospital_insurance_employer_tax",
+                "pe": "employer_medicare_tax",
+            },
+        },
+    },
+}
 SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
+    **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
 SURFACE_PROGRAM_PATHS = {
     "ctc": CTC_PROGRAM_PATH,
     "standard-deduction": STANDARD_DEDUCTION_PROGRAM_PATH,
+    **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
 PE_TAX_UNIT_VARIABLES = tuple(
     sorted(
@@ -99,6 +155,19 @@ PE_TAX_UNIT_VARIABLES = tuple(
         }
     )
 )
+PE_PERSON_VARIABLES = tuple(
+    sorted(
+        {
+            "employee_medicare_tax",
+            "employee_social_security_tax",
+            "employer_medicare_tax",
+            "employer_social_security_tax",
+            "irs_employment_income",
+            "payroll_tax_gross_wages",
+            "taxable_earnings_for_social_security",
+        }
+    )
+)
 
 FILING_STATUS_CODES = {
     "SINGLE": 0,
@@ -113,7 +182,7 @@ VALID_CHILD_SSN_TYPES = {"CITIZEN", "NON_CITIZEN_VALID_EAD"}
 @dataclass(frozen=True)
 class TaxComparisonRow:
     surface: str
-    tax_unit_id: int
+    entity_id: str
     output: str
     axiom: float
     policyengine: float
@@ -122,7 +191,8 @@ class TaxComparisonRow:
 
 @dataclass(frozen=True)
 class TaxComparisonReport:
-    compared_cases: int
+    compared_tax_units: int
+    compared_persons: int
     compared_values: int
     mismatches: list[TaxComparisonRow]
     output_summary: list[dict[str, Any]]
@@ -130,7 +200,8 @@ class TaxComparisonReport:
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "compared_cases": self.compared_cases,
+            "compared_tax_units": self.compared_tax_units,
+            "compared_persons": self.compared_persons,
             "compared_values": self.compared_values,
             "mismatch_count": len(self.mismatches),
             "mismatches": [row.__dict__ for row in self.mismatches],
@@ -308,13 +379,19 @@ def load_policyengine_tax_data(
     sim = Simulation(
         dataset=dataset,
         tax_benefit_model_version=us_latest,
-        extra_variables={"tax_unit": list(PE_TAX_UNIT_VARIABLES)},
+        extra_variables={
+            "person": list(PE_PERSON_VARIABLES),
+            "tax_unit": list(PE_TAX_UNIT_VARIABLES),
+        },
     )
     log("Running PolicyEngine tax outputs...")
     sim.run()
 
     tax_units = sim.output_dataset.data.tax_unit
-    persons = dataset.data.person
+    raw_persons = dataset.data.person
+    person_outputs = sim.output_dataset.data.person[
+        ["person_id", *PE_PERSON_VARIABLES]
+    ].copy()
     mask = np.asarray(tax_units["tax_unit_weight"]) > 0
     if positive_ctc_only:
         mask &= np.asarray(tax_units["ctc"]) > 0
@@ -323,13 +400,20 @@ def load_policyengine_tax_data(
         indices = indices[:sample_size]
     selected = tax_units.iloc[indices].copy()
     selected_ids = set(int(value) for value in selected["tax_unit_id"])
-    selected_persons = persons[
-        persons["person_tax_unit_id"].astype(int).isin(selected_ids)
+    selected_persons = raw_persons[
+        raw_persons["person_tax_unit_id"].astype(int).isin(selected_ids)
     ].copy()
+    selected_persons = selected_persons.merge(
+        person_outputs,
+        on="person_id",
+        how="left",
+        validate="one_to_one",
+    )
     return {
         "tax_units": selected,
         "persons": selected_persons,
         "tax_unit_ids": [int(value) for value in selected["tax_unit_id"]],
+        "person_ids": [int(value) for value in selected_persons["person_id"]],
     }
 
 
@@ -340,6 +424,8 @@ def build_axiom_request(
         return build_ctc_request(pe_data=pe_data, year=year)
     if surface == "standard-deduction":
         return build_standard_deduction_request(pe_data=pe_data, year=year)
+    if surface in PAYROLL_SURFACES:
+        return build_payroll_request(pe_data=pe_data, year=year, surface=surface)
     raise ValueError(f"unsupported tax surface: {surface}")
 
 
@@ -452,6 +538,43 @@ def build_standard_deduction_request(
                 ],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_payroll_request(
+    *, pe_data: dict[str, Any], year: int, surface: str
+) -> dict[str, Any]:
+    config = PAYROLL_SURFACES[surface]
+    base = str(config["base"])
+    wage_input = str(config["wage_input"])
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    for _idx, person in pe_data["persons"].iterrows():
+        person_id = int(person["person_id"])
+        inputs.append(
+            input_record(
+                f"{base}#input.wages",
+                person_entity_id(person_id),
+                interval,
+                money(person[wage_input]),
+            )
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": [
+            {
+                "entity_id": person_entity_id(person_id),
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in config["outputs"].values()],
+            }
+            for person_id in pe_data["person_ids"]
         ],
     }
 
@@ -689,13 +812,24 @@ def compare_outputs(
         for name in outputs
     }
     tax_units = pe_data["tax_units"].reset_index(drop=True)
+    persons = pe_data["persons"].reset_index(drop=True)
     compared_values = 0
     for surface, axiom_outputs in axiom_outputs_by_surface.items():
         output_specs = SURFACE_OUTPUTS[surface]
+        source_rows = persons if surface in PAYROLL_SURFACES else tax_units
+        source_ids = (
+            pe_data["person_ids"]
+            if surface in PAYROLL_SURFACES
+            else pe_data["tax_unit_ids"]
+        )
         for index, result in enumerate(axiom_outputs):
-            tax_unit_id = int(pe_data["tax_unit_ids"][index])
+            entity_id = (
+                person_entity_id(int(source_ids[index]))
+                if surface in PAYROLL_SURFACES
+                else tax_entity_id(int(source_ids[index]))
+            )
             outputs = result.get("outputs") or {}
-            pe_row = tax_units.iloc[index]
+            pe_row = source_rows.iloc[index]
             for name, spec in output_specs.items():
                 axiom_value = output_number(outputs.get(spec["axiom"]))
                 pe_value = money(pe_row[spec["pe"]])
@@ -717,7 +851,7 @@ def compare_outputs(
                     mismatches.append(
                         TaxComparisonRow(
                             surface=surface,
-                            tax_unit_id=tax_unit_id,
+                            entity_id=entity_id,
                             output=name,
                             axiom=axiom_value,
                             policyengine=pe_value,
@@ -725,7 +859,8 @@ def compare_outputs(
                         )
                     )
     return TaxComparisonReport(
-        compared_cases=len(pe_data["tax_unit_ids"]),
+        compared_tax_units=len(pe_data["tax_unit_ids"]),
+        compared_persons=len(pe_data["person_ids"]),
         compared_values=compared_values,
         mismatches=mismatches,
         output_summary=list(summary.values()),
@@ -741,6 +876,9 @@ def compare_outputs(
             "The standard deduction comparison currently treats dependency by "
             "another taxpayer and earned income as boundary-false/zero because "
             "those upstream facts are not yet encoded from ECPS leaf inputs.",
+            "Payroll projections feed section 3101/3111 with upstream taxable "
+            "wage bases from PolicyEngine until the section 3121 wage-base "
+            "rules are encoded and compared directly.",
         ],
     )
 
@@ -749,7 +887,8 @@ def print_report(
     report: TaxComparisonReport, *, tolerance: float, relative_tolerance: float
 ) -> None:
     print("PolicyEngine tax ECPS comparison")
-    print(f"Compared cases: {report.compared_cases:,}")
+    print(f"Compared tax units: {report.compared_tax_units:,}")
+    print(f"Compared persons: {report.compared_persons:,}")
     print(f"Compared values: {report.compared_values:,}")
     print(f"Tolerance: {tolerance:g}")
     print(f"Relative tolerance: {relative_tolerance:g}")
@@ -769,7 +908,7 @@ def print_report(
             report.mismatches, key=lambda item: abs(item.diff), reverse=True
         )[:20]:
             print(
-                f"  - tax_unit={row.tax_unit_id} {row.surface}:{row.output}: "
+                f"  - entity={row.entity_id} {row.surface}:{row.output}: "
                 f"axiom={row.axiom:.2f} pe={row.policyengine:.2f} diff={row.diff:.2f}"
             )
     print()
@@ -849,6 +988,10 @@ def valid_child_ssn_type(value: str) -> bool:
 
 def tax_entity_id(tax_unit_id: int) -> str:
     return f"tax_unit_{tax_unit_id}"
+
+
+def person_entity_id(person_id: int) -> str:
+    return f"person_{person_id}"
 
 
 def money(value: Any) -> float:
