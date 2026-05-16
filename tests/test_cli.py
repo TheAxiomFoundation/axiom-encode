@@ -4742,6 +4742,38 @@ rules:
 
         assert issues == []
 
+    def test_executable_input_preservation_allows_semantic_date_cleanup(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: senior_deduction_eligible
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxable_year_begins_after_2017
+          and taxable_year_begins_before_2029
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: senior_deduction_eligible
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxable_year_begins_after_exemption_amount_reduction_effective_date
+          and taxable_year_begins_before_senior_deduction_termination_date
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert issues == []
+
     def test_executable_input_preservation_allows_within_section_import_migration(
         self,
     ):

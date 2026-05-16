@@ -8799,6 +8799,7 @@ def _executable_input_preservation_issues(
         input_name
         for input_name in existing_inputs - generated_inputs
         if not _dropped_input_is_allowed_filing_status_migration(input_name)
+        and not _dropped_input_is_allowed_semantic_date_migration(input_name)
         and not _dropped_input_is_imported_cross_reference_migration(
             input_name,
             generated_imports=generated_imports,
@@ -8818,6 +8819,14 @@ def _executable_input_preservation_issues(
 def _dropped_input_is_allowed_filing_status_migration(input_name: str) -> bool:
     """Allow replacing the legacy local filing-status fact with legal predicates."""
     return input_name in {"filing_status", "tax_filing_status"}
+
+
+def _dropped_input_is_allowed_semantic_date_migration(input_name: str) -> bool:
+    """Allow replacing invalid date-valued runtime fact names."""
+    return input_name in {
+        "taxable_year_begins_after_2017",
+        "taxable_year_begins_before_2029",
+    }
 
 
 def _dropped_input_is_imported_cross_reference_migration(
