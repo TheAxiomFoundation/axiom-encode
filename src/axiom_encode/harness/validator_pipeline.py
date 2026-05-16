@@ -3070,7 +3070,7 @@ def find_source_verification_issues(
             )
         )
 
-    source_text = _source_verification_text(
+    source_text = extract_embedded_source_text(content) or _source_verification_text(
         citation_paths=citation_paths,
         source_label=source_label,
         source_texts=source_texts,
@@ -3128,7 +3128,7 @@ def find_source_condition_coverage_issues(
     citation_paths, source_label = _source_verification_source_fields(
         source_verification
     )
-    source_text = _source_verification_text(
+    source_text = extract_embedded_source_text(content) or _source_verification_text(
         citation_paths=citation_paths,
         source_label=source_label,
         source_texts=source_texts,

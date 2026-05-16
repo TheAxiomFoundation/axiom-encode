@@ -7710,6 +7710,37 @@ rules:
     assert issues == []
 
 
+def test_source_condition_coverage_uses_module_summary_for_sliced_source():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/45A
+  summary: |-
+    (f) Termination This section shall not apply to taxable years beginning after December 31, 2021.
+rules:
+  - name: section_45A_applies_before_termination
+    kind: derived
+    entity: Business
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1994-01-01'
+        formula: not taxable_year_begins_after_december_31_2021
+"""
+
+    issues = find_source_condition_coverage_issues(
+        content,
+        source_texts={
+            "us/statute/26/45A": (
+                "The credit is allowed for qualified employee health insurance costs "
+                "paid or incurred by the employer."
+            )
+        },
+    )
+
+    assert issues == []
+
+
 def test_relation_aggregate_syntax_rejects_expression_sum_over_relation():
     content = """format: rulespec/v1
 rules:
