@@ -2379,8 +2379,9 @@ class TestEvalPrompt:
         assert "only one entity type" in prompt
         assert "Do not assert relation-child outputs" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
-        assert "Never encode US tax filing status as string literals" in prompt
-        assert "`#input.filing_status: 1` or `4`" in prompt
+        assert "Never encode US tax filing status" in prompt
+        assert "Do not create local `#input.filing_status` facts" in prompt
+        assert "must use the numeric `filing_status` enum input directly" not in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
         self, tmp_path

@@ -1539,32 +1539,14 @@ def tax_unit_head_spouse_indices(persons: list[Any]) -> tuple[int | None, int | 
     ]
     if not adult_indices:
         return None, None
-    likely_adult_student_dependent_indices = {
-        index
-        for index in adult_indices
-        if money(persons[index]["age"]) < 24
-        and bool_value(persons[index].get("is_full_time_college_student", False))
-        and any(
-            other_index != index and money(persons[other_index]["age"]) >= 25
-            for other_index in adult_indices
-        )
-    }
-    filer_adult_indices = [
-        index
-        for index in adult_indices
-        if index not in likely_adult_student_dependent_indices
-    ] or adult_indices
     head_index = max(
-        filer_adult_indices,
-        key=lambda index: (
-            bool_value(persons[index].get("is_household_head", False)),
-            money(persons[index]["age"]),
-        ),
+        adult_indices,
+        key=lambda index: money(persons[index]["age"]),
     )
     separated = any(bool_value(person.get("is_separated", False)) for person in persons)
     if separated:
         return head_index, None
-    spouse_candidates = [index for index in filer_adult_indices if index != head_index]
+    spouse_candidates = [index for index in adult_indices if index != head_index]
     spouse_index = (
         max(spouse_candidates, key=lambda index: money(persons[index]["age"]))
         if spouse_candidates
@@ -1705,8 +1687,10 @@ def compare_outputs(
             "Standard deduction projection uses ECPS raw ages, blindness, and "
             "tax-unit membership to reconstruct aged-or-blind counts under "
             "26 USC 63(f).",
-            "AGI and filing status remain boundary inputs until upstream AGI, "
-            "filing-status, and return-filing rules are encoded end-to-end.",
+            "AGI remains a boundary input until upstream AGI rules are encoded "
+            "end-to-end. Filing status is still supplied only where current "
+            "RuleSpec surfaces have not yet migrated to an upstream "
+            "filing-status rule.",
             "The standard deduction comparison currently treats dependency by "
             "another taxpayer and earned income as boundary-false/zero because "
             "those upstream facts are not yet encoded from ECPS leaf inputs.",

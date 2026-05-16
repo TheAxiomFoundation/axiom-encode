@@ -3008,16 +3008,22 @@ RuleSpec requirements:
 - Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
 - If that reduction has rounding alternatives, every branch must be floored: use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`, never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
-- US tax `filing_status` is a structural enum: 0 single, 1 joint return,
-  2 married filing separately, 3 head of household, and 4 surviving spouse /
-  qualifying widow(er). Never encode US tax filing status as string literals
-  such as `"married_filing_jointly"` or as separate boolean facts such as
-  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`.
-  Formulas and tests must use the numeric `filing_status` enum input directly,
-  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`, and
-  `.test.yaml` should assign `#input.filing_status: 1` or `4`. If the source
-  groups surviving spouse with joint return, every branch or match that handles
-  status 1 must also handle status 4 in that same branch with the same result.
+- US tax filing status is a derived legal classification, not a downstream
+  boundary fact. Do not create local `#input.filing_status` facts in a rule or
+  test. Encode the upstream filing-status source first, then import its absolute
+  RuleSpec output into downstream threshold, phaseout, deduction, and credit
+  rules. If an already-encoded upstream filing-status output is unavailable,
+  stop and encode that upstream source rather than synthesizing a local input.
+- The shared US tax filing-status output remains a structural enum: 0 single,
+  1 joint return, 2 married filing separately, 3 head of household, and
+  4 surviving spouse / qualifying widow(er). Never encode US tax filing status
+  as string literals such as `"married_filing_jointly"` or as separate boolean
+  facts such as `married_filing_jointly`, `head_of_household`, or
+  `surviving_spouse`. Use the imported numeric filing-status output in formulas,
+  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`. If the
+  source groups surviving spouse with joint return, every branch or match that
+  handles status 1 must also handle status 4 in that same branch with the same
+  result.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write

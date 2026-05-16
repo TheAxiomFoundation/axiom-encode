@@ -507,17 +507,22 @@ Hard requirements:
   must include the exact source phrase containing that number. Do not omit a
   subsection, table row, or clause that grounds an encoded
   numeric amount, rate, threshold, cap, or limit.
-- US tax `filing_status` is a structural enum: 0 single, 1 joint return,
-  2 married filing separately, 3 head of household, and 4 surviving spouse /
-  qualifying widow(er). If the source groups surviving spouse with joint return,
-  every filing-status branch or match that handles status 1 must also handle
-  status 4 in that same branch.
+- US tax filing status is a derived legal classification, not a downstream
+  boundary fact. Do not create local `#input.filing_status` facts in a rule or
+  test. Encode the upstream filing-status source first, then import its absolute
+  RuleSpec output into downstream threshold, phaseout, deduction, and credit
+  rules. If an already-encoded upstream filing-status output is unavailable,
+  stop and encode that upstream source rather than synthesizing a local input.
+- The shared US tax filing-status output remains a structural enum: 0 single,
+  1 joint return, 2 married filing separately, 3 head of household, and
+  4 surviving spouse / qualifying widow(er). If the source groups surviving
+  spouse with joint return, every filing-status branch or match that handles
+  status 1 must also handle status 4 in that same branch.
 - Never encode US tax filing status as string literals such as
   `"married_filing_jointly"` or as separate boolean facts such as
-  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`.
-  Formulas and tests must use the numeric `filing_status` enum input directly,
-  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...` and
-  `.test.yaml` should assign `#input.filing_status: 1` or `4`.
+  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`. Use the
+  imported numeric filing-status output in formulas, e.g.
+  `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.

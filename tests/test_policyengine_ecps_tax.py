@@ -184,6 +184,40 @@ def test_tax_unit_person_contexts_project_head_spouse_and_dependents():
     assert all(context.filer_has_valid_child_ctc_ssn for context in contexts)
 
 
+def test_tax_unit_person_contexts_derive_adult_student_spouse_without_filing_status():
+    contexts = project_tax_unit_person_contexts(
+        [
+            {
+                "age": 43,
+                "ssn_card_type": "CITIZEN",
+                "is_household_head": True,
+            },
+            {
+                "age": 20,
+                "ssn_card_type": "CITIZEN",
+                "is_full_time_college_student": True,
+            },
+            {
+                "age": 15,
+                "ssn_card_type": "CITIZEN",
+            },
+        ]
+    )
+
+    assert [context.is_head for context in contexts] == [True, False, False]
+    assert [context.is_spouse for context in contexts] == [False, True, False]
+    assert [context.is_tax_unit_dependent for context in contexts] == [
+        False,
+        False,
+        True,
+    ]
+    assert [context.qualifying_child_under_section_152_c for context in contexts] == [
+        False,
+        False,
+        True,
+    ]
+
+
 def test_tax_unit_person_contexts_handle_minor_only_tax_unit_without_filer_ssn():
     [context] = project_tax_unit_person_contexts(
         [{"age": 16, "ssn_card_type": "CITIZEN"}]
@@ -453,7 +487,7 @@ def test_eitc_person_projection_marks_valid_minor_child():
 def test_section_152_c_projection_uses_leaf_child_facts():
     [_head_context, child_context] = project_tax_unit_person_contexts(
         [
-            {"age": 34, "ssn_card_type": "CITIZEN"},
+            {"age": 34, "ssn_card_type": "CITIZEN", "is_separated": True},
             {
                 "age": 20,
                 "ssn_card_type": "CITIZEN",
