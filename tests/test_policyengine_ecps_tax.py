@@ -1,3 +1,5 @@
+import argparse
+
 import pytest
 
 import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
@@ -349,6 +351,62 @@ def test_within_tolerance_accepts_large_policyengine_float_noise():
         1_271_556_352,
         absolute_tolerance=0.01,
         relative_tolerance=2e-7,
+    )
+
+
+def test_tax_ecps_parser_documents_full_sample_size():
+    parser = argparse.ArgumentParser()
+    ecps_tax.configure_parser(parser)
+
+    sample_size_help = next(
+        action.help for action in parser._actions if action.dest == "sample_size"
+    )
+    assert "0 compares all eligible tax units" in sample_size_help
+
+
+def test_compare_outputs_reports_max_relative_diff_for_large_float_noise():
+    pd = pytest.importorskip("pandas")
+    report = ecps_tax.compare_outputs(
+        pe_data={
+            "tax_units": pd.DataFrame(
+                [
+                    {
+                        "tax_unit_id": 1,
+                        "net_capital_gain": 1_271_556_352,
+                        "adjusted_net_capital_gain": 1_000,
+                    }
+                ]
+            ),
+            "persons": pd.DataFrame([]),
+            "tax_unit_ids": [1],
+            "person_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "capital-gain-definitions": [
+                {
+                    "outputs": {
+                        f"{CAPITAL_GAINS_BASE}#net_capital_gain": {
+                            "value": {"value": "1271556450"}
+                        },
+                        f"{CAPITAL_GAINS_BASE}#adjusted_net_capital_gain": {
+                            "value": {"value": "1000"}
+                        },
+                    }
+                }
+            ],
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    net_capital_gain_summary = next(
+        item
+        for item in report.output_summary
+        if item["output"] == "net_capital_gain"
+    )
+    assert net_capital_gain_summary["max_abs_diff"] == 98
+    assert net_capital_gain_summary["max_relative_diff"] == pytest.approx(
+        7.7070922918813e-8
     )
 
 

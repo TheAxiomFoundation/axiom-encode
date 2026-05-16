@@ -278,7 +278,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         help="axiom-rules-engine checkout; defaults to <root>/axiom-rules-engine",
     )
     parser.add_argument("--year", type=int, default=2026)
-    parser.add_argument("--sample-size", type=int, default=100)
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=100,
+        help=(
+            "Number of positive-weight ECPS tax units to compare; "
+            "0 compares all eligible tax units"
+        ),
+    )
     parser.add_argument(
         "--positive-ctc-only",
         action="store_true",
@@ -1218,6 +1226,7 @@ def compare_outputs(
             "compared": 0,
             "mismatches": 0,
             "max_abs_diff": 0.0,
+            "max_relative_diff": 0.0,
         }
         for surface, outputs in SURFACE_OUTPUTS.items()
         if surface in axiom_outputs_by_surface
@@ -1252,6 +1261,10 @@ def compare_outputs(
                 summary[summary_key]["compared"] += 1
                 summary[summary_key]["max_abs_diff"] = max(
                     summary[summary_key]["max_abs_diff"], abs_diff
+                )
+                summary[summary_key]["max_relative_diff"] = max(
+                    summary[summary_key]["max_relative_diff"],
+                    relative_diff(axiom_value, pe_value),
                 )
                 if not within_tolerance(
                     axiom_value,
@@ -1319,7 +1332,8 @@ def print_report(
         print(
             f"  - {item['surface']}:{item['output']}: "
             f"{item['mismatches']:,}/{item['compared']:,} mismatch, "
-            f"max_abs_diff={item['max_abs_diff']:.2f}"
+            f"max_abs_diff={item['max_abs_diff']:.2f}, "
+            f"max_rel_diff={item['max_relative_diff']:.2g}"
         )
     if report.mismatches:
         print()
@@ -1393,6 +1407,13 @@ def within_tolerance(
         abs_tol=absolute_tolerance,
         rel_tol=relative_tolerance,
     )
+
+
+def relative_diff(axiom_value: float, policyengine_value: float) -> float:
+    denominator = max(abs(axiom_value), abs(policyengine_value))
+    if denominator == 0:
+        return 0.0
+    return abs(axiom_value - policyengine_value) / denominator
 
 
 def filing_status_code(value: str) -> int:
