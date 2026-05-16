@@ -7184,6 +7184,90 @@ rules:
     )
 
 
+def test_filing_status_upstream_source_requires_6013_a_without_a3_surface(
+    tmp_path,
+):
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/6013
+rules:
+  - name: decedent_joint_return_maker_authorized
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: death_of_one_spouse_or_both_spouses
+  - name: joint_return_may_be_made
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxpayers_are_husband_and_wife
+          and not either_spouse_is_nonresident_alien
+          and decedent_joint_return_maker_authorized
+"""
+
+    issues = find_tax_filing_status_upstream_source_issues(
+        content,
+        rules_file=tmp_path / "statutes" / "26" / "6013" / "a.yaml",
+    )
+
+    assert any(
+        "before applying subsection (a)(3)" in issue for issue in issues
+    )
+
+
+def test_filing_status_upstream_source_allows_6013_a_without_a3_surface(tmp_path):
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/6013
+rules:
+  - name: joint_return_may_be_made_before_subsection_a_3
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxpayers_are_husband_and_wife
+          and not either_spouse_is_nonresident_alien
+  - name: decedent_joint_return_maker_authorized
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: death_of_one_spouse_or_both_spouses
+  - name: joint_return_may_be_made
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          joint_return_may_be_made_before_subsection_a_3
+          and decedent_joint_return_maker_authorized
+"""
+
+    assert (
+        find_tax_filing_status_upstream_source_issues(
+            content,
+            rules_file=tmp_path / "statutes" / "26" / "6013" / "a.yaml",
+        )
+        == []
+    )
+
+
 def test_filing_status_test_input_rejects_string_value():
     test_cases = [
         {

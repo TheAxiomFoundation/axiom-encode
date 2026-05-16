@@ -3573,7 +3573,7 @@ def find_tax_filing_status_local_input_issues(
 
 
 _US_TAX_FILING_STATUS_UPSTREAM_SOURCE_PATH_PATTERN = re.compile(
-    r"(?:^|/)statutes/(?:26/(?:2|6013|7703)|5/5566|37/556)\.yaml$"
+    r"(?:^|/)statutes/(?:26/(?:2(?:/[^/]+)*|6013(?:/[^/]+)*|7703)|5/5566|37/556)\.yaml$"
 )
 
 
@@ -3605,7 +3605,48 @@ def find_tax_filing_status_upstream_source_issues(
             "for marital, household, abode, support, death, separation, and "
             "return-election facts not defined in the source."
         ]
+    if re.search(r"(?:^|/)statutes/26/6013/a\.yaml$", rules_file.as_posix()):
+        issues = _section_6013a_without_a3_joint_return_surface_issues(payload)
+        if issues:
+            return issues
     return []
+
+
+def _section_6013a_without_a3_joint_return_surface_issues(
+    payload: dict[str, Any],
+) -> list[str]:
+    """Require IRC 6013(a) to expose the joint-return stage before (a)(3)."""
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived":
+            continue
+        normalized_name = name.lower()
+        if "joint_return" not in normalized_name:
+            continue
+        if any(
+            token in normalized_name
+            for token in {
+                "decedent",
+                "executor",
+                "administrator",
+                "disaffirm",
+                "separate",
+            }
+        ):
+            continue
+        normalized_formula = formula.lower()
+        if (
+            "husband_and_wife" in normalized_formula
+            and "decedent_joint_return_maker_authorized" not in normalized_formula
+        ):
+            return []
+    return [
+        "IRC 6013(a) must expose a source-backed joint-return eligibility "
+        "output before applying subsection (a)(3)'s decedent-return-maker "
+        "limitation. IRC 2(a)(2)(B) imports the section 6013 rule "
+        "'without regard to subsection (a)(3)', so a single final "
+        "`joint_return_may_be_made` output that depends on "
+        "`decedent_joint_return_maker_authorized` is not enough."
+    ]
 
 
 def _rulespec_import_symbol_names(payload: dict[str, Any]) -> set[str]:
