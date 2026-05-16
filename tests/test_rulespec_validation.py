@@ -1372,6 +1372,13 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "employee_social_security_tax"
     )
+    section_1222_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1222#net_capital_gain",
+        country="us",
+    )
+    assert section_1222_mapping.mapping_type == "not_comparable"
+    assert section_1222_mapping.match_type == "prefix"
+    assert section_1222_mapping.candidate_priority == "P4"
     oasdi_wage_base_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3121/a/1#oasdi_wage_base_excess_excluded_remuneration",
         country="us",

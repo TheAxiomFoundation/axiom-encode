@@ -8625,6 +8625,13 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 104(a)(4) service-injury pension exclusion outputs are source-specific exclusion predicates and amounts that PolicyEngine does not expose as one-to-one variables.
 
+  - legal_id_prefix: us:statutes/26/1222#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1222 exposes statutory capital-gain definition components at the RuleSpec tax-unit boundary, while PolicyEngine represents related source amounts as person-level signed inputs and section 1(h) modified tax-unit outputs. Compare exact downstream section-specific outputs such as section 1(h), or add an exact override if a future adapter aligns a specific 1222 definition.
+
   - legal_id_prefix: us:statutes/26/151#
     country: us
     program: tax
