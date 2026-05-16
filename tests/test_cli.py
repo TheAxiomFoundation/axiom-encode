@@ -4481,6 +4481,30 @@ rules:
         assert "1986-01-01" in joined
         assert "1990-01-01" in joined
 
+    def test_executable_output_preservation_allows_post_2017_exemption_date_fix(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: post_2017_exemption_amount
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0'
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: post_2017_exemption_amount
+    kind: parameter
+    versions:
+      - effective_from: '2018-01-01'
+        formula: '0'
+"""
+
+        issues = _executable_output_preservation_issues(existing, generated)
+
+        assert issues == []
+
     def test_executable_output_preservation_rejects_surface_field_drift(self):
         existing = """format: rulespec/v1
 rules:

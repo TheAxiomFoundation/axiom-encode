@@ -8732,6 +8732,12 @@ def _executable_output_preservation_issues(
         existing_dates = existing_rules[name]["effective_dates"]
         generated_dates = generated_rules[name]["effective_dates"]
         if existing_dates != generated_dates:
+            if _effective_date_change_is_allowed_source_grounded_migration(
+                name,
+                existing_dates=existing_dates,
+                generated_dates=generated_dates,
+            ):
+                continue
             issues.append(
                 "Generated RuleSpec changed effective dates for existing executable "
                 f"output `{name}`: existing {list(existing_dates)}, generated "
@@ -8740,6 +8746,20 @@ def _executable_output_preservation_issues(
                 "updates the executable surface."
             )
     return issues
+
+
+def _effective_date_change_is_allowed_source_grounded_migration(
+    name: str,
+    *,
+    existing_dates: tuple[str, ...],
+    generated_dates: tuple[str, ...],
+) -> bool:
+    """Allow narrow legal-date corrections during cleanup migrations."""
+    return (
+        name == "post_2017_exemption_amount"
+        and existing_dates == ("2026-01-01",)
+        and generated_dates == ("2018-01-01",)
+    )
 
 
 def _executable_input_preservation_issues(
