@@ -2879,6 +2879,11 @@ RuleSpec requirements:
   final exported amount must apply that limitation. If a copied sibling/context
   file already encodes the limitation, import it and compose with it instead of
   duplicating or ignoring it.
+- Importing a child rate or threshold is not enough when the child file already
+  exports the executable tax, benefit, deduction, or eligibility result. For
+  aggregate parent sections, import the child result output itself and sum,
+  cap, select, or otherwise compose those imported results. Do not recompute a
+  child result locally from the child rate and the child factual inputs.
 - Do not create parallel statutory-dollar executable parameters when a copied
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the

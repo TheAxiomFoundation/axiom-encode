@@ -102,6 +102,11 @@ Hard requirements:
   the dependent earned-income limitation in `c.yaml`. Importing one output from
   a child file does not make it okay to copy another child output as a raw
   literal; import each child output you use.
+- Importing a child rate or threshold is not enough when the child file already
+  exports the executable tax, benefit, deduction, or eligibility result. For
+  aggregate parent sections, import the child result output itself and sum,
+  cap, select, or otherwise compose those imported results. Do not recompute a
+  child result locally from the child rate and the child factual inputs.
 - If the requested provision adjusts, indexes, caps, phases out, or otherwise
   modifies "the $X amount in" a child subsection or paragraph, do not create a
   local `*_base_for_inflation` or similar parameter with that child literal.

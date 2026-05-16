@@ -3614,6 +3614,7 @@ rules:
         assert "if condition: max(0, branch_a) else: max(0, branch_b)" in prompt
         assert "says a value is determined `in accordance with section X`" in prompt
         assert "do not invent `import` statements or `imports:` blocks" in prompt
+        assert "Importing a child rate or threshold is not enough" in prompt
 
     def test_build_eval_prompt_highlights_cited_context_import_exports(
         self, tmp_path
