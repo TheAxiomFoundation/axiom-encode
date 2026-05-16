@@ -5536,6 +5536,8 @@ rules:
           age >= section_22_age_threshold
 """
         )
+        test_file = target.with_name("22.test.yaml")
+        test_file.write_text("- name: existing_case\n  period: 2026\n")
         args = SimpleNamespace(
             repo=policy_repo,
             file=Path("statutes/26/22.yaml"),
@@ -5583,7 +5585,10 @@ rules:
         assert payload["backend"] == "deterministic"
         assert payload["model"] == "proof-import-hash-v1"
         assert payload["tool"] == "axiom-encode repair-proof-import-hashes"
-        assert payload["applied_files"][0]["path"] == "statutes/26/22.yaml"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/22.yaml",
+            "statutes/26/22.test.yaml",
+        ]
 
     def test_repair_imported_proof_hashes_writes_target_file_hash(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"

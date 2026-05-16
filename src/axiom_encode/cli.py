@@ -2926,12 +2926,16 @@ def cmd_repair_proof_import_hashes(args):
             trace_file=None,
             context_manifest_file=None,
         )
+        applied_files = [rules_file]
+        test_file = _rulespec_test_path(rules_file)
+        if test_file.exists():
+            applied_files.append(test_file)
         manifest_path = _write_applied_encoding_manifest(
             result,
             output_root=output_root,
             policy_repo_path=repo_path,
             relative_output=relative_output,
-            applied_files=[rules_file],
+            applied_files=applied_files,
             run_id="deterministic-repair",
             signing_key=signing_key,
             axiom_encode_git=axiom_encode_git,
