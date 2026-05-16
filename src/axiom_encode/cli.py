@@ -6064,6 +6064,29 @@ def _executable_output_preservation_issues(
     return issues
 
 
+def _executable_input_preservation_issues(
+    existing_content: str,
+    generated_content: str,
+) -> list[str]:
+    """Return issues for generated content that drops existing input slots."""
+    existing_inputs = _local_factual_input_names_from_rules_content(existing_content)
+    if not existing_inputs:
+        return []
+    generated_inputs = _local_factual_input_names_from_rules_content(
+        generated_content
+    )
+    missing = sorted(existing_inputs - generated_inputs)
+    if not missing:
+        return []
+    formatted = ", ".join(f"`{name}`" for name in missing)
+    return [
+        "Generated RuleSpec dropped existing factual input slots: "
+        f"{formatted}. Regenerate with the existing input surface preserved "
+        "unless a source-grounded migration explicitly updates downstream "
+        "tests, imports, and oracle mappings."
+    ]
+
+
 def _executable_rule_names(content: str) -> list[str]:
     return list(_executable_rule_surfaces(content))
 
@@ -6209,6 +6232,16 @@ def _validate_generated_encoding_in_policy_overlay(
             return (
                 False,
                 [f"{relative_output}: {issue}" for issue in output_preservation_issues],
+                {},
+            )
+        input_preservation_issues = _executable_input_preservation_issues(
+            existing_content,
+            generated_content,
+        )
+        if input_preservation_issues:
+            return (
+                False,
+                [f"{relative_output}: {issue}" for issue in input_preservation_issues],
                 {},
             )
         preservation_issues = _source_relation_preservation_issues(

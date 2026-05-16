@@ -88,6 +88,11 @@ Hard requirements:
   `versions[].effective_from`. Do not change `Employer` to `Business`,
   `TaxUnit` to another entity, or alter period/unit/indexing just to match a
   preferred modeling style.
+- Preserve the existing factual input surface used by copied executable
+  formulas and companion tests. Do not replace established local inputs such as
+  `long_term_capital_gains` or `qualified_dividend_income` with newly invented
+  upstream-sounding input names unless the task is an explicit source-grounded
+  migration that also updates downstream tests, imports, and oracle mappings.
 - If a copied child-fragment file encodes a limitation, branch, amount, or
   predicate needed by the requested parent provision, import the child output
   and compose it. Do not copy the child formula or its factual inputs into the
@@ -324,6 +329,10 @@ Hard requirements:
   `entity`, `dtype`, `period`, `unit`, `indexed_by`, and
   `versions[].effective_from`. Do not change the entity or period to a
   preferred modeling style when the existing file compiles.
+- Preserve existing factual input slots referenced by copied formulas and
+  companion tests. Do not swap a working local input surface for new friendly
+  names or upstream abstractions unless the generated bundle performs a full,
+  source-grounded surface migration.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
 - When source text uses amendment markup like `[old] new`, treat the bracketed

@@ -4624,6 +4624,8 @@ class TestRepoAugmentedContext:
         assert "local `name`, `kind`, `entity`, `dtype`, `period`, `unit`" in prompt
         assert "`versions[].effective_from`" in prompt
         assert "Do not change `Employer` to `Business`" in prompt
+        assert "Preserve the existing factual input surface" in prompt
+        assert "`long_term_capital_gains`" in prompt
 
     def test_prepare_eval_workspace_adds_same_section_subsection_context(
         self, tmp_path

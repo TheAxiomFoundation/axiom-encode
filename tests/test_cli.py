@@ -23,6 +23,7 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
+    _executable_input_preservation_issues,
     _executable_output_preservation_issues,
     _find_rulespec_dependents,
     _has_zero_output_test,
@@ -4279,6 +4280,45 @@ rules:
         assert "`indian_employment_credit`" in issues[0]
         assert "'Employer'" in issues[0]
         assert "'Business'" in issues[0]
+
+    def test_executable_input_preservation_rejects_dropped_input_slots(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: net_capital_gain
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, long_term_capital_gains) - max(0, -short_term_capital_gains)
+          + qualified_dividend_income
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: net_capital_gain
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(
+              0,
+              net_capital_gain_determined_without_paragraph_11
+              - net_capital_gain_taken_into_account_as_investment_income
+          ) + qualified_dividend_income
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert len(issues) == 1
+        assert "dropped existing factual input slots" in issues[0]
+        assert "`long_term_capital_gains`" in issues[0]
+        assert "`short_term_capital_gains`" in issues[0]
+        assert "`qualified_dividend_income`" not in issues[0]
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
