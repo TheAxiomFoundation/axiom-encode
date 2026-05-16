@@ -3145,7 +3145,8 @@ def cmd_repair_eitc_section_152_import(args):
         original_content,
         repo_path=repo_path,
     )
-    if repaired_content == original_content:
+    test_needs_repair = _eitc_section_152_tests_need_repair(test_file)
+    if repaired_content == original_content and not test_needs_repair:
         print("No EITC Section 152(c) import repairs found.")
         return
 
@@ -3305,25 +3306,51 @@ def _repair_eitc_section_152_test_inputs(test_file: Path) -> bool:
         "qualifying_child_under_section_152_c_as_modified_for_eitc: true"
     )
     lines = test_file.read_text().splitlines(keepends=True)
-    if not any(needle in line for line in lines):
-        return False
     repaired: list[str] = []
+    changed = False
     for line in lines:
-        if needle not in line:
-            repaired.append(line)
+        if needle in line:
+            newline = "\n" if line.endswith("\n") else ""
+            body = line[:-1] if newline else line
+            prefix = body.split(needle, 1)[0]
+            continuation_prefix = (
+                prefix.replace("- ", "  ", 1) if "- " in prefix else prefix
+            )
+            input_lines = _eitc_section_152_test_input_lines()
+            repaired.append(f"{prefix}{input_lines[0]}{newline}")
+            for input_line in input_lines[1:]:
+                repaired.append(f"{continuation_prefix}{input_line}{newline}")
+            changed = True
             continue
-        newline = "\n" if line.endswith("\n") else ""
-        body = line[:-1] if newline else line
-        prefix = body.split(needle, 1)[0]
-        continuation_prefix = (
-            prefix.replace("- ", "  ", 1) if "- " in prefix else prefix
-        )
-        input_lines = _eitc_section_152_test_input_lines()
-        repaired.append(f"{prefix}{input_lines[0]}{newline}")
-        for input_line in input_lines[1:]:
-            repaired.append(f"{continuation_prefix}{input_line}{newline}")
+        repaired.append(line)
+        if (
+            "us:statutes/26/32#eitc_qualifying_child:" in line
+            and "us:statutes/26/32#eitc_qualifying_child_base:" not in "".join(lines)
+        ):
+            prefix = line[: len(line) - len(line.lstrip())]
+            newline = "\n" if line.endswith("\n") else ""
+            repaired.append(
+                f"{prefix}us:statutes/26/32#eitc_qualifying_child_base: holds"
+                f"{newline}"
+            )
+            changed = True
+    if not changed:
+        return False
     test_file.write_text("".join(repaired))
     return True
+
+
+def _eitc_section_152_tests_need_repair(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    content = test_file.read_text()
+    return (
+        "qualifying_child_under_section_152_c_as_modified_for_eitc" in content
+        or (
+            "us:statutes/26/32#eitc_qualifying_child:" in content
+            and "us:statutes/26/32#eitc_qualifying_child_base:" not in content
+        )
+    )
 
 
 def _eitc_section_152_test_input_lines() -> list[str]:
