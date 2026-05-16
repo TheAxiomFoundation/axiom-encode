@@ -10280,7 +10280,12 @@ Output ONLY valid JSON:
                 continue
 
             mappable, reason = self._is_pe_test_mappable(
-                country, raw_test_rule_name, inputs, expected, pe_var=pe_var
+                country,
+                raw_test_rule_name,
+                inputs,
+                expected,
+                pe_var=pe_var,
+                mapping=mapping,
             )
             if not mappable:
                 issues.append(
@@ -11608,8 +11613,186 @@ print("BENCHMARK:" + json.dumps(result))
         "section_22_disability_income": "total_disability_payments",
     }
 
+    _PE_US_GENERIC_PROJECTED_INPUTS = {
+        "period",
+        "date",
+        "filing_status",
+        "household_size",
+        "age",
+        "employment_income",
+        "earned_income",
+        "wages",
+        "state_code_str",
+        "state_name",
+        "state_group",
+        "state_group_str",
+        "snap_utility_region",
+        "snap_utility_region_str",
+    }
+
+    _PE_US_SNAP_PROJECTED_SOURCE_INPUTS = {
+        "employee_wages_received",
+        "snap_countable_earned_income",
+        "snap_countable_unearned_income",
+        "work_supplementation_earned_income",
+        "snap_monthly_household_income",
+        "snap_standard_deduction",
+        "snap_member_is_elderly_or_disabled",
+        "household_shelter_costs_incurred",
+        "snap_allowable_shelter_costs",
+        "dependent_care_deduction",
+        "child_support_deduction",
+        "medical_deduction",
+        "excess_shelter_deduction",
+        "household_incurred_or_anticipated_heating_or_cooling_costs_separate_from_rent_or_mortgage",
+        "household_pays_electricity_utility_cost",
+        "household_pays_water_utility_cost",
+        "household_pays_sewer_utility_cost",
+        "household_pays_trash_utility_cost",
+        "household_pays_cooking_fuel_utility_cost",
+        "household_pays_telephone_service_cost",
+    }
+
     # PE variables at spm_unit level (need spm_units in situation)
     _PE_SPM_VARS = set(PE_US_SPM_VAR_NAMES)
+
+    @classmethod
+    def _unprojectable_pe_us_legal_inputs(
+        cls,
+        inputs: dict,
+        pe_var: str | None,
+        *,
+        mapping: PolicyEngineMapping | None = None,
+    ) -> list[str]:
+        """Return legal RuleSpec inputs that the PE scenario builder cannot use."""
+        if not isinstance(inputs, dict):
+            return []
+
+        unprojectable: list[str] = []
+        for key in inputs:
+            key_text = str(key)
+            input_alias = cls._rulespec_legal_input_alias(key_text)
+            if input_alias is not None:
+                if not cls._is_projectable_pe_us_input_alias(
+                    input_alias,
+                    pe_var,
+                    mapping=mapping,
+                ):
+                    unprojectable.append(key_text)
+                continue
+
+            relation_name = cls._rulespec_legal_relation_name(key_text)
+            if relation_name is None:
+                continue
+            if not cls._is_projectable_pe_us_relation_input(relation_name, pe_var):
+                unprojectable.append(key_text)
+        return sorted(unprojectable)
+
+    @staticmethod
+    def _rulespec_legal_input_alias(key_text: str) -> str | None:
+        if ":" not in key_text or "#" not in key_text:
+            return None
+        fragment = key_text.split("#", 1)[1]
+        if fragment.startswith("input."):
+            alias = fragment.removeprefix("input.").strip().lower()
+            return alias or None
+        if ".input." in fragment:
+            alias = fragment.rsplit(".input.", 1)[1].strip().lower()
+            return alias or None
+        return None
+
+    @staticmethod
+    def _rulespec_legal_relation_name(key_text: str) -> str | None:
+        if ":" not in key_text or "#" not in key_text:
+            return None
+        fragment = key_text.split("#", 1)[1]
+        if fragment.startswith("relation."):
+            relation = fragment.removeprefix("relation.").strip().lower()
+            return relation or None
+        if ".relation." in fragment:
+            relation = fragment.rsplit(".relation.", 1)[1].strip().lower()
+            return relation or None
+        return None
+
+    @classmethod
+    def _is_projectable_pe_us_input_alias(
+        cls,
+        alias: str,
+        pe_var: str | None,
+        *,
+        mapping: PolicyEngineMapping | None = None,
+    ) -> bool:
+        alias = alias.strip().lower()
+        if not alias:
+            return False
+        projectable = cls._pe_us_projectable_input_aliases(pe_var, mapping=mapping)
+        if alias in projectable:
+            return True
+        if alias.endswith("_count") and "qualifying" in alias and "child" in alias:
+            return True
+        if alias.startswith("household_pays_"):
+            return True
+        return False
+
+    @classmethod
+    def _pe_us_projectable_input_aliases(
+        cls,
+        pe_var: str | None,
+        *,
+        mapping: PolicyEngineMapping | None = None,
+    ) -> set[str]:
+        aliases = {
+            *cls._PE_US_GENERIC_PROJECTED_INPUTS,
+            *cls._PE_US_TAX_UNIT_OVERRIDE_INPUTS,
+            *cls._PE_US_PERSON_OVERRIDE_INPUTS,
+            *cls._PE_US_SNAP_PROJECTED_SOURCE_INPUTS,
+        }
+        if mapping is not None:
+            aliases.update(cls._policyengine_mapping_input_aliases(mapping))
+
+        adapter = cls._get_pe_us_var_adapter(pe_var or "")
+        if adapter is not None:
+            for source_key, _pe_key in (
+                *adapter.direct_spm_overrides,
+                *adapter.annual_direct_spm_overrides,
+                *adapter.annualized_person_inputs,
+                *adapter.boolean_person_inputs,
+                *adapter.monthly_boolean_person_inputs,
+            ):
+                aliases.add(source_key)
+            for _target_key, _operation, source_keys in (
+                *adapter.derived_spm_overrides,
+                *adapter.annual_derived_spm_overrides,
+            ):
+                aliases.update(source_keys)
+            if adapter.state_code_from_boolean_input is not None:
+                aliases.add(adapter.state_code_from_boolean_input[0])
+        return {alias.lower() for alias in aliases if alias}
+
+    @staticmethod
+    def _policyengine_mapping_input_aliases(
+        mapping: PolicyEngineMapping,
+    ) -> set[str]:
+        aliases: set[str] = set()
+        if mapping.parameter_key_input:
+            aliases.add(mapping.parameter_key_input)
+        if mapping.parameter_calc_input:
+            aliases.add(mapping.parameter_calc_input)
+        for part in mapping.parameter_key_path:
+            if isinstance(part, dict) and part.get("input"):
+                aliases.add(str(part["input"]))
+        return aliases
+
+    @staticmethod
+    def _is_projectable_pe_us_relation_input(
+        relation_name: str,
+        pe_var: str | None,
+    ) -> bool:
+        if relation_name.endswith("member_of_tax_unit"):
+            return True
+        if relation_name.endswith("member_of_household") and pe_var and "snap" in pe_var:
+            return True
+        return False
 
     def _is_pe_test_mappable(
         self,
@@ -11618,11 +11801,24 @@ print("BENCHMARK:" + json.dumps(result))
         inputs: dict,
         expected: Any = None,
         pe_var: str | None = None,
+        mapping: PolicyEngineMapping | None = None,
     ) -> tuple[bool, str | None]:
         """Return whether the test case can be represented in PolicyEngine."""
         rule_name_lower = rule_name.lower()
         if country == "us":
             pe_var_name = pe_var or rule_name
+            unprojectable_legal_inputs = self._unprojectable_pe_us_legal_inputs(
+                inputs,
+                pe_var_name,
+                mapping=mapping,
+            )
+            if unprojectable_legal_inputs:
+                return (
+                    False,
+                    "RuleSpec test supplies unprojectable RuleSpec legal input(s) "
+                    "that PolicyEngine should not receive as invented scenario "
+                    f"facts: {', '.join(unprojectable_legal_inputs[:5])}",
+                )
             education_credit_vars = {
                 "american_opportunity_credit",
                 "refundable_american_opportunity_credit",

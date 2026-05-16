@@ -1239,6 +1239,46 @@ def test_policyengine_oracle_does_not_score_unmapped_outputs(tmp_path):
     assert result.details["coverage"]["unmapped"] == 1
 
 
+def test_policyengine_oracle_skips_unprojectable_legal_inputs(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: statutory_taxable_income_proof
+  period: 2026
+  input:
+    us:statutes/26/63#input.gross_income: 100000
+    us:statutes/26/63#input.deductions_allowed_by_this_chapter_other_than_standard_deduction: 15000
+  output:
+    us:statutes/26/63#taxable_income: 85000
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+
+    ran_policyengine = False
+
+    def run_policyengine(*_args, **_kwargs):
+        nonlocal ran_policyengine
+        ran_policyengine = True
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:0\n")
+
+    pipeline._run_pe_subprocess_detailed = run_policyengine
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert ran_policyengine is False
+    assert result.passed is True
+    assert result.score is None
+    assert result.details["coverage"]["unsupported"] == 1
+    assert any("unprojectable RuleSpec legal input" in issue for issue in result.issues)
+
+
 def test_policyengine_registry_is_legal_id_keyed():
     registry = load_policyengine_registry()
 
