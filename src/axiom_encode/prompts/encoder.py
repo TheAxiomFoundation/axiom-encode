@@ -114,6 +114,12 @@ Hard requirements:
   imported output as the base in the adjustment formula. For IRC section 24(i),
   import the subsection 24(h) child amount and refundable-cap outputs rather
   than defining local `1400` or `2200` base parameters in `24.yaml`.
+- When source text says an exemption, exclusion, or adjustment applies
+  `to the extent` of an amount, do not model it as all-or-nothing zeroing such as
+  `if exempt_amount > 0: 0 else: tax`. Subtract or apportion the stated amount.
+  If imported child calculations cannot receive the adjusted basis faithfully
+  under the current executable schema, emit `module.status: entity_not_supported`
+  or `deferred` instead of an approximate executable formula.
 - If copied context listings include exported symbols as `import_target#name`,
   use those exact references in `imports:` and proof atoms when composing from
   context.

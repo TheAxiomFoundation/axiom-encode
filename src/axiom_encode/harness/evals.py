@@ -2895,6 +2895,12 @@ RuleSpec requirements:
   `source_relation` records in the statute file. For IRC section 63(c)(5), if
   Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
   not recreate it in the statute file.
+- When source text says an exemption, exclusion, or adjustment applies
+  `to the extent` of an amount, do not model it as all-or-nothing zeroing such as
+  `if exempt_amount > 0: 0 else: tax`. Subtract or apportion the stated amount.
+  If imported child calculations cannot receive the adjusted basis faithfully
+  under the current executable schema, emit `module.status: entity_not_supported`
+  or `deferred` instead of an approximate executable formula.
 - When the statute states pre-inflation base dollars that a current-year
   authority adjusts, any local statute output must be named as a statutory/base
   concept, not as the current-year value. For IRC section 63(c)(5), use a name

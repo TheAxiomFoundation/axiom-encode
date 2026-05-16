@@ -4548,6 +4548,52 @@ def find_source_limitation_application_issues(content: str) -> list[str]:
     return issues
 
 
+_PARTIAL_EXTENT_SOURCE_PATTERN = re.compile(r"\bto\s+the\s+extent\b", re.IGNORECASE)
+_PARTIAL_EXTENT_ZEROING_PATTERN = re.compile(
+    r"\bif\s+(?P<condition>[^:\n]+?)\s*:\s*0(?:\.0+)?\s+else\s*:\s*(?P<else>[^\n]+)",
+    flags=re.IGNORECASE,
+)
+_PARTIAL_EXTENT_EXEMPTION_CONDITION_PATTERN = re.compile(
+    r"(?:exempt|exemption|excluded|exclusion|disallow|disallowed)",
+    flags=re.IGNORECASE,
+)
+
+
+def find_partial_extent_zeroing_issues(content: str) -> list[str]:
+    """Reject all-or-nothing zeroing for source-stated partial extent rules."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not source_text or not _PARTIAL_EXTENT_SOURCE_PATTERN.search(source_text):
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived":
+            continue
+        dtype = _rulespec_rule_dtype_by_name(payload).get(name, "")
+        if dtype not in {"money", "currency", "decimal", "integer", "number"}:
+            continue
+        for match in _PARTIAL_EXTENT_ZEROING_PATTERN.finditer(formula):
+            condition = match.group("condition")
+            if not _PARTIAL_EXTENT_EXEMPTION_CONDITION_PATTERN.search(condition):
+                continue
+            issues.append(
+                "Partial extent exemption collapsed: "
+                f"`{name}` returns zero whenever `{condition.strip()}` holds, "
+                "but the source uses `to the extent`, which makes the exemption "
+                "partial. Subtract or apportion the exempt amount, or mark the "
+                "artifact unsupported if the current executable schema cannot "
+                "wire the adjusted basis into imported child calculations."
+            )
+            break
+    return issues
+
+
 def _rulespec_rule_dtype_by_name(payload: dict[str, Any]) -> dict[str, str]:
     rules = payload.get("rules")
     if not isinstance(rules, list):
@@ -8702,6 +8748,7 @@ class ValidatorPipeline:
         issues.extend(find_relation_aggregate_syntax_issues(content))
         issues.extend(find_role_limited_relation_scope_issues(content))
         issues.extend(find_source_limitation_application_issues(content))
+        issues.extend(find_partial_extent_zeroing_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(find_unused_import_issues(content))

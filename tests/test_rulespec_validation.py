@@ -38,6 +38,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
     find_nonnegative_amount_reduction_issues,
+    find_partial_extent_zeroing_issues,
     find_proof_import_hash_consistency_issues,
     find_relation_aggregate_syntax_issues,
     find_role_limited_relation_scope_issues,
@@ -4692,6 +4693,31 @@ rules:
     assert len(issues) == 1
     assert "Child fragment re-encoded" in issues[0]
     assert "us:statutes/26/3101/b/2#additional_medicare_tax" in issues[0]
+
+
+def test_partial_extent_exemption_rejects_all_or_nothing_zeroing():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Wages shall be exempt from the taxes imposed by this section to the extent
+    such wages are subject exclusively to another country's social security laws.
+rules:
+  - name: section_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if exempt_wages > 0: 0 else: gross_tax
+"""
+
+    issues = find_partial_extent_zeroing_issues(content)
+
+    assert len(issues) == 1
+    assert "Partial extent exemption collapsed" in issues[0]
+    assert "section_tax" in issues[0]
 
 
 def test_child_fragment_reencoding_rejects_parent_copying_child_numeric_output(
