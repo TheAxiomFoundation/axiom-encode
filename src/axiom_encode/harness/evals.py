@@ -3254,9 +3254,25 @@ def _format_cited_context_import_guidance(
         )
         if len(exports) > 8:
             references += ", ..."
+        preferred_exports = _preferred_exports_for_cited_reference(
+            source_text,
+            citation,
+            exports,
+        )
+        preferred_note = ""
+        if preferred_exports:
+            preferred = ", ".join(
+                f"`{item.import_path}#{name}`" for name in preferred_exports
+            )
+            preferred_note = (
+                " For the cited deduction/exemption/credit reference, prefer "
+                f"the final imported output {preferred} over any local "
+                "`*_provided_in_section_*`, `*_under_section_*`, or similar "
+                "placeholder."
+            )
         lines.append(
             f"- Source cites `{citation.label}`; copied context target "
-            f"`{item.import_path}` exports {references}."
+            f"`{item.import_path}` exports {references}.{preferred_note}"
         )
     if not lines:
         return ""
@@ -3329,6 +3345,91 @@ def _source_text_cites_statute(
             )
         )
     return False
+
+
+def _preferred_exports_for_cited_reference(
+    source_text: str,
+    citation: _StatuteCitation,
+    exports: list[str],
+) -> list[str]:
+    """Suggest likely final outputs for source references to cited deductions."""
+    window = _source_text_citation_window(source_text, citation).lower()
+    if not any(
+        token in window
+        for token in (
+            "deduction",
+            "deduct",
+            "exemption",
+            "credit",
+            "allowance",
+            "allowed",
+            "allowable",
+        )
+    ):
+        return []
+
+    scored: list[tuple[tuple[int, int, int, str], str]] = []
+    for export in exports:
+        name = export.lower()
+        score = 0
+        if "exemption" in window and "exemption" in name:
+            score += 50
+        if "credit" in window and "credit" in name:
+            score += 50
+        if "deduction" in window and "deduction" in name:
+            score += 50
+        if "allowance" in window and "allowance" in name:
+            score += 50
+        if name.endswith(("_deduction", "_credit", "_allowance")):
+            score += 35
+        if name.startswith("section_"):
+            score += 10
+        if any(
+            marker in name
+            for marker in (
+                "_before_",
+                "_cap",
+                "_eligible",
+                "_eligibility",
+                "_increment",
+                "_phaseout",
+                "_rate",
+                "_threshold",
+                "_base",
+                "_amount_per",
+                "_modified_adjusted",
+            )
+        ):
+            score -= 30
+        if score <= 0:
+            continue
+        scored.append(((-score, len(export), exports.index(export), export), export))
+    return [export for _sort_key, export in sorted(scored)[:3]]
+
+
+def _source_text_citation_window(
+    source_text: str,
+    citation: _StatuteCitation,
+) -> str:
+    citation_pattern = re.escape(citation.section)
+    for fragment in citation.fragments:
+        citation_pattern += rf"\s*\(\s*{re.escape(fragment)}\s*\)"
+    match = re.search(
+        rf"\bsection\s+{citation_pattern}(?:\b|\s|\)|,|;|\.)",
+        source_text,
+        flags=re.IGNORECASE,
+    )
+    if match is None and citation.fragments:
+        match = re.search(
+            rf"\b{citation_pattern}(?:\b|\s|\)|,|;|\.)",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    if match is None:
+        return ""
+    start = max(0, match.start() - 120)
+    end = min(len(source_text), match.end() + 80)
+    return source_text[start:end]
 
 
 def _is_citation_fragment(fragment: str) -> bool:
