@@ -6782,6 +6782,10 @@ rules:
             "amount_excluded_from_gross_income_by_reason_of_section_112"
             in repaired_rules
         )
+        assert (
+            "max(0, earned_income - section_112_amounts_excluded_from_gross_income)"
+            in repaired_rules
+        )
         assert "  - us:statutes/26/32/c/2\n" in repaired_rules
         assert (
             "target: us:statutes/26/112#amount_excluded_from_gross_income_by_reason_of_section_112"

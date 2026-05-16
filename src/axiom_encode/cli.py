@@ -3598,11 +3598,8 @@ def _repair_ctc_phase_in_earned_income_base_formula(content: str) -> str:
         f"          + {_SECTION_112_OUTPUT}"
     )
     replacement = (
-        "earned_income\n"
-        "          + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:\n"
-        "                 0\n"
-        "             else:\n"
-        f"                 {_SECTION_112_OUTPUT})"
+        "max(0, earned_income - section_112_amounts_excluded_from_gross_income)\n"
+        f"          + {_SECTION_112_OUTPUT}"
     )
     repaired = content.replace(source, replacement)
     return repaired.replace(
