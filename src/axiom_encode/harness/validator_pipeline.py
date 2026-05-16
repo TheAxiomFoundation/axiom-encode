@@ -3187,6 +3187,10 @@ _UNSUPPORTED_RELATION_SUM_PATTERN = re.compile(
     r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,",
     flags=re.IGNORECASE,
 )
+_RELATION_FIELD_SUM_PATTERN = re.compile(
+    r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\)",
+    flags=re.IGNORECASE,
+)
 _RELATION_AGGREGATE_PATTERN = re.compile(
     r"\b(?:count_where|len|sum|sum_where)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\b",
     flags=re.IGNORECASE,
@@ -4391,6 +4395,7 @@ def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
         return []
 
     relation_names = _rulespec_data_relation_names(payload)
+    executable_names = _rulespec_executable_names_from_payload(payload)
     issues: list[str] = []
     for name, _kind, formula in _rulespec_rule_formulas(payload):
         for match in _UNSUPPORTED_RELATION_SUM_PATTERN.finditer(formula):
@@ -4406,6 +4411,27 @@ def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
                 "`sum(relation.amount_fact)` and "
                 "`sum_where(relation, amount_fact_or_derived, predicate_fact)`; "
                 "move arithmetic into named facts/derived rules before aggregating."
+            )
+        for match in _RELATION_FIELD_SUM_PATTERN.finditer(formula):
+            relation_name = match.group(1)
+            field_name = match.group(2)
+            if (
+                relation_name not in relation_names
+                and not _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name)
+            ):
+                continue
+            if field_name not in executable_names:
+                continue
+            issues.append(
+                "Unsupported relation aggregate syntax: "
+                f"`{name}` uses `sum({relation_name}.{field_name})`, but "
+                f"`{field_name}` is a local executable output. RuleSpec treats "
+                "`sum(relation.amount_fact)` as summing a raw relation-row fact. "
+                "Use "
+                f"`sum_where({relation_name}, {field_name}, predicate_fact)` "
+                "for per-related-entity derived outputs, or remove the local "
+                "executable rule and model the value as a direct relation-row "
+                "fact only if the source defines that row fact directly."
             )
     return issues
 

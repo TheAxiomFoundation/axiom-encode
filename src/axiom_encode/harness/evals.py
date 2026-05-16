@@ -2923,6 +2923,11 @@ RuleSpec requirements:
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
   `sum(relation, expression)` or put arithmetic inside a relation field access.
+  Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact
+  supplied directly on each relation row. Do not use `sum(relation.local_output)`
+  for a `parameter` or `derived` rule defined in the same file; for a computed
+  per-related-entity amount, write
+  `sum_where(relation, local_output, source_stated_predicate_fact)` instead.
   To count two boolean conditions over the same relation, write two
   `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression, wrap the whole conditional in parentheses, such as `amount + (if condition: extra else: 0)`. Do not write `amount + if condition: extra else: 0`.

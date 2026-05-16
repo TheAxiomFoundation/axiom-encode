@@ -7194,6 +7194,63 @@ rules:
     assert "sum(member_of_tax_unit, ...)" in issues[0]
 
 
+def test_relation_aggregate_syntax_rejects_sum_of_local_derived_relation_field():
+    content = """format: rulespec/v1
+rules:
+  - name: capital_asset_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: capital_asset_of_tax_unit
+      arity: 2
+  - name: short_term_capital_gain
+    kind: derived
+    entity: Asset
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if asset_sale_or_exchange_is_of_capital_asset and asset_held_one_year_or_less:
+              asset_gain
+          else: 0
+  - name: short_term_capital_gains
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(capital_asset_of_tax_unit.short_term_capital_gain)
+"""
+
+    issues = find_relation_aggregate_syntax_issues(content)
+
+    assert any("local executable output" in issue for issue in issues)
+    assert "sum(capital_asset_of_tax_unit.short_term_capital_gain)" in issues[0]
+    assert "sum_where(capital_asset_of_tax_unit, short_term_capital_gain" in issues[0]
+
+
+def test_relation_aggregate_syntax_accepts_sum_of_relation_row_fact():
+    content = """format: rulespec/v1
+rules:
+  - name: capital_asset_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: capital_asset_of_tax_unit
+      arity: 2
+  - name: short_term_capital_gains
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(capital_asset_of_tax_unit.asset_gain)
+"""
+
+    assert find_relation_aggregate_syntax_issues(content) == []
+
+
 def test_role_limited_relation_scope_rejects_broad_container_count():
     content = """format: rulespec/v1
 module:

@@ -434,6 +434,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         in prompt
     )
     assert "Do not use Python-only functions such as `round(...)`" in prompt
+    assert "Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact" in prompt
+    assert "Do not use `sum(relation.local_output)`" in prompt
     assert "Do not write `amount + if condition: extra else: 0`" in prompt
     assert "Do not emit more than one `versions:` entry for `kind: derived`" in prompt
     assert (
