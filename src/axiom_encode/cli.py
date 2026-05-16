@@ -3709,7 +3709,7 @@ def _repair_section_32_c_2_section_112_split_content(
     repo_path: Path,
 ) -> tuple[str, list[str]]:
     if (
-        _SECTION_32_C_2_EARNED_PRE_112_OUTPUT in content
+        _has_rule_name(content, _SECTION_32_C_2_EARNED_PRE_112_OUTPUT)
         and "section_112_amounts_excluded_from_gross_income" not in content
     ):
         return content, []
@@ -3721,7 +3721,7 @@ def _repair_section_32_c_2_section_112_split_content(
         return content, []
 
     repaired = _ensure_rulespec_import(content, _SECTION_112_IMPORT)
-    if _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT not in repaired:
+    if not _has_rule_name(repaired, _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT):
         repaired = repaired.replace(
             "  - name: employee_compensation_earned_income\n",
             _section_32_c_2_employee_pre_112_rule()
@@ -3766,7 +3766,7 @@ def _repair_section_32_c_2_section_112_split_content(
         output=_SECTION_112_OUTPUT,
         import_hash=f"sha256:{_sha256_file(section_112_file)}",
     )
-    if _SECTION_32_C_2_EARNED_PRE_112_OUTPUT not in repaired:
+    if not _has_rule_name(repaired, _SECTION_32_C_2_EARNED_PRE_112_OUTPUT):
         repaired = repaired.replace(
             "  - name: earned_income\n",
             _section_32_c_2_earned_pre_112_rule(
@@ -3937,6 +3937,13 @@ def _insert_rule_import_proof_atom(
             inserted = True
 
     return "".join(repaired)
+
+
+def _has_rule_name(content: str, rule_name: str) -> bool:
+    return (
+        re.search(rf"^\s+- name:\s+{re.escape(rule_name)}\s*$", content, re.MULTILINE)
+        is not None
+    )
 
 
 def _rule_has_import_target(content: str, *, rule_name: str, target: str) -> bool:
