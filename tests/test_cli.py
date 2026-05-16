@@ -20,6 +20,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _apply_generated_encoding_result,
+    _complete_missing_imported_test_inputs,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
@@ -4319,6 +4320,74 @@ rules:
         assert "`long_term_capital_gains`" in issues[0]
         assert "`short_term_capital_gains`" in issues[0]
         assert "`qualified_dividend_income`" not in issues[0]
+
+    def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/1/h.yaml"
+        dependent = policy_repo / "statutes/26/199A.yaml"
+        dependent_test = policy_repo / "statutes/26/199A.test.yaml"
+        imported.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: net_capital_gain
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, long_term_capital_gains - investment_income_amount)
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1/h#net_capital_gain
+rules: []
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:statutes/26/1/h#input.long_term_capital_gains: 0
+  output:
+    us:statutes/26/199A#qbi_taxable_income_limit: 20000
+- name: case_two
+  input:
+    us:statutes/26/1/h#input.long_term_capital_gains: 1000
+  output:
+    us:statutes/26/199A#qbi_taxable_income_limit: 20000
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: "
+                        "missing input `investment_income_amount`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        updated = dependent_test.read_text()
+        assert (
+            updated.count(
+                "us:statutes/26/1/h#input.investment_income_amount: 0"
+            )
+            == 2
+        )
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"

@@ -2870,6 +2870,8 @@ def cmd_repair_proof_import_hashes(args):
         f"{_repo_jurisdiction_prefix(repo_path)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else None
     original_content = rules_file.read_text()
     repaired_content, repair_count = _repair_proof_import_hashes(
         original_content,
@@ -2895,6 +2897,19 @@ def cmd_repair_proof_import_hashes(args):
         require_policy_proofs=False,
     ).validate(rules_file, skip_reviewers=True)
     if not validation.all_passed:
+        if _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            validation=validation,
+        ):
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=False,
+            ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
         issues = [
             result.error for result in validation.results.values() if result.error
         ]
@@ -2905,6 +2920,8 @@ def cmd_repair_proof_import_hashes(args):
             )
         else:
             rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
             print("Repair failed validation; restored original file.")
             for issue in issues:
                 print(f"- {issue}")
@@ -2927,7 +2944,6 @@ def cmd_repair_proof_import_hashes(args):
             context_manifest_file=None,
         )
         applied_files = [rules_file]
-        test_file = _rulespec_test_path(rules_file)
         if test_file.exists():
             applied_files.append(test_file)
         manifest_path = _write_applied_encoding_manifest(
@@ -6514,6 +6530,99 @@ def _complete_missing_dependent_test_inputs(
             test_path.write_text(updated)
             changed.append(test_path)
     return changed
+
+
+def _complete_missing_imported_test_inputs(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    validation: object,
+) -> bool:
+    """Fill missing input slots for imported modules in this file's tests."""
+    if not test_file.exists():
+        return False
+    missing_inputs = _missing_input_names_from_validation(validation)
+    if not missing_inputs:
+        return False
+    imported_inputs = _imported_input_refs_by_name(rules_file, repo_path=repo_path)
+    if not imported_inputs:
+        return False
+
+    content = test_file.read_text()
+    updated = content
+    for input_name in sorted(missing_inputs):
+        for input_ref in imported_inputs.get(input_name, []):
+            updated = _insert_input_default_in_test_cases(
+                updated,
+                input_ref,
+                _infer_missing_input_default(input_name),
+            )
+    if updated == content:
+        return False
+    test_file.write_text(updated)
+    return True
+
+
+def _missing_input_names_from_validation(validation: object) -> set[str]:
+    missing_inputs: set[str] = set()
+    results = getattr(validation, "results", {})
+    if not isinstance(results, dict):
+        return missing_inputs
+    for validator_result in results.values():
+        error = getattr(validator_result, "error", "") or ""
+        for match in _MISSING_INPUT_RE.finditer(str(error)):
+            missing_inputs.add(match.group("input"))
+    return missing_inputs
+
+
+def _imported_input_refs_by_name(
+    rules_file: Path,
+    *,
+    repo_path: Path,
+) -> dict[str, list[str]]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    imports = payload.get("imports") if isinstance(payload, dict) else None
+    if not isinstance(imports, list):
+        return {}
+
+    refs_by_name: dict[str, list[str]] = {}
+    jurisdiction = _repo_jurisdiction_prefix(repo_path)
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        import_base = raw_import.split("#", 1)[0].strip().strip("/")
+        if not import_base:
+            continue
+        import_file = _import_base_to_repo_file(import_base, repo_path=repo_path)
+        if import_file is None or not import_file.exists():
+            continue
+        input_names = _local_factual_input_names_from_rules_content(
+            import_file.read_text()
+        )
+        canonical_base = (
+            import_base if ":" in import_base else f"{jurisdiction}:{import_base}"
+        )
+        for input_name in sorted(input_names):
+            refs_by_name.setdefault(input_name, []).append(
+                f"{canonical_base}#input.{input_name}"
+            )
+    return refs_by_name
+
+
+def _import_base_to_repo_file(import_base: str, *, repo_path: Path) -> Path | None:
+    normalized = import_base.strip().strip('"').strip("'").strip("/")
+    if not normalized:
+        return None
+    if ":" in normalized:
+        _, normalized = normalized.split(":", 1)
+    relative = Path(normalized)
+    if relative.suffix not in {".yaml", ".yml"}:
+        relative = relative.with_suffix(".yaml")
+    return repo_path / relative
 
 
 def _load_test_input_baseline(test_path: Path) -> dict[str, object]:
