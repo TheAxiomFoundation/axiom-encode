@@ -4185,6 +4185,8 @@ def _has_zero_output_test(test_cases: list[Any], rule_name: str) -> bool:
 def _is_zero_expected_value(value: Any) -> bool:
     if isinstance(value, bool) or value is None:
         return False
+    if isinstance(value, list | tuple):
+        return any(_is_zero_expected_value(item) for item in value)
     if isinstance(value, (int, float)):
         return float(value) == 0.0
     if isinstance(value, str):

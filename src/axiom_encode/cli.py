@@ -4878,14 +4878,27 @@ def _has_zero_output_test(test_cases: object, target: str) -> bool:
         for key, value in outputs.items():
             if str(key).strip() != normalized_target:
                 continue
-            if isinstance(value, bool) or value is None:
-                continue
-            if isinstance(value, int | float) and float(value) == 0.0:
+            if _is_generated_zero_expected_value(value):
                 return True
-            if isinstance(value, str):
-                with contextlib.suppress(ValueError):
-                    if float(value.strip()) == 0.0:
-                        return True
+    return False
+
+
+def _is_generated_zero_expected_value(value: object) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, list | tuple):
+        return any(_is_generated_zero_expected_value(item) for item in value)
+    if isinstance(value, int | float):
+        return float(value) == 0.0
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            return float(value.strip()) == 0.0
+        return False
+    if isinstance(value, dict):
+        raw_value = value.get("value")
+        if isinstance(raw_value, dict):
+            return _is_generated_zero_expected_value(raw_value.get("value"))
+        return _is_generated_zero_expected_value(raw_value)
     return False
 
 
@@ -5364,6 +5377,37 @@ def cmd_encode(args):
                     outcome["auto_repaired_test_input_assignments"] = (
                         repaired_input_cases
                     )
+            if not can_apply:
+                repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_test_cases:
+                    prior_repairs = outcome.get("auto_repaired_zero_branch_tests")
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_repaired_zero_branch_tests"] = [
+                        *prior_repairs,
+                        *repaired_test_cases,
+                    ]
+                    print(
+                        "  apply=auto_repaired_zero_branch_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
                 detail = (
                     apply_issues[0]

@@ -6916,6 +6916,36 @@ rules:
     assert find_zero_branch_test_coverage_issues(content, cases) == []
 
 
+def test_zero_branch_test_coverage_allows_table_zero_output_case():
+    content = """format: rulespec/v1
+rules:
+  - name: predecessor_remuneration_considered_paid_by_successor
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if successor_employer_wage_base_continuity_applies:
+              predecessor_remuneration_before_acquisition
+          else:
+              0
+"""
+    cases = [
+        {
+            "name": "no_successor_continuity",
+            "output": {
+                "us:statutes/26/3121/a/1#predecessor_remuneration_considered_paid_by_successor": [
+                    0
+                ]
+            },
+        }
+    ]
+
+    assert find_zero_branch_test_coverage_issues(content, cases) == []
+
+
 def test_zero_branch_test_coverage_rejects_untested_else_zero_output():
     content = """format: rulespec/v1
 rules:
