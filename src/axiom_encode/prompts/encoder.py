@@ -120,6 +120,10 @@ Hard requirements:
   If imported child calculations cannot receive the adjusted basis faithfully
   under the current executable schema, emit `module.status: entity_not_supported`
   or `deferred` instead of an approximate executable formula.
+- Do not repair that case by importing child rates or thresholds and rebuilding
+  the child branch locally with an adjusted basis. That still re-encodes the
+  child branch and is invalid unless the schema can explicitly wire the
+  adjusted basis into the imported child result.
 - If copied context listings include exported symbols as `import_target#name`,
   use those exact references in `imports:` and proof atoms when composing from
   context.

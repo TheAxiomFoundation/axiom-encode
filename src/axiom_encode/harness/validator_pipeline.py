@@ -5270,6 +5270,21 @@ def find_child_fragment_reencoding_issues(
         rules_file=rules_file,
         policy_repo_path=policy_repo_path,
     )
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    has_partial_extent_source = bool(
+        source_text and _PARTIAL_EXTENT_SOURCE_PATTERN.search(source_text)
+    )
+    partial_extent_guidance = (
+        " Because the source uses `to the extent`, do not recompute child "
+        "branches with a locally adjusted basis when the current executable "
+        "schema cannot pass that adjusted basis into imported child outputs; "
+        "emit `module.status: entity_not_supported` or `deferred` instead of "
+        "an approximate executable formula."
+        if has_partial_extent_source
+        else ""
+    )
 
     issues: list[str] = []
     for child in sorted(child_dir.rglob("*.yaml")):
@@ -5316,6 +5331,7 @@ def find_child_fragment_reencoding_issues(
                     f"`{child_display_path}` without importing a terminal child output. "
                     f"Import and compose the child {export_hint} "
                     "instead of copying the child formula or factual inputs into the parent."
+                    f"{partial_extent_guidance}"
                 )
         issues.extend(
             _child_numeric_output_reencoding_issues(

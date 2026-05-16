@@ -2901,6 +2901,10 @@ RuleSpec requirements:
   If imported child calculations cannot receive the adjusted basis faithfully
   under the current executable schema, emit `module.status: entity_not_supported`
   or `deferred` instead of an approximate executable formula.
+- Do not repair that case by importing child rates or thresholds and rebuilding
+  the child branch locally with an adjusted basis. That still re-encodes the
+  child branch and is invalid unless the schema can explicitly wire the
+  adjusted basis into the imported child result.
 - When the statute states pre-inflation base dollars that a current-year
   authority adjusts, any local statute output must be named as a statutory/base
   concept, not as the current-year value. For IRC section 63(c)(5), use a name

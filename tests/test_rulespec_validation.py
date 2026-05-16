@@ -4695,6 +4695,70 @@ rules:
     assert "us:statutes/26/3101/b/2#additional_medicare_tax" in issues[0]
 
 
+def test_child_fragment_reencoding_partial_extent_guides_to_defer(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3101.yaml"
+    child = repo / "statutes" / "26" / "3101" / "a.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: oasdi_wage_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.062
+
+  - name: oasdi_wage_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages * oasdi_wage_tax_rate
+"""
+    )
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Wages shall be exempt from the taxes imposed by this section to the extent
+    such wages are subject exclusively to another country's social security laws.
+imports:
+  - us:statutes/26/3101/a#oasdi_wage_tax_rate
+rules:
+  - name: section_3101_taxable_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, wages - wages_exempt_under_international_agreement)
+
+  - name: section_3101_oasdi_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3101_taxable_wages * oasdi_wage_tax_rate
+"""
+
+    issues = find_child_fragment_reencoding_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Child fragment re-encoded" in issues[0]
+    assert "entity_not_supported" in issues[0]
+    assert "deferred" in issues[0]
+
+
 def test_partial_extent_exemption_rejects_all_or_nothing_zeroing():
     content = """format: rulespec/v1
 module:
