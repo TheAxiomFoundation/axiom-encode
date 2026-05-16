@@ -6999,7 +6999,7 @@ rules:
         manifest_payload = json.loads(manifest.read_text())
         assert (
             manifest_payload["model"]
-            == "section-32-c-2-section-112-and-164f-v2"
+            == "section-32-c-2-section-112-164f-dependent-tests-v3"
         )
         assert (
             manifest_payload["tool"]
@@ -7010,6 +7010,7 @@ rules:
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/32/c/2.yaml"
         test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
+        dependent_test_file = policy_repo / "statutes/26/32.test.yaml"
         section_112 = policy_repo / "statutes/26/112.yaml"
         section_1402 = policy_repo / "statutes/26/1402/a.yaml"
         section_164f = policy_repo / "statutes/26/164/f.yaml"
@@ -7127,6 +7128,17 @@ rules:
     us:statutes/26/32/c/2#earned_income_before_section_112_election: 59235
 """
         )
+        dependent_test_file.write_text(
+            """- name: top_level_eitc_uses_section_32_c_2
+  input:
+    us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 10000
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 0
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+  output:
+    us:statutes/26/32#eitc: 100
+"""
+        )
         args = SimpleNamespace(
             repo=policy_repo,
             file=Path("statutes/26/32/c/2.yaml"),
@@ -7177,6 +7189,25 @@ rules:
             "us:statutes/26/32/c/2#earned_income_before_section_112_election: 59293.5225"
             in repaired_test_content
         )
+        dependent_test_content = dependent_test_file.read_text()
+        assert (
+            "us:statutes/26/164/f#input.taxpayer_is_individual: true"
+            in dependent_test_content
+        )
+        assert (
+            "us:statutes/26/1401#input.self_employment_income: 0"
+            in dependent_test_content
+        )
+        manifest_payload = json.loads(
+            (
+                policy_repo
+                / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
+            ).read_text()
+        )
+        applied_paths = {
+            applied_file["path"] for applied_file in manifest_payload["applied_files"]
+        }
+        assert "statutes/26/32.test.yaml" in applied_paths
 
     def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(
         self, tmp_path

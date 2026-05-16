@@ -3539,14 +3539,20 @@ def cmd_repair_section_32_c_2_section_112_split(args):
 
     original_content = rules_file.read_text()
     test_file = _rulespec_test_path(rules_file)
-    original_test_content = test_file.read_text() if test_file.exists() else None
+    dependent_test_files = _section_32_c_2_repair_test_files(
+        repo_path, primary_test_file=test_file
+    )
+    original_test_contents = {
+        path: path.read_text() for path in dependent_test_files if path.exists()
+    }
     repaired_content, repaired_rules = _repair_section_32_c_2_section_112_split_content(
         original_content,
         repo_path=repo_path,
     )
-    test_needs_repair = (
-        _section_32_c_2_section_112_split_tests_need_repair(test_file)
-        or _section_32_c_2_164f_self_employment_tests_need_repair(test_file)
+    test_needs_repair = any(
+        _section_32_c_2_section_112_split_tests_need_repair(candidate)
+        or _section_32_c_2_164f_self_employment_tests_need_repair(candidate)
+        for candidate in dependent_test_files
     )
     if repaired_content == original_content and not test_needs_repair:
         print("No Section 32(c)(2) Section 112 split repairs found.")
@@ -3566,15 +3572,14 @@ def cmd_repair_section_32_c_2_section_112_split(args):
 
         rules_file.write_text(repaired_content)
         applied_files = [rules_file]
-        test_repaired = False
-        if _repair_section_32_c_2_section_112_split_tests(test_file):
-            test_repaired = True
-        if _repair_section_32_c_2_164f_self_employment_tests(test_file):
-            test_repaired = True
-        if test_repaired:
-            applied_files.append(test_file)
-        elif test_file.exists():
-            applied_files.append(test_file)
+        for candidate_test_file in dependent_test_files:
+            test_repaired = False
+            if _repair_section_32_c_2_section_112_split_tests(candidate_test_file):
+                test_repaired = True
+            if _repair_section_32_c_2_164f_self_employment_tests(candidate_test_file):
+                test_repaired = True
+            if test_repaired or candidate_test_file == test_file:
+                applied_files.append(candidate_test_file)
         validation = ValidatorPipeline(
             policy_repo_path=repo_path,
             axiom_rules_path=axiom_rules_path,
@@ -3586,8 +3591,8 @@ def cmd_repair_section_32_c_2_section_112_split(args):
         ]
         if not validation.all_passed:
             rules_file.write_text(original_content)
-            if original_test_content is not None:
-                test_file.write_text(original_test_content)
+            for path, content in original_test_contents.items():
+                path.write_text(content)
             print("Repair failed validation; restored original file.")
             for issue in validation_issues:
                 print(f"- {issue}")
@@ -3597,7 +3602,7 @@ def cmd_repair_section_32_c_2_section_112_split(args):
             output_file=str(generated_output),
             runner="deterministic-repair",
             backend="deterministic",
-            model="section-32-c-2-section-112-and-164f-v2",
+            model="section-32-c-2-section-112-164f-dependent-tests-v3",
             tool="axiom-encode repair-section-32-c-2-section-112-split",
             citation=(
                 f"{_repo_jurisdiction_prefix(repo_path)}:"
@@ -3623,6 +3628,28 @@ def cmd_repair_section_32_c_2_section_112_split(args):
         f"{relative_output}: {', '.join(repaired_rules) or 'tests'}"
     )
     print(f"manifest={manifest_path}")
+
+
+def _section_32_c_2_repair_test_files(
+    repo_path: Path,
+    *,
+    primary_test_file: Path,
+) -> list[Path]:
+    """Return the primary and dependent generated tests for the Section 32(c)(2) repair."""
+    candidates: list[Path] = []
+    if primary_test_file.exists():
+        candidates.append(primary_test_file)
+    for candidate in sorted(repo_path.rglob("*.test.yaml")):
+        if candidate == primary_test_file:
+            continue
+        try:
+            content = candidate.read_text()
+        except OSError:
+            continue
+        if "us:statutes/26/32/c/2#" not in content:
+            continue
+        candidates.append(candidate)
+    return candidates
 
 
 def _repair_eitc_section_152_import_content(
