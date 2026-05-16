@@ -3613,6 +3613,57 @@ rules:
         assert "says a value is determined `in accordance with section X`" in prompt
         assert "do not invent `import` statements or `imports:` blocks" in prompt
 
+    def test_build_eval_prompt_highlights_cited_context_import_exports(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        cited_file = policy_repo_root / "statutes" / "26" / "1211.yaml"
+        cited_file.parent.mkdir(parents=True, exist_ok=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: other_taxpayer_capital_losses_allowed
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: allowed_capital_losses
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 1222",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "The term net capital loss means the excess of the losses from "
+                "sales or exchanges of capital assets over the sum allowed under "
+                "section 1211."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[cited_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 1222",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="1222.yaml",
+            target_ref_prefix="us:statutes/26/1222",
+            include_tests=True,
+        )
+
+        assert "Mandatory cited RuleSpec imports detected from source text" in prompt
+        assert "Source cites `1211`" in prompt
+        assert (
+            "`us:statutes/26/1211#other_taxpayer_capital_losses_allowed`"
+            in prompt
+        )
+        assert "Do not keep a local `_under_section_...`" in prompt
+
     def test_build_eval_prompt_discourages_fabricated_same_instrument_imports(
         self, tmp_path
     ):

@@ -2604,6 +2604,10 @@ import or re-export that exact canonical concept instead of duplicating it local
             target_file_name=target_file_name,
             target_ref_prefix=target_ref_prefix,
         )
+        cited_context_imports_section = _format_cited_context_import_guidance(
+            source_text,
+            context_files,
+        )
         context_section = f"""
 Context mode: `{mode}`.
 Context files are precedent and dependency context, not independent legal authority for new values:
@@ -2611,6 +2615,7 @@ Context files are precedent and dependency context, not independent legal author
 {inline_context}
 {resolved_guidance}
 {branch_child_naming_section}
+{cited_context_imports_section}
 Import and context rules:
 - Use the listed import target rather than the `./context/...` inspection path.
 - do not wrap import targets in quotes.
@@ -3224,6 +3229,106 @@ Sibling export naming for this target:
   name based on this branch's condition.
 - If the copied target exports a name that mainly describes the shared parent outcome rather than this branch's source-stated condition, treat that name as stale and rename it even when no sibling currently collides with it.
 """
+
+
+def _format_cited_context_import_guidance(
+    source_text: str,
+    context_files: list[EvalContextFile],
+) -> str:
+    """Highlight copied context files directly cited by the source text."""
+    lines: list[str] = []
+    for item in context_files:
+        citation = _import_target_to_statute_citation(item.import_path)
+        if citation is None:
+            continue
+        if not _source_text_cites_statute(source_text, citation):
+            continue
+        exports = _context_file_exports(item.source_path)
+        if not exports:
+            continue
+        references = ", ".join(
+            f"`{item.import_path}#{name}`" for name in exports[:8]
+        )
+        if len(exports) > 8:
+            references += ", ..."
+        lines.append(
+            f"- Source cites `{citation.label}`; copied context target "
+            f"`{item.import_path}` exports {references}."
+        )
+    if not lines:
+        return ""
+    return f"""
+Mandatory cited RuleSpec imports detected from source text:
+{chr(10).join(lines)}
+When this source computes by reference to one of these cited targets, add the
+appropriate listed `imports:` entry and use the imported bare rule name in the
+formula. Do not keep a local `_under_section_...` or `_under_subsection_...`
+input for an already copied RuleSpec context target.
+"""
+
+
+@dataclass(frozen=True)
+class _StatuteCitation:
+    label: str
+    section: str
+    fragments: tuple[str, ...]
+
+
+def _import_target_to_statute_citation(import_path: str) -> _StatuteCitation | None:
+    """Infer a statute section citation from a RuleSpec import target."""
+    normalized = import_path.strip().strip("\"'")
+    normalized = normalized.split("#", 1)[0].strip().strip("/")
+    if ":" in normalized:
+        maybe_prefix, rest = normalized.split(":", 1)
+        if re.fullmatch(r"[a-z][a-z0-9-]*", maybe_prefix) and rest:
+            normalized = rest.strip("/")
+    if normalized.endswith((".yaml", ".yml")):
+        normalized = normalized.rsplit(".", 1)[0]
+    parts = [part for part in normalized.split("/") if part]
+    try:
+        statutes_index = parts.index("statutes")
+    except ValueError:
+        return None
+    if len(parts) <= statutes_index + 2:
+        return None
+    section = parts[statutes_index + 2]
+    fragments = tuple(parts[statutes_index + 3 :])
+    if not re.fullmatch(r"[0-9][A-Za-z0-9.-]*", section):
+        return None
+    if not all(_is_citation_fragment(fragment) for fragment in fragments):
+        return None
+    label = section + "".join(f"({fragment})" for fragment in fragments)
+    return _StatuteCitation(label=label, section=section, fragments=fragments)
+
+
+def _source_text_cites_statute(
+    source_text: str,
+    citation: _StatuteCitation,
+) -> bool:
+    """Return whether source text cites the statute section or fragment."""
+    citation_pattern = re.escape(citation.section)
+    for fragment in citation.fragments:
+        citation_pattern += rf"\s*\(\s*{re.escape(fragment)}\s*\)"
+    if re.search(
+        rf"\bsection\s+{citation_pattern}(?:\b|\s|\)|,|;|\.)",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if citation.fragments:
+        return bool(
+            re.search(
+                rf"\b{citation_pattern}(?:\b|\s|\)|,|;|\.)",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+        )
+    return False
+
+
+def _is_citation_fragment(fragment: str) -> bool:
+    """Return whether an import path fragment can represent a citation part."""
+    return bool(re.fullmatch(r"[A-Za-z0-9]+", fragment))
 
 
 def _context_import_path_key(import_path: str) -> tuple[str | None, str] | None:
