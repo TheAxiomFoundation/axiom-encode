@@ -6743,6 +6743,7 @@ rules:
   input:
     us:statutes/26/24/d#input.taxable_earned_income_under_section_32: 2000
     us:statutes/26/24/d#input.amount_excluded_from_gross_income_under_section_112: 3000
+    us:statutes/26/32#input.earned_income: 0
   output:
     us:statutes/26/24/d#ctc_phase_in_earned_income_base: 5000
 """
@@ -6807,6 +6808,7 @@ rules:
             "us:statutes/26/24/d#input.taxable_earned_income_under_section_32"
             not in repaired_test
         )
+        assert "us:statutes/26/32#input.earned_income" not in repaired_test
         assert (
             "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 2000"
             in repaired_test

@@ -3427,9 +3427,11 @@ def cmd_repair_section_112_import(args):
     )
     if proof_hash_repairs:
         repaired_rules.append("proof import hashes")
-    test_needs_repair = _section_112_tests_need_repair(
-        test_file
-    ) or _ctc_taxable_earned_income_tests_need_repair(test_file)
+    test_needs_repair = (
+        _section_112_tests_need_repair(test_file)
+        or _ctc_taxable_earned_income_tests_need_repair(test_file)
+        or _eitc_earned_income_tests_need_repair(test_file)
+    )
     if repaired_content == original_content and not test_needs_repair:
         print("No Section 112 import repairs found.")
         return
@@ -3452,6 +3454,8 @@ def cmd_repair_section_112_import(args):
         if _repair_ctc_taxable_earned_income_test_inputs(test_file):
             test_repaired = True
         if _repair_section_112_test_inputs(test_file):
+            test_repaired = True
+        if _repair_eitc_earned_income_test_inputs(test_file):
             test_repaired = True
         if test_repaired:
             applied_files.append(test_file)
@@ -4108,10 +4112,22 @@ def _repair_eitc_earned_income_test_inputs(test_file: Path) -> bool:
     )
     repaired: list[str] = []
     changed = False
+    case_has_section_32_c_2_inputs = False
     for line in test_file.read_text().splitlines(keepends=True):
+        if re.match(r"^\s*-\s+name:\s+", line):
+            case_has_section_32_c_2_inputs = False
+        if (
+            "us:statutes/26/32/c/2#input."
+            "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income:"
+            in line
+        ):
+            case_has_section_32_c_2_inputs = True
         match = pattern.match(line)
         if not match:
             repaired.append(line)
+            continue
+        if case_has_section_32_c_2_inputs:
+            changed = True
             continue
         prefix = match.group("prefix")
         value = match.group("value")
