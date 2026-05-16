@@ -1,0 +1,717 @@
+"""Compare federal tax RuleSpec output against PolicyEngine ECPS.
+
+This is the federal-tax counterpart to ``snap-ecps-compare``. The first surface
+is CTC because it is now encoded as a root section 24 program and has direct
+PolicyEngine oracle mappings. The projection is intentionally explicit and
+conservative: it does not use PE CTC outputs as Axiom inputs.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from typing import Any
+
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - exercised only without optional oracle deps
+    np = None
+
+
+POLICYENGINE_VERSION = "4.4.4"
+POLICYENGINE_US_VERSION = "1.691.3"
+DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
+
+CTC_PROGRAM_PATH = Path("statutes/26/24.yaml")
+CTC_TEST_PATH = Path("statutes/26/24.test.yaml")
+CTC_BASE = "us:statutes/26/24"
+CTC_H_BASE = "us:statutes/26/24/h"
+
+CTC_OUTPUTS = {
+    "ctc_before_advance_payments": {
+        "axiom": f"{CTC_BASE}#ctc_before_advance_payments",
+        "pe": "ctc",
+    },
+    "ctc_maximum_before_phaseout": {
+        "axiom": f"{CTC_BASE}#ctc_maximum_before_phaseout",
+        "pe": "ctc_maximum",
+    },
+    "ctc_phaseout_threshold": {
+        "axiom": f"{CTC_BASE}#ctc_phaseout_threshold",
+        "pe": "ctc_phase_out_threshold",
+    },
+    "ctc_phaseout_amount": {
+        "axiom": f"{CTC_BASE}#ctc_phaseout_amount",
+        "pe": "ctc_phase_out",
+    },
+    "ctc_qualifying_children_count": {
+        "axiom": f"{CTC_BASE}#ctc_qualifying_children_count",
+        "pe": "ctc_qualifying_children",
+    },
+}
+PE_TAX_UNIT_VARIABLES = tuple(
+    sorted(
+        {
+            "adjusted_gross_income",
+            "ctc",
+            "ctc_maximum",
+            "ctc_phase_out",
+            "ctc_phase_out_threshold",
+            "ctc_qualifying_children",
+            "filing_status",
+        }
+    )
+)
+
+FILING_STATUS_CODES = {
+    "SINGLE": 0,
+    "JOINT": 1,
+    "SEPARATE": 2,
+    "HEAD_OF_HOUSEHOLD": 3,
+    "SURVIVING_SPOUSE": 4,
+}
+VALID_CHILD_SSN_TYPES = {"CITIZEN", "NON_CITIZEN_VALID_EAD"}
+
+
+@dataclass(frozen=True)
+class TaxComparisonRow:
+    tax_unit_id: int
+    output: str
+    axiom: float
+    policyengine: float
+    diff: float
+
+
+@dataclass(frozen=True)
+class TaxComparisonReport:
+    compared_cases: int
+    compared_values: int
+    mismatches: list[TaxComparisonRow]
+    output_summary: list[dict[str, Any]]
+    projection_notes: list[str]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "compared_cases": self.compared_cases,
+            "compared_values": self.compared_values,
+            "mismatch_count": len(self.mismatches),
+            "mismatches": [row.__dict__ for row in self.mismatches],
+            "output_summary": self.output_summary,
+            "projection_notes": self.projection_notes,
+        }
+
+
+@dataclass(frozen=True)
+class PersonProjectionContext:
+    is_head: bool
+    is_spouse: bool
+    is_tax_unit_dependent: bool
+    qualifying_child_under_section_152_c: bool
+    qualifying_child_described_in_subsection_c: bool
+    has_valid_child_ssn: bool
+    filer_has_valid_child_ctc_ssn: bool
+
+
+def configure_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rulespec-us and axiom-rules-engine",
+    )
+    parser.add_argument(
+        "--rulespec-root",
+        type=Path,
+        default=None,
+        help="rulespec-us checkout; defaults to <root>/rulespec-us",
+    )
+    parser.add_argument(
+        "--axiom-rules-engine-path",
+        type=Path,
+        default=None,
+        help="axiom-rules-engine checkout; defaults to <root>/axiom-rules-engine",
+    )
+    parser.add_argument("--year", type=int, default=2026)
+    parser.add_argument("--sample-size", type=int, default=100)
+    parser.add_argument(
+        "--positive-ctc-only",
+        action="store_true",
+        help="Restrict to ECPS tax units with positive PolicyEngine CTC",
+    )
+    parser.add_argument(
+        "--data-folder",
+        type=Path,
+        default=Path(".axiom") / "policyengine-data",
+        help="PolicyEngine dataset cache folder",
+    )
+    parser.add_argument("--tolerance", type=float, default=0.01)
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+    parser.add_argument(
+        "--fail-on-mismatch",
+        action="store_true",
+        help="Exit nonzero when any compared value differs beyond tolerance",
+    )
+
+
+def main(args: argparse.Namespace) -> int:
+    report = compare_tax_ecps(
+        workspace_root=resolve_workspace_root(args.root),
+        rulespec_root=args.rulespec_root,
+        axiom_rules_path=args.axiom_rules_engine_path,
+        year=args.year,
+        sample_size=args.sample_size,
+        positive_ctc_only=args.positive_ctc_only,
+        data_folder=args.data_folder,
+        tolerance=args.tolerance,
+    )
+    if args.json:
+        print(json.dumps(report.to_json(), indent=2, sort_keys=True))
+    else:
+        print_report(report, tolerance=args.tolerance)
+    if args.fail_on_mismatch and report.mismatches:
+        return 1
+    return 0
+
+
+def compare_tax_ecps(
+    *,
+    workspace_root: Path,
+    rulespec_root: Path | None,
+    axiom_rules_path: Path | None,
+    year: int,
+    sample_size: int,
+    positive_ctc_only: bool,
+    data_folder: Path,
+    tolerance: float,
+) -> TaxComparisonReport:
+    require_numpy()
+    require_policyengine_versions()
+    resolved_rulespec_root = (rulespec_root or workspace_root / "rulespec-us").resolve()
+    resolved_axiom_rules_path = (
+        axiom_rules_path or workspace_root / "axiom-rules-engine"
+    ).resolve()
+    program = resolved_rulespec_root / CTC_PROGRAM_PATH
+    if not program.exists():
+        raise SystemExit(f"CTC RuleSpec not found: {program}")
+
+    pe_data = load_policyengine_tax_data(
+        year=year,
+        sample_size=sample_size,
+        positive_ctc_only=positive_ctc_only,
+        data_folder=data_folder,
+    )
+    request = build_axiom_request(pe_data=pe_data, year=year)
+    outputs = run_axiom_program(
+        program=program,
+        request=request,
+        rulespec_root=resolved_rulespec_root,
+        axiom_rules_path=resolved_axiom_rules_path,
+    )
+    return compare_outputs(pe_data=pe_data, axiom_outputs=outputs, tolerance=tolerance)
+
+
+def load_policyengine_tax_data(
+    *,
+    year: int,
+    sample_size: int,
+    positive_ctc_only: bool,
+    data_folder: Path,
+) -> dict[str, Any]:
+    try:
+        from policyengine.core import Simulation
+        from policyengine.tax_benefit_models.us import ensure_datasets, us_latest
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_install_message()) from exc
+
+    print("Loading PolicyEngine ECPS...")
+    datasets = ensure_datasets(
+        datasets=[DATASET],
+        years=[year],
+        data_folder=str(data_folder),
+    )
+    dataset = datasets[f"enhanced_cps_2024_{year}"]
+    sim = Simulation(
+        dataset=dataset,
+        tax_benefit_model_version=us_latest,
+        extra_variables={"tax_unit": list(PE_TAX_UNIT_VARIABLES)},
+    )
+    print("Running PolicyEngine tax outputs...")
+    sim.run()
+
+    tax_units = sim.output_dataset.data.tax_unit
+    persons = dataset.data.person
+    mask = np.asarray(tax_units["tax_unit_weight"]) > 0
+    if positive_ctc_only:
+        mask &= np.asarray(tax_units["ctc"]) > 0
+    indices = np.flatnonzero(mask)
+    if sample_size > 0:
+        indices = indices[:sample_size]
+    selected = tax_units.iloc[indices].copy()
+    selected_ids = set(int(value) for value in selected["tax_unit_id"])
+    selected_persons = persons[
+        persons["person_tax_unit_id"].astype(int).isin(selected_ids)
+    ].copy()
+    return {
+        "tax_units": selected,
+        "persons": selected_persons,
+        "tax_unit_ids": [int(value) for value in selected["tax_unit_id"]],
+    }
+
+
+def build_axiom_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        for name, value in project_tax_unit_inputs(row).items():
+            inputs.append(
+                input_record(f"{CTC_BASE}#input.{name}", entity_id, interval, value)
+            )
+        inputs.append(
+            input_record(
+                f"{CTC_H_BASE}#input.filing_status_is_joint_return",
+                entity_id,
+                interval,
+                uses_joint_ctc_phaseout_threshold(str(row["filing_status"])),
+            )
+        )
+        tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        contexts = project_tax_unit_person_contexts(tax_unit_persons)
+        for person_index, (person, context) in enumerate(
+            zip(tax_unit_persons, contexts, strict=True)
+        ):
+            person_id = f"{entity_id}_person_{person_index}"
+            relations.append(
+                {
+                    "name": f"{CTC_BASE}#relation.ctc_qualifying_child_of_tax_unit",
+                    "tuple": [person_id, entity_id],
+                    "interval": interval,
+                }
+            )
+            relations.append(
+                {
+                    "name": f"{CTC_H_BASE}#relation.dependent_of_tax_unit",
+                    "tuple": [person_id, entity_id],
+                    "interval": interval,
+                }
+            )
+            for name, value in project_ctc_person_inputs(person, context).items():
+                inputs.append(
+                    input_record(f"{CTC_BASE}#input.{name}", person_id, interval, value)
+                )
+            for name, value in project_ctc_h_person_inputs(person, context).items():
+                inputs.append(
+                    input_record(
+                        f"{CTC_H_BASE}#input.{name}", person_id, interval, value
+                    )
+                )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in CTC_OUTPUTS.values()],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def project_tax_unit_inputs(row: Any) -> dict[str, Any]:
+    return {
+        "adjusted_gross_income": money(row["adjusted_gross_income"]),
+        "amount_excluded_from_gross_income_under_section_911": 0,
+        "amount_excluded_from_gross_income_under_section_931": 0,
+        "amount_excluded_from_gross_income_under_section_933": 0,
+        "filing_status": filing_status_code(str(row["filing_status"])),
+        "taxable_year_begins_after_2017": True,
+        "taxpayer_identification_number_issued_after_return_due_date": False,
+        "taxable_year_months": 12,
+        "taxable_year_closed_by_reason_of_taxpayer_death": False,
+        "ctc_fraud_disallowance_period_applies": False,
+        "ctc_reckless_or_intentional_disregard_disallowance_period_applies": False,
+        "prior_deficiency_denial_without_required_eligibility_information": False,
+        "aggregate_advance_payments_under_section_7527A": 0,
+    }
+
+
+def project_ctc_person_inputs(
+    person: Any, context: PersonProjectionContext | None = None
+) -> dict[str, Any]:
+    context = context or project_tax_unit_person_contexts([person])[0]
+    age = money(person["age"])
+    return {
+        "age": age,
+        "qualifying_child_under_section_152_c": (
+            context.qualifying_child_under_section_152_c
+        ),
+        "allowed_deduction_under_section_151_for_child": (
+            context.is_tax_unit_dependent
+        ),
+        "certain_noncitizen_exception_applies": False,
+        "ctc_child_missing_identification": bool(
+            context.qualifying_child_described_in_subsection_c
+            and not context.has_valid_child_ssn
+        ),
+        "qualifying_child_name_included_on_return": context.has_valid_child_ssn,
+        "qualifying_child_tin_included_on_return": context.has_valid_child_ssn,
+        "qualifying_child_tin_issued_on_or_before_return_due_date": (
+            context.has_valid_child_ssn
+        ),
+    }
+
+
+def project_ctc_h_person_inputs(
+    person: Any, context: PersonProjectionContext | None = None
+) -> dict[str, Any]:
+    context = context or project_tax_unit_person_contexts([person])[0]
+    return {
+        "dependent_under_section_152": context.is_tax_unit_dependent,
+        "qualifying_child_described_in_subsection_c": (
+            context.qualifying_child_described_in_subsection_c
+        ),
+        "noncitizen_exception_to_other_dependent_credit_under_subsection_h": False,
+        "taxpayer_or_spouse_ssn_included_on_return": (
+            context.filer_has_valid_child_ctc_ssn
+        ),
+        "qualifying_child_ssn_included_on_return": context.has_valid_child_ssn,
+        "taxpayer_or_spouse_ssn_is_valid_for_subsection_h": (
+            context.filer_has_valid_child_ctc_ssn
+        ),
+        "qualifying_child_ssn_is_valid_for_subsection_h": context.has_valid_child_ssn,
+    }
+
+
+def project_tax_unit_person_contexts(
+    persons: list[Any],
+) -> list[PersonProjectionContext]:
+    head_index, spouse_index = tax_unit_head_spouse_indices(persons)
+    filer_has_valid_child_ctc_ssn = any(
+        index in {head_index, spouse_index}
+        and valid_child_ssn_type(str(person.get("ssn_card_type", "")))
+        for index, person in enumerate(persons)
+    )
+    contexts: list[PersonProjectionContext] = []
+    for index, person in enumerate(persons):
+        age = money(person["age"])
+        is_head = index == head_index
+        is_spouse = index == spouse_index
+        is_tax_unit_dependent = not is_head and not is_spouse
+        qualifying_child_under_section_152_c = is_tax_unit_dependent and (
+            age < 19
+            or (
+                bool_value(person.get("is_full_time_college_student", False))
+                and age < 24
+            )
+            or bool_value(person.get("is_permanently_and_totally_disabled", False))
+        )
+        ctc_qualifying_child = (
+            qualifying_child_under_section_152_c
+            and age < 17
+            and not bool_value(
+                person.get("certain_noncitizen_exception_applies", False)
+            )
+        )
+        contexts.append(
+            PersonProjectionContext(
+                is_head=is_head,
+                is_spouse=is_spouse,
+                is_tax_unit_dependent=is_tax_unit_dependent,
+                qualifying_child_under_section_152_c=(
+                    qualifying_child_under_section_152_c
+                ),
+                qualifying_child_described_in_subsection_c=ctc_qualifying_child,
+                has_valid_child_ssn=valid_child_ssn_type(
+                    str(person.get("ssn_card_type", ""))
+                ),
+                filer_has_valid_child_ctc_ssn=filer_has_valid_child_ctc_ssn,
+            )
+        )
+    return contexts
+
+
+def tax_unit_head_spouse_indices(persons: list[Any]) -> tuple[int | None, int | None]:
+    adult_indices = [
+        index for index, person in enumerate(persons) if money(person["age"]) >= 18
+    ]
+    if not adult_indices:
+        return None, None
+    head_index = max(adult_indices, key=lambda index: money(persons[index]["age"]))
+    separated = any(bool_value(person.get("is_separated", False)) for person in persons)
+    if separated:
+        return head_index, None
+    spouse_candidates = [index for index in adult_indices if index != head_index]
+    spouse_index = (
+        max(spouse_candidates, key=lambda index: money(persons[index]["age"]))
+        if spouse_candidates
+        else None
+    )
+    return head_index, spouse_index
+
+
+def run_axiom_program(
+    *,
+    program: Path,
+    request: dict[str, Any],
+    rulespec_root: Path,
+    axiom_rules_path: Path,
+) -> list[dict[str, Any]]:
+    binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
+    if not binary.exists():
+        raise SystemExit(f"axiom-rules-engine binary not found: {binary}")
+    env = os.environ.copy()
+    env["AXIOM_RULESPEC_REPO_ROOTS"] = str(rulespec_root)
+    with tempfile.TemporaryDirectory(prefix="axiom-tax-ecps-") as tmpdir:
+        artifact = Path(tmpdir) / "ctc.json"
+        compile_result = subprocess.run(
+            [
+                str(binary),
+                "compile",
+                "--program",
+                str(program),
+                "--output",
+                str(artifact),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(axiom_rules_path),
+            env=env,
+            timeout=60,
+        )
+        if compile_result.returncode != 0:
+            raise SystemExit(
+                compile_result.stderr.strip() or compile_result.stdout.strip()
+            )
+        run_result = subprocess.run(
+            [str(binary), "run-compiled", "--artifact", str(artifact)],
+            input=json.dumps(request),
+            capture_output=True,
+            text=True,
+            cwd=str(axiom_rules_path),
+            env=env,
+            timeout=120,
+        )
+        if run_result.returncode != 0:
+            raise SystemExit(run_result.stderr.strip() or run_result.stdout.strip())
+        return json.loads(run_result.stdout)["results"]
+
+
+def compare_outputs(
+    *,
+    pe_data: dict[str, Any],
+    axiom_outputs: list[dict[str, Any]],
+    tolerance: float,
+) -> TaxComparisonReport:
+    mismatches: list[TaxComparisonRow] = []
+    summary: dict[str, dict[str, Any]] = {
+        name: {"output": name, "compared": 0, "mismatches": 0, "max_abs_diff": 0.0}
+        for name in CTC_OUTPUTS
+    }
+    tax_units = pe_data["tax_units"].reset_index(drop=True)
+    compared_values = 0
+    for index, result in enumerate(axiom_outputs):
+        tax_unit_id = int(pe_data["tax_unit_ids"][index])
+        outputs = result.get("outputs") or {}
+        pe_row = tax_units.iloc[index]
+        for name, spec in CTC_OUTPUTS.items():
+            axiom_value = output_number(outputs.get(spec["axiom"]))
+            pe_value = money(pe_row[spec["pe"]])
+            diff = axiom_value - pe_value
+            abs_diff = abs(diff)
+            compared_values += 1
+            summary[name]["compared"] += 1
+            summary[name]["max_abs_diff"] = max(summary[name]["max_abs_diff"], abs_diff)
+            if abs_diff > tolerance:
+                summary[name]["mismatches"] += 1
+                mismatches.append(
+                    TaxComparisonRow(
+                        tax_unit_id=tax_unit_id,
+                        output=name,
+                        axiom=axiom_value,
+                        policyengine=pe_value,
+                        diff=diff,
+                    )
+                )
+    return TaxComparisonReport(
+        compared_cases=len(pe_data["tax_unit_ids"]),
+        compared_values=compared_values,
+        mismatches=mismatches,
+        output_summary=list(summary.values()),
+        projection_notes=[
+            "Current CTC projection uses ECPS raw tax-unit membership, age, "
+            "student status, separation status, and SSN-card type to reconstruct "
+            "the structural Section 152 facts needed by 26 USC 24.",
+            "AGI and filing status remain boundary inputs until upstream AGI and "
+            "filing-status rules are encoded end-to-end.",
+        ],
+    )
+
+
+def print_report(report: TaxComparisonReport, *, tolerance: float) -> None:
+    print("PolicyEngine tax ECPS comparison")
+    print(f"Compared cases: {report.compared_cases:,}")
+    print(f"Compared values: {report.compared_values:,}")
+    print(f"Tolerance: {tolerance:g}")
+    print(f"Mismatches: {len(report.mismatches):,}")
+    print()
+    print("By output:")
+    for item in report.output_summary:
+        print(
+            f"  - {item['output']}: "
+            f"{item['mismatches']:,}/{item['compared']:,} mismatch, "
+            f"max_abs_diff={item['max_abs_diff']:.2f}"
+        )
+    if report.mismatches:
+        print()
+        print("Top mismatches:")
+        for row in sorted(
+            report.mismatches, key=lambda item: abs(item.diff), reverse=True
+        )[:20]:
+            print(
+                f"  - tax_unit={row.tax_unit_id} {row.output}: "
+                f"axiom={row.axiom:.2f} pe={row.policyengine:.2f} diff={row.diff:.2f}"
+            )
+    print()
+    print("Projection notes:")
+    for note in report.projection_notes:
+        print(f"  - {note}")
+
+
+def group_person_rows_by_tax_unit(persons: Any) -> dict[int, list[Any]]:
+    grouped: dict[int, list[Any]] = {}
+    for _idx, person in persons.iterrows():
+        grouped.setdefault(int(person["person_tax_unit_id"]), []).append(person)
+    return grouped
+
+
+def input_record(
+    name: str, entity_id: str, interval: dict[str, str], value: Any
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "entity": "Entity",
+        "entity_id": entity_id,
+        "interval": interval,
+        "value": scalar_value(value),
+    }
+
+
+def scalar_value(value: Any) -> dict[str, Any]:
+    if isinstance(value, bool):
+        return {"kind": "bool", "value": value}
+    if isinstance(value, int):
+        return {"kind": "integer", "value": value}
+    if isinstance(value, float):
+        return {"kind": "decimal", "value": str(value)}
+    return {"kind": "text", "value": str(value)}
+
+
+def output_number(output: Any) -> float:
+    if not isinstance(output, dict):
+        return math.nan
+    value = output.get("value") or {}
+    raw = value.get("value")
+    if raw is None:
+        return math.nan
+    return float(raw)
+
+
+def filing_status_code(value: str) -> int:
+    normalized = value.strip().upper()
+    if normalized not in FILING_STATUS_CODES:
+        raise ValueError(f"unsupported filing status: {value}")
+    return FILING_STATUS_CODES[normalized]
+
+
+def uses_joint_ctc_phaseout_threshold(value: str) -> bool:
+    return value.strip().upper() in {"JOINT", "SURVIVING_SPOUSE"}
+
+
+def valid_child_ssn_type(value: str) -> bool:
+    return value.strip().upper() in VALID_CHILD_SSN_TYPES
+
+
+def tax_entity_id(tax_unit_id: int) -> str:
+    return f"tax_unit_{tax_unit_id}"
+
+
+def money(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        if np is not None and np.isnan(value):
+            return 0.0
+    except TypeError:
+        pass
+    return float(value)
+
+
+def bool_value(value: Any) -> bool:
+    if value is None:
+        return False
+    try:
+        if np is not None and np.isnan(value):
+            return False
+    except TypeError:
+        pass
+    return bool(value)
+
+
+def resolve_workspace_root(root: Path | None) -> Path:
+    if root is not None:
+        return root.resolve()
+    cwd = Path.cwd().resolve()
+    for candidate in [cwd, *cwd.parents, Path.home() / "TheAxiomFoundation"]:
+        if (candidate / "rulespec-us").exists() and (
+            candidate / "axiom-rules-engine"
+        ).exists():
+            return candidate
+    return cwd
+
+
+def require_numpy() -> None:
+    if np is None:
+        raise SystemExit(policyengine_install_message())
+
+
+def require_policyengine_versions() -> None:
+    try:
+        policyengine_version = version("policyengine")
+        policyengine_us_version = version("policyengine-us")
+    except PackageNotFoundError as exc:
+        raise SystemExit(policyengine_install_message()) from exc
+    if policyengine_version != POLICYENGINE_VERSION:
+        raise SystemExit(
+            f"policyengine=={POLICYENGINE_VERSION} required; found "
+            f"{policyengine_version}. {policyengine_install_message()}"
+        )
+    if policyengine_us_version != POLICYENGINE_US_VERSION:
+        raise SystemExit(
+            f"policyengine-us=={POLICYENGINE_US_VERSION} required; found "
+            f"{policyengine_us_version}. {policyengine_install_message()}"
+        )
+
+
+def policyengine_install_message() -> str:
+    return (
+        "Run with: uv run --with policyengine==4.4.4 "
+        "--with policyengine-us==1.691.3 axiom-encode tax-ecps-compare"
+    )

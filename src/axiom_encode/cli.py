@@ -76,6 +76,12 @@ from .oracles.policyengine.ecps_snap import (
 from .oracles.policyengine.ecps_snap import (
     main as run_snap_ecps_compare,
 )
+from .oracles.policyengine.ecps_tax import (
+    configure_parser as configure_tax_ecps_compare_parser,
+)
+from .oracles.policyengine.ecps_tax import (
+    main as run_tax_ecps_compare,
+)
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
 from .repo_routing import find_policy_repo_root
@@ -514,6 +520,12 @@ def main():
         help="Compare SNAP RuleSpec output against PolicyEngine ECPS",
     )
     configure_snap_ecps_compare_parser(snap_ecps_compare_parser)
+
+    tax_ecps_compare_parser = subparsers.add_parser(
+        "tax-ecps-compare",
+        help="Compare federal tax RuleSpec output against PolicyEngine ECPS",
+    )
+    configure_tax_ecps_compare_parser(tax_ecps_compare_parser)
 
     snap_readiness_parser = subparsers.add_parser(
         "snap-readiness",
@@ -1275,6 +1287,8 @@ def main():
         cmd_oracle_candidates(args)
     elif args.command == "snap-ecps-compare":
         sys.exit(run_snap_ecps_compare(args))
+    elif args.command == "tax-ecps-compare":
+        sys.exit(run_tax_ecps_compare(args))
     elif args.command == "snap-readiness":
         cmd_snap_readiness(args)
     elif args.command == "calibration":
