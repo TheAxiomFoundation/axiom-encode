@@ -306,6 +306,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--allow-uncertified-policyengine-data",
+        action="store_true",
+        help=(
+            "Allow policyengine.py ECPS data to load against an overridden "
+            "local policyengine-us version. Intended only with "
+            "--allow-policyengine-us-version for validating local oracle fixes."
+        ),
+    )
+    parser.add_argument(
         "--fail-on-mismatch",
         action="store_true",
         help="Exit nonzero when any compared value differs beyond tolerance",
@@ -325,6 +334,7 @@ def main(args: argparse.Namespace) -> int:
         tolerance=args.tolerance,
         relative_tolerance=args.relative_tolerance,
         allow_policyengine_us_version=args.allow_policyengine_us_version,
+        allow_uncertified_policyengine_data=args.allow_uncertified_policyengine_data,
     )
     if args.json:
         print(json.dumps(report.to_json(), indent=2, sort_keys=True))
@@ -352,7 +362,13 @@ def compare_tax_ecps(
     tolerance: float,
     relative_tolerance: float,
     allow_policyengine_us_version: bool = False,
+    allow_uncertified_policyengine_data: bool = False,
 ) -> TaxComparisonReport:
+    if allow_uncertified_policyengine_data and not allow_policyengine_us_version:
+        raise SystemExit(
+            "--allow-uncertified-policyengine-data requires "
+            "--allow-policyengine-us-version"
+        )
     require_numpy()
     require_policyengine_versions(
         allow_policyengine_us_version=allow_policyengine_us_version,
@@ -366,6 +382,7 @@ def compare_tax_ecps(
         sample_size=sample_size,
         positive_ctc_only=positive_ctc_only,
         data_folder=data_folder,
+        allow_uncertified_policyengine_data=allow_uncertified_policyengine_data,
     )
     surfaces = list(SURFACE_OUTPUTS) if surface == "all" else [surface]
     surface_results: dict[str, list[dict[str, Any]]] = {}
@@ -439,7 +456,10 @@ def load_policyengine_tax_data(
     sample_size: int,
     positive_ctc_only: bool,
     data_folder: Path,
+    allow_uncertified_policyengine_data: bool = False,
 ) -> dict[str, Any]:
+    if allow_uncertified_policyengine_data:
+        _install_policyengine_data_certification_override()
     try:
         from policyengine.core import Simulation
         from policyengine.tax_benefit_models.us import ensure_datasets, us_latest
@@ -492,6 +512,41 @@ def load_policyengine_tax_data(
         "tax_unit_ids": [int(value) for value in selected["tax_unit_id"]],
         "person_ids": [int(value) for value in selected_persons["person_id"]],
     }
+
+
+def _install_policyengine_data_certification_override() -> None:
+    """Allow ECPS oracle runs against a local policyengine-us fix branch.
+
+    policyengine.py 4.4.4 certifies the bundled ECPS data against
+    policyengine-us 1.691.3. When validating a local policyengine-us PR, the
+    installed model version can intentionally differ while the ECPS data is
+    still the desired oracle input. This override is intentionally reachable
+    only through an explicit CLI flag paired with --allow-policyengine-us-version.
+    """
+    os.environ.setdefault("POLICYENGINE_SKIP_COUNTRY_IMPORTS", "1")
+    try:
+        import policyengine.provenance.manifest as manifest
+    except ImportError:  # pragma: no cover - optional runtime dependency
+        return
+
+    def _allow_local_oracle_data(
+        country_id: str,
+        runtime_model_version: str,
+        runtime_data_build_fingerprint: str | None = None,
+    ):
+        return manifest.DataCertification(
+            compatibility_basis="axiom_oracle_local_policyengine_us_override",
+            certified_for_model_version=runtime_model_version,
+            data_build_fingerprint=runtime_data_build_fingerprint,
+            certified_by="axiom-encode tax-ecps-compare",
+        )
+
+    manifest.certify_data_release_compatibility = _allow_local_oracle_data
+    try:
+        import policyengine.tax_benefit_models.common.model_version as model_version
+    except ImportError:  # pragma: no cover - optional runtime dependency
+        return
+    model_version.certify_data_release_compatibility = _allow_local_oracle_data
 
 
 def build_axiom_request(

@@ -580,3 +580,28 @@ def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
     monkeypatch.setattr(ecps_tax, "version", fake_version)
 
     require_policyengine_versions(allow_policyengine_us_version=True)
+
+
+def test_uncertified_policyengine_data_requires_local_us_override(tmp_path):
+    with pytest.raises(SystemExit, match="requires --allow-policyengine-us-version"):
+        compare_tax_ecps(
+            workspace_root=tmp_path,
+            rulespec_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            year=2026,
+            sample_size=1,
+            positive_ctc_only=False,
+            surface="all",
+            data_folder=tmp_path,
+            tolerance=0.01,
+            relative_tolerance=2e-7,
+            allow_uncertified_policyengine_data=True,
+        )
+
+
+def test_policyengine_data_certification_override_sets_skip_imports(monkeypatch):
+    monkeypatch.delenv("POLICYENGINE_SKIP_COUNTRY_IMPORTS", raising=False)
+
+    ecps_tax._install_policyengine_data_certification_override()
+
+    assert ecps_tax.os.environ["POLICYENGINE_SKIP_COUNTRY_IMPORTS"] == "1"
