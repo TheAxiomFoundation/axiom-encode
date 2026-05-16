@@ -3625,7 +3625,6 @@ def _section_6013a_without_a3_joint_return_surface_issues(
         if any(
             token in normalized_name
             for token in {
-                "decedent",
                 "executor",
                 "administrator",
                 "disaffirm",

@@ -7229,7 +7229,7 @@ module:
   source_verification:
     corpus_citation_path: us/statute/26/6013
 rules:
-  - name: joint_return_may_be_made_before_subsection_a_3
+  - name: joint_return_eligibility_without_decedent_return_maker_limitation
     kind: derived
     entity: TaxUnit
     dtype: Judgment
@@ -7255,7 +7255,7 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          joint_return_may_be_made_before_subsection_a_3
+          joint_return_eligibility_without_decedent_return_maker_limitation
           and decedent_joint_return_maker_authorized
 """
 
