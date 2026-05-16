@@ -52,6 +52,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_limitation_application_issues,
     find_source_verification_issues,
     find_tax_filing_status_enum_representation_issues,
+    find_tax_filing_status_local_input_issues,
     find_tax_filing_status_surviving_spouse_issues,
     find_tax_filing_status_test_input_issues,
     find_temporal_value_fact_name_issues,
@@ -6936,6 +6937,73 @@ rules:
 """
 
     assert find_tax_filing_status_enum_representation_issues(content) == []
+
+
+def test_filing_status_local_input_rejects_formula_without_import():
+    content = """format: rulespec/v1
+rules:
+  - name: joint_return_bonus
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == 1: 100 else: 0
+"""
+
+    issues = find_tax_filing_status_local_input_issues(content)
+
+    assert any(
+        "Filing status is a derived legal classification" in issue for issue in issues
+    )
+
+
+def test_filing_status_local_input_allows_imported_formula():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/6013#filing_status
+rules:
+  - name: joint_return_bonus
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == 1: joint_amount else: other_amount
+"""
+
+    assert find_tax_filing_status_local_input_issues(content) == []
+
+
+def test_filing_status_local_input_rejects_numeric_test_assignment():
+    content = """format: rulespec/v1
+rules:
+  - name: filing_status_sensitive_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+"""
+    test_cases = [
+        {
+            "name": "joint_status_code",
+            "input": {"us:statutes/26/63/c#input.filing_status": 1},
+            "output": {},
+        }
+    ]
+
+    issues = find_tax_filing_status_local_input_issues(content, test_cases)
+
+    assert any(
+        "assigns filing status as a local input" in issue for issue in issues
+    )
 
 
 def test_filing_status_test_input_rejects_string_value():

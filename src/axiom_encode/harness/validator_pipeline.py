@@ -3435,6 +3435,113 @@ def find_tax_filing_status_enum_representation_issues(content: str) -> list[str]
     return issues
 
 
+def find_tax_filing_status_local_input_issues(
+    content: str,
+    test_cases: Any | None = None,
+) -> list[str]:
+    """Reject generated RuleSpec that treats US tax filing status as a fact input."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    protected_names = {"filing_status", "tax_filing_status"}
+    available_symbols = _rulespec_executable_names_from_payload(payload)
+    available_symbols.update(_rulespec_import_symbol_names(payload))
+
+    issues: list[str] = []
+    for name, _kind, formula in _rulespec_rule_formulas(payload):
+        for identifier in sorted(_formula_local_identifiers(formula) & protected_names):
+            if identifier in available_symbols:
+                continue
+            issues.append(
+                "Filing status is a derived legal classification, not a factual "
+                f"input: `{name}` references `{identifier}` without defining or "
+                "importing an absolute upstream filing-status RuleSpec output. "
+                "Encode/import the upstream filing-status rule and set its leaf "
+                f"facts; do not create local `#input.{identifier}` facts."
+            )
+
+    for rule in payload.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "<unnamed>").strip() or "<unnamed>"
+        for index_name in _rulespec_indexed_by_names(rule.get("indexed_by")):
+            if index_name not in protected_names or index_name in available_symbols:
+                continue
+            issues.append(
+                "Filing status is a derived legal classification, not a factual "
+                f"input: `{name}` indexes by `{index_name}` without defining or "
+                "importing an absolute upstream filing-status RuleSpec output. "
+                "Encode/import the upstream filing-status rule and set its leaf "
+                f"facts; do not create local `#input.{index_name}` facts."
+            )
+
+    if isinstance(test_cases, list):
+        for test_case in test_cases:
+            if not isinstance(test_case, dict):
+                continue
+            test_name = (
+                str(test_case.get("name") or "<unnamed>").strip() or "<unnamed>"
+            )
+            inputs = test_case.get("input")
+            if not isinstance(inputs, dict):
+                continue
+            for key in inputs:
+                fragment = _test_reference_fragment(key)
+                if fragment not in {"input.filing_status", "input.tax_filing_status"}:
+                    continue
+                issues.append(
+                    "Filing status is a derived legal classification, not a factual "
+                    f"input: test case `{test_name}` assigns filing status as a "
+                    f"local input via `{key}`. Set the upstream filing-status leaf "
+                    "facts instead."
+                )
+
+    return issues
+
+
+def _rulespec_import_symbol_names(payload: dict[str, Any]) -> set[str]:
+    """Return explicit local symbols exposed by imports in a RuleSpec payload."""
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return set()
+
+    names: set[str] = set()
+    for item in imports:
+        if isinstance(item, str):
+            names.update(_rulespec_import_item_symbol_names(item))
+        elif isinstance(item, dict):
+            for alias, target in item.items():
+                alias_text = str(alias or "").strip()
+                if re.fullmatch(r"[A-Za-z_]\w*", alias_text):
+                    names.add(alias_text)
+                if isinstance(target, str):
+                    names.update(_rulespec_import_item_symbol_names(target))
+    return names
+
+
+def _rulespec_import_item_symbol_names(import_item: str) -> set[str]:
+    """Return the symbol fragment imported by an import item, if explicit."""
+    if "#" not in import_item:
+        return set()
+    fragment = import_item.split("#", 1)[1].strip().strip("'\"")
+    if not re.fullmatch(r"[A-Za-z_]\w*", fragment):
+        return set()
+    return {fragment}
+
+
+def _rulespec_indexed_by_names(indexed_by: Any) -> set[str]:
+    if isinstance(indexed_by, str):
+        return {indexed_by.strip()} if indexed_by.strip() else set()
+    if isinstance(indexed_by, list):
+        return {
+            str(item).strip()
+            for item in indexed_by
+            if isinstance(item, str) and str(item).strip()
+        }
+    return set()
+
+
 def _filing_status_match_has_named_arms(formula: str) -> bool:
     lines = formula.splitlines()
     for index, line in enumerate(lines):

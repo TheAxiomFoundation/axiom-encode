@@ -7456,6 +7456,55 @@ rules:
             == 2
         )
 
+    def test_apply_overlay_validation_rejects_generated_filing_status_input(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/63/c.yaml"
+        generated_test = generated.with_name("c.test.yaml")
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir()
+        generated.write_text(
+            """format: rulespec/v1
+rules:
+  - name: basic_standard_deduction_by_filing_status
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if filing_status == 1: 32200 else: 16100
+"""
+        )
+        generated_test.write_text(
+            """- name: joint_status_code
+  input:
+    us:statutes/26/63/c#input.filing_status: 1
+  output:
+    us:statutes/26/63/c#basic_standard_deduction_by_filing_status: 32200
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        with patch("axiom_encode.cli.ValidatorPipeline") as mock_pipeline:
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is False
+        assert supplemental == {}
+        assert mock_pipeline.call_count == 0
+        assert any(
+            "Filing status is a derived legal classification" in issue
+            for issue in issues
+        )
+
     def test_find_rulespec_dependents_finds_canonical_imports(self, tmp_path):
         repo = tmp_path / "rulespec-us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"

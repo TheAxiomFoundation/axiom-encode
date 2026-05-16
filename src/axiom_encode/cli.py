@@ -29,6 +29,7 @@ from collections import Counter
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -64,6 +65,7 @@ from .harness.evals import (
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
     ValidatorPipeline,
+    find_tax_filing_status_local_input_issues,
     find_unused_import_issues,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
@@ -8990,10 +8992,34 @@ def _validate_generated_encoding_in_policy_overlay(
     except RuntimeError as exc:
         return False, [str(exc)], {}
 
+    generated_content = output_file.read_text()
+    output_test = _rulespec_test_path(output_file)
+    generated_test_cases: Any | None = None
+    if output_test.exists():
+        try:
+            loaded_tests = yaml.safe_load(output_test.read_text())
+        except (yaml.YAMLError, ValueError):
+            loaded_tests = None
+        if isinstance(loaded_tests, dict) and isinstance(
+            loaded_tests.get("cases"), list
+        ):
+            generated_test_cases = loaded_tests["cases"]
+        elif isinstance(loaded_tests, list):
+            generated_test_cases = loaded_tests
+    filing_status_issues = find_tax_filing_status_local_input_issues(
+        generated_content,
+        generated_test_cases,
+    )
+    if filing_status_issues:
+        return (
+            False,
+            [f"{relative_output}: {issue}" for issue in filing_status_issues],
+            {},
+        )
+
     existing_output = policy_repo_path / relative_output
     if existing_output.exists():
         existing_content = existing_output.read_text()
-        generated_content = output_file.read_text()
         replacement_issues = _executable_rule_replacement_issues(
             existing_content,
             generated_content,
@@ -9051,7 +9077,6 @@ def _validate_generated_encoding_in_policy_overlay(
         overlay_target = overlay_repo / relative_output
         overlay_target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(output_file, overlay_target)
-        output_test = _rulespec_test_path(output_file)
         if output_test.exists():
             shutil.copy2(output_test, _rulespec_test_path(overlay_target))
 
