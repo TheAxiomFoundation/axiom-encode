@@ -1400,6 +1400,13 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert section_1211_formula_mapping.mapping_type == "not_comparable"
     assert section_1211_formula_mapping.candidate_priority == "P4"
+    section_1212_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1212/a/1#corporation_capital_loss_carryback_to_taxable_year",
+        country="us",
+    )
+    assert section_1212_mapping.mapping_type == "not_comparable"
+    assert section_1212_mapping.match_type == "prefix"
+    assert section_1212_mapping.candidate_priority == "P4"
     oasdi_wage_base_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3121/a/1#oasdi_wage_base_excess_excluded_remuneration",
         country="us",

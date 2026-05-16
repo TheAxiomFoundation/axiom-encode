@@ -8671,6 +8671,20 @@ prefixes:
     candidate_priority: P4
     rationale: Section 1211 formula outputs expose statutory loss-allowance mechanics, while PolicyEngine exposes related net-capital-gain and above-the-line deduction variables with different signs and boundaries. Compare exact parameter outputs or add a section-specific adapter before mapping formula outputs directly.
 
+  - legal_id_prefix: us:statutes/26/1212#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1212(a)(1) outputs expose corporate capital-loss carryback and carryover timing, ordering, and short-term treatment mechanics. PolicyEngine's individual income-tax oracle does not expose a one-to-one corporate carryback/carryover surface, so these should stay unsupported unless a section-specific corporate-tax adapter is added.
+
+  - legal_id_prefix: us:statutes/26/1212/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1212 child-fragment outputs expose corporate capital-loss carryback and carryover timing, ordering, and short-term treatment mechanics. PolicyEngine's individual income-tax oracle does not expose a one-to-one corporate carryback/carryover surface, so these should stay unsupported unless a section-specific corporate-tax adapter is added.
+
   - legal_id_prefix: us:statutes/26/1222#
     country: us
     program: tax
