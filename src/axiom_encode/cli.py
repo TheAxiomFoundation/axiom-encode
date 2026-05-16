@@ -6010,38 +6010,65 @@ def _executable_output_preservation_issues(
     generated_content: str,
 ) -> list[str]:
     """Return issues for generated content that drops existing executable IDs."""
-    existing_executable = set(_executable_rule_names(existing_content))
+    existing_versions = _executable_rule_effective_dates(existing_content)
+    existing_executable = set(existing_versions)
     if not existing_executable:
         return []
-    generated_executable = set(_executable_rule_names(generated_content))
+    generated_versions = _executable_rule_effective_dates(generated_content)
+    generated_executable = set(generated_versions)
     missing = sorted(existing_executable - generated_executable)
-    if not missing:
-        return []
-    formatted = ", ".join(f"`{name}`" for name in missing)
-    return [
-        "Generated RuleSpec dropped or renamed existing executable outputs: "
-        f"{formatted}. Regenerate with the existing output IDs preserved; "
-        "do not silently break downstream tests, oracle mappings, or imports."
-    ]
+    issues: list[str] = []
+    if missing:
+        formatted = ", ".join(f"`{name}`" for name in missing)
+        issues.append(
+            "Generated RuleSpec dropped or renamed existing executable outputs: "
+            f"{formatted}. Regenerate with the existing output IDs preserved; "
+            "do not silently break downstream tests, oracle mappings, or imports."
+        )
+    for name in sorted(existing_executable & generated_executable):
+        existing_dates = existing_versions[name]
+        generated_dates = generated_versions[name]
+        if existing_dates != generated_dates:
+            issues.append(
+                "Generated RuleSpec changed effective dates for existing executable "
+                f"output `{name}`: existing {list(existing_dates)}, generated "
+                f"{list(generated_dates)}. Regenerate with the existing version "
+                "boundary preserved unless a source-grounded migration explicitly "
+                "updates the executable surface."
+            )
+    return issues
 
 
 def _executable_rule_names(content: str) -> list[str]:
+    return list(_executable_rule_effective_dates(content))
+
+
+def _executable_rule_effective_dates(content: str) -> dict[str, tuple[str, ...]]:
     try:
         document = yaml.safe_load(content) or {}
     except yaml.YAMLError:
-        return []
+        return {}
     rules = document.get("rules") if isinstance(document, dict) else []
     if not isinstance(rules, list):
-        return []
-    names: list[str] = []
+        return {}
+    effective_dates: dict[str, tuple[str, ...]] = {}
     for rule in rules:
         if not isinstance(rule, dict):
             continue
         kind = str(rule.get("kind") or "").strip().lower()
         if kind not in {"parameter", "derived", "data_relation"}:
             continue
-        names.append(str(rule.get("name") or "<unnamed>").strip())
-    return names
+        name = str(rule.get("name") or "<unnamed>").strip()
+        versions = rule.get("versions")
+        dates: list[str] = []
+        if isinstance(versions, list):
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                if "effective_from" in version:
+                    dates.append(str(version.get("effective_from") or "").strip())
+        effective_dates[name] = tuple(dates)
+    return effective_dates
 
 
 def _rulespec_module_status(content: str) -> str:

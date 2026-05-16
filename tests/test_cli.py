@@ -4163,6 +4163,44 @@ rules:
         assert "`employer_oasdi_excise_tax`" in issues[0]
         assert "`employer_oasdi_excise_tax_rate`" in issues[0]
 
+    def test_executable_output_preservation_rejects_effective_date_drift(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: hospital_insurance_wage_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1986-01-01'
+        formula: '0.0145'
+  - name: hospital_insurance_wage_tax
+    kind: derived
+    versions:
+      - effective_from: '1986-01-01'
+        formula: wages * hospital_insurance_wage_tax_rate
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: hospital_insurance_wage_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.0145'
+  - name: hospital_insurance_wage_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages * hospital_insurance_wage_tax_rate
+"""
+
+        issues = _executable_output_preservation_issues(existing, generated)
+
+        assert len(issues) == 2
+        assert all("changed effective dates" in issue for issue in issues)
+        joined = "\n".join(issues)
+        assert "`hospital_insurance_wage_tax_rate`" in joined
+        assert "`hospital_insurance_wage_tax`" in joined
+        assert "1986-01-01" in joined
+        assert "1990-01-01" in joined
+
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us-ny"
