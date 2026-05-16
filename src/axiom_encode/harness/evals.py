@@ -2788,7 +2788,8 @@ RuleSpec requirements:
   do not put imported RuleSpec targets under `source:`. Import proof atoms must
   include `import.target`, `import.output`, and `import.hash` with the listed
   context file `sha256:` hash. If no `sha256:` hash is listed for that import,
-  do not emit an import proof atom.
+  do not emit an import proof atom. When the imported proof target is in the
+  same RuleSpec file, use `hash: sha256:local`; never use `sha256:self`.
 - Proof atom `kind` must be one of: `amount`, `condition`, `definition`,
   `default`, `effective_period`, `exception`, `formula`, `import`, `ordering`,
   `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.

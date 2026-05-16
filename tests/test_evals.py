@@ -5066,6 +5066,8 @@ class TestRepoAugmentedContext:
         )
         assert "import.output" in prompt
         assert "import.hash" in prompt
+        assert "use `hash: sha256:local`" in prompt
+        assert "never use `sha256:self`" in prompt
         assert "do not wrap import targets in quotes" in prompt
         assert (
             "Use the listed import target rather than the `./context/...` inspection path"
