@@ -6674,7 +6674,9 @@ rules: []
         test_file = policy_repo / "statutes/26/24/d.test.yaml"
         section_112 = policy_repo / "statutes/26/112.yaml"
         section_32 = policy_repo / "statutes/26/32.yaml"
+        section_32_c_2 = policy_repo / "statutes/26/32/c/2.yaml"
         target.parent.mkdir(parents=True)
+        section_32_c_2.parent.mkdir(parents=True)
         section_112.write_text(
             """format: rulespec/v1
 rules:
@@ -6686,6 +6688,13 @@ rules:
             """format: rulespec/v1
 rules:
   - name: eitc
+    kind: derived
+"""
+        )
+        section_32_c_2.write_text(
+            """format: rulespec/v1
+rules:
+  - name: earned_income
     kind: derived
 """
         )
@@ -6768,14 +6777,17 @@ rules:
         assert (
             "amount_excluded_from_gross_income_under_section_112" not in repaired_rules
         )
+        assert "taxable_earned_income_under_section_32" not in repaired_rules
         assert (
             "amount_excluded_from_gross_income_by_reason_of_section_112"
             in repaired_rules
         )
+        assert "  - us:statutes/26/32/c/2\n" in repaired_rules
         assert (
             "target: us:statutes/26/112#amount_excluded_from_gross_income_by_reason_of_section_112"
             in repaired_rules
         )
+        assert "target: us:statutes/26/32/c/2#earned_income" in repaired_rules
         assert "sha256:oldhash" not in repaired_rules
         assert f"sha256:{_sha256_file(section_32)}" in repaired_rules
 
@@ -6783,6 +6795,14 @@ rules:
         assert (
             "us:statutes/26/24/d#input.amount_excluded_from_gross_income_under_section_112"
             not in repaired_test
+        )
+        assert (
+            "us:statutes/26/24/d#input.taxable_earned_income_under_section_32"
+            not in repaired_test
+        )
+        assert (
+            "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 2000"
+            in repaired_test
         )
         assert (
             "us:statutes/26/112#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay: 3000"

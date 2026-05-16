@@ -3403,7 +3403,9 @@ def cmd_repair_section_112_import(args):
     )
     if proof_hash_repairs:
         repaired_rules.append("proof import hashes")
-    test_needs_repair = _section_112_tests_need_repair(test_file)
+    test_needs_repair = _section_112_tests_need_repair(
+        test_file
+    ) or _ctc_taxable_earned_income_tests_need_repair(test_file)
     if repaired_content == original_content and not test_needs_repair:
         print("No Section 112 import repairs found.")
         return
@@ -3422,7 +3424,12 @@ def cmd_repair_section_112_import(args):
 
         rules_file.write_text(repaired_content)
         applied_files = [rules_file]
+        test_repaired = False
+        if _repair_ctc_taxable_earned_income_test_inputs(test_file):
+            test_repaired = True
         if _repair_section_112_test_inputs(test_file):
+            test_repaired = True
+        if test_repaired:
             applied_files.append(test_file)
         elif test_file.exists():
             applied_files.append(test_file)
@@ -3525,6 +3532,10 @@ _SECTION_112_OLD_PLACEHOLDER = "amount_excluded_from_gross_income_under_section_
 _SECTION_112_OUTPUT = "amount_excluded_from_gross_income_by_reason_of_section_112"
 _SECTION_112_IMPORT = "us:statutes/26/112"
 _SECTION_112_TARGET = f"{_SECTION_112_IMPORT}#{_SECTION_112_OUTPUT}"
+_SECTION_24_TAXABLE_EARNED_INCOME_PLACEHOLDER = "taxable_earned_income_under_section_32"
+_SECTION_32_C_2_IMPORT = "us:statutes/26/32/c/2"
+_SECTION_32_C_2_OUTPUT = "earned_income"
+_SECTION_32_C_2_TARGET = f"{_SECTION_32_C_2_IMPORT}#{_SECTION_32_C_2_OUTPUT}"
 
 
 def _repair_section_112_import_content(
@@ -3542,7 +3553,27 @@ def _repair_section_112_import_content(
     repaired = repaired.replace(_SECTION_112_OLD_PLACEHOLDER, _SECTION_112_OUTPUT)
     if _SECTION_112_TARGET not in repaired:
         import_hash = f"sha256:{_sha256_file(section_112_file)}"
-        repaired = _insert_section_112_import_proof_atom(repaired, import_hash)
+        repaired = _insert_ctc_phase_in_import_proof_atom(
+            repaired,
+            target=_SECTION_112_TARGET,
+            output=_SECTION_112_OUTPUT,
+            import_hash=import_hash,
+        )
+    section_32_c_2_file = repo_path / "statutes/26/32/c/2.yaml"
+    if (
+        _SECTION_24_TAXABLE_EARNED_INCOME_PLACEHOLDER in repaired
+        and section_32_c_2_file.exists()
+    ):
+        repaired = _ensure_rulespec_import(repaired, _SECTION_32_C_2_IMPORT)
+        repaired = _repair_ctc_phase_in_earned_income_base_formula(repaired)
+        if _SECTION_32_C_2_TARGET not in repaired:
+            import_hash = f"sha256:{_sha256_file(section_32_c_2_file)}"
+            repaired = _insert_ctc_phase_in_import_proof_atom(
+                repaired,
+                target=_SECTION_32_C_2_TARGET,
+                output=_SECTION_32_C_2_OUTPUT,
+                import_hash=import_hash,
+            )
     if repaired == content:
         return content, []
     return repaired, [_SECTION_112_OUTPUT]
@@ -3561,7 +3592,32 @@ def _ensure_rulespec_import(content: str, import_base: str) -> str:
     )
 
 
-def _insert_section_112_import_proof_atom(content: str, import_hash: str) -> str:
+def _repair_ctc_phase_in_earned_income_base_formula(content: str) -> str:
+    source = (
+        f"{_SECTION_24_TAXABLE_EARNED_INCOME_PLACEHOLDER}\n"
+        f"          + {_SECTION_112_OUTPUT}"
+    )
+    replacement = (
+        "earned_income\n"
+        "          + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:\n"
+        "                 0\n"
+        "             else:\n"
+        f"                 {_SECTION_112_OUTPUT})"
+    )
+    repaired = content.replace(source, replacement)
+    return repaired.replace(
+        _SECTION_24_TAXABLE_EARNED_INCOME_PLACEHOLDER,
+        _SECTION_32_C_2_OUTPUT,
+    )
+
+
+def _insert_ctc_phase_in_import_proof_atom(
+    content: str,
+    *,
+    target: str,
+    output: str,
+    import_hash: str,
+) -> str:
     lines = content.splitlines(keepends=True)
     repaired: list[str] = []
     in_rule = False
@@ -3580,8 +3636,8 @@ def _insert_section_112_import_proof_atom(content: str, import_hash: str) -> str
                 f"{atom_indent}- path: versions[0].formula\n"
                 f"{child_indent}kind: import\n"
                 f"{child_indent}import:\n"
-                f"{child_indent}  target: {_SECTION_112_TARGET}\n"
-                f"{child_indent}  output: {_SECTION_112_OUTPUT}\n"
+                f"{child_indent}  target: {target}\n"
+                f"{child_indent}  output: {output}\n"
                 f"{child_indent}  hash: {import_hash}\n"
             )
             repaired.append(import_atom)
@@ -3773,10 +3829,45 @@ def _repair_section_112_test_inputs(test_file: Path) -> bool:
     return True
 
 
+def _repair_ctc_taxable_earned_income_test_inputs(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    pattern = re.compile(
+        r"^(?P<prefix>\s*)us:statutes/26/24/d#input\."
+        rf"{re.escape(_SECTION_24_TAXABLE_EARNED_INCOME_PLACEHOLDER)}:"
+        r"\s*(?P<value>.+?)(?P<newline>\n?)$"
+    )
+    repaired: list[str] = []
+    changed = False
+    for line in test_file.read_text().splitlines(keepends=True):
+        match = pattern.match(line)
+        if not match:
+            repaired.append(line)
+            continue
+        prefix = match.group("prefix")
+        value = match.group("value")
+        newline = match.group("newline") or "\n"
+        for input_line in _eitc_earned_income_test_input_lines(value):
+            repaired.append(f"{prefix}{input_line}{newline}")
+        changed = True
+    if not changed:
+        return False
+    test_file.write_text("".join(repaired))
+    return True
+
+
 def _section_112_tests_need_repair(test_file: Path) -> bool:
     return (
         test_file.exists()
         and f"us:statutes/26/24/d#input.{_SECTION_112_OLD_PLACEHOLDER}:"
+        in test_file.read_text()
+    )
+
+
+def _ctc_taxable_earned_income_tests_need_repair(test_file: Path) -> bool:
+    return (
+        test_file.exists()
+        and f"us:statutes/26/24/d#input.{_SECTION_24_TAXABLE_EARNED_INCOME_PLACEHOLDER}:"
         in test_file.read_text()
     )
 
