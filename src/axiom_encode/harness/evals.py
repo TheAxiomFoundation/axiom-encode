@@ -2621,6 +2621,7 @@ Import and context rules:
 - In formulas, reference imported exports by their bare local rule name after adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
 - If a copied current target file already has executable `parameter`, `derived`, or `data_relation` rules, do not replace it with `module.status: deferred`, `module.status: entity_not_supported`, or `rules: []`. Preserve the executable scope and make the smallest source-faithful repair.
 - If a copied current target file is present, treat it as the baseline to repair. Preserve existing rule names, imports, companion-test output keys, and public formulas unless `./source.txt` proves a specific rule legally wrong. Do not rewrite the whole file or rename established outputs just to improve style.
+- For every retained executable output in a copied current target file, preserve its public executable surface: local `name`, `kind`, `entity`, `dtype`, `period`, `unit`, `indexed_by`, and every existing `versions[].effective_from`. Do not change `Employer` to `Business`, `TaxUnit` to another entity, or alter period/unit/indexing just to match a preferred modeling style.
 - When source text cites a section or subsection and a copied context file for
   that citation is listed, import and use the listed exported symbol from that
   context instead of creating a local `section_...` or `subsection_...`
@@ -2696,6 +2697,7 @@ Test file rules:
 - For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change. For example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the same dependent/qualifying-child facts as its positive companion and flip only `noncitizen_exception_to_other_dependent_credit_applies`.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, preserve this file's public output names unless the source text proves the old interface was legally wrong. Do not rename an exported value just because a clearer friendly name is possible.
+- For existing executable outputs in a copied target file, preserve the whole public executable surface for each retained output: local `name`, `kind`, `entity`, `dtype`, `period`, `unit`, `indexed_by`, and `versions[].effective_from`. Do not change the entity or period to a preferred modeling style when the existing file compiles.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
   use bare friendly keys or absolute-looking placeholders.

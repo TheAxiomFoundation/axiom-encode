@@ -4581,6 +4581,50 @@ class TestRepoAugmentedContext:
             == "existing_target_test_context"
         )
 
+    def test_build_eval_prompt_preserves_existing_executable_surface(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "rulespec-us"
+        policy_repo_root.mkdir(parents=True)
+        target = policy_repo_root / "statutes" / "26" / "45A" / "a.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: qualified_wages\n"
+            "    kind: derived\n"
+            "    entity: Employer\n"
+            "    dtype: Money\n"
+            "    period: Year\n"
+        )
+
+        workspace = prepare_eval_workspace(
+            citation="us/statute/26/45A/a",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text="The amount of the credit shall be 20 percent of qualified wages.",
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 45A(a)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="statutes/26/45A/a.yaml",
+            target_ref_prefix="us:statutes/26/45A/a",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "preserve its public executable surface" in prompt
+        assert "local `name`, `kind`, `entity`, `dtype`, `period`, `unit`" in prompt
+        assert "`versions[].effective_from`" in prompt
+        assert "Do not change `Employer` to `Business`" in prompt
+
     def test_prepare_eval_workspace_adds_same_section_subsection_context(
         self, tmp_path
     ):

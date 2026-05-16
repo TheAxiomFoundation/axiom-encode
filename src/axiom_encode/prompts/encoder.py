@@ -82,6 +82,12 @@ Hard requirements:
   and public formulas unless `./source.txt` proves a specific rule legally
   wrong. Do not rewrite the whole file or rename established outputs just to
   improve style.
+- For every retained executable output in an existing copied target file,
+  preserve its public executable surface: local `name`, `kind`, `entity`,
+  `dtype`, `period`, `unit`, `indexed_by`, and every existing
+  `versions[].effective_from`. Do not change `Employer` to `Business`,
+  `TaxUnit` to another entity, or alter period/unit/indexing just to match a
+  preferred modeling style.
 - If a copied child-fragment file encodes a limitation, branch, amount, or
   predicate needed by the requested parent provision, import the child output
   and compose it. Do not copy the child formula or its factual inputs into the
@@ -313,6 +319,11 @@ Hard requirements:
   interface was legally wrong or the name violates the no-citation/path-suffix
   rule. Do not rename an exported value just because a clearer friendly name is
   possible.
+- For existing executable outputs in a copied target file, preserve the whole
+  public executable surface for each retained output: local `name`, `kind`,
+  `entity`, `dtype`, `period`, `unit`, `indexed_by`, and
+  `versions[].effective_from`. Do not change the entity or period to a
+  preferred modeling style when the existing file compiles.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
 - When source text uses amendment markup like `[old] new`, treat the bracketed
