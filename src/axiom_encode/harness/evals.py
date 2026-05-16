@@ -3061,6 +3061,9 @@ RuleSpec requirements:
   Use semantic predicates such as
   `taxable_year_begins_after_exemption_amount_reduction_effective_date` and
   `taxable_year_begins_before_senior_deduction_termination_date`.
+- For IRC section 151(a), preserve the `taxpayer_is_individual` guard on
+  `section_151_exemption_deduction`; do not replace it with only
+  `len(exemption_individual_of_tax_unit)` or a relation count.
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). Never encode US tax filing status

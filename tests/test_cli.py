@@ -29,6 +29,7 @@ from axiom_encode.cli import (
     _find_rulespec_dependents,
     _has_zero_output_test,
     _insert_false_input_default,
+    _local_factual_input_names_from_rules_content,
     _repair_mixed_scalar_output_tests,
     _rewrite_gpt_runner_backend,
     _sha256_file,
@@ -4609,6 +4610,35 @@ rules:
         assert "`long_term_capital_gains`" in issues[0]
         assert "`short_term_capital_gains`" in issues[0]
         assert "`qualified_dividend_income`" not in issues[0]
+
+    def test_local_factual_input_names_ignore_relation_aggregator_functions(self):
+        content = """format: rulespec/v1
+rules:
+  - name: child_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: child_of_tax_unit
+      arity: 2
+      arguments:
+        - TaxUnit
+        - Person
+  - name: eligible_child_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Number
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          len(child_of_tax_unit)
+          + count_where(child_of_tax_unit, child_is_eligible)
+"""
+
+        inputs = _local_factual_input_names_from_rules_content(content)
+
+        assert "len" not in inputs
+        assert "count_where" not in inputs
+        assert inputs == {"child_is_eligible"}
 
     def test_executable_input_preservation_allows_cross_reference_import_migration(
         self,
