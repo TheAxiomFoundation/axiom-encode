@@ -992,6 +992,42 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 3111(c) foreign-social-security agreement wage exemption as a separate variable.
 
+  - legal_id: us:statutes/26/3121/a/1#successor_employer_base_continuity_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 3121(a)(1) successor-employer wage-base continuity predicate as a separate output.
+
+  - legal_id: us:statutes/26/3121/a/1#predecessor_remuneration_counted_for_successor_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose predecessor remuneration counted toward a successor employer's OASDI wage base as a separate output.
+
+  - legal_id: us:statutes/26/3121/a/1#remuneration_counted_toward_oasdi_base_before_payment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_social_security
+    candidate_priority: P4
+    rationale: PolicyEngine exposes final taxable Social Security earnings, not this section 3121(a)(1) pre-payment wage-base intermediate.
+
+  - legal_id: us:statutes/26/3121/a/1#remaining_oasdi_contribution_and_benefit_base_before_payment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_social_security
+    candidate_priority: P4
+    rationale: PolicyEngine exposes final taxable Social Security earnings, not this section 3121(a)(1) remaining-base intermediate.
+
+  - legal_id: us:statutes/26/3121/a/1#oasdi_wage_base_excess_excluded_remuneration
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_social_security
+    candidate_priority: P4
+    rationale: PolicyEngine exposes taxable Social Security earnings after this exclusion, not the excluded-remuneration amount separately. The ECPS tax harness uses this Axiom output to stage OASDI wage inputs before comparing sections 3101(a) and 3111(a).
+
   - legal_id: us:statutes/26/45A/a#base_year_1993_indian_employment_costs
     country: us
     program: tax

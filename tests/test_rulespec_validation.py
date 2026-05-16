@@ -1372,6 +1372,15 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "employee_social_security_tax"
     )
+    oasdi_wage_base_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3121/a/1#oasdi_wage_base_excess_excluded_remuneration",
+        country="us",
+    )
+    assert oasdi_wage_base_mapping.mapping_type == "not_comparable"
+    assert (
+        oasdi_wage_base_mapping.policyengine_variable
+        == "taxable_earnings_for_social_security"
+    )
     oasdi_rate_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3101/a#oasdi_wage_tax_rate",
         country="us",
