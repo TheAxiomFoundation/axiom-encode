@@ -732,6 +732,23 @@ mappings:
     comparison: money
     rationale: Same statutory other-case additional Medicare threshold, stored in PE as parameter data.
 
+  - legal_id: us:statutes/26/1401#additional_medicare_self_employment_separate_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.medicare.additional.exclusion
+    parameter_key: SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory married-filing-separately additional Medicare threshold, stored in PE as parameter data.
+
+  - legal_id: us:statutes/26/1401#additional_medicare_self_employment_separate_threshold_fraction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the statutory one-half derivation for the separate-return threshold; PolicyEngine stores the resulting threshold, not the fraction.
+
   - legal_id: us:statutes/26/1401#additional_medicare_self_employment_tax_rate
     country: us
     program: tax
@@ -769,11 +786,23 @@ mappings:
     comparison: money
     rationale: Same filing-status-selected additional Medicare threshold, stored in PE as parameter data.
 
+  - legal_id: us:statutes/26/1401#international_agreement_exemption_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 1401(c) international social-security agreement exemption predicates.
+
   - legal_id: us:statutes/26/1401#reduced_additional_medicare_self_employment_threshold
     country: us
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose this wage-offset self-employment threshold intermediate as a separate variable.
+
+  - legal_id: us:statutes/26/1401#self_employment_income_exempt_under_international_agreement
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 1401(c) international social-security agreement exemption amounts.
 
   - legal_id: us:statutes/26/1401#self_employment_hospital_insurance_tax_rate
     country: us
@@ -812,6 +841,12 @@ mappings:
     policyengine_variable: self_employment_tax
     candidate_priority: P4
     rationale: Axiom's current 1401 slice includes self-employment tax components at the section boundary; PE's self_employment_tax excludes additional_medicare_tax and applies 1402 taxable-income rules.
+
+  - legal_id: us:statutes/26/1401#taxable_self_employment_income_for_section_1401
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Axiom exposes the section 1401 taxable base after the 1401(c) international-agreement exemption; PolicyEngine's taxable_self_employment_income is a section 1402 base and is not the same legal boundary.
 
   - legal_id: us:statutes/26/1402/a#self_employment_tax_equivalent_deduction_fraction
     country: us
