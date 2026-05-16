@@ -53,6 +53,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_tax_filing_status_test_input_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
+    find_unused_import_issues,
     find_upstream_placement_issues,
     find_versioned_derived_formula_issues,
     find_zero_branch_test_coverage_issues,
@@ -446,6 +447,31 @@ rules: []
     )
 
     assert issues == []
+
+
+def test_unused_imports_are_rejected():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/63/c#standard_deduction
+  - us:statutes/26/163/a#interest_deduction
+rules:
+  - name: taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: adjusted_gross_income - standard_deduction
+"""
+
+    issues = find_unused_import_issues(content)
+
+    assert issues == [
+        "Unused import `us:statutes/26/163/a#interest_deduction`: imported "
+        "symbol `interest_deduction` is not referenced by any formula or proof "
+        "import."
+    ]
 
 
 def _mock_corpus_source_text(monkeypatch, text: str) -> None:

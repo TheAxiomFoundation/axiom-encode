@@ -5270,6 +5270,96 @@ def find_formula_absolute_reference_issues(content: str) -> list[str]:
     return []
 
 
+def find_unused_import_issues(content: str) -> list[str]:
+    """Reject imported executable symbols that are not consumed by the module."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return []
+        imports = payload.get("imports")
+        if not isinstance(imports, list):
+            return []
+
+        formula_text = "\n".join(_rulespec_formula_texts(payload))
+        proof_import_targets = _rulespec_proof_import_targets(payload)
+        issues: list[str] = []
+        for raw_item in imports:
+            if not isinstance(raw_item, str):
+                continue
+            import_item = raw_item.strip()
+            if "#" not in import_item:
+                continue
+            symbol = import_item.rsplit("#", 1)[1].strip()
+            if not symbol:
+                continue
+            if _formula_references_symbol(formula_text, symbol):
+                continue
+            if import_item in proof_import_targets:
+                continue
+            issues.append(
+                f"Unused import `{import_item}`: imported symbol `{symbol}` is "
+                "not referenced by any formula or proof import."
+            )
+        return issues
+    return []
+
+
+def _rulespec_formula_texts(payload: dict[str, Any]) -> list[str]:
+    formulas: list[str] = []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return formulas
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, str):
+                formulas.append(formula)
+            elif isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                formulas.append(str(formula))
+    return formulas
+
+
+def _rulespec_proof_import_targets(payload: dict[str, Any]) -> set[str]:
+    targets: set[str] = set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return targets
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        proof = _rule_proof_payload(rule)
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            import_payload = atom.get("import")
+            if not isinstance(import_payload, dict):
+                continue
+            target = str(import_payload.get("target") or "").strip()
+            if target:
+                targets.add(target)
+    return targets
+
+
+def _formula_references_symbol(formula_text: str, symbol: str) -> bool:
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(symbol)}(?![A-Za-z0-9_])",
+            formula_text,
+        )
+        is not None
+    )
+
+
 def _rulespec_rule_names_from_file(path: Path) -> set[str]:
     with contextlib.suppress(OSError):
         return _rulespec_rule_names_from_content(path.read_text())
@@ -8553,6 +8643,7 @@ class ValidatorPipeline:
         issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
+        issues.extend(find_unused_import_issues(content))
         issues.extend(
             find_proof_import_hash_consistency_issues(
                 content,

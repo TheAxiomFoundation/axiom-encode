@@ -64,6 +64,7 @@ from .harness.evals import (
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
     ValidatorPipeline,
+    find_unused_import_issues,
     repair_nonnegative_amount_reductions,
 )
 from .oracles.policyengine.coverage import (
@@ -653,6 +654,28 @@ def main():
         help="Rules repository root used for manifest signing",
     )
     repair_zero_tests_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_unused_imports_parser = subparsers.add_parser(
+        "repair-unused-imports",
+        help="Apply signed deterministic repairs for unused RuleSpec imports",
+    )
+    repair_unused_imports_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_unused_imports_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_unused_imports_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -1308,6 +1331,8 @@ def main():
         cmd_repair_nonnegative_floors(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
+    elif args.command == "repair-unused-imports":
+        cmd_repair_unused_imports(args)
     elif args.command == "repair-proof-import-hashes":
         cmd_repair_proof_import_hashes(args)
     elif args.command == "repair-oracle-parameter-tests":
@@ -2848,6 +2873,142 @@ def cmd_repair_zero_branch_tests(args):
         f"{relative_output}: {', '.join(repaired_test_cases)}"
     )
     print(f"manifest={manifest_path}")
+
+
+def cmd_repair_unused_imports(args):
+    """Apply signed deterministic unused-import repairs."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    repaired_content, removed_imports = _prune_unused_imports(original_content)
+    if not removed_imports:
+        print("No unused imports found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    rules_file.write_text(repaired_content)
+
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        rules_file.write_text(original_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original RuleSpec file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="unused-import-prune-v1",
+            tool="axiom-encode repair-unused-imports",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied unused-import repair to "
+        f"{relative_output}: {', '.join(removed_imports)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
+def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
+    unused_imports = _unused_import_items(content)
+    if not unused_imports:
+        return content, []
+
+    unused = set(unused_imports)
+    repaired_lines: list[str] = []
+    in_imports = False
+    imports_indent = 0
+    removed: list[str] = []
+
+    for line in content.splitlines(keepends=True):
+        imports_match = re.match(r"^(\s*)imports:\s*$", line)
+        if imports_match:
+            in_imports = True
+            imports_indent = len(imports_match.group(1))
+            repaired_lines.append(line)
+            continue
+
+        if in_imports:
+            stripped = line.strip()
+            if stripped:
+                indent = len(line) - len(line.lstrip())
+                if indent <= imports_indent:
+                    in_imports = False
+                else:
+                    item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
+                    if item_match:
+                        item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
+                        if item in unused:
+                            removed.append(item)
+                            continue
+
+        repaired_lines.append(line)
+
+    return "".join(repaired_lines), removed
+
+
+def _unused_import_items(content: str) -> list[str]:
+    items: list[str] = []
+    for issue in find_unused_import_issues(content):
+        match = re.search(r"Unused import `([^`]+)`", issue)
+        if match:
+            items.append(match.group(1))
+    return items
+
+
+def _strip_yaml_scalar_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def cmd_repair_proof_import_hashes(args):
