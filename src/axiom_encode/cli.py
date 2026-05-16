@@ -6343,6 +6343,39 @@ def _factual_input_appears_numeric(
         return True
     if _factual_input_name_looks_boolean(input_name):
         return False
+
+    rules = rules_payload.get("rules")
+    if isinstance(rules, list):
+        pattern = re.compile(rf"\b{re.escape(input_name)}\b")
+        numeric_context = re.compile(
+            rf"(\b{re.escape(input_name)}\b\s*(?:[+\-*/<>]=?|==|!=)"
+            rf"|(?:[+\-*/]\s*)\b{re.escape(input_name)}\b)"
+        )
+        boolean_context = re.compile(
+            rf"(\bif\s+{re.escape(input_name)}\s*:"
+            rf"|\bnot\s+{re.escape(input_name)}\b"
+            rf"|\b{re.escape(input_name)}\b\s+(?:and|or)\b"
+            rf"|\b(?:and|or)\s+{re.escape(input_name)}\b)"
+        )
+        formula_hits: list[str] = []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            versions = rule.get("versions")
+            if not isinstance(versions, list):
+                continue
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                formula = version.get("formula")
+                if not isinstance(formula, str) or not pattern.search(formula):
+                    continue
+                formula_hits.append(formula)
+        if any(numeric_context.search(formula) for formula in formula_hits):
+            return True
+        if any(boolean_context.search(formula) for formula in formula_hits):
+            return False
+
     input_tokens = set(input_name.split("_"))
     numeric_name_fragments = (
         "amount",
@@ -6367,29 +6400,6 @@ def _factual_input_appears_numeric(
     )
     if input_tokens.intersection(numeric_name_fragments):
         return True
-
-    rules = rules_payload.get("rules")
-    if not isinstance(rules, list):
-        return False
-    pattern = re.compile(rf"\b{re.escape(input_name)}\b")
-    numeric_context = re.compile(
-        rf"(\b{re.escape(input_name)}\b\s*(?:[+\-*/<>]=?|==|!=)"
-        rf"|(?:[+\-*/]\s*)\b{re.escape(input_name)}\b)"
-    )
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        versions = rule.get("versions")
-        if not isinstance(versions, list):
-            continue
-        for version in versions:
-            if not isinstance(version, dict):
-                continue
-            formula = version.get("formula")
-            if not isinstance(formula, str) or not pattern.search(formula):
-                continue
-            if numeric_context.search(formula):
-                return True
     return False
 
 

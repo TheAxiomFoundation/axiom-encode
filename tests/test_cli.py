@@ -3733,6 +3733,36 @@ rules:
 
         assert value is False
 
+    def test_generated_test_input_defaults_treat_condition_wages_fact_as_boolean(
+        self,
+    ):
+        rules_payload = {
+            "rules": [
+                {
+                    "name": "qualified_wages",
+                    "kind": "derived",
+                    "dtype": "Money",
+                    "versions": [
+                        {
+                            "formula": (
+                                "if wages_taken_into_account_under_section_51:\n"
+                                "    0\n"
+                                "else:\n"
+                                "    wages_paid"
+                            )
+                        }
+                    ],
+                }
+            ]
+        }
+
+        value = _default_generated_test_input_value(
+            "wages_taken_into_account_under_section_51",
+            rules_payload=rules_payload,
+        )
+
+        assert value is False
+
     def test_generated_test_input_defaults_treat_remuneration_as_money(self):
         rules_payload = {
             "rules": [
