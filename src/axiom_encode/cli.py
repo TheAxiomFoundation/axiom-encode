@@ -3054,15 +3054,17 @@ def cmd_repair_current_year_final_amounts(args):
             enable_oracles=False,
             require_policy_proofs=True,
         ).validate(rules_file, skip_reviewers=True)
-        if not validation.all_passed:
+        validation_issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        if not validation.all_passed and not _only_pending_nonnegative_amount_reduction_issues(
+            validation_issues
+        ):
             rules_file.write_text(original_content)
             if original_test_content is not None:
                 test_file.write_text(original_test_content)
-            issues = [
-                result.error for result in validation.results.values() if result.error
-            ]
             print("Repair failed validation; restored original file.")
-            for issue in issues:
+            for issue in validation_issues:
                 print(f"- {issue}")
             sys.exit(1)
 

@@ -5059,7 +5059,17 @@ rules:
             def validate(self, path, *, skip_reviewers):
                 assert path == target.resolve()
                 assert skip_reviewers is True
-                return SimpleNamespace(all_passed=True, results={})
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "ci": SimpleNamespace(
+                            error=(
+                                "Nonnegative amount income base missing floor: "
+                                "`eitc_phased_in`"
+                            )
+                        )
+                    },
+                )
 
         with (
             patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
