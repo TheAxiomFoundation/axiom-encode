@@ -14,7 +14,9 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     OASDI_WAGE_BASE_PROGRAM_PATH,
     POLICYENGINE_VERSION,
+    SECTION_32_C_2_BASE,
     SECTION_152_C_BASE,
+    SECTION_1402_A_BASE,
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
     build_contribution_and_benefit_base_request,
@@ -36,7 +38,9 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_eitc_relevant_investment_income,
     project_eitc_tax_unit_inputs,
     project_oasdi_wage_base_inputs,
+    project_section_32_c_2_tax_unit_inputs,
     project_section_152_c_person_inputs,
+    project_section_1402_a_tax_unit_inputs,
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
@@ -311,7 +315,7 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
     projected = project_eitc_tax_unit_inputs(row=row, persons=persons)
 
     assert projected["filing_status"] == 3
-    assert projected["earned_income"] == 18_000
+    assert "earned_income" not in projected
     assert projected["adjusted_gross_income"] == 22_000
     assert projected["eitc_relevant_investment_income"] == 510
     assert (
@@ -321,6 +325,66 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
         is True
     )
     assert projected["taxpayer_includes_required_social_security_number_on_return"] is True
+
+    contexts = project_tax_unit_person_contexts(persons)
+    earned_income_inputs = project_section_32_c_2_tax_unit_inputs(
+        persons=persons,
+        contexts=contexts,
+    )
+    self_employment_inputs = project_section_1402_a_tax_unit_inputs(
+        persons=persons,
+        contexts=contexts,
+    )
+    assert earned_income_inputs == {
+        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": 18_000
+    }
+    assert self_employment_inputs == {
+        "self_employment_trade_or_business_gross_income": 0,
+        "self_employment_trade_or_business_deductions": 0,
+        "partnership_section_702_a_8_income_or_loss": 0,
+    }
+
+
+def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income():
+    persons = [
+        {
+            "age": 34,
+            "ssn_card_type": "CITIZEN",
+            "employment_income_before_lsr": 18_000,
+            "self_employment_income_before_lsr": 2_500,
+            "sstb_self_employment_income_before_lsr": 0,
+        },
+        {
+            "age": 35,
+            "ssn_card_type": "CITIZEN",
+            "employment_income_before_lsr": 5_000,
+            "self_employment_income_before_lsr": 0,
+            "sstb_self_employment_income_before_lsr": 750,
+        },
+        {
+            "age": 8,
+            "ssn_card_type": "CITIZEN",
+            "employment_income_before_lsr": 1_000,
+            "self_employment_income_before_lsr": 9_999,
+            "sstb_self_employment_income_before_lsr": 9_999,
+        },
+    ]
+    contexts = project_tax_unit_person_contexts(persons)
+
+    assert project_section_32_c_2_tax_unit_inputs(
+        persons=persons,
+        contexts=contexts,
+    ) == {
+        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": 23_000
+    }
+    assert project_section_1402_a_tax_unit_inputs(
+        persons=persons,
+        contexts=contexts,
+    ) == {
+        "self_employment_trade_or_business_gross_income": 3_250,
+        "self_employment_trade_or_business_deductions": 0,
+        "partnership_section_702_a_8_income_or_loss": 0,
+    }
 
 
 def test_eitc_person_projection_marks_valid_minor_child():
@@ -495,7 +559,19 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     input_values = {
         item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
     }
-    assert input_values[f"{EITC_BASE}#input.earned_income"] == "18000.0"
+    assert f"{EITC_BASE}#input.earned_income" not in input_values
+    assert (
+        input_values[
+            f"{SECTION_32_C_2_BASE}#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
+        ]
+        == "18000.0"
+    )
+    assert (
+        input_values[
+            f"{SECTION_1402_A_BASE}#input.self_employment_trade_or_business_gross_income"
+        ]
+        == "0.0"
+    )
     assert (
         input_values[
             f"{SECTION_152_C_BASE}#input.individual_is_child_of_taxpayer_or_descendant_of_such_child"

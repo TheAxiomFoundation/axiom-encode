@@ -3718,6 +3718,8 @@ rules:
         assert "dependent_basic_standard_deduction_statutory_limit" in prompt
         assert "directly rounded final amount table" in prompt
         assert "EITC maximum-credit table" in prompt
+        assert "Do not subtract Section 164(f) again" in prompt
+        assert "Section 1402(a) already handles" in prompt
         assert "round the" in prompt
         assert "increase before adding it to the base amount" in prompt
         assert "17300, not 17325" in prompt

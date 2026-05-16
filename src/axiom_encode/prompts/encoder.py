@@ -262,6 +262,11 @@ Hard requirements:
   an EITC maximum-credit table, `eitc_maximum` must select that imported maximum
   table, not multiply the phase-in rate by the earned-income amount and keep an
   unrounded decimal.
+- When IRC section 32(c)(2) uses "net earnings from self-employment (within
+  the meaning of section 1402(a))", import the encoded Section 1402(a)
+  `net_earnings_from_self_employment` output as the self-employment component.
+  Do not subtract Section 164(f) again from that imported net-earnings output;
+  Section 1402(a) already handles the self-employment-tax-equivalent deduction.
 - When the statute states pre-inflation base dollars that a current-year
   authority adjusts, any local statute output must be named as a statutory/base
   concept, not as the current-year value. For IRC section 63(c)(5), use a name

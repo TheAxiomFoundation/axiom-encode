@@ -56,7 +56,9 @@ CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
 CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
 EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
 EITC_BASE = "us:statutes/26/32"
+SECTION_32_C_2_BASE = "us:statutes/26/32/c/2"
 SECTION_152_C_BASE = "us:statutes/26/152/c"
+SECTION_1402_A_BASE = "us:statutes/26/1402/a"
 
 
 def contribution_and_benefit_base_program_path(year: int) -> Path:
@@ -833,6 +835,7 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
         tax_unit_id = int(row["tax_unit_id"])
         entity_id = tax_entity_id(tax_unit_id)
         tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        contexts = project_tax_unit_person_contexts(tax_unit_persons)
         for name, value in project_eitc_tax_unit_inputs(
             row=row,
             persons=tax_unit_persons,
@@ -840,8 +843,31 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
             inputs.append(
                 input_record(f"{EITC_BASE}#input.{name}", entity_id, interval, value)
             )
+        for name, value in project_section_32_c_2_tax_unit_inputs(
+            persons=tax_unit_persons,
+            contexts=contexts,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_32_C_2_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        for name, value in project_section_1402_a_tax_unit_inputs(
+            persons=tax_unit_persons,
+            contexts=contexts,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_1402_A_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
 
-        contexts = project_tax_unit_person_contexts(tax_unit_persons)
         for person_index, (person, context) in enumerate(
             zip(tax_unit_persons, contexts, strict=True)
         ):
@@ -1171,7 +1197,6 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
     )
     return {
         "filing_status": filing_status_numeric,
-        "earned_income": project_eitc_earned_income(persons, contexts),
         "adjusted_gross_income": money(row["adjusted_gross_income"]),
         "eitc_relevant_investment_income": project_eitc_relevant_investment_income(
             row=row,
@@ -1193,7 +1218,10 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
         "taxpayer_is_nonresident_alien_for_any_portion_of_year": False,
         "taxpayer_treated_as_resident_by_section_6013_g_or_h_election": False,
         "taxpayer_is_married_under_section_7703_a": filing_status_numeric in {1, 2},
-        "satisfies_eitc_separated_spouse_rules": False,
+        "satisfies_eitc_separated_spouse_rules": (
+            filing_status_numeric == 2
+            and any(bool_value(person.get("is_separated", False)) for person in persons)
+        ),
         "taxable_year_is_full_12_months": True,
         "taxable_year_closed_by_reason_of_taxpayer_death": False,
         "eitc_disallowance_period_applies": False,
@@ -1207,17 +1235,36 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
     }
 
 
-def project_eitc_earned_income(
+def project_section_32_c_2_tax_unit_inputs(
+    *,
     persons: list[Any],
     contexts: list[PersonProjectionContext],
-) -> float:
-    return sum(
-        money(person.get("employment_income_before_lsr", 0))
-        + money(person.get("self_employment_income_before_lsr", 0))
+) -> dict[str, Any]:
+    return {
+        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": sum(
+            money(person.get("employment_income_before_lsr", 0))
+            for person, context in zip(persons, contexts, strict=True)
+            if context.is_head or context.is_spouse
+        )
+    }
+
+
+def project_section_1402_a_tax_unit_inputs(
+    *,
+    persons: list[Any],
+    contexts: list[PersonProjectionContext],
+) -> dict[str, Any]:
+    self_employment_income = sum(
+        money(person.get("self_employment_income_before_lsr", 0))
         + money(person.get("sstb_self_employment_income_before_lsr", 0))
         for person, context in zip(persons, contexts, strict=True)
         if context.is_head or context.is_spouse
     )
+    return {
+        "self_employment_trade_or_business_gross_income": self_employment_income,
+        "self_employment_trade_or_business_deductions": 0,
+        "partnership_section_702_a_8_income_or_loss": 0,
+    }
 
 
 def project_eitc_relevant_investment_income(row: Any, persons: list[Any]) -> float:
@@ -1403,11 +1450,34 @@ def tax_unit_head_spouse_indices(persons: list[Any]) -> tuple[int | None, int | 
     ]
     if not adult_indices:
         return None, None
-    head_index = max(adult_indices, key=lambda index: money(persons[index]["age"]))
+    likely_adult_student_dependent_indices = {
+        index
+        for index in adult_indices
+        if money(persons[index]["age"]) < 24
+        and bool_value(persons[index].get("is_full_time_college_student", False))
+        and any(
+            other_index != index and money(persons[other_index]["age"]) >= 25
+            for other_index in adult_indices
+        )
+    }
+    filer_adult_indices = [
+        index
+        for index in adult_indices
+        if index not in likely_adult_student_dependent_indices
+    ] or adult_indices
+    head_index = max(
+        filer_adult_indices,
+        key=lambda index: (
+            bool_value(persons[index].get("is_household_head", False)),
+            money(persons[index]["age"]),
+        ),
+    )
     separated = any(bool_value(person.get("is_separated", False)) for person in persons)
     if separated:
         return head_index, None
-    spouse_candidates = [index for index in adult_indices if index != head_index]
+    spouse_candidates = [
+        index for index in filer_adult_indices if index != head_index
+    ]
     spouse_index = (
         max(spouse_candidates, key=lambda index: money(persons[index]["age"]))
         if spouse_candidates
@@ -1564,6 +1634,9 @@ def compare_outputs(
             "The full capital-gains-tax surface waits on encoded upstream "
             "taxable income rather than using PolicyEngine taxable income as "
             "an Axiom input.",
+            "EITC projections supply ECPS wage and self-employment leaf facts "
+            "to Sections 32(c)(2) and 1402(a); Section 32 earned income is "
+            "computed by Axiom rather than passed in as a PolicyEngine output.",
         ],
     )
 
