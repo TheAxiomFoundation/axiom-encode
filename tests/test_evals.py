@@ -3473,7 +3473,9 @@ class TestEvalPrompt:
             in prompt
         )
         assert "Axiom formulas have no date literal type" in prompt
-        assert "taxable_year_begins_after_2024_and_before_2029" in prompt
+        assert "Do not put the date or year value in the fact name" in prompt
+        assert "taxable_year_begins_after_termination_date" in prompt
+        assert "`taxable_year_begins_after_2024_and_before_2029` or" in prompt
         assert (
             "Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables"
             in prompt

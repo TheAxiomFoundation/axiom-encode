@@ -53,6 +53,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_tax_filing_status_enum_representation_issues,
     find_tax_filing_status_surviving_spouse_issues,
     find_tax_filing_status_test_input_issues,
+    find_temporal_value_fact_name_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
     find_unused_import_issues,
@@ -7335,8 +7336,47 @@ rules:
 
     assert any("Formula date literal unsupported" in issue for issue in issues)
     assert any(
-        "taxable_year_begins_after_2024_and_before_2029" in issue for issue in issues
+        "taxable_year_begins_after_termination_date" in issue for issue in issues
     )
+
+
+def test_temporal_value_fact_name_rejects_year_embedded_taxable_year_input():
+    content = """format: rulespec/v1
+rules:
+  - name: section_applies_before_termination
+    kind: derived
+    entity: Business
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1994-01-01'
+        formula: |-
+          not taxable_year_begins_after_december_31_2021
+"""
+
+    issues = find_temporal_value_fact_name_issues(content)
+
+    assert any("Temporal fact name embeds legal date value" in issue for issue in issues)
+    assert any(
+        "taxable_year_begins_after_termination_date" in issue for issue in issues
+    )
+
+
+def test_temporal_value_fact_name_allows_semantic_taxable_year_input():
+    content = """format: rulespec/v1
+rules:
+  - name: section_applies_before_termination
+    kind: derived
+    entity: Business
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1994-01-01'
+        formula: |-
+          not taxable_year_begins_after_termination_date
+"""
+
+    assert find_temporal_value_fact_name_issues(content) == []
 
 
 def test_judgment_conditional_formula_rejects_if_else_returning_judgments():

@@ -3946,8 +3946,61 @@ def find_formula_date_literal_issues(content: str) -> list[str]:
                 f"`{name}` uses `{match.group(0)}` inside an executable formula. "
                 "Axiom formula syntax has no date literal type; encode effective "
                 "windows with `effective_from` metadata or source-stated boolean "
-                "predicates such as `taxable_year_begins_after_2024_and_before_2029`."
+                "predicates such as `taxable_year_begins_after_termination_date`."
             )
+    return issues
+
+
+_TEMPORAL_VALUE_FACT_YEAR_PATTERN = re.compile(r"(?:^|_)(?:19|20)\d{2}(?:_|$)")
+
+
+def find_temporal_value_fact_name_issues(content: str) -> list[str]:
+    """Reject runtime date predicates that embed the legal date value in the name."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    defined_symbols = _defined_rulespec_symbols(rules)
+    issues: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            for identifier in sorted(_formula_local_identifiers(formula)):
+                if identifier in defined_symbols:
+                    continue
+                if not identifier.startswith("taxable_year"):
+                    continue
+                if _TEMPORAL_VALUE_FACT_YEAR_PATTERN.search(identifier) is None:
+                    continue
+                key = (rule_name, identifier)
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(
+                    "Temporal fact name embeds legal date value: "
+                    f"`{rule_name}` references local fact `{identifier}`. "
+                    "Do not put source date or year values in runtime fact names; "
+                    "use a semantic predicate such as "
+                    "`taxable_year_begins_after_termination_date` or "
+                    "`taxable_year_is_in_temporary_effective_window`."
+                )
     return issues
 
 
@@ -8788,6 +8841,7 @@ class ValidatorPipeline:
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_formula_date_literal_issues(content))
+        issues.extend(find_temporal_value_fact_name_issues(content))
         issues.extend(find_judgment_conditional_formula_issues(content))
         issues.extend(find_nonnegative_amount_reduction_issues(content))
         issues.extend(find_relation_aggregate_syntax_issues(content))

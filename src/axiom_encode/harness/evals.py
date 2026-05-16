@@ -2953,9 +2953,12 @@ RuleSpec requirements:
 - Do not encode legal effective dates as `dtype: String` parameters or date
   literal formulas such as `2025-01-01`. Axiom formulas have no date literal type.
   Use `effective_from` metadata for version timing, or use a
-  source-stated boolean predicate such as
-  `taxable_year_begins_after_2024_and_before_2029` when a date window is a
-  runtime condition.
+  source-stated semantic boolean predicate when a date window is a runtime
+  condition. Do not put the date or year value in the fact name; use names like
+  `taxable_year_begins_after_termination_date` or
+  `taxable_year_is_in_temporary_effective_window`, not
+  `taxable_year_begins_after_2024_and_before_2029` or
+  `taxable_year_begins_after_december_31_2021`.
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
