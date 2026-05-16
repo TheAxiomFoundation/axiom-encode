@@ -87,7 +87,8 @@ Hard requirements:
   `dtype`, `period`, `unit`, `indexed_by`, and every existing
   `versions[].effective_from`. Do not change `Employer` to `Business`,
   `TaxUnit` to another entity, or alter period/unit/indexing just to match a
-  preferred modeling style.
+  preferred modeling style. Changing an existing `dtype: Money` output to
+  `dtype: Judgment`, or vice versa, is a forbidden public-surface migration.
 - Preserve the existing factual input surface used by copied executable
   formulas and companion tests. Do not replace established local inputs such as
   `long_term_capital_gains` or `qualified_dividend_income` with newly invented
@@ -334,7 +335,9 @@ Hard requirements:
   public executable surface for each retained output: local `name`, `kind`,
   `entity`, `dtype`, `period`, `unit`, `indexed_by`, and
   `versions[].effective_from`. Do not change the entity or period to a
-  preferred modeling style when the existing file compiles.
+  preferred modeling style when the existing file compiles. Never change an
+  existing output from `dtype: Money` to `dtype: Judgment` just because the
+  name sounds like an allowance/applicability decision.
 - Preserve existing factual input slots referenced by copied formulas and
   companion tests. Do not swap a working local input surface for new friendly
   names or upstream abstractions unless the generated bundle performs a full,

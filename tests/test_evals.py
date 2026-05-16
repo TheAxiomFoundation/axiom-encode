@@ -4733,6 +4733,7 @@ class TestRepoAugmentedContext:
         assert "preserve its public executable surface" in prompt
         assert "local `name`, `kind`, `entity`, `dtype`, `period`, `unit`" in prompt
         assert "`versions[].effective_from`" in prompt
+        assert "Changing an existing `dtype: Money` output to `dtype: Judgment`" in prompt
         assert "Do not change `Employer` to `Business`" in prompt
         assert "Preserve the existing factual input surface" in prompt
         assert "`long_term_capital_gains`" in prompt
