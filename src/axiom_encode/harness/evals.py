@@ -3097,6 +3097,7 @@ RuleSpec requirements:
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
 - Do not create named `parameter` rules for structural table row labels, household-size row indexes, or branch numbers unless the source actually sets that value as a legal amount, rate, threshold, cap, or limit; use those structural comparisons inline instead.
 - If the source cannot be represented faithfully with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
+- Never emit `rules: []` without an explicit non-executable `module.status`. If the source has operative text, encode at least one source-backed rule instead of silently returning an empty module.
 - For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty and do not create assertions against deferred symbols.
 - If metadata or context names an absolute canonical target that this source `sets`, `amends`, `implements`, or `restates`, add a separate `kind: source_relation` record with `source_relation.type` and `source_relation.target`. Do not put source graph edges in executable rule metadata.
 - Preserve existing or copied `kind: source_relation` records unless `./source.txt` proves the legal/provenance edge is wrong.

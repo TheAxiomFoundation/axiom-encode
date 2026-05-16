@@ -32,6 +32,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_copied_cross_reference_source_issues,
     find_current_year_final_amount_table_issues,
     find_deprecated_source_url_issues,
+    find_empty_rules_module_issues,
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
     find_formula_date_literal_issues,
@@ -7043,6 +7044,29 @@ rules:
 """
 
     assert find_section_151_entitlement_proxy_issues(content) == []
+
+
+def test_empty_rules_module_rejects_missing_status():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules: []
+"""
+
+    issues = find_empty_rules_module_issues(content)
+
+    assert any("Empty RuleSpec module invalid" in issue for issue in issues)
+
+
+def test_empty_rules_module_allows_explicit_deferred_status():
+    content = """format: rulespec/v1
+module:
+  status: deferred
+rules: []
+"""
+
+    assert find_empty_rules_module_issues(content) == []
 
 
 def test_filing_status_local_input_allows_imported_formula():

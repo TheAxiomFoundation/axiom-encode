@@ -120,6 +120,9 @@ Hard requirements:
   If imported child calculations cannot receive the adjusted basis faithfully
   under the current executable schema, emit `module.status: entity_not_supported`
   or `deferred` instead of an approximate executable formula.
+- Never emit `rules: []` without an explicit non-executable `module.status`.
+  If the source has operative text, encode at least one source-backed rule
+  instead of silently returning an empty module.
 - Do not repair that case by importing child rates or thresholds and rebuilding
   the child branch locally with an adjusted basis. That still re-encodes the
   child branch and is invalid unless the schema can explicitly wire the

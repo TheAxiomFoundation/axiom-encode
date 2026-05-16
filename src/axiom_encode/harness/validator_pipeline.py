@@ -3361,6 +3361,28 @@ def find_section_151_entitlement_proxy_issues(content: str) -> list[str]:
     ]
 
 
+def find_empty_rules_module_issues(content: str) -> list[str]:
+    """Reject empty RuleSpec modules that do not explicitly declare a fallback."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or rules:
+        return []
+    module = payload.get("module")
+    status = ""
+    if isinstance(module, dict):
+        status = str(module.get("status") or "").strip().lower()
+    if status in {"deferred", "entity_not_supported"}:
+        return []
+    return [
+        "Empty RuleSpec module invalid: `rules: []` requires explicit "
+        "`module.status: deferred` or `module.status: entity_not_supported`. "
+        "If the source is executable, encode at least one source-backed rule; "
+        "do not silently apply an empty module."
+    ]
+
+
 def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
     """Flag filing-status branches that omit surviving spouse when source groups it."""
     payload = _rulespec_payload(content)
@@ -9413,6 +9435,7 @@ class ValidatorPipeline:
         issues.extend(find_ungrounded_numeric_issues(content))
         issues.extend(find_deprecated_source_url_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
+        issues.extend(find_empty_rules_module_issues(content))
         proof_issues = (
             validate_rulespec_proofs(
                 content,
