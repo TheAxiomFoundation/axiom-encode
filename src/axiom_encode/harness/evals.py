@@ -2919,6 +2919,14 @@ RuleSpec requirements:
   section 152(c) should export qualifying-child predicates over a
   taxpayer-child relation with inputs for relationship, abode, age/student or
   disability, support, joint-return, and competing-claimant facts.
+- If the requested source defines an exclusion, inclusion, deduction, or credit
+  amount but depends on externally determined facts such as executive-order
+  designations, military status, hospitalization, missing status, monthly pay
+  grades, or source-document classifications, encode the amount with boundary
+  inputs for those facts instead of deferring. For example, IRC section 112
+  should export an executable amount excluded from gross income by reason of
+  section 112; it should not be `module.status: deferred` solely because combat
+  zone designation or military pay facts are supplied by the caller.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,

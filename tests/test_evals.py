@@ -3713,6 +3713,9 @@ rules:
         assert "do not replace it with" in prompt
         assert "requested source itself defines a legal status or test" in prompt
         assert "section 152(c)" in prompt
+        assert "IRC section 112" in prompt
+        assert "should export an executable amount excluded" in prompt
+        assert "military pay facts" in prompt
         assert "same concept or output name" in prompt
         assert "dependent_standard_deduction_limit" in prompt
         assert "dependent_basic_standard_deduction_statutory_limit" in prompt

@@ -245,6 +245,14 @@ Hard requirements:
   section 152(c) should export qualifying-child predicates over a
   taxpayer-child relation with inputs for relationship, abode, age/student or
   disability, support, joint-return, and competing-claimant facts.
+- If the requested source defines an exclusion, inclusion, deduction, or credit
+  amount but depends on externally determined facts such as executive-order
+  designations, military status, hospitalization, missing status, monthly pay
+  grades, or source-document classifications, encode the amount with boundary
+  inputs for those facts instead of deferring. For example, IRC section 112
+  should export an executable amount excluded from gross income by reason of
+  section 112; it should not be `module.status: deferred` solely because combat
+  zone designation or military pay facts are supplied by the caller.
 - Do not create parallel statutory-dollar executable parameters when a copied
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
