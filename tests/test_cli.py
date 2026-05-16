@@ -35,6 +35,7 @@ from axiom_encode.cli import (
     _sha256_file,
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
+    _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
     cmd_calibration,
@@ -3904,6 +3905,30 @@ rules:
             "second_case",
         ]
         assert run.outcome["status"] == "apply_applied"
+
+    def test_overlay_validation_suppresses_ancestor_targets_for_subsection_migration(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        ancestor = repo / "statutes/26/151.yaml"
+        ancestor_test = repo / "statutes/26/151.test.yaml"
+        target = repo / "statutes/26/151/d.yaml"
+        sibling = repo / "statutes/26/152.yaml"
+        for path in (ancestor, ancestor_test, target, sibling):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("format: rulespec/v1\nrules: []\n")
+
+        suppressed = _suppress_rulespec_ancestor_targets_for_subsection_overlay(
+            repo,
+            Path("statutes/26/151/d.yaml"),
+        )
+
+        assert Path("statutes/26/151.yaml") in suppressed
+        assert Path("statutes/26/151.test.yaml") in suppressed
+        assert not ancestor.exists()
+        assert not ancestor_test.exists()
+        assert target.exists()
+        assert sibling.exists()
 
     def test_encode_apply_allows_overlay_to_rescue_failed_standalone_validation(
         self, capsys, tmp_path

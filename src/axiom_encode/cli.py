@@ -9142,6 +9142,11 @@ def _validate_generated_encoding_in_policy_overlay(
         shutil.copy2(output_file, overlay_target)
         if output_test.exists():
             shutil.copy2(output_test, _rulespec_test_path(overlay_target))
+        if not validate_dependents:
+            _suppress_rulespec_ancestor_targets_for_subsection_overlay(
+                overlay_repo,
+                relative_output,
+            )
 
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_repo,
@@ -9216,6 +9221,50 @@ def _validate_generated_encoding_in_policy_overlay(
                         f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
+
+
+def _suppress_rulespec_ancestor_targets_for_subsection_overlay(
+    overlay_repo: Path,
+    relative_output: Path,
+) -> list[Path]:
+    """Remove ancestor RuleSpec files from a temporary subsection overlay."""
+    suppressed: list[Path] = []
+    for relative_path in _rulespec_ancestor_target_paths(relative_output):
+        for candidate in (
+            overlay_repo / relative_path,
+            _rulespec_test_path(overlay_repo / relative_path),
+        ):
+            if not candidate.exists() or not candidate.is_file():
+                continue
+            candidate.unlink()
+            suppressed.append(candidate.relative_to(overlay_repo))
+    return suppressed
+
+
+def _rulespec_ancestor_target_paths(relative_output: Path) -> list[Path]:
+    """Return possible ancestor RuleSpec files for a generated subsection."""
+    target = relative_output.with_suffix("")
+    source_root = next(
+        (
+            Path(root)
+            for root in sorted(RULESPEC_SOURCE_ROOTS)
+            if target == Path(root) or Path(root) in target.parents
+        ),
+        None,
+    )
+    if source_root is None:
+        return []
+
+    ancestors: list[Path] = []
+    current = target.parent
+    while (
+        current != Path(".")
+        and current.as_posix()
+        and current.as_posix() != source_root.as_posix()
+    ):
+        ancestors.append(Path(f"{current.as_posix()}.yaml"))
+        current = current.parent
+    return ancestors
 
 
 def _repair_mixed_scalar_output_tests(
