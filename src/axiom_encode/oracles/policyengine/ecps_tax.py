@@ -56,6 +56,7 @@ CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
 CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
 EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
 EITC_BASE = "us:statutes/26/32"
+SECTION_152_C_BASE = "us:statutes/26/152/c"
 
 
 def contribution_and_benefit_base_program_path(year: int) -> Path:
@@ -856,6 +857,18 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
                 inputs.append(
                     input_record(f"{EITC_BASE}#input.{name}", person_id, interval, value)
                 )
+            for name, value in project_section_152_c_person_inputs(
+                person,
+                context,
+            ).items():
+                inputs.append(
+                    input_record(
+                        f"{SECTION_152_C_BASE}#input.{name}",
+                        person_id,
+                        interval,
+                        value,
+                    )
+                )
 
     return {
         "mode": "explain",
@@ -1227,9 +1240,6 @@ def project_eitc_person_inputs(
     context: PersonProjectionContext,
 ) -> dict[str, Any]:
     return {
-        "qualifying_child_under_section_152_c_as_modified_for_eitc": (
-            context.qualifying_child_under_section_152_c
-        ),
         "qualifying_child_principal_place_of_abode_is_in_united_states": True,
         "qualifying_child_name_age_and_tin_included_on_return": (
             context.has_valid_child_ssn
@@ -1238,6 +1248,39 @@ def project_eitc_person_inputs(
         "taxpayer_entitled_to_section_151_deduction_for_child_or_would_be_but_for_section_152_e": (
             context.is_tax_unit_dependent
         ),
+    }
+
+
+def project_section_152_c_person_inputs(
+    person: Any,
+    context: PersonProjectionContext,
+) -> dict[str, Any]:
+    return {
+        "individual_is_child_of_taxpayer_or_descendant_of_such_child": (
+            context.is_tax_unit_dependent
+        ),
+        "individual_is_sibling_stepsibling_or_descendant_of_such_relative": False,
+        "individual_principal_place_of_abode_with_taxpayer_fraction": (
+            1.0 if context.is_tax_unit_dependent else 0.0
+        ),
+        "individual_is_permanently_and_totally_disabled": bool_value(
+            person.get("is_permanently_and_totally_disabled", False)
+        ),
+        "individual_is_younger_than_taxpayer": context.is_tax_unit_dependent,
+        "individual_age_at_close_of_calendar_year": money(person["age"]),
+        "individual_is_student": bool_value(
+            person.get("is_full_time_college_student", False)
+        ),
+        "individual_filed_joint_return_with_spouse_other_than_only_for_claim_of_refund": False,
+        "individual_may_be_claimed_as_qualifying_child_by_two_or_more_taxpayers": False,
+        "parents_of_individual_may_claim_individual_but_no_parent_claims": False,
+        "taxpayer_is_parent_of_individual": context.is_tax_unit_dependent,
+        "taxpayer_adjusted_gross_income_higher_than_highest_parent_adjusted_gross_income": False,
+        "parents_claiming_child_do_not_file_joint_return_together": False,
+        "child_resided_with_taxpayer_parent_for_longest_period": False,
+        "child_resided_with_both_parents_same_amount_of_time_and_taxpayer_parent_has_highest_adjusted_gross_income": False,
+        "no_parent_of_individual_is_a_claiming_taxpayer": False,
+        "taxpayer_has_highest_adjusted_gross_income_among_claiming_taxpayers": False,
     }
 
 

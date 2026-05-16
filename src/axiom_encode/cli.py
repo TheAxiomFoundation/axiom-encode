@@ -665,6 +665,26 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_eitc_152_parser = subparsers.add_parser(
+        "repair-eitc-section-152-import",
+        help="Apply signed deterministic repair for EITC Section 152(c) import",
+    )
+    repair_eitc_152_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
+    repair_eitc_152_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_eitc_152_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_zero_tests_parser = subparsers.add_parser(
         "repair-zero-branch-tests",
         help="Apply signed deterministic repairs for missing zero-branch tests",
@@ -1376,6 +1396,8 @@ def main():
         cmd_repair_nonnegative_floors(args)
     elif args.command == "repair-current-year-final-amounts":
         cmd_repair_current_year_final_amounts(args)
+    elif args.command == "repair-eitc-section-152-import":
+        cmd_repair_eitc_section_152_import(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
     elif args.command == "repair-unused-imports":
@@ -3098,6 +3120,232 @@ def cmd_repair_current_year_final_amounts(args):
         f"{relative_output}: {', '.join(repaired_rules)}"
     )
     print(f"manifest={manifest_path}")
+
+
+def cmd_repair_eitc_section_152_import(args):
+    """Apply a signed deterministic Section 32 -> 152(c) bridge repair."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_content, repaired_rules = _repair_eitc_section_152_import_content(
+        original_content,
+        repo_path=repo_path,
+    )
+    if repaired_content == original_content:
+        print("No EITC Section 152(c) import repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+
+        rules_file.write_text(repaired_content)
+        applied_files = [rules_file]
+        if _repair_eitc_section_152_test_inputs(test_file):
+            applied_files.append(test_file)
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        validation_issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        if not validation.all_passed and not _only_pending_nonnegative_amount_reduction_issues(
+            validation_issues
+        ):
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original file.")
+            for issue in validation_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="eitc-section-152-import-v1",
+            tool="axiom-encode repair-eitc-section-152-import",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied EITC Section 152(c) import repair to "
+        f"{relative_output}: {', '.join(repaired_rules)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
+def _repair_eitc_section_152_import_content(
+    content: str,
+    *,
+    repo_path: Path,
+) -> tuple[str, list[str]]:
+    placeholder = "qualifying_child_under_section_152_c_as_modified_for_eitc"
+    if placeholder not in content:
+        return content, []
+    section_152_file = repo_path / "statutes/26/152/c.yaml"
+    if not section_152_file.exists():
+        return content, []
+    import_hash = f"sha256:{_sha256_file(section_152_file)}"
+    repaired = content
+    if "us:statutes/26/152/c" not in repaired:
+        repaired = repaired.replace(
+            "imports:\n",
+            "imports:\n  - us:statutes/26/152/c\n",
+            1,
+        )
+    if "name: eitc_qualifying_child_base" not in repaired:
+        repaired = repaired.replace(
+            "  - name: eitc_qualifying_child\n",
+            _eitc_qualifying_child_base_rule(import_hash)
+            + "\n  - name: eitc_qualifying_child\n",
+            1,
+        )
+    repaired = repaired.replace(placeholder, "eitc_qualifying_child_base")
+    return repaired, ["eitc_qualifying_child_base", "eitc_qualifying_child"]
+
+
+def _eitc_qualifying_child_base_rule(import_hash: str) -> str:
+    return f"""  - name: eitc_qualifying_child_base
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 32(c)(3), 26 USC 152(c)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/152/c#qualifying_child_relationship
+              output: qualifying_child_relationship
+              hash: {import_hash}
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/152/c#abode_fraction_threshold
+              output: abode_fraction_threshold
+              hash: {import_hash}
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/152/c#age_requirements_met
+              output: age_requirements_met
+              hash: {import_hash}
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/152/c#tiebreaker_treats_individual_as_qualifying_child_of_taxpayer
+              output: tiebreaker_treats_individual_as_qualifying_child_of_taxpayer
+              hash: {import_hash}
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/32
+              text: "qualifying child ... as defined in section 152(c), determined without regard to paragraph (1)(D) thereof and section 152(e)"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          qualifying_child_relationship
+          and individual_principal_place_of_abode_with_taxpayer_fraction > abode_fraction_threshold
+          and age_requirements_met
+          and not individual_filed_joint_return_with_spouse_other_than_only_for_claim_of_refund
+          and tiebreaker_treats_individual_as_qualifying_child_of_taxpayer
+"""
+
+
+def _repair_eitc_section_152_test_inputs(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    needle = (
+        "us:statutes/26/32#input."
+        "qualifying_child_under_section_152_c_as_modified_for_eitc: true"
+    )
+    lines = test_file.read_text().splitlines(keepends=True)
+    if not any(needle in line for line in lines):
+        return False
+    repaired: list[str] = []
+    for line in lines:
+        if needle not in line:
+            repaired.append(line)
+            continue
+        newline = "\n" if line.endswith("\n") else ""
+        body = line[:-1] if newline else line
+        prefix = body.split(needle, 1)[0]
+        continuation_prefix = (
+            prefix.replace("- ", "  ", 1) if "- " in prefix else prefix
+        )
+        input_lines = _eitc_section_152_test_input_lines()
+        repaired.append(f"{prefix}{input_lines[0]}{newline}")
+        for input_line in input_lines[1:]:
+            repaired.append(f"{continuation_prefix}{input_line}{newline}")
+    test_file.write_text("".join(repaired))
+    return True
+
+
+def _eitc_section_152_test_input_lines() -> list[str]:
+    return [
+        "us:statutes/26/152/c#input.individual_is_child_of_taxpayer_or_descendant_of_such_child: true",
+        "us:statutes/26/152/c#input.individual_is_sibling_stepsibling_or_descendant_of_such_relative: false",
+        "us:statutes/26/152/c#input.individual_principal_place_of_abode_with_taxpayer_fraction: 1",
+        "us:statutes/26/152/c#input.individual_is_permanently_and_totally_disabled: false",
+        "us:statutes/26/152/c#input.individual_is_younger_than_taxpayer: true",
+        "us:statutes/26/152/c#input.individual_age_at_close_of_calendar_year: 8",
+        "us:statutes/26/152/c#input.individual_is_student: false",
+        "us:statutes/26/152/c#input.individual_filed_joint_return_with_spouse_other_than_only_for_claim_of_refund: false",
+        "us:statutes/26/152/c#input.individual_may_be_claimed_as_qualifying_child_by_two_or_more_taxpayers: false",
+        "us:statutes/26/152/c#input.parents_of_individual_may_claim_individual_but_no_parent_claims: false",
+        "us:statutes/26/152/c#input.taxpayer_is_parent_of_individual: true",
+        "us:statutes/26/152/c#input.taxpayer_adjusted_gross_income_higher_than_highest_parent_adjusted_gross_income: false",
+        "us:statutes/26/152/c#input.parents_claiming_child_do_not_file_joint_return_together: false",
+        "us:statutes/26/152/c#input.child_resided_with_taxpayer_parent_for_longest_period: false",
+        "us:statutes/26/152/c#input.child_resided_with_both_parents_same_amount_of_time_and_taxpayer_parent_has_highest_adjusted_gross_income: false",
+        "us:statutes/26/152/c#input.no_parent_of_individual_is_a_claiming_taxpayer: false",
+        "us:statutes/26/152/c#input.taxpayer_has_highest_adjusted_gross_income_among_claiming_taxpayers: false",
+    ]
 
 
 def _repair_current_year_final_amount_test_expectations(

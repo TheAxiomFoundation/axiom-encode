@@ -14,6 +14,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     OASDI_WAGE_BASE_PROGRAM_PATH,
     POLICYENGINE_VERSION,
+    SECTION_152_C_BASE,
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
     build_contribution_and_benefit_base_request,
@@ -35,6 +36,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_eitc_relevant_investment_income,
     project_eitc_tax_unit_inputs,
     project_oasdi_wage_base_inputs,
+    project_section_152_c_person_inputs,
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
@@ -344,12 +346,47 @@ def test_eitc_person_projection_marks_valid_minor_child():
 
     assert head_context.is_head is True
     assert projected == {
-        "qualifying_child_under_section_152_c_as_modified_for_eitc": True,
         "qualifying_child_principal_place_of_abode_is_in_united_states": True,
         "qualifying_child_name_age_and_tin_included_on_return": True,
         "qualifying_child_is_married_at_close_of_taxable_year": False,
         "taxpayer_entitled_to_section_151_deduction_for_child_or_would_be_but_for_section_152_e": True,
     }
+
+
+def test_section_152_c_projection_uses_leaf_child_facts():
+    [_head_context, child_context] = project_tax_unit_person_contexts(
+        [
+            {"age": 34, "ssn_card_type": "CITIZEN"},
+            {
+                "age": 20,
+                "ssn_card_type": "CITIZEN",
+                "is_full_time_college_student": True,
+            },
+        ]
+    )
+
+    projected = project_section_152_c_person_inputs(
+        {
+            "age": 20,
+            "ssn_card_type": "CITIZEN",
+            "is_full_time_college_student": True,
+        },
+        child_context,
+    )
+
+    assert projected[
+        "individual_is_child_of_taxpayer_or_descendant_of_such_child"
+    ] is True
+    assert projected["individual_principal_place_of_abode_with_taxpayer_fraction"] == 1
+    assert projected["individual_is_younger_than_taxpayer"] is True
+    assert projected["individual_age_at_close_of_calendar_year"] == 20
+    assert projected["individual_is_student"] is True
+    assert (
+        projected[
+            "individual_may_be_claimed_as_qualifying_child_by_two_or_more_taxpayers"
+        ]
+        is False
+    )
 
 
 def test_eitc_relevant_investment_income_replaces_limited_loss_with_nonnegative_gain():
@@ -459,6 +496,12 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
     }
     assert input_values[f"{EITC_BASE}#input.earned_income"] == "18000.0"
+    assert (
+        input_values[
+            f"{SECTION_152_C_BASE}#input.individual_is_child_of_taxpayer_or_descendant_of_such_child"
+        ]
+        is True
+    )
     assert (
         input_values[
             f"{EITC_BASE}#input.qualifying_child_name_age_and_tin_included_on_return"
