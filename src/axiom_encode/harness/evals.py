@@ -2699,6 +2699,7 @@ Test file rules:
 - Supported mapping `period_kind` values are `tax_year` and `custom`; never use `period_kind: calendar_year`.
 - For annual tax tests, use an explicit tax-year mapping such as `period: {{period_kind: tax_year, start: '2024-01-01', end: '2024-12-31'}}`.
 - For non-tax annual periods, use `period: {{period_kind: custom, name: calendar_year, start: '2024-01-01', end: '2024-12-31'}}`.
+- For `period: Day` outputs, use a custom day mapping such as `period: {{period_kind: custom, name: day, start: '2024-01-15', end: '2024-01-15'}}`; never use bare `YYYY-MM-DD` shorthand.
 - Emit 1-4 cases unless a source-driven coverage rule below requires more. If
   `module.status` is `deferred` or `entity_not_supported`, the test file may be
   empty.

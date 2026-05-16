@@ -411,6 +411,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "never use `period_kind: calendar_year`" in prompt
     assert "period_kind: tax_year" in prompt
     assert "period_kind: custom" in prompt
+    assert "period: Day" in prompt
+    assert "never use bare `YYYY-MM-DD` shorthand" in prompt
     assert (
         "Do not create named `parameter` rules for structural table row labels"
         in prompt
