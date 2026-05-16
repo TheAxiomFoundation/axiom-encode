@@ -49,6 +49,7 @@ from axiom_encode.cli import (
     cmd_log_event,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_repair_imported_test_inputs,
     cmd_repair_missing_source_proofs,
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
@@ -4628,6 +4629,95 @@ rules: []
             )
             == 2
         )
+
+    def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/1/h.yaml"
+        target = policy_repo / "statutes/26/1/j.yaml"
+        test_file = policy_repo / "statutes/26/1/j.test.yaml"
+        imported.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: capital_gains_excluded_from_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          long_term_capital_gains - net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1/h
+rules: []
+"""
+        )
+        test_file.write_text(
+            """- name: ordinary_income_case
+  input:
+    us:statutes/26/1/h#input.long_term_capital_gains: 0
+  output: {}
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/1/j.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                FakePipeline.calls += 1
+                if FakePipeline.calls == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `ordinary_income_case` execution failed: "
+                                    "missing input `net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii`"
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_imported_test_inputs(args)
+
+        updated = test_file.read_text()
+        assert (
+            "us:statutes/26/1/h#input."
+            "net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii: 0"
+            in updated
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1/j.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "imported-test-inputs-v1"
+        assert payload["tool"] == "axiom-encode repair-imported-test-inputs"
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"

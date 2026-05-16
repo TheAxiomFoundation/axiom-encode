@@ -704,6 +704,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_imported_test_inputs_parser = subparsers.add_parser(
+        "repair-imported-test-inputs",
+        help="Apply signed deterministic repairs for missing imported test inputs",
+    )
+    repair_imported_test_inputs_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_imported_test_inputs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_imported_test_inputs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_oracle_parameter_tests_parser = subparsers.add_parser(
         "repair-oracle-parameter-tests",
         help="Apply signed deterministic repairs for missing oracle parameter tests",
@@ -1335,6 +1357,8 @@ def main():
         cmd_repair_unused_imports(args)
     elif args.command == "repair-proof-import-hashes":
         cmd_repair_proof_import_hashes(args)
+    elif args.command == "repair-imported-test-inputs":
+        cmd_repair_imported_test_inputs(args)
     elif args.command == "repair-oracle-parameter-tests":
         cmd_repair_oracle_parameter_tests(args)
     elif args.command == "repair-tax-filing-status-branches":
@@ -3320,6 +3344,100 @@ def cmd_repair_proof_import_hashes(args):
         )
 
     print(f"Applied proof hash repair to {relative_output}: {repair_count}")
+    print(f"manifest={manifest_path}")
+
+
+def cmd_repair_imported_test_inputs(args):
+    """Apply signed deterministic repairs for missing imported test inputs."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        print(f"Companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_test_content = test_file.read_text()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=False,
+    )
+    validation = pipeline.validate(rules_file, skip_reviewers=True)
+    if validation.all_passed:
+        print("No imported test input repairs found.")
+        return
+
+    repaired = _complete_missing_imported_test_inputs(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        validation=validation,
+    )
+    if not repaired:
+        print("No imported test input repairs found.")
+        return
+
+    validation = pipeline.validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        test_file.write_text(original_test_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original test file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="imported-test-inputs-v1",
+            tool="axiom-encode repair-imported-test-inputs",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(f"Applied imported test input repair to {relative_output}")
     print(f"manifest={manifest_path}")
 
 
