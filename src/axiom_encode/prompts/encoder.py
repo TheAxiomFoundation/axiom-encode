@@ -561,9 +561,12 @@ Hard requirements:
   keep the source-named boundary predicate
   `taxpayer_is_married_individual_within_section_7703` for section
   151(d)(5)(C)(v).
-- For IRC section 151(d)(5), never use runtime fact names such as
-  `taxable_year_begins_after_2017` or `taxable_year_begins_before_2029`.
-  Use semantic predicates such as
+- For IRC section 151(d), never use runtime fact names that embed the source
+  date or year value, such as `taxable_year_begins_after_2017`,
+  `taxable_year_begins_before_2029`, or
+  `taxable_year_begins_in_calendar_year_after_1989`. Use semantic predicates
+  such as
+  `taxable_year_begins_after_inflation_start_date`,
   `taxable_year_begins_after_exemption_amount_reduction_effective_date` and
   `taxable_year_begins_before_senior_deduction_termination_date`.
 - For IRC section 151(a), preserve the `taxpayer_is_individual` guard on

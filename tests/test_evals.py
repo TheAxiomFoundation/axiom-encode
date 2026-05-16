@@ -2395,6 +2395,7 @@ class TestEvalPrompt:
         assert "section_151_exemption_deduction" in prompt
         assert "exemption_individual_eligible" in prompt
         assert "Hard requirement for IRC section 151(d)" in prompt
+        assert "taxable_year_begins_after_inflation_start_date" in prompt
         assert "must use the numeric `filing_status` enum input directly" not in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
