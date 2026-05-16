@@ -516,6 +516,10 @@ Hard requirements:
   RuleSpec output into downstream threshold, phaseout, deduction, and credit
   rules. If an already-encoded upstream filing-status output is unavailable,
   stop and encode that upstream source rather than synthesizing a local input.
+  Do not preserve existing `#input.filing_status` or `#input.tax_filing_status`
+  surfaces from copied target files; migrate them to upstream imports or
+  source-backed non-status leaf facts such as whether a joint or separate return
+  was actually made.
 - When source text says a person is `entitled to a deduction under section 151`
   or that a section 151 deduction is `allowed` or `allowable`, do not use the
   monetary `us:statutes/26/151#section_151_exemption_deduction` amount as a
