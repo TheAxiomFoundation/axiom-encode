@@ -55,6 +55,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_tax_filing_status_local_input_issues,
     find_tax_filing_status_surviving_spouse_issues,
     find_tax_filing_status_test_input_issues,
+    find_tax_filing_status_upstream_source_issues,
     find_temporal_value_fact_name_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
@@ -7003,6 +7004,53 @@ rules:
 
     assert any(
         "assigns filing status as a local input" in issue for issue in issues
+    )
+
+
+def test_filing_status_upstream_source_rejects_deferred_empty_module(tmp_path):
+    content = """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/26/7703
+rules: []
+"""
+
+    issues = find_tax_filing_status_upstream_source_issues(
+        content,
+        rules_file=tmp_path / "statutes" / "26" / "7703.yaml",
+    )
+
+    assert any(
+        "Upstream filing-status source must be executable" in issue
+        for issue in issues
+    )
+
+
+def test_filing_status_upstream_source_allows_executable_module(tmp_path):
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/7703
+rules:
+  - name: taxpayer_is_married_under_section_7703_a
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxpayer_is_married_at_close_of_taxable_year
+          and not taxpayer_legally_separated_under_decree
+"""
+
+    assert (
+        find_tax_filing_status_upstream_source_issues(
+            content,
+            rules_file=tmp_path / "statutes" / "26" / "7703.yaml",
+        )
+        == []
     )
 
 

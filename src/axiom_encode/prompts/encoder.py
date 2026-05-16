@@ -513,6 +513,11 @@ Hard requirements:
   RuleSpec output into downstream threshold, phaseout, deduction, and credit
   rules. If an already-encoded upstream filing-status output is unavailable,
   stop and encode that upstream source rather than synthesizing a local input.
+- Hard requirement for IRC sections 2, 6013, and 7703: do not emit
+  `module.status: deferred` or `module.status: entity_not_supported`. These
+  sources are the upstream filing-status source chain. Encode executable legal
+  predicates with boundary facts for marital, household, abode, support, death,
+  separation, and return-election facts not defined in the source.
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). If the source groups surviving

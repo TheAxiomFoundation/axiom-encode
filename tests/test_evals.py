@@ -2497,6 +2497,34 @@ class TestEvalPrompt:
         assert "leave the companion `.test.yaml` empty" in prompt
         assert "assertions against deferred symbols" in prompt
 
+    def test_build_eval_prompt_for_filing_status_upstream_sources_requires_executable(
+        self, tmp_path
+    ):
+        workspace = prepare_eval_workspace(
+            citation="26 USC 7703",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "(a) General rule The determination of whether an individual is "
+                "married shall be made as of the close of his taxable year."
+            ),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 7703",
+            "cold",
+            workspace,
+            [],
+            target_file_name="7703.yaml",
+            include_tests=True,
+        )
+
+        assert "Hard requirement for IRC sections 2, 6013, and 7703" in prompt
+        assert "do not emit `module.status: deferred`" in prompt
+
     def test_build_eval_prompt_for_editorially_omitted_slice_allows_deferred_docstring(
         self, tmp_path
     ):

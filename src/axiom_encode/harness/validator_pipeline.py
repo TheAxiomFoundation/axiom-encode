@@ -3500,6 +3500,42 @@ def find_tax_filing_status_local_input_issues(
     return issues
 
 
+_US_TAX_FILING_STATUS_UPSTREAM_SOURCE_PATH_PATTERN = re.compile(
+    r"(?:^|/)statutes/26/(?:2|6013|7703)\.yaml$"
+)
+
+
+def find_tax_filing_status_upstream_source_issues(
+    content: str,
+    *,
+    rules_file: Path | None = None,
+) -> list[str]:
+    """Require upstream US tax filing-status source files to be executable."""
+    if rules_file is None or not _US_TAX_FILING_STATUS_UPSTREAM_SOURCE_PATH_PATTERN.search(
+        rules_file.as_posix()
+    ):
+        return []
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    module = payload.get("module")
+    status = ""
+    if isinstance(module, dict):
+        status = str(module.get("status") or "").strip().lower()
+    executable_names = _rulespec_executable_names_from_payload(payload)
+    if status in {"deferred", "entity_not_supported"} or not executable_names:
+        return [
+            "Upstream filing-status source must be executable: "
+            f"`{rules_file.name}` is part of the source chain for deriving US "
+            "tax filing status, so it cannot be a deferred/entity-not-supported "
+            "empty artifact. Encode its legal predicates with boundary facts "
+            "for marital, household, abode, support, death, separation, and "
+            "return-election facts not defined in the source."
+        ]
+    return []
+
+
 def _rulespec_import_symbol_names(payload: dict[str, Any]) -> set[str]:
     """Return explicit local symbols exposed by imports in a RuleSpec payload."""
     imports = payload.get("imports")
@@ -9325,6 +9361,12 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(
+            find_tax_filing_status_upstream_source_issues(
+                content,
+                rules_file=rules_file,
+            )
+        )
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_formula_date_literal_issues(content))
