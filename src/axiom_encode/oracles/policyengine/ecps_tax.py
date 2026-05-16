@@ -59,6 +59,8 @@ EITC_BASE = "us:statutes/26/32"
 SECTION_112_BASE = "us:statutes/26/112"
 SECTION_32_C_2_BASE = "us:statutes/26/32/c/2"
 SECTION_152_C_BASE = "us:statutes/26/152/c"
+SECTION_164_F_BASE = "us:statutes/26/164/f"
+SECTION_1401_BASE = "us:statutes/26/1401"
 SECTION_1402_A_BASE = "us:statutes/26/1402/a"
 
 
@@ -877,6 +879,28 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
                     value,
                 )
             )
+        for name, value in project_section_164_f_tax_unit_inputs().items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_164_F_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        for name, value in project_section_1401_tax_unit_inputs(
+            row=row,
+            persons=tax_unit_persons,
+            contexts=contexts,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_1401_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
 
         for person_index, (person, context) in enumerate(
             zip(tax_unit_persons, contexts, strict=True)
@@ -1296,6 +1320,39 @@ def project_section_1402_a_tax_unit_inputs(
         "self_employment_trade_or_business_gross_income": self_employment_income,
         "self_employment_trade_or_business_deductions": 0,
         "partnership_section_702_a_8_income_or_loss": 0,
+    }
+
+
+def project_section_164_f_tax_unit_inputs() -> dict[str, Any]:
+    return {"taxpayer_is_individual": True}
+
+
+def project_section_1401_tax_unit_inputs(
+    *,
+    row: Any,
+    persons: list[Any],
+    contexts: list[PersonProjectionContext],
+) -> dict[str, Any]:
+    section_1402_inputs = project_section_1402_a_tax_unit_inputs(
+        persons=persons,
+        contexts=contexts,
+    )
+    net_earnings_before_paragraph_12 = (
+        section_1402_inputs["self_employment_trade_or_business_gross_income"]
+        - section_1402_inputs["self_employment_trade_or_business_deductions"]
+        + section_1402_inputs["partnership_section_702_a_8_income_or_loss"]
+    )
+    net_earnings_after_paragraph_12 = net_earnings_before_paragraph_12 * (1 - 0.0765)
+    self_employment_income = (
+        0
+        if net_earnings_after_paragraph_12 < 400
+        else max(0, net_earnings_after_paragraph_12)
+    )
+    return {
+        "international_social_security_agreement_under_section_233_in_effect": False,
+        "filing_status": filing_status_code(str(row["filing_status"])),
+        "self_employment_income": money(self_employment_income),
+        "wages_taken_into_account_for_additional_medicare_tax": 0,
     }
 
 

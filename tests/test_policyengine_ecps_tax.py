@@ -17,6 +17,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     SECTION_32_C_2_BASE,
     SECTION_112_BASE,
     SECTION_152_C_BASE,
+    SECTION_164_F_BASE,
+    SECTION_1401_BASE,
     SECTION_1402_A_BASE,
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
@@ -42,6 +44,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_section_32_c_2_tax_unit_inputs,
     project_section_112_tax_unit_inputs,
     project_section_152_c_person_inputs,
+    project_section_164_f_tax_unit_inputs,
+    project_section_1401_tax_unit_inputs,
     project_section_1402_a_tax_unit_inputs,
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
@@ -356,6 +360,7 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
 
 
 def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income():
+    row = {"filing_status": "SINGLE"}
     persons = [
         {
             "age": 34,
@@ -399,6 +404,19 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "self_employment_trade_or_business_gross_income": 3_250,
         "self_employment_trade_or_business_deductions": 0,
         "partnership_section_702_a_8_income_or_loss": 0,
+    }
+    assert project_section_164_f_tax_unit_inputs() == {
+        "taxpayer_is_individual": True,
+    }
+    assert project_section_1401_tax_unit_inputs(
+        row=row,
+        persons=persons,
+        contexts=contexts,
+    ) == {
+        "international_social_security_agreement_under_section_233_in_effect": False,
+        "filing_status": 0,
+        "self_employment_income": 3001.375,
+        "wages_taken_into_account_for_additional_medicare_tax": 0,
     }
 
 
@@ -597,6 +615,14 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         ]
         == "0.0"
     )
+    assert input_values[f"{SECTION_164_F_BASE}#input.taxpayer_is_individual"] is True
+    assert (
+        input_values[
+            f"{SECTION_1401_BASE}#input.international_social_security_agreement_under_section_233_in_effect"
+        ]
+        is False
+    )
+    assert input_values[f"{SECTION_1401_BASE}#input.self_employment_income"] == "0.0"
     assert (
         input_values[
             f"{SECTION_152_C_BASE}#input.individual_is_child_of_taxpayer_or_descendant_of_such_child"

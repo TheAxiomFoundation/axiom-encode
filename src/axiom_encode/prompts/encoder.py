@@ -279,10 +279,12 @@ Hard requirements:
   table, not multiply the phase-in rate by the earned-income amount and keep an
   unrounded decimal.
 - When IRC section 32(c)(2) uses "net earnings from self-employment (within
-  the meaning of section 1402(a))", import the encoded Section 1402(a)
-  `net_earnings_from_self_employment` output as the self-employment component.
-  Do not subtract Section 164(f) again from that imported net-earnings output;
-  Section 1402(a) already handles the self-employment-tax-equivalent deduction.
+  the meaning of section 1402(a))" and then says those net earnings are
+  determined with regard to Section 164(f), do not import Section 1402(a)'s
+  final `net_earnings_from_self_employment` output. Section 1402(a)(12)
+  substitutes a rate-based deduction in lieu of Section 164(f). For Section
+  32(c)(2), create a local self-employment component from Section 1402(a)'s
+  pre-paragraph-12 net earnings minus the imported Section 164(f) deduction.
 - When the statute states pre-inflation base dollars that a current-year
   authority adjusts, any local statute output must be named as a statutory/base
   concept, not as the current-year value. For IRC section 63(c)(5), use a name

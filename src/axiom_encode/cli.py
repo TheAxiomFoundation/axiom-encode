@@ -3544,7 +3544,10 @@ def cmd_repair_section_32_c_2_section_112_split(args):
         original_content,
         repo_path=repo_path,
     )
-    test_needs_repair = _section_32_c_2_section_112_split_tests_need_repair(test_file)
+    test_needs_repair = (
+        _section_32_c_2_section_112_split_tests_need_repair(test_file)
+        or _section_32_c_2_164f_self_employment_tests_need_repair(test_file)
+    )
     if repaired_content == original_content and not test_needs_repair:
         print("No Section 32(c)(2) Section 112 split repairs found.")
         return
@@ -3563,7 +3566,12 @@ def cmd_repair_section_32_c_2_section_112_split(args):
 
         rules_file.write_text(repaired_content)
         applied_files = [rules_file]
+        test_repaired = False
         if _repair_section_32_c_2_section_112_split_tests(test_file):
+            test_repaired = True
+        if _repair_section_32_c_2_164f_self_employment_tests(test_file):
+            test_repaired = True
+        if test_repaired:
             applied_files.append(test_file)
         elif test_file.exists():
             applied_files.append(test_file)
@@ -3589,7 +3597,7 @@ def cmd_repair_section_32_c_2_section_112_split(args):
             output_file=str(generated_output),
             runner="deterministic-repair",
             backend="deterministic",
-            model="section-32-c-2-section-112-split-v1",
+            model="section-32-c-2-section-112-and-164f-v2",
             tool="axiom-encode repair-section-32-c-2-section-112-split",
             citation=(
                 f"{_repo_jurisdiction_prefix(repo_path)}:"
@@ -3674,6 +3682,23 @@ _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT = (
     "employee_compensation_earned_income_before_section_112_election"
 )
 _SECTION_32_C_2_EARNED_PRE_112_OUTPUT = "earned_income_before_section_112_election"
+_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT = "self_employment_earned_income_component"
+_SECTION_1402_A_IMPORT = "us:statutes/26/1402/a"
+_SECTION_1402_A_NET_EARNINGS_OUTPUT = "net_earnings_from_self_employment"
+_SECTION_1402_A_PRE_PARAGRAPH_12_OUTPUT = "net_earnings_before_paragraph_12_adjustment"
+_SECTION_1402_A_NET_EARNINGS_TARGET = (
+    f"{_SECTION_1402_A_IMPORT}#{_SECTION_1402_A_NET_EARNINGS_OUTPUT}"
+)
+_SECTION_1402_A_PRE_PARAGRAPH_12_TARGET = (
+    f"{_SECTION_1402_A_IMPORT}#{_SECTION_1402_A_PRE_PARAGRAPH_12_OUTPUT}"
+)
+_SECTION_164_F_IMPORT = "us:statutes/26/164/f"
+_SECTION_164_F_SELF_EMPLOYMENT_DEDUCTION_OUTPUT = (
+    "self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business"
+)
+_SECTION_164_F_SELF_EMPLOYMENT_DEDUCTION_TARGET = (
+    f"{_SECTION_164_F_IMPORT}#{_SECTION_164_F_SELF_EMPLOYMENT_DEDUCTION_OUTPUT}"
+)
 
 
 def _repair_section_112_import_content(
@@ -3722,28 +3747,35 @@ def _repair_section_32_c_2_section_112_split_content(
     *,
     repo_path: Path,
 ) -> tuple[str, list[str]]:
-    if (
-        _has_rule_name(content, _SECTION_32_C_2_EARNED_PRE_112_OUTPUT)
-        and "section_112_amounts_excluded_from_gross_income" not in content
-    ):
-        return content, []
-    section_112_file = repo_path / "statutes/26/112.yaml"
-    if not section_112_file.exists():
+    needs_section_112_split = (
+        not _has_rule_name(content, _SECTION_32_C_2_EARNED_PRE_112_OUTPUT)
+        or "section_112_amounts_excluded_from_gross_income" in content
+    )
+    needs_164f_self_employment = _section_32_c_2_164f_self_employment_needs_repair(
+        content
+    )
+    if not needs_section_112_split and not needs_164f_self_employment:
         return content, []
     section_1402_file = repo_path / "statutes/26/1402/a.yaml"
     if not section_1402_file.exists():
         return content, []
 
-    repaired = _ensure_rulespec_import(content, _SECTION_112_IMPORT)
-    if not _has_rule_name(repaired, _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT):
+    repaired = content
+    repaired_rules: list[str] = []
+    if needs_section_112_split:
+        section_112_file = repo_path / "statutes/26/112.yaml"
+        if not section_112_file.exists():
+            return content, []
+        repaired = _ensure_rulespec_import(repaired, _SECTION_112_IMPORT)
+        if not _has_rule_name(repaired, _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT):
+            repaired = repaired.replace(
+                "  - name: employee_compensation_earned_income\n",
+                _section_32_c_2_employee_pre_112_rule()
+                + "\n  - name: employee_compensation_earned_income\n",
+                1,
+            )
         repaired = repaired.replace(
-            "  - name: employee_compensation_earned_income\n",
-            _section_32_c_2_employee_pre_112_rule()
-            + "\n  - name: employee_compensation_earned_income\n",
-            1,
-        )
-    repaired = repaired.replace(
-        """          max(
+            """          max(
               0,
               wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income
               - pension_or_annuity_amounts_received
@@ -3755,46 +3787,82 @@ def _repair_section_32_c_2_section_112_split_content(
               section_112_amounts_excluded_from_gross_income
           else:
               0)""",
-        """          employee_compensation_earned_income_before_section_112_election
+            """          employee_compensation_earned_income_before_section_112_election
           + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:
               amount_excluded_from_gross_income_by_reason_of_section_112
           else:
               0)""",
-        1,
-    )
-    repaired = repaired.replace(
-        "section_112_amounts_excluded_from_gross_income",
-        _SECTION_112_OUTPUT,
-    )
-    repaired = _insert_rule_import_proof_atom(
-        repaired,
-        rule_name="employee_compensation_earned_income",
-        target=(f"us:statutes/26/32/c/2#{_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT}"),
-        output=_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT,
-        import_hash="sha256:local",
-    )
-    repaired = _insert_rule_import_proof_atom(
-        repaired,
-        rule_name="employee_compensation_earned_income",
-        target=_SECTION_112_TARGET,
-        output=_SECTION_112_OUTPUT,
-        import_hash=f"sha256:{_sha256_file(section_112_file)}",
-    )
+            1,
+        )
+        repaired = repaired.replace(
+            "section_112_amounts_excluded_from_gross_income",
+            _SECTION_112_OUTPUT,
+        )
+        repaired = _insert_rule_import_proof_atom(
+            repaired,
+            rule_name="employee_compensation_earned_income",
+            target=(
+                f"us:statutes/26/32/c/2#{_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT}"
+            ),
+            output=_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT,
+            import_hash="sha256:local",
+        )
+        repaired = _insert_rule_import_proof_atom(
+            repaired,
+            rule_name="employee_compensation_earned_income",
+            target=_SECTION_112_TARGET,
+            output=_SECTION_112_OUTPUT,
+            import_hash=f"sha256:{_sha256_file(section_112_file)}",
+        )
+        repaired_rules.extend(
+            [
+                _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT,
+                _SECTION_32_C_2_EARNED_PRE_112_OUTPUT,
+            ]
+        )
+
+    section_164f_file = repo_path / "statutes/26/164/f.yaml"
+    use_164f_self_employment = needs_164f_self_employment and section_164f_file.exists()
+    if use_164f_self_employment:
+        repaired = _ensure_rulespec_import(
+            repaired, _SECTION_1402_A_PRE_PARAGRAPH_12_TARGET
+        )
+        repaired = _ensure_rulespec_import(
+            repaired, _SECTION_164_F_SELF_EMPLOYMENT_DEDUCTION_TARGET
+        )
+
+    if use_164f_self_employment and not _has_rule_name(
+        repaired, _SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT
+    ):
+        insertion_point = (
+            "  - name: earned_income_before_section_112_election\n"
+            if _has_rule_name(repaired, _SECTION_32_C_2_EARNED_PRE_112_OUTPUT)
+            else "  - name: earned_income\n"
+        )
+        repaired = repaired.replace(
+            insertion_point,
+            _section_32_c_2_self_employment_component_rule(
+                section_1402_hash=f"sha256:{_sha256_file(section_1402_file)}",
+                section_164f_hash=f"sha256:{_sha256_file(section_164f_file)}",
+            )
+            + f"\n{insertion_point}",
+            1,
+        )
+        repaired_rules.append(_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT)
+
     if not _has_rule_name(repaired, _SECTION_32_C_2_EARNED_PRE_112_OUTPUT):
         repaired = repaired.replace(
             "  - name: earned_income\n",
-            _section_32_c_2_earned_pre_112_rule(
-                section_1402_hash=f"sha256:{_sha256_file(section_1402_file)}"
-            )
-            + "\n  - name: earned_income\n",
+            _section_32_c_2_earned_pre_112_rule() + "\n  - name: earned_income\n",
             1,
         )
+
+    if use_164f_self_employment:
+        repaired = _repair_section_32_c_2_164f_self_employment_references(repaired)
+
     if repaired == content:
         return content, []
-    return repaired, [
-        _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT,
-        _SECTION_32_C_2_EARNED_PRE_112_OUTPUT,
-    ]
+    return repaired, list(dict.fromkeys(repaired_rules))
 
 
 def _section_32_c_2_employee_pre_112_rule() -> str:
@@ -3847,7 +3915,7 @@ def _section_32_c_2_employee_pre_112_rule() -> str:
 """
 
 
-def _section_32_c_2_earned_pre_112_rule(section_1402_hash: str) -> str:
+def _section_32_c_2_earned_pre_112_rule() -> str:
     return f"""  - name: earned_income_before_section_112_election
     kind: derived
     entity: TaxUnit
@@ -3867,9 +3935,9 @@ def _section_32_c_2_earned_pre_112_rule(section_1402_hash: str) -> str:
           - path: versions[0].formula
             kind: import
             import:
-              target: us:statutes/26/1402/a#net_earnings_from_self_employment
-              output: net_earnings_from_self_employment
-              hash: {section_1402_hash}
+              target: us:statutes/26/32/c/2#{_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}
+              output: {_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}
+              hash: sha256:local
           - path: versions[0].formula
             kind: formula
             source:
@@ -3881,9 +3949,84 @@ def _section_32_c_2_earned_pre_112_rule(section_1402_hash: str) -> str:
           max(
               0,
               employee_compensation_earned_income_before_section_112_election
-              + net_earnings_from_self_employment
+              + {_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}
           )
 """
+
+
+def _section_32_c_2_self_employment_component_rule(
+    *,
+    section_1402_hash: str,
+    section_164f_hash: str,
+) -> str:
+    return f"""  - name: {_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A)(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: {_SECTION_1402_A_PRE_PARAGRAPH_12_TARGET}
+              output: {_SECTION_1402_A_PRE_PARAGRAPH_12_OUTPUT}
+              hash: {section_1402_hash}
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: {_SECTION_164_F_SELF_EMPLOYMENT_DEDUCTION_TARGET}
+              output: {_SECTION_164_F_SELF_EMPLOYMENT_DEDUCTION_OUTPUT}
+              hash: {section_164f_hash}
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: "net earnings from self-employment for the taxable year (within the meaning of section 1402(a)), but such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          {_SECTION_1402_A_PRE_PARAGRAPH_12_OUTPUT}
+          - {_SECTION_164_F_SELF_EMPLOYMENT_DEDUCTION_OUTPUT}
+"""
+
+
+def _section_32_c_2_164f_self_employment_needs_repair(content: str) -> bool:
+    return (
+        _SECTION_1402_A_NET_EARNINGS_TARGET in content
+        or f"+ {_SECTION_1402_A_NET_EARNINGS_OUTPUT}" in content
+    )
+
+
+def _repair_section_32_c_2_164f_self_employment_references(content: str) -> str:
+    repaired = re.sub(
+        rf"^\s*-\s+{re.escape(_SECTION_1402_A_NET_EARNINGS_TARGET)}\s*\n",
+        "",
+        content,
+        flags=re.MULTILINE,
+    )
+    repaired = repaired.replace(
+        f"target: {_SECTION_1402_A_NET_EARNINGS_TARGET}",
+        f"target: us:statutes/26/32/c/2#{_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}",
+    )
+    repaired = repaired.replace(
+        f"output: {_SECTION_1402_A_NET_EARNINGS_OUTPUT}",
+        f"output: {_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}",
+    )
+    repaired = re.sub(
+        rf"(target: us:statutes/26/32/c/2#{re.escape(_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT)}\n"
+        rf"\s+output: {re.escape(_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT)}\n"
+        r"\s+hash:) sha256:[^\s]+",
+        r"\1 sha256:local",
+        repaired,
+    )
+    return repaired.replace(
+        _SECTION_1402_A_NET_EARNINGS_OUTPUT,
+        _SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT,
+    )
 
 
 def _ensure_rulespec_import(content: str, import_base: str) -> str:
@@ -4262,6 +4405,87 @@ def _repair_section_32_c_2_section_112_split_tests(test_file: Path) -> bool:
     return True
 
 
+def _repair_section_32_c_2_164f_self_employment_tests(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    original_content = test_file.read_text()
+    try:
+        cases = yaml.safe_load(original_content) or []
+    except yaml.YAMLError:
+        return False
+    if not isinstance(cases, list):
+        return False
+
+    changed = False
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        outputs = case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        before_12 = _section_1402_a_before_paragraph_12_test_value(inputs)
+        if before_12 is None:
+            continue
+        old_self_employment = before_12 * (1 - 0.0765)
+        section_1401_self_employment_income = (
+            0 if old_self_employment < 400 else max(0, old_self_employment)
+        )
+        section_164f_deduction = section_1401_self_employment_income * 0.153 * 0.5
+        new_self_employment = before_12 - section_164f_deduction
+
+        changed |= _setdefault_test_input(
+            inputs,
+            "us:statutes/26/164/f#input.taxpayer_is_individual",
+            True,
+        )
+        changed |= _setdefault_test_input(
+            inputs,
+            "us:statutes/26/1401#input.international_social_security_agreement_under_section_233_in_effect",
+            False,
+        )
+        changed |= _setdefault_test_input(
+            inputs,
+            "us:statutes/26/1401#input.filing_status",
+            0,
+        )
+        changed |= _setdefault_test_input(
+            inputs,
+            "us:statutes/26/1401#input.self_employment_income",
+            _restore_numeric_type(round(section_1401_self_employment_income, 6)),
+        )
+        changed |= _setdefault_test_input(
+            inputs,
+            "us:statutes/26/1401#input.wages_taken_into_account_for_additional_medicare_tax",
+            0,
+        )
+
+        component_key = (
+            f"us:statutes/26/32/c/2#{_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}"
+        )
+        changed |= _setdefault_test_output(
+            outputs,
+            component_key,
+            _restore_numeric_type(round(new_self_employment, 6)),
+        )
+        for key in (
+            f"us:statutes/26/32/c/2#{_SECTION_32_C_2_EARNED_PRE_112_OUTPUT}",
+            "us:statutes/26/32/c/2#earned_income",
+        ):
+            existing = _coerce_numeric_test_value(outputs.get(key))
+            if existing is None:
+                continue
+            outputs[key] = _restore_numeric_type(
+                round(existing - old_self_employment + new_self_employment, 6)
+            )
+            changed = True
+
+    if not changed:
+        return False
+    test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=False))
+    return True
+
+
 def _section_112_tests_need_repair(test_file: Path) -> bool:
     return (
         test_file.exists()
@@ -4281,6 +4505,22 @@ def _section_32_c_2_section_112_split_tests_need_repair(test_file: Path) -> bool
     ) or (
         "us:statutes/26/32/c/2#input."
         "section_112_amounts_excluded_from_gross_income:" in content
+    )
+
+
+def _section_32_c_2_164f_self_employment_tests_need_repair(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    content = test_file.read_text()
+    return (
+        "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income:"
+        in content
+        and "us:statutes/26/164/f#input.taxpayer_is_individual:" not in content
+    ) or (
+        f"us:statutes/26/32/c/2#{_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}:"
+        not in content
+        and "us:statutes/26/32/c/2#earned_income_before_section_112_election:"
+        in content
     )
 
 
@@ -4391,6 +4631,39 @@ def _restore_numeric_type(value: float | int) -> float | int:
     return value
 
 
+def _setdefault_test_input(inputs: dict, key: str, value: object) -> bool:
+    if key in inputs:
+        return False
+    inputs[key] = value
+    return True
+
+
+def _setdefault_test_output(outputs: dict, key: str, value: object) -> bool:
+    if key in outputs:
+        return False
+    outputs[key] = value
+    return True
+
+
+def _section_1402_a_before_paragraph_12_test_value(inputs: dict) -> float | int | None:
+    gross = _coerce_numeric_test_value(
+        inputs.get(
+            "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income"
+        )
+    )
+    deductions = _coerce_numeric_test_value(
+        inputs.get(
+            "us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions"
+        )
+    )
+    partnership = _coerce_numeric_test_value(
+        inputs.get("us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss")
+    )
+    if gross is None or deductions is None or partnership is None:
+        return None
+    return gross - deductions + partnership
+
+
 def _ctc_taxable_earned_income_tests_need_repair(test_file: Path) -> bool:
     return (
         test_file.exists()
@@ -4457,6 +4730,17 @@ def _section_1402_a_zero_test_input_lines() -> list[str]:
         "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0",
         "us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 0",
         "us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0",
+        *_section_164f_zero_test_input_lines(),
+    ]
+
+
+def _section_164f_zero_test_input_lines() -> list[str]:
+    return [
+        "us:statutes/26/164/f#input.taxpayer_is_individual: true",
+        "us:statutes/26/1401#input.international_social_security_agreement_under_section_233_in_effect: false",
+        "us:statutes/26/1401#input.filing_status: 0",
+        "us:statutes/26/1401#input.self_employment_income: 0",
+        "us:statutes/26/1401#input.wages_taken_into_account_for_additional_medicare_tax: 0",
     ]
 
 

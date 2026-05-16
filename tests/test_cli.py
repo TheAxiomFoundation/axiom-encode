@@ -6997,10 +6997,185 @@ rules:
         )
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
         manifest_payload = json.loads(manifest.read_text())
-        assert manifest_payload["model"] == "section-32-c-2-section-112-split-v1"
+        assert (
+            manifest_payload["model"]
+            == "section-32-c-2-section-112-and-164f-v2"
+        )
         assert (
             manifest_payload["tool"]
             == "axiom-encode repair-section-32-c-2-section-112-split"
+        )
+
+    def test_repair_section_32_c_2_uses_164f_for_self_employment(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/32/c/2.yaml"
+        test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
+        section_112 = policy_repo / "statutes/26/112.yaml"
+        section_1402 = policy_repo / "statutes/26/1402/a.yaml"
+        section_164f = policy_repo / "statutes/26/164/f.yaml"
+        target.parent.mkdir(parents=True)
+        section_112.parent.mkdir(parents=True, exist_ok=True)
+        section_1402.parent.mkdir(parents=True)
+        section_164f.parent.mkdir(parents=True, exist_ok=True)
+        section_112.write_text(
+            """format: rulespec/v1
+rules:
+  - name: amount_excluded_from_gross_income_by_reason_of_section_112
+    kind: derived
+"""
+        )
+        section_1402.write_text(
+            """format: rulespec/v1
+rules:
+  - name: net_earnings_before_paragraph_12_adjustment
+    kind: derived
+  - name: net_earnings_from_self_employment
+    kind: derived
+"""
+        )
+        section_164f.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business
+    kind: derived
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/112
+  - us:statutes/26/1402/a#net_earnings_from_self_employment
+rules:
+  - name: employee_compensation_earned_income_before_section_112_election
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A)(i), 32(c)(2)(B)(ii)-(v)
+    metadata:
+      proof:
+        atoms: []
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income
+
+  - name: earned_income_before_section_112_election
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/32/c/2#employee_compensation_earned_income_before_section_112_election
+              output: employee_compensation_earned_income_before_section_112_election
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1402/a#net_earnings_from_self_employment
+              output: net_earnings_from_self_employment
+              hash: sha256:old
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              employee_compensation_earned_income_before_section_112_election
+              + net_earnings_from_self_employment
+          )
+
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A), 32(c)(2)(B)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1402/a#net_earnings_from_self_employment
+              output: net_earnings_from_self_employment
+              hash: sha256:old
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              employee_compensation_earned_income
+              + net_earnings_from_self_employment
+          )
+"""
+        )
+        test_file.write_text(
+            """- name: wages_and_self_employment_income_counted
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 10000
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 0
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+  output:
+    us:statutes/26/32/c/2#earned_income_before_section_112_election: 59235
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/32/c/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_32_c_2_section_112_split(args)
+
+        repaired_rules = target.read_text()
+        assert "us:statutes/26/1402/a#net_earnings_from_self_employment" not in repaired_rules
+        assert (
+            "us:statutes/26/1402/a#net_earnings_before_paragraph_12_adjustment"
+            in repaired_rules
+        )
+        assert (
+            "us:statutes/26/164/f#self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business"
+            in repaired_rules
+        )
+        assert "self_employment_earned_income_component" in repaired_rules
+        assert (
+            "net_earnings_before_paragraph_12_adjustment\n"
+            "          - self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business"
+            in repaired_rules
+        )
+        repaired_test_content = test_file.read_text()
+        assert "us:statutes/26/1401#input.self_employment_income: 9235" in repaired_test_content
+        assert (
+            "us:statutes/26/32/c/2#earned_income_before_section_112_election: 59293.5225"
+            in repaired_test_content
         )
 
     def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(
