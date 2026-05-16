@@ -2701,13 +2701,13 @@ def cmd_repair_nonnegative_floors(args):
 
         rules_file.write_text(repaired_content)
         applied_files = [rules_file]
-        repaired_test_cases = _append_generated_zero_branch_tests_if_missing(
+        _append_generated_zero_branch_tests_if_missing(
             rules_file=rules_file,
             test_file=test_file,
             repo_path=repo_path,
             relative_output=relative_output,
         )
-        if repaired_test_cases:
+        if test_file.exists():
             applied_files.append(test_file)
         validation = ValidatorPipeline(
             policy_repo_path=repo_path,

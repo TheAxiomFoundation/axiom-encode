@@ -4551,6 +4551,77 @@ rules:
         )
         assert "taxable_income_general_rule: -" not in test_content
 
+    def test_repair_nonnegative_floors_manifest_keeps_unchanged_companion_test(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/999.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: example_credit_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          maximum_credit_amount - adjusted_gross_income
+"""
+        )
+        test_file = policy_repo / "statutes/26/999.test.yaml"
+        test_file.write_text(
+            """- name: existing_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/999#input.maximum_credit_amount: 1000
+    us:statutes/26/999#input.adjusted_gross_income: 200
+  output:
+    us:statutes/26/999#example_credit_amount: 800
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/999.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_nonnegative_floors(args)
+
+        assert "max(0, maximum_credit_amount - adjusted_gross_income)" in target.read_text()
+        assert test_file.read_text().startswith("- name: existing_case")
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/999.json"
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/999.yaml",
+            "statutes/26/999.test.yaml",
+        ]
+
     def test_repair_zero_branch_tests_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/21.yaml"
