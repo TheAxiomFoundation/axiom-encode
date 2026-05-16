@@ -4321,6 +4321,40 @@ rules:
         assert "`short_term_capital_gains`" in issues[0]
         assert "`qualified_dividend_income`" not in issues[0]
 
+    def test_executable_input_preservation_allows_cross_reference_import_migration(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: net_capital_loss
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, capital_losses - sum_allowed_under_section_1211)
+"""
+        generated = """format: rulespec/v1
+imports:
+  - us:statutes/26/1211#other_taxpayer_capital_losses_allowed
+rules:
+  - name: net_capital_loss
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, capital_losses - other_taxpayer_capital_losses_allowed)
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert issues == []
+
     def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"

@@ -6091,7 +6091,15 @@ def _executable_input_preservation_issues(
     generated_inputs = _local_factual_input_names_from_rules_content(
         generated_content
     )
-    missing = sorted(existing_inputs - generated_inputs)
+    generated_imports = _rulespec_import_bases_from_content(generated_content)
+    missing = sorted(
+        input_name
+        for input_name in existing_inputs - generated_inputs
+        if not _dropped_input_is_imported_cross_reference_migration(
+            input_name,
+            generated_imports=generated_imports,
+        )
+    )
     if not missing:
         return []
     formatted = ", ".join(f"`{name}`" for name in missing)
@@ -6101,6 +6109,85 @@ def _executable_input_preservation_issues(
         "unless a source-grounded migration explicitly updates downstream "
         "tests, imports, and oracle mappings."
     ]
+
+
+def _dropped_input_is_imported_cross_reference_migration(
+    input_name: str,
+    *,
+    generated_imports: set[str],
+) -> bool:
+    """Allow replacing a local legal cross-reference input with an import."""
+    target = _under_section_input_target(input_name)
+    if target is None:
+        return False
+    section, fragments = target
+    for import_base in generated_imports:
+        import_parts = _normalized_rulespec_import_parts(import_base)
+        if import_parts is None:
+            continue
+        try:
+            statutes_index = import_parts.index("statutes")
+        except ValueError:
+            continue
+        if len(import_parts) <= statutes_index + 2:
+            continue
+        if import_parts[statutes_index + 2] != section:
+            continue
+        import_fragments = tuple(import_parts[statutes_index + 3 :])
+        if import_fragments[: len(fragments)] == fragments:
+            return True
+    return False
+
+
+def _under_section_input_target(input_name: str) -> tuple[str, tuple[str, ...]] | None:
+    match = re.search(
+        r"(?:^|_)under_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
+        r"(?P<tail>(?:_[A-Za-z0-9]+)*)",
+        input_name,
+    )
+    if not match:
+        return None
+    fragments: list[str] = []
+    for fragment in (match.group("tail") or "").split("_"):
+        if not fragment:
+            continue
+        if re.fullmatch(r"[A-Za-z0-9]+", fragment):
+            fragments.append(fragment)
+            continue
+        break
+    return match.group("section"), tuple(fragments)
+
+
+def _rulespec_import_bases_from_content(content: str) -> set[str]:
+    try:
+        document = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        return set()
+    imports = document.get("imports") if isinstance(document, dict) else None
+    if not isinstance(imports, list):
+        return set()
+    bases: set[str] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        base = raw_import.split("#", 1)[0].strip().strip("\"'").strip("/")
+        if base:
+            bases.add(base)
+    return bases
+
+
+def _normalized_rulespec_import_parts(import_base: str) -> list[str] | None:
+    normalized = import_base.strip().strip("\"'").strip("/")
+    if not normalized:
+        return None
+    if ":" in normalized:
+        maybe_prefix, rest = normalized.split(":", 1)
+        if re.fullmatch(r"[a-z][a-z0-9-]*", maybe_prefix) and rest:
+            normalized = rest.strip("/")
+    if normalized.endswith((".yaml", ".yml")):
+        normalized = normalized.rsplit(".", 1)[0]
+    parts = [part for part in normalized.split("/") if part]
+    return parts or None
 
 
 def _executable_rule_names(content: str) -> list[str]:
