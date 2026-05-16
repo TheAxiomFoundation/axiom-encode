@@ -6727,6 +6727,22 @@ def _exception_formula_inputs(formula: str) -> set[str]:
     }
 
 
+def _title_qualified_reference_for_section(
+    section: str,
+    source_text: str,
+) -> str | None:
+    """Return the USC title when source says `section X of title Y`."""
+    match = re.search(
+        rf"\bsection\s+{re.escape(section)}(?:\([^)]+\))*\s+of\s+title\s+"
+        r"(?P<title>[0-9]+)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return match.group("title")
+    return None
+
+
 def _is_exception_identifier(identifier: str) -> bool:
     normalized = identifier.lower()
     return any(
@@ -9920,6 +9936,7 @@ class ValidatorPipeline:
             re.search(
                 r"\bsame\s+meaning\b.*\bsection\s+[0-9]"
                 r"|\btreated\s+as\b.*\bunder\s+section\s+[0-9]"
+                r"|\bunder\s+section\s+[0-9].*\btreated\s+as\b"
                 r"|\brules\s+similar\s+to\b.*\bsection\s+[0-9]"
                 r"|\bin\s+accordance\s+with\s+section\s+[0-9]",
                 source_text,
@@ -10051,7 +10068,9 @@ class ValidatorPipeline:
                 fragments.append(fragment)
                 continue
             break
-        return "/".join(["statutes", title, match.group("section"), *fragments])
+        section = match.group("section")
+        target_title = _title_qualified_reference_for_section(section, source_text) or title
+        return "/".join(["statutes", target_title, section, *fragments])
 
     def _semantic_section_placeholder_import_base(
         self,
@@ -10106,7 +10125,8 @@ class ValidatorPipeline:
             flags=re.IGNORECASE,
         ) and citation.lower() not in source_text.lower():
             return None
-        return "/".join(["statutes", title, section, *fragments])
+        target_title = _title_qualified_reference_for_section(section, source_text) or title
+        return "/".join(["statutes", target_title, section, *fragments])
 
     def _is_cross_reference_path_fragment(self, fragment: str) -> bool:
         """Return whether an identifier tail fragment is a citation path token."""

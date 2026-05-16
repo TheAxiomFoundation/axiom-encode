@@ -4265,6 +4265,41 @@ rules:
     assert "statutes/7/2015/b" in issues[0]
 
 
+def test_cross_reference_placeholder_uses_explicit_usc_title(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "2" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    If the determination is made under section 556 of title 37 of the
+    United States Code, the date is treated as a death date.
+rules:
+  - name: spouse_death_treated_within_preceding_years
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          section_556_death_determination_applies
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_encoded_cross_reference_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "statutes/37/556" in issues[0]
+    assert "statutes/26/556" not in issues[0]
+
+
 def test_cross_reference_placeholder_allows_current_section_helpers(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "22.yaml"
