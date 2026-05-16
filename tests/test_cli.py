@@ -4612,6 +4612,40 @@ rules:
 
         assert issues == []
 
+    def test_executable_input_preservation_allows_in_effect_under_import_migration(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: exemption_phaseout_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, adjusted_gross_income - applicable_amount_in_effect_under_section_68_b)
+"""
+        generated = """format: rulespec/v1
+imports:
+  - us:statutes/26/68/b#applicable_amount
+rules:
+  - name: exemption_phaseout_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, adjusted_gross_income - applicable_amount)
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert issues == []
+
     def test_executable_input_preservation_allows_provided_in_section_import_migration(
         self,
     ):

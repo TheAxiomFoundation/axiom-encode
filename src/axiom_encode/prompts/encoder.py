@@ -419,6 +419,11 @@ Hard requirements:
   companion tests. Do not swap a working local input surface for new friendly
   names or upstream abstractions unless the generated bundle performs a full,
   source-grounded surface migration.
+- For cross-reference boundary facts that remain local because the cited
+  source is not imported yet, keep the legal pointer in the identifier. For
+  example, preserve `applicable_amount_in_effect_under_section_68_b` unless an
+  actual `us:statutes/26/68/b#...` import replaces it. Do not shorten it to a
+  generic name like `applicable_amount_in_effect`.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
 - When source text uses amendment markup like `[old] new`, treat the bracketed

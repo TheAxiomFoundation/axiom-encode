@@ -8846,6 +8846,7 @@ def _legal_cross_reference_input_target(
         r"|deduction_provided_in"
         r"|credit_allowed_under"
         r"|credits_allowable_under"
+        r"|in_effect_under"
         r"|within"
         r"|within_meaning_of"
         r")_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
