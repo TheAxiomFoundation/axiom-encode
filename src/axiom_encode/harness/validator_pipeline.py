@@ -784,6 +784,15 @@ _US_TAX_FILING_STATUS_NAME_PATTERN = re.compile(
     rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
     flags=re.IGNORECASE,
 )
+_SECTION_151_ENTITLEMENT_SOURCE_PATTERN = re.compile(
+    r"(?:entitled\s+to|allowable\s+to|allowed\s+to|allowed\s+as)"
+    r"[\s\S]{0,160}\bdeduction\b[\s\S]{0,80}\bsection\s+151\b"
+    r"|"
+    r"\bdeduction\b[\s\S]{0,80}\bsection\s+151\b[\s\S]{0,160}"
+    r"(?:entitled\s+to|allowable\s+to|allowed\s+to|allowed\s+as)",
+    flags=re.IGNORECASE,
+)
+_SECTION_151_DEDUCTION_AMOUNT_SYMBOL = "section_151_exemption_deduction"
 _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN = re.compile(
     r"(?:^|_)(?:allotment|benefit|credit|deduction|allowance|subsidy|phased_in)(?:_|$)",
     flags=re.IGNORECASE,
@@ -3308,6 +3317,47 @@ def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str
     return [
         (name, kind, formula)
         for name, kind, formula, _source in _rulespec_rule_formula_records(payload)
+    ]
+
+
+def find_section_151_entitlement_proxy_issues(content: str) -> list[str]:
+    """Reject use of the section 151 dollar deduction as an entitlement proxy."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_text = extract_embedded_source_text(content)
+    if not _SECTION_151_ENTITLEMENT_SOURCE_PATTERN.search(source_text):
+        return []
+
+    imports = payload.get("imports")
+    imported_deduction = isinstance(imports, list) and any(
+        isinstance(item, str)
+        and item.strip().endswith(f"#{_SECTION_151_DEDUCTION_AMOUNT_SYMBOL}")
+        for item in imports
+    )
+    formula_records = _rulespec_rule_formula_records(payload)
+    formula_users = [
+        name
+        for name, _kind, formula, _source in formula_records
+        if _formula_references_symbol(formula, _SECTION_151_DEDUCTION_AMOUNT_SYMBOL)
+    ]
+    if not imported_deduction and not formula_users:
+        return []
+
+    location = (
+        f" in `{', '.join(formula_users[:3])}`"
+        if formula_users
+        else ""
+    )
+    return [
+        "Section 151 entitlement must not be inferred from the monetary "
+        f"`{_SECTION_151_DEDUCTION_AMOUNT_SYMBOL}` output"
+        f"{location}. For source language like `entitled to a deduction under "
+        "section 151` or `deduction under section 151 is allowable`, import a "
+        "source-backed eligibility/judgment output such as "
+        "`us:statutes/26/151#exemption_individual_eligible`; the post-2017 "
+        "exemption amount can be zero while entitlement still matters."
     ]
 
 
@@ -9361,6 +9411,7 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_section_151_entitlement_proxy_issues(content))
         issues.extend(
             find_tax_filing_status_upstream_source_issues(
                 content,

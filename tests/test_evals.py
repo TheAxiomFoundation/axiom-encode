@@ -2381,6 +2381,9 @@ class TestEvalPrompt:
         assert "Do not use bare year periods like `2024`" in prompt
         assert "Never encode US tax filing status" in prompt
         assert "Do not create local `#input.filing_status` facts" in prompt
+        assert "entitled to a deduction under section 151" in prompt
+        assert "section_151_exemption_deduction" in prompt
+        assert "exemption_individual_eligible" in prompt
         assert "must use the numeric `filing_status` enum input directly" not in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
@@ -2524,6 +2527,7 @@ class TestEvalPrompt:
 
         assert "Hard requirement for IRC sections 2, 6013, and 7703" in prompt
         assert "do not emit `module.status: deferred`" in prompt
+        assert "section 151 deduction is `allowed` or `allowable`" in prompt
 
     def test_build_eval_prompt_for_editorially_omitted_slice_allows_deferred_docstring(
         self, tmp_path

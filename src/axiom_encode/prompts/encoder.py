@@ -513,6 +513,13 @@ Hard requirements:
   RuleSpec output into downstream threshold, phaseout, deduction, and credit
   rules. If an already-encoded upstream filing-status output is unavailable,
   stop and encode that upstream source rather than synthesizing a local input.
+- When source text says a person is `entitled to a deduction under section 151`
+  or that a section 151 deduction is `allowed` or `allowable`, do not use the
+  monetary `us:statutes/26/151#section_151_exemption_deduction` amount as a
+  proxy. The post-2017 exemption amount can be zero while entitlement still
+  matters. Import a source-backed eligibility/judgment output such as
+  `us:statutes/26/151#exemption_individual_eligible`, or encode the missing
+  upstream 151 entitlement predicate first.
 - Hard requirement for IRC sections 2, 6013, and 7703: do not emit
   `module.status: deferred` or `module.status: entity_not_supported`. These
   sources are the upstream filing-status source chain. Encode executable legal

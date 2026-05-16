@@ -46,6 +46,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
+    find_section_151_entitlement_proxy_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
@@ -6959,6 +6960,54 @@ rules:
     assert any(
         "Filing status is a derived legal classification" in issue for issue in issues
     )
+
+
+def test_section_151_entitlement_rejects_deduction_amount_proxy():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/151#section_151_exemption_deduction
+module:
+  summary: |-
+    A taxpayer qualifies only if the taxpayer is entitled to a deduction for
+    the taxable year under section 151.
+rules:
+  - name: qualifying_dependent_entitled_to_section_151_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          section_151_exemption_deduction > 0
+"""
+
+    issues = find_section_151_entitlement_proxy_issues(content)
+
+    assert any("Section 151 entitlement must not be inferred" in issue for issue in issues)
+
+
+def test_section_151_entitlement_allows_eligibility_import():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/151#exemption_individual_eligible
+module:
+  summary: |-
+    A taxpayer qualifies only if the taxpayer is entitled to a deduction for
+    the taxable year under section 151.
+rules:
+  - name: qualifying_dependent_entitled_to_section_151_deduction
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          exemption_individual_eligible
+"""
+
+    assert find_section_151_entitlement_proxy_issues(content) == []
 
 
 def test_filing_status_local_input_allows_imported_formula():
