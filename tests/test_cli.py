@@ -3880,6 +3880,23 @@ class TestGuardGenerated:
             "regulations/example.yaml changed without a matching .axiom/encoding-manifests manifest"
         ]
 
+    def test_rejects_existing_rulespec_without_encoder_manifest_in_all_mode(
+        self, tmp_path
+    ):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            roots=("regulations",),
+            all_files=True,
+        )
+
+        assert issues == [
+            "regulations/example.yaml is missing a matching .axiom/encoding-manifests manifest"
+        ]
+
     def test_accepts_rulespec_change_with_matching_encoder_manifest(self, tmp_path):
         rule = tmp_path / "regulations/example.yaml"
         rule.parent.mkdir(parents=True)
@@ -3909,6 +3926,39 @@ class TestGuardGenerated:
                     "regulations/example.yaml",
                     ".axiom/encoding-manifests/regulations/example.json",
                 ],
+            )
+
+        assert issues == []
+
+    def test_accepts_existing_rulespec_with_matching_encoder_manifest_in_all_mode(
+        self, tmp_path
+    ):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest_payload = _signed_manifest_payload(
+            {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "applied_files": [
+                    {
+                        "path": "regulations/example.yaml",
+                        "sha256": _sha256_file(rule),
+                    }
+                ],
+            }
+        )
+        manifest.write_text(json.dumps(manifest_payload) + "\n")
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                roots=("regulations",),
+                all_files=True,
             )
 
         assert issues == []

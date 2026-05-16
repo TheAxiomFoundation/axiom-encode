@@ -613,6 +613,11 @@ def main():
         help="Space-separated RuleSpec roots to protect",
     )
     guard_generated_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Verify every existing RuleSpec YAML file, not only git changes",
+    )
+    guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
     )
 
@@ -2633,11 +2638,13 @@ def cmd_guard_generated(args):
     """Reject protected RuleSpec changes that lack an apply manifest."""
     repo_path = Path(args.repo).resolve()
     roots = tuple(str(args.roots).split())
+    all_files = bool(getattr(args, "all", False))
     issues = guard_generated_change_issues(
         repo_path,
         base_ref=args.base_ref,
         head_ref=args.head_ref,
         roots=roots,
+        all_files=all_files,
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
     if args.json:
@@ -2647,7 +2654,10 @@ def cmd_guard_generated(args):
         for issue in issues:
             print(f"- {issue}")
     else:
-        print("All changed RuleSpec files have encoder apply manifests.")
+        if all_files:
+            print("All RuleSpec files have encoder apply manifests.")
+        else:
+            print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
 
 
@@ -4909,36 +4919,50 @@ def guard_generated_change_issues(
     head_ref: str = "HEAD",
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
     changed_files: list[str] | None = None,
+    all_files: bool = False,
 ) -> list[str]:
     """Return issues for RuleSpec changes that do not match apply manifests."""
     repo_path = Path(repo_path)
-    changed = (
-        changed_files
-        if changed_files is not None
-        else _git_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref)
-    )
-    protected = [
-        path
-        for path in changed
-        if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
-    ]
+    if all_files:
+        changed = []
+        protected = _all_protected_rulespec_yaml_paths(repo_path, roots=roots)
+    else:
+        changed = (
+            changed_files
+            if changed_files is not None
+            else _git_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref)
+        )
+        protected = [
+            path
+            for path in changed
+            if _is_protected_rulespec_yaml_path(Path(path), roots=roots)
+        ]
     if not protected:
         return []
 
-    changed_manifests = [
-        path
-        for path in changed
-        if Path(path).parts[:2] == APPLIED_ENCODING_MANIFEST_DIR.parts
-        and path.endswith(".json")
-    ]
-    if not changed_manifests:
+    manifest_paths = (
+        _all_applied_encoding_manifest_paths(repo_path)
+        if all_files
+        else [
+            path
+            for path in changed
+            if Path(path).parts[:2] == APPLIED_ENCODING_MANIFEST_DIR.parts
+            and path.endswith(".json")
+        ]
+    )
+    if not manifest_paths:
+        if all_files:
+            return [
+                f"{path} is missing a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
+                for path in protected
+            ]
         return [
             f"{path} changed without a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
             for path in protected
         ]
 
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
-        repo_path, changed_manifests
+        repo_path, manifest_paths
     )
     if manifest_issues:
         return manifest_issues
@@ -4947,9 +4971,14 @@ def guard_generated_change_issues(
     for path in protected:
         expected = manifest_entries.get(path)
         if expected is None:
-            issues.append(
-                f"{path} changed but is not listed in a changed encoder apply manifest"
-            )
+            if all_files:
+                issues.append(
+                    f"{path} is missing a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
+                )
+            else:
+                issues.append(
+                    f"{path} changed but is not listed in a changed encoder apply manifest"
+                )
             continue
         current_path = repo_path / path
         if not current_path.exists():
@@ -4961,6 +4990,35 @@ def guard_generated_change_issues(
                 f"{path} content does not match the encoder apply manifest sha256"
             )
     return issues
+
+
+def _all_protected_rulespec_yaml_paths(
+    repo_path: Path, *, roots: tuple[str, ...]
+) -> list[str]:
+    paths: set[str] = set()
+    for root in roots:
+        base = repo_path / root
+        if not base.exists():
+            continue
+        for suffix in ("*.yaml", "*.yml"):
+            for path in base.rglob(suffix):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(repo_path)
+                if _is_protected_rulespec_yaml_path(relative, roots=roots):
+                    paths.add(relative.as_posix())
+    return sorted(paths)
+
+
+def _all_applied_encoding_manifest_paths(repo_path: Path) -> list[str]:
+    manifest_root = repo_path / APPLIED_ENCODING_MANIFEST_DIR
+    if not manifest_root.exists():
+        return []
+    return sorted(
+        path.relative_to(repo_path).as_posix()
+        for path in manifest_root.rglob("*.json")
+        if path.is_file()
+    )
 
 
 def _git_changed_files(
