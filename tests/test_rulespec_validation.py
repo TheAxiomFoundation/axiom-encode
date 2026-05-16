@@ -3998,6 +3998,41 @@ rules:
     assert find_test_input_assignment_issues(content, test_cases) == []
 
 
+def test_test_input_assignment_counts_table_row_inputs():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: net_payment
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_amount - excluded_amount
+"""
+    test_cases = [
+        {
+            "name": "multiple_payment_rows",
+            "tables": {
+                "Payment": [
+                    {
+                        "us:statutes/26/example#input.payment_amount": 100,
+                        "us:statutes/26/example#input.excluded_amount": 40,
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/example#net_payment": [60],
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
 def test_test_input_assignment_ignores_imported_rule_outputs():
     content = """format: rulespec/v1
 module:
@@ -5684,6 +5719,54 @@ rules:
       - {}
   output:
     household_size: 2
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._run_ci(rules_file).passed is True
+
+
+def test_rulespec_ci_executes_table_entity_list_outputs(tmp_path):
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: Net payment is payment amount less the excluded amount.
+rules:
+  - name: net_payment
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_amount - excluded_amount
+"""
+    )
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: multiple_payment_rows
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  tables:
+    Payment:
+      - payment_amount: 100
+        excluded_amount: 40
+      - payment_amount: 20
+        excluded_amount: 50
+  output:
+    net_payment:
+      - 60
+      - -30
 """
     )
 

@@ -5524,14 +5524,18 @@ def find_test_input_assignment_issues(
         if not local_inputs:
             continue
         inputs = test_case.get("input")
-        if not isinstance(inputs, dict):
+        assigned = set()
+        if isinstance(inputs, dict):
+            assigned.update(_input_names_from_mapping(inputs))
+        assigned.update(_table_input_names(test_case.get("tables")))
+        if not assigned:
             issues.append(
                 "Test input assignment missing: "
-                f"`{test_name}` must provide an `input` mapping assigning every "
-                "local factual `#input.<fact>` referenced by this module's formulas."
+                f"`{test_name}` must provide `input` facts or `tables` rows "
+                "assigning every local factual `#input.<fact>` referenced by "
+                "this module's formulas."
             )
             continue
-        assigned = _input_names_from_mapping(inputs)
         missing = sorted(local_inputs - assigned)
         if not missing:
             continue
@@ -5618,7 +5622,50 @@ def _all_test_input_names(test_cases: list[Any]) -> set[str]:
         inputs = test_case.get("input")
         if isinstance(inputs, dict):
             names.update(_input_names_from_mapping(inputs))
+        names.update(_table_input_names(test_case.get("tables")))
     return names
+
+
+def _table_input_names(tables: Any) -> set[str]:
+    names: set[str] = set()
+    if not isinstance(tables, dict):
+        return names
+    for rows in tables.values():
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict):
+                names.update(_input_names_from_mapping(row))
+    return names
+
+
+def _test_case_assignment_keys(test_case: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    inputs = test_case.get("input")
+    if isinstance(inputs, dict):
+        keys.extend(_assignment_keys_from_mapping(inputs))
+    tables = test_case.get("tables")
+    if isinstance(tables, dict):
+        for rows in tables.values():
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if isinstance(row, dict):
+                    keys.extend(_assignment_keys_from_mapping(row))
+    return keys
+
+
+def _assignment_keys_from_mapping(inputs: dict[Any, Any]) -> list[str]:
+    keys: list[str] = []
+    for key, value in inputs.items():
+        key_text = str(key)
+        if key_text not in {"id", "entity_id"} and not key_text.endswith("_id"):
+            keys.append(key_text)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    keys.extend(_assignment_keys_from_mapping(item))
+    return keys
 
 
 def _input_names_from_mapping(inputs: dict[Any, Any]) -> set[str]:
@@ -7576,6 +7623,54 @@ class ValidatorPipeline:
                 return str(value)
         return f"case-{index}"
 
+    def _rulespec_table_row_entity_id(
+        self,
+        table_entity: str,
+        row: dict[str, Any],
+        index: int,
+    ) -> str:
+        """Pick a stable entity id for a compact RuleSpec table row."""
+        entity_key = f"{self._snake_case(table_entity)}_id"
+        for key in ("entity_id", "id", entity_key):
+            if key in row:
+                return str(row[key])
+        return f"{self._snake_case(table_entity)}-{index}"
+
+    def _rulespec_case_table_rows(
+        self,
+        case: dict[str, Any],
+        table_entity: str,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Return row ids and mappings for a compact RuleSpec `tables:` entity."""
+        tables = case.get("tables")
+        if tables in (None, ""):
+            return []
+        if not isinstance(tables, dict):
+            raise ValueError("tables must be a mapping")
+        rows = tables.get(table_entity)
+        if rows in (None, ""):
+            return []
+        if not isinstance(rows, list):
+            raise ValueError(f"tables.{table_entity} must be a list of row mappings")
+
+        resolved_rows: list[tuple[str, dict[str, Any]]] = []
+        for row_index, row in enumerate(rows, 1):
+            if not isinstance(row, dict):
+                raise ValueError(
+                    f"tables.{table_entity} row #{row_index} must be a mapping"
+                )
+            resolved_rows.append(
+                (
+                    self._rulespec_table_row_entity_id(
+                        table_entity,
+                        row,
+                        row_index,
+                    ),
+                    row,
+                )
+            )
+        return resolved_rows
+
     def _snake_case(self, value: str) -> str:
         """Convert a PascalCase/CamelCase label to snake_case."""
         value = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", value)
@@ -7632,6 +7727,7 @@ class ValidatorPipeline:
         self,
         case_input: Any,
         *,
+        case_tables: Any = None,
         period: dict[str, Any],
         query_entity: str,
         query_entity_id: str,
@@ -7750,6 +7846,65 @@ class ValidatorPipeline:
                     "value": self._rulespec_scalar_value(value),
                 }
             )
+
+        if case_tables not in (None, ""):
+            if not isinstance(case_tables, dict):
+                raise ValueError("tables must be a mapping")
+            for table_entity_key, rows in case_tables.items():
+                table_entity = str(table_entity_key)
+                if not isinstance(rows, list):
+                    raise ValueError(
+                        f"tables.{table_entity} must be a list of row mappings"
+                    )
+                row_id_keys = {
+                    "id",
+                    "entity_id",
+                    f"{self._snake_case(table_entity)}_id",
+                }
+                for row_index, row in enumerate(rows, 1):
+                    if not isinstance(row, dict):
+                        raise ValueError(
+                            f"tables.{table_entity} row #{row_index} must be a mapping"
+                        )
+                    row_id = self._rulespec_table_row_entity_id(
+                        table_entity,
+                        row,
+                        row_index,
+                    )
+                    for child_name, child_value in row.items():
+                        child_key = str(child_name)
+                        if child_key in row_id_keys:
+                            continue
+                        if isinstance(child_value, (dict, list)):
+                            raise ValueError(
+                                f"tables.{table_entity} row #{row_index} input "
+                                f"`{child_key}` must be scalar"
+                            )
+                        child_input_name = _rulespec_runtime_name_for_test_input_key(
+                            child_key,
+                            label="input",
+                            require_legal_input_keys=require_legal_input_keys,
+                            legal_ids_by_friendly_name=legal_ids_by_friendly_name,
+                            module_target=module_target,
+                            policy_repo_path=self.policy_repo_path,
+                            allow_input_slots=True,
+                            allow_relations=False,
+                            allow_outputs=True,
+                        )
+                        child_request_name = (
+                            child_key
+                            if _RULESPEC_ABSOLUTE_REFERENCE.match(child_key)
+                            else child_input_name
+                        )
+                        inputs.append(
+                            {
+                                "name": child_request_name,
+                                "entity": table_entity,
+                                "entity_id": row_id,
+                                "interval": interval,
+                                "value": self._rulespec_scalar_value(child_value),
+                            }
+                        )
 
         return {"inputs": inputs, "relations": relations}
 
@@ -7894,9 +8049,50 @@ class ValidatorPipeline:
         case_name: str,
         output_name: str,
         expected_value: Any,
-        actual_output: dict[str, Any],
+        actual_output: Any,
     ) -> str | None:
         """Compare a single expected output; return an issue string on mismatch."""
+        if isinstance(expected_value, list):
+            if not isinstance(actual_output, list):
+                return (
+                    f"Test case `{case_name}` output `{output_name}` expected "
+                    "a row-ordered list, but execution returned a scalar result."
+                )
+            if len(actual_output) != len(expected_value):
+                return (
+                    f"Test case `{case_name}` output `{output_name}` expected "
+                    f"{len(expected_value)} row result(s), got {len(actual_output)}."
+                )
+            for row_index, (expected_item, actual_item) in enumerate(
+                zip(expected_value, actual_output, strict=True),
+                1,
+            ):
+                if isinstance(expected_item, list):
+                    return (
+                        f"Test case `{case_name}` output `{output_name}` row "
+                        f"#{row_index} has a nested expected list; table output "
+                        "expectations must be one scalar or judgment per row."
+                    )
+                mismatch = self._compare_rulespec_output(
+                    case_name=case_name,
+                    output_name=output_name,
+                    expected_value=expected_item,
+                    actual_output=actual_item,
+                )
+                if mismatch:
+                    return f"{mismatch} (row #{row_index})"
+            return None
+
+        if isinstance(actual_output, list):
+            return (
+                f"Test case `{case_name}` output `{output_name}` expected a "
+                "scalar or judgment, but execution returned a row-ordered list."
+            )
+        if not isinstance(actual_output, dict):
+            return (
+                f"Test case `{case_name}` output `{output_name}` returned "
+                "an unrecognised value shape."
+            )
         if actual_output.get("kind") == "judgment":
             expected = str(expected_value).strip().lower().replace("-", "_")
             if expected not in {"holds", "not_holds", "undetermined"}:
@@ -7952,6 +8148,7 @@ class ValidatorPipeline:
         try:
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
+                case_tables=case.get("tables"),
                 period=period,
                 query_entity=query_entity,
                 query_entity_id=query_entity_id,
@@ -7962,15 +8159,48 @@ class ValidatorPipeline:
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
 
+        output_map = case.get("output") if isinstance(case.get("output"), dict) else {}
+        row_ordered_outputs = {
+            output_name
+            for output_name in output_names
+            if isinstance(output_map.get(output_name), list)
+        }
+        query_entity_ids = [query_entity_id]
+        if row_ordered_outputs:
+            try:
+                table_rows = self._rulespec_case_table_rows(case, query_entity)
+            except ValueError as exc:
+                return None, [f"Test case `{case_name}` tables invalid: {exc}"]
+            if not table_rows:
+                outputs = ", ".join(f"`{name}`" for name in sorted(row_ordered_outputs))
+                return None, [
+                    f"Test case `{case_name}` output {outputs} uses a row-ordered "
+                    f"list but has no `tables.{query_entity}` rows."
+                ]
+            expected_row_count = len(table_rows)
+            for output_name in row_ordered_outputs:
+                expected_value = output_map.get(output_name)
+                if (
+                    isinstance(expected_value, list)
+                    and len(expected_value) != expected_row_count
+                ):
+                    return None, [
+                        f"Test case `{case_name}` output `{output_name}` expected "
+                        f"{len(expected_value)} row value(s), but "
+                        f"`tables.{query_entity}` has {expected_row_count} row(s)."
+                    ]
+            query_entity_ids = [row_id for row_id, _row in table_rows]
+
         request = {
             "mode": "explain",
             "dataset": dataset,
             "queries": [
                 {
-                    "entity_id": query_entity_id,
+                    "entity_id": entity_id,
                     "period": period,
                     "outputs": output_names,
                 }
+                for entity_id in query_entity_ids
             ],
         }
         result = subprocess.run(
@@ -7992,6 +8222,32 @@ class ValidatorPipeline:
         results = response.get("results") if isinstance(response, dict) else None
         if not isinstance(results, list) or not results:
             return None, [f"Test case `{case_name}` returned no results."]
+        if row_ordered_outputs:
+            if len(results) != len(query_entity_ids):
+                return None, [
+                    f"Test case `{case_name}` returned {len(results)} row result(s), "
+                    f"expected {len(query_entity_ids)}."
+                ]
+            aggregated_outputs: dict[str, list[Any]] = {
+                output_name: [] for output_name in output_names
+            }
+            for row_index, row_result in enumerate(results, 1):
+                outputs = row_result.get("outputs")
+                if not isinstance(outputs, dict):
+                    return None, [
+                        f"Test case `{case_name}` row #{row_index} returned no "
+                        "output map."
+                    ]
+                row_outputs = self._rulespec_outputs_by_reference(outputs)
+                for output_name in output_names:
+                    actual_output = row_outputs.get(output_name)
+                    if actual_output is None:
+                        return None, [
+                            f"Test case `{case_name}` row #{row_index} output "
+                            f"`{output_name}` missing from execution response."
+                        ]
+                    aggregated_outputs[output_name].append(actual_output)
+            return aggregated_outputs, []
         outputs = results[0].get("outputs")
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
@@ -8078,28 +8334,23 @@ class ValidatorPipeline:
                     f"{self.policyengine_rule_hint}."
                 )
 
-            inputs_map = case.get("input")
-            if isinstance(inputs_map, dict):
-                computed_input_keys = [
-                    str(input_name)
-                    for input_name in inputs_map
-                    if str(input_name) in derived_by_key
-                    or str(input_name) in parameter_by_key
-                ]
-                if computed_input_keys:
-                    key_display = ", ".join(
-                        f"`{key}`" for key in computed_input_keys[:4]
-                    )
-                    if len(computed_input_keys) > 4:
-                        key_display += f", and {len(computed_input_keys) - 4} more"
-                    issues.append(
-                        f"Test case `{case_name}` assigns computed RuleSpec "
-                        f"output(s) as input: {key_display}. Imported parameters "
-                        "and derived outputs are computed by the compiled program; "
-                        "assign their upstream `#input.*` or `#relation.*` facts "
-                        "instead."
-                    )
-                    continue
+            computed_input_keys = [
+                input_name
+                for input_name in _test_case_assignment_keys(case)
+                if input_name in derived_by_key or input_name in parameter_by_key
+            ]
+            if computed_input_keys:
+                key_display = ", ".join(f"`{key}`" for key in computed_input_keys[:4])
+                if len(computed_input_keys) > 4:
+                    key_display += f", and {len(computed_input_keys) - 4} more"
+                issues.append(
+                    f"Test case `{case_name}` assigns computed RuleSpec "
+                    f"output(s) as input: {key_display}. Imported parameters "
+                    "and derived outputs are computed by the compiled program; "
+                    "assign their upstream `#input.*` or `#relation.*` facts "
+                    "instead."
+                )
+                continue
 
             derived_outputs: list[str] = []
             parameter_outputs: list[str] = []
