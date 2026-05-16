@@ -4423,7 +4423,13 @@ def _repair_section_32_c_2_section_112_split_tests(test_file: Path) -> bool:
             earned_before_key, _restore_numeric_type(earned - section_112_added)
         )
         changed = True
-    rendered = yaml.safe_dump(cases, sort_keys=False, allow_unicode=False)
+    rendered = yaml.safe_dump(
+        cases,
+        sort_keys=False,
+        allow_unicode=False,
+        width=4096,
+    )
+    rendered = _collapse_yaml_scalar_complex_keys(rendered)
     test_file.write_text(rendered)
     input_repaired = _repair_section_32_c_2_section_112_test_inputs(test_file)
     if not changed and not input_repaired:
@@ -4512,8 +4518,29 @@ def _repair_section_32_c_2_164f_self_employment_tests(test_file: Path) -> bool:
 
     if not changed:
         return False
-    test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=False))
+    rendered = yaml.safe_dump(
+        cases,
+        sort_keys=False,
+        allow_unicode=False,
+        width=4096,
+    )
+    rendered = _collapse_yaml_scalar_complex_keys(rendered)
+    test_file.write_text(rendered)
     return True
+
+
+def _collapse_yaml_scalar_complex_keys(content: str) -> str:
+    """Keep long scalar test-input keys in the plain `key: value` form."""
+    content = re.sub(
+        r"(?m)^(?P<indent>\s*)-\s+\?\s+(?P<key>[^\n]+)\n(?P=indent)\s+:\s+(?P<value>[^\n]+)$",
+        r"\g<indent>- \g<key>: \g<value>",
+        content,
+    )
+    return re.sub(
+        r"(?m)^(?P<indent>\s*)\?\s+(?P<key>[^\n]+)\n(?P=indent):\s+(?P<value>[^\n]+)$",
+        r"\g<indent>\g<key>: \g<value>",
+        content,
+    )
 
 
 def _section_112_tests_need_repair(test_file: Path) -> bool:

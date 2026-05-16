@@ -7135,6 +7135,8 @@ rules:
     us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0
     us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 0
     us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+    us:statutes/26/32#relation.qualifying_child_of_tax_unit:
+    - us:statutes/26/152/c#input.child_resided_with_both_parents_same_amount_of_time_and_taxpayer_parent_has_highest_adjusted_gross_income: false
   output:
     us:statutes/26/32#eitc: 100
 """
@@ -7197,6 +7199,10 @@ rules:
         assert (
             "us:statutes/26/1401#input.self_employment_income: 0"
             in dependent_test_content
+        )
+        assert (
+            "? us:statutes/26/152/c#input.child_resided_with_both_parents_same_amount_of_time"
+            not in dependent_test_content
         )
         dependent_test_file.write_text(
             "\n".join(
