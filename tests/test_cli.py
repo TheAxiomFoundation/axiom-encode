@@ -50,6 +50,7 @@ from axiom_encode.cli import (
     cmd_oracle_candidates,
     cmd_oracle_coverage,
     cmd_repair_current_year_final_amounts,
+    cmd_repair_eitc_earned_income_import,
     cmd_repair_imported_test_inputs,
     cmd_repair_missing_source_proofs,
     cmd_repair_nonnegative_floors,
@@ -6516,6 +6517,86 @@ rules:
         manifest_payload = json.loads(manifest.read_text())
         assert manifest_payload["model"] == "oracle-parameter-test-v1"
         assert manifest_payload["tool"] == "axiom-encode repair-oracle-parameter-tests"
+        assert [item["path"] for item in manifest_payload["applied_files"]] == [
+            "statutes/26/32.yaml",
+            "statutes/26/32.test.yaml",
+        ]
+
+    def test_repair_eitc_earned_income_import_replaces_boundary_input(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/32.yaml"
+        test_file = policy_repo / "statutes/26/32.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/earned-income-credit
+rules:
+  - name: eitc_phase_out_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(adjusted_gross_income, earned_income)
+"""
+        )
+        test_file.write_text(
+            """- name: phaseout
+  input:
+    us:statutes/26/32#input.adjusted_gross_income: 22000
+    us:statutes/26/32#input.earned_income: 18000
+  output:
+    us:statutes/26/32#eitc_phase_out_income: 22000
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/32.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_eitc_earned_income_import(args)
+
+        assert "  - us:statutes/26/32/c/2\n" in target.read_text()
+        repaired_test = test_file.read_text()
+        assert "us:statutes/26/32#input.earned_income" not in repaired_test
+        assert (
+            "us:statutes/26/32/c/2#input."
+            "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 18000"
+        ) in repaired_test
+        assert (
+            "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0"
+            in repaired_test
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32.json"
+        manifest_payload = json.loads(manifest.read_text())
+        assert manifest_payload["model"] == "eitc-earned-income-import-v1"
+        assert manifest_payload["tool"] == "axiom-encode repair-eitc-earned-income-import"
         assert [item["path"] for item in manifest_payload["applied_files"]] == [
             "statutes/26/32.yaml",
             "statutes/26/32.test.yaml",

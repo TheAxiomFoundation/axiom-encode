@@ -1245,7 +1245,13 @@ def project_section_32_c_2_tax_unit_inputs(
             money(person.get("employment_income_before_lsr", 0))
             for person, context in zip(persons, contexts, strict=True)
             if context.is_head or context.is_spouse
-        )
+        ),
+        "pension_or_annuity_amounts_received": 0,
+        "amounts_to_which_section_871_a_applies": 0,
+        "amounts_received_for_services_while_inmate_at_penal_institution": 0,
+        "subsidized_state_work_activity_amounts_received": 0,
+        "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
+        "section_112_amounts_excluded_from_gross_income": 0,
     }
 
 

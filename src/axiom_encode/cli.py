@@ -685,6 +685,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_eitc_earned_income_parser = subparsers.add_parser(
+        "repair-eitc-earned-income-import",
+        help="Apply signed deterministic repair for EITC Section 32(c)(2) import",
+    )
+    repair_eitc_earned_income_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_eitc_earned_income_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_eitc_earned_income_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_zero_tests_parser = subparsers.add_parser(
         "repair-zero-branch-tests",
         help="Apply signed deterministic repairs for missing zero-branch tests",
@@ -1398,6 +1420,8 @@ def main():
         cmd_repair_current_year_final_amounts(args)
     elif args.command == "repair-eitc-section-152-import":
         cmd_repair_eitc_section_152_import(args)
+    elif args.command == "repair-eitc-earned-income-import":
+        cmd_repair_eitc_earned_income_import(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
     elif args.command == "repair-unused-imports":
@@ -3221,6 +3245,101 @@ def cmd_repair_eitc_section_152_import(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_eitc_earned_income_import(args):
+    """Apply a signed deterministic Section 32 -> 32(c)(2) import repair."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_content, repaired_rules = _repair_eitc_earned_income_import_content(
+        original_content
+    )
+    test_needs_repair = _eitc_earned_income_tests_need_repair(test_file)
+    if repaired_content == original_content and not test_needs_repair:
+        print("No EITC earned-income import repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+
+        rules_file.write_text(repaired_content)
+        applied_files = [rules_file]
+        if _repair_eitc_earned_income_test_inputs(test_file):
+            applied_files.append(test_file)
+        elif test_file.exists():
+            applied_files.append(test_file)
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        validation_issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        if not validation.all_passed:
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original file.")
+            for issue in validation_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="eitc-earned-income-import-v1",
+            tool="axiom-encode repair-eitc-earned-income-import",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied EITC earned-income import repair to "
+        f"{relative_output}: {', '.join(repaired_rules)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
 def _repair_eitc_section_152_import_content(
     content: str,
     *,
@@ -3249,6 +3368,21 @@ def _repair_eitc_section_152_import_content(
         )
     repaired = repaired.replace(placeholder, "eitc_qualifying_child_base")
     return repaired, ["eitc_qualifying_child_base", "eitc_qualifying_child"]
+
+
+def _repair_eitc_earned_income_import_content(content: str) -> tuple[str, list[str]]:
+    import_line = "  - us:statutes/26/32/c/2"
+    if import_line in content:
+        return content, []
+    if "imports:\n" in content:
+        repaired = content.replace("imports:\n", f"imports:\n{import_line}\n", 1)
+    else:
+        repaired = content.replace(
+            "format: rulespec/v1\n",
+            f"format: rulespec/v1\nimports:\n{import_line}\n",
+            1,
+        )
+    return repaired, ["earned_income"]
 
 
 def _eitc_qualifying_child_base_rule(import_hash: str) -> str:
@@ -3375,6 +3509,58 @@ def _eitc_section_152_test_input_lines() -> list[str]:
         "us:statutes/26/152/c#input.child_resided_with_both_parents_same_amount_of_time_and_taxpayer_parent_has_highest_adjusted_gross_income: false",
         "us:statutes/26/152/c#input.no_parent_of_individual_is_a_claiming_taxpayer: false",
         "us:statutes/26/152/c#input.taxpayer_has_highest_adjusted_gross_income_among_claiming_taxpayers: false",
+    ]
+
+
+def _repair_eitc_earned_income_test_inputs(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    pattern = re.compile(
+        r"^(?P<prefix>\s*)us:statutes/26/32#input\.earned_income:"
+        r"\s*(?P<value>.+?)(?P<newline>\n?)$"
+    )
+    repaired: list[str] = []
+    changed = False
+    for line in test_file.read_text().splitlines(keepends=True):
+        match = pattern.match(line)
+        if not match:
+            repaired.append(line)
+            continue
+        prefix = match.group("prefix")
+        value = match.group("value")
+        newline = match.group("newline") or "\n"
+        for input_line in _eitc_earned_income_test_input_lines(value):
+            repaired.append(f"{prefix}{input_line}{newline}")
+        changed = True
+    if not changed:
+        return False
+    test_file.write_text("".join(repaired))
+    return True
+
+
+def _eitc_earned_income_tests_need_repair(test_file: Path) -> bool:
+    return (
+        test_file.exists()
+        and "us:statutes/26/32#input.earned_income:" in test_file.read_text()
+    )
+
+
+def _eitc_earned_income_test_input_lines(wages_value: str) -> list[str]:
+    return [
+        (
+            "us:statutes/26/32/c/2#input."
+            "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: "
+            f"{wages_value}"
+        ),
+        "us:statutes/26/32/c/2#input.pension_or_annuity_amounts_received: 0",
+        "us:statutes/26/32/c/2#input.amounts_to_which_section_871_a_applies: 0",
+        "us:statutes/26/32/c/2#input.amounts_received_for_services_while_inmate_at_penal_institution: 0",
+        "us:statutes/26/32/c/2#input.subsidized_state_work_activity_amounts_received: 0",
+        "us:statutes/26/32/c/2#input.taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income: false",
+        "us:statutes/26/32/c/2#input.section_112_amounts_excluded_from_gross_income: 0",
+        "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0",
+        "us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 0",
+        "us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0",
     ]
 
 

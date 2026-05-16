@@ -336,7 +336,13 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
         contexts=contexts,
     )
     assert earned_income_inputs == {
-        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": 18_000
+        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": 18_000,
+        "pension_or_annuity_amounts_received": 0,
+        "amounts_to_which_section_871_a_applies": 0,
+        "amounts_received_for_services_while_inmate_at_penal_institution": 0,
+        "subsidized_state_work_activity_amounts_received": 0,
+        "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
+        "section_112_amounts_excluded_from_gross_income": 0,
     }
     assert self_employment_inputs == {
         "self_employment_trade_or_business_gross_income": 0,
@@ -375,7 +381,13 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         persons=persons,
         contexts=contexts,
     ) == {
-        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": 23_000
+        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": 23_000,
+        "pension_or_annuity_amounts_received": 0,
+        "amounts_to_which_section_871_a_applies": 0,
+        "amounts_received_for_services_while_inmate_at_penal_institution": 0,
+        "subsidized_state_work_activity_amounts_received": 0,
+        "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
+        "section_112_amounts_excluded_from_gross_income": 0,
     }
     assert project_section_1402_a_tax_unit_inputs(
         persons=persons,
