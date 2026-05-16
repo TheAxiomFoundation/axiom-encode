@@ -538,6 +538,12 @@ Hard requirements:
   and then a final output that applies (a)(3). Downstream IRC section 2(a)(2)(B)
   says "without regard to subsection (a)(3)", so it must be able to import the
   pre-(a)(3) output instead of using a local `under_section_6013` placeholder.
+- For IRC section 151 repairs, preserve existing output IDs exactly while
+  removing filing-status inputs. In particular, do not rename
+  `senior_deduction_base_amount`, `senior_deduction_phaseout_threshold_other`,
+  `senior_deduction_phaseout_threshold_joint`,
+  `senior_deduction_phaseout_threshold`, `senior_deduction_eligible`, or
+  `exemption_amount`.
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). If the source groups surviving
