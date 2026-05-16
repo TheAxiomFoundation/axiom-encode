@@ -3146,7 +3146,8 @@ def cmd_repair_eitc_section_152_import(args):
         repo_path=repo_path,
     )
     test_needs_repair = _eitc_section_152_tests_need_repair(test_file)
-    if repaired_content == original_content and not test_needs_repair:
+    bridge_present = "name: eitc_qualifying_child_base" in original_content
+    if repaired_content == original_content and not test_needs_repair and not bridge_present:
         print("No EITC Section 152(c) import repairs found.")
         return
 
@@ -3165,6 +3166,8 @@ def cmd_repair_eitc_section_152_import(args):
         rules_file.write_text(repaired_content)
         applied_files = [rules_file]
         if _repair_eitc_section_152_test_inputs(test_file):
+            applied_files.append(test_file)
+        elif test_file.exists():
             applied_files.append(test_file)
         validation = ValidatorPipeline(
             policy_repo_path=repo_path,
