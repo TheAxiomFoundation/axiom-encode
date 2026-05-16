@@ -269,6 +269,9 @@ Hard requirements:
   executable RuleSpec output and `source_relation.basis.delegation` when context
   identifies the upstream delegated slot.
 - Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
+- Top-level `imports:` entries must be scalar strings, never map entries like
+  `- target:` plus `symbols:`. Import a copied export as one exact string such
+  as `us:statutes/26/45A/a#base_year_1993_indian_employment_costs`.
 - In `.test.yaml` companions, every `input:` and `output:` key must be a
   canonical legal RuleSpec reference that resolves to an actual file and
   fragment. Use `<jurisdiction>:<repo-path>#input.<fact>` for fact inputs
@@ -498,8 +501,10 @@ Hard requirements:
      textual claim support is either direct corpus source support or a claim ID
      listed under `module.source_claims`.
   4. Import inventory: every `imports:` entry is an exact copied/importable
-     RuleSpec target. Do not guess sibling paths; if required upstream context is
-     missing, emit a typed missing-upstream/dependency request instead.
+     RuleSpec target. Top-level `imports:` entries must be scalar strings; never
+     map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
+     required upstream context is missing, emit a typed missing-upstream/dependency
+     request instead.
 
 Minimal shape:
 

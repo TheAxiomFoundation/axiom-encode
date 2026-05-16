@@ -5427,6 +5427,35 @@ def find_unused_import_issues(content: str) -> list[str]:
     return []
 
 
+def find_import_shape_issues(content: str) -> list[str]:
+    """Reject non-string top-level RuleSpec imports."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return []
+        imports = payload.get("imports")
+        if imports is None:
+            return []
+        if not isinstance(imports, list):
+            return [
+                "Import shape invalid: top-level `imports:` must be a YAML list "
+                "of scalar strings."
+            ]
+
+        issues: list[str] = []
+        for index, raw_item in enumerate(imports):
+            if isinstance(raw_item, str):
+                continue
+            issues.append(
+                "Import shape invalid: "
+                f"`imports[{index}]` must be a scalar string like "
+                "`us:statutes/26/45A/a#base_year_1993_indian_employment_costs`, "
+                "not a map with `target`/`symbols` or any other object shape."
+            )
+        return issues
+    return []
+
+
 def _rulespec_formula_texts(payload: dict[str, Any]) -> list[str]:
     formulas: list[str] = []
     rules = payload.get("rules")
@@ -8767,6 +8796,7 @@ class ValidatorPipeline:
         issues.extend(find_partial_extent_zeroing_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
+        issues.extend(find_import_shape_issues(content))
         issues.extend(find_unused_import_issues(content))
         issues.extend(
             find_proof_import_hash_consistency_issues(

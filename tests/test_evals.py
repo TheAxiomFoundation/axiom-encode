@@ -429,6 +429,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         "Import inventory: every `imports:` entry is an exact copied/importable"
         in prompt
     )
+    assert "Top-level `imports:` entries must be scalar strings" in prompt
+    assert "map entries like `- target:`" in prompt
     assert (
         "Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`"
         in prompt

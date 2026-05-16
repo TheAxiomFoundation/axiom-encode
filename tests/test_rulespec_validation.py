@@ -34,6 +34,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
     find_formula_date_literal_issues,
+    find_import_shape_issues,
     find_judgment_conditional_formula_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
@@ -473,6 +474,23 @@ rules:
         "symbol `interest_deduction` is not referenced by any formula or proof "
         "import."
     ]
+
+
+def test_import_shape_rejects_map_entries():
+    content = """format: rulespec/v1
+imports:
+  - target: us:statutes/26/45A/a
+    symbols:
+      - base_year_1993_indian_employment_costs
+rules: []
+"""
+
+    issues = find_import_shape_issues(content)
+
+    assert len(issues) == 1
+    assert "Import shape invalid" in issues[0]
+    assert "imports[0]" in issues[0]
+    assert "scalar string" in issues[0]
 
 
 def _mock_corpus_source_text(monkeypatch, text: str) -> None:

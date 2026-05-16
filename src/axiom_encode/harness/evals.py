@@ -2628,6 +2628,9 @@ Import and context rules:
 - Use the listed import target rather than the `./context/...` inspection path.
 - do not wrap import targets in quotes.
 - Every import path must point to a file that is actually copied into the workspace.
+- Top-level `imports:` entries must be scalar strings, never map entries like
+  `- target:` plus `symbols:`. Import a copied export as one exact string such
+  as `us:statutes/26/45A/a#base_year_1993_indian_employment_costs`.
 - If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
@@ -3066,8 +3069,10 @@ RuleSpec requirements:
      textual claim support is either direct corpus source support or a claim ID
      listed under `module.source_claims`.
   4. Import inventory: every `imports:` entry is an exact copied/importable
-     RuleSpec target. Do not guess sibling paths; if required upstream context is
-     missing, emit a typed missing-upstream/dependency request instead.
+     RuleSpec target. Top-level `imports:` entries must be scalar strings; never
+     map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
+     required upstream context is missing, emit a typed missing-upstream/dependency
+     request instead.
 {target_hint}
 Additional encoding guidance:
 {additional_guidance}
