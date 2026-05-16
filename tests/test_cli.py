@@ -6602,6 +6602,68 @@ rules:
             "statutes/26/32.test.yaml",
         ]
 
+    def test_repair_eitc_earned_income_import_updates_dependent_tests_only(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/24/d.yaml"
+        test_file = policy_repo / "statutes/26/24/d.test.yaml"
+        target.parent.mkdir(parents=True)
+        original_content = """format: rulespec/v1
+imports:
+  - us:statutes/26/32
+rules: []
+"""
+        target.write_text(original_content)
+        test_file.write_text(
+            """- name: imports_eitc
+  input:
+    us:statutes/26/32#input.earned_income: 0
+  output:
+    us:statutes/26/24/d#some_output: 1
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/24/d.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_eitc_earned_income_import(args)
+
+        assert target.read_text() == original_content
+        assert "us:statutes/26/32#input.earned_income" not in test_file.read_text()
+        assert (
+            "us:statutes/26/32/c/2#input."
+            "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 0"
+        ) in test_file.read_text()
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24/d.json"
+        manifest_payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in manifest_payload["applied_files"]] == [
+            "statutes/26/24/d.yaml",
+            "statutes/26/24/d.test.yaml",
+        ]
+
     def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(
         self, tmp_path
     ):

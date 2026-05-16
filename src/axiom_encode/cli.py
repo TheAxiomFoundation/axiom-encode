@@ -3264,9 +3264,12 @@ def cmd_repair_eitc_earned_income_import(args):
     original_content = rules_file.read_text()
     test_file = _rulespec_test_path(rules_file)
     original_test_content = test_file.read_text() if test_file.exists() else None
-    repaired_content, repaired_rules = _repair_eitc_earned_income_import_content(
-        original_content
-    )
+    if relative_output == Path("statutes/26/32.yaml"):
+        repaired_content, repaired_rules = _repair_eitc_earned_income_import_content(
+            original_content
+        )
+    else:
+        repaired_content, repaired_rules = original_content, []
     test_needs_repair = _eitc_earned_income_tests_need_repair(test_file)
     if repaired_content == original_content and not test_needs_repair:
         print("No EITC earned-income import repairs found.")
@@ -3335,7 +3338,7 @@ def cmd_repair_eitc_earned_income_import(args):
 
     print(
         "Applied EITC earned-income import repair to "
-        f"{relative_output}: {', '.join(repaired_rules)}"
+        f"{relative_output}: {', '.join(repaired_rules) or 'tests'}"
     )
     print(f"manifest={manifest_path}")
 
