@@ -2630,7 +2630,7 @@ Import and context rules:
 - Every import path must point to a file that is actually copied into the workspace.
 - Top-level `imports:` entries must be scalar strings, never map entries like
   `- target:` plus `symbols:`. Import a copied export as one exact string such
-  as `us:statutes/26/45A/a#base_year_1993_indian_employment_costs`.
+  as `<jurisdiction>:<repo-path>#<exported_symbol>`.
 - If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
@@ -2642,11 +2642,7 @@ Import and context rules:
 - When source text cites a section or subsection and a copied context file for
   that citation is listed, import and use the listed exported symbol from that
   context instead of creating a local `section_...` or `subsection_...`
-  placeholder. For example, if a source references a deduction allowed by
-  section 163(a) and context lists `us:statutes/26/163/a#interest_deduction`,
-  import that exact export and use `interest_deduction`; a local fact such as
-  `section_163_a_deduction_attributable_to_section_163_h_4_A_exception` is
-  invalid.
+  placeholder.
 - If this target is an aggregate parent provision and copied child-fragment files
   already encode subparagraphs, import those child outputs and compose them.
   Do not redefine the child parameters, helper rules, or copied executable
@@ -2706,9 +2702,9 @@ Test file rules:
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
-- Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds` or `not_holds`, not `us:statutes/7/2012/j#input.snap_household_has_elderly_or_disabled_member`.
+- Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
-- A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `us:statutes/7/2012/j#relation.member_of_household: [- true]`. Good: `us:statutes/7/2012/j#relation.member_of_household:` followed by `- us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true`.
+- A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines both `Person` and `TaxUnit` outputs, create separate cases: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
@@ -2720,12 +2716,12 @@ Test file rules:
   companion tests for the positive path and the carve-out path so exclusions
   cannot be silently dropped.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
-- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change. For example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the same dependent/qualifying-child facts as its positive companion and flip only `noncitizen_exception_to_other_dependent_credit_applies`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, preserve this file's public output names unless the source text proves the old interface was legally wrong. Do not rename an exported value just because a clearer friendly name is possible.
 - For existing executable outputs in a copied target file, preserve the whole public executable surface for each retained output: local `name`, `kind`, `entity`, `dtype`, `period`, `unit`, `indexed_by`, and `versions[].effective_from`. Do not change the entity or period to a preferred modeling style when the existing file compiles. Never change an existing output from `dtype: Money` to `dtype: Judgment` just because the name sounds like an allowance/applicability decision.
 - Preserve existing factual input slots referenced by copied formulas and companion tests. Do not swap a working local input surface for new friendly names or upstream abstractions unless the generated bundle performs a full, source-grounded surface migration.
-- For cross-reference boundary facts that remain local because the cited source is not imported yet, keep the legal pointer in the identifier. For example, preserve `applicable_amount_in_effect_under_section_68_b` unless an actual `us:statutes/26/68/b#...` import replaces it. Do not shorten it to a generic name like `applicable_amount_in_effect`.
+- For cross-reference boundary facts that remain local because the cited source is not imported yet, keep the legal pointer in the identifier. For example, preserve `applicable_amount_in_effect_under_section_<section>` unless an actual import replaces it. Do not shorten it to a generic name like `applicable_amount_in_effect`.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
   use bare friendly keys or absolute-looking placeholders.
@@ -2821,9 +2817,7 @@ RuleSpec requirements:
 - If a copied child-fragment file encodes a limitation, branch, amount, or
   predicate needed by the requested parent provision, import the child output
   and compose it. Do not copy the child formula or its factual inputs into the
-  parent file. For example, IRC section 63(c) should import
-  `us:statutes/26/63/c/5#dependent_standard_deduction` rather than reconstruct
-  the dependent earned-income limitation in `c.yaml`.
+  parent file.
 - Do not create standalone small-number parameters just to restate prose such as "one-time" or "more than one consecutive month" when the number only qualifies a local factual condition. Encode the whole source-stated condition as a fact predicate or derived condition unless the scalar is an independent reusable amount, rate, threshold, cap, or limit.
 - Do not append citation or file suffixes like `_2014_a` to new local rule names; the file path is already the legal ID. Keep names concise and semantic unless a copied public interface must be preserved.
 - Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
@@ -2837,10 +2831,9 @@ RuleSpec requirements:
   parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
-  `_under_subsection_h`, `_after_2017`, or another source-stated modifier. For
-  IRC section 24(h), do not reuse sibling 24(d) names like
-  `ctc_refundable_phase_in_threshold`; use a subsection-h-specific name such as
-  `ctc_refundable_phase_in_threshold_under_subsection_h`.
+  `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
+  modifier. Do not reuse sibling output names when the requested branch changes
+  the meaning.
 - Choose structural relations at the narrow legal subject stated by the source.
   If the source grants an amount to the taxpayer, spouse, claimant, child, or
   other role-limited person, do not aggregate over a broader household/tax-unit
@@ -2850,20 +2843,15 @@ RuleSpec requirements:
   requested source, rename it; relation names are not stable public outputs.
   Never preserve or create `*_member_of_tax_unit` or `member_of_tax_unit` for a
   source that counts only the taxpayer, spouse, qualified individual, claimant,
-  child, or dependent. For IRC section 22, count qualified individuals over a
-  relation like `taxpayer_or_spouse_of_tax_unit`, not
-  `elderly_disabled_member_of_tax_unit`.
-- For child tax credit, dependent credit, or any source that says "qualifying
-  child", "dependent of the taxpayer", or "with respect to such child", do not
-  use `member_of_tax_unit`. Define a role-scoped relation such as
-  `dependent_of_tax_unit`, `qualifying_child_of_tax_unit`, or
-  `child_or_dependent_of_tax_unit`, and aggregate over that relation. For IRC
-  section 24(h), count `ctc_qualifying_child` and `ctc_other_dependent` over a
-  dependent/child relation, not over `member_of_tax_unit`.
+  child, or dependent.
+- For any source that says "qualifying child", "dependent of the taxpayer", or
+  "with respect to such child", do not use `member_of_tax_unit`. Define a
+  role-scoped relation such as `dependent_of_tax_unit`,
+  `qualifying_child_of_tax_unit`, or `child_or_dependent_of_tax_unit`, and
+  aggregate over that relation.
 - If a generic role-scoped relation name is already exported by a copied
-  sibling file, do not reuse it. Make the relation source-specific, such as
-  `ctc_qualifying_child_of_tax_unit` for section 24 rather than a sibling's
-  `qualifying_child_of_tax_unit`.
+  sibling file, do not reuse it. Make the relation source-specific instead of
+  reusing the sibling's generic relation name.
 - If the source computes an amount by reference to an entitlement, status,
   amount, or test "under" another section, subsection, paragraph, regulation, or
   document, do not inline that cross-reference's mechanics into this file unless
@@ -2873,9 +2861,7 @@ RuleSpec requirements:
   for the cross-reference itself, such as
   `additional_standard_deduction_entitlement_count_under_subsection_f`, rather
   than inventing the cross-referenced age, blindness, household, or membership
-  tests locally. For example, IRC section 63(c)(3) should not count
-  `is_aged_65_or_over` or `is_blind` over `member_of_tax_unit`; those are
-  subsection 63(f) mechanics.
+  tests locally.
 - When an unencoded cross-reference must be represented as a semantic local
   input, name it after the legal status with an `_under_section_<section>` or
   `_under_subsection_<subsection>` suffix. Do not start a local input with
@@ -2899,11 +2885,8 @@ RuleSpec requirements:
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.
-  For example, if IRC section 22 excludes amounts described in section
-  104(a)(4), import
-  `us:statutes/26/104/a/4#service_injury_pension_excluded_amount` and aggregate
-  it over a TaxUnit-to-Payment relation; do not create local inputs named
-  `section_104_a_4_amounts` or `section_104_a_4_veterans_affairs_benefits`.
+  Do not replace a specific upstream output with a broad local input for all
+  amounts described by that upstream source.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
 - Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
 - If the requested source text includes a limitation, cap, exception, or
@@ -2921,26 +2904,11 @@ RuleSpec requirements:
   conditions, encode those conditions as executable predicates with boundary
   inputs for facts not defined in the source. Do not emit
   `module.status: deferred` merely because some facts must be supplied by the
-  caller or because tie-breaker facts require relation inputs. For example, IRC
-  section 152(c) should export qualifying-child predicates over a
-  taxpayer-child relation with inputs for relationship, abode, age/student or
-  disability, support, joint-return, and competing-claimant facts.
+  caller or because tie-breaker facts require relation inputs.
 - If the requested source defines an exclusion, inclusion, deduction, or credit
-  amount but depends on externally determined facts such as executive-order
-  designations, military status, hospitalization, missing status, monthly pay
-  grades, or source-document classifications, encode the amount with boundary
-  inputs for those facts instead of deferring. For example, IRC section 112
-  should export an executable amount excluded from gross income by reason of
-  section 112; it should not be `module.status: deferred` solely because combat
-  zone designation or military pay facts are supplied by the caller.
-- Hard requirement for IRC section 112: do not emit `module.status: deferred`.
-  Export `amount_excluded_from_gross_income_by_reason_of_section_112` as an
-  executable TaxUnit/Year Money output, using boundary inputs for qualifying annual
-  compensation, commissioned-officer status, maximum enlisted amount,
-  combat-zone service, hospitalization, and Vietnam missing-status facts.
-  Do not create Person helper outputs or a `data_relation` aggregate for this
-  Section 112 encoding; use direct TaxUnit/Year annual input amounts and
-  conditions so downstream tax-unit rules can import the result directly.
+  amount but depends on externally determined classifications, official
+  designations, statuses, event facts, or source-document categories, encode
+  the amount with boundary inputs for those facts instead of deferring.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,
@@ -2954,22 +2922,10 @@ RuleSpec requirements:
   that the requested statute formula would otherwise create, do not emit a
   local executable duplicate with that name. Import and use the current-year
   authority's output, keeping only statute-specific conditions or non-executable
-  `source_relation` records in the statute file. For IRC section 63(c)(5), if
-  Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
-  not recreate it in the statute file.
+  `source_relation` records in the statute file.
 - If a current-year authority provides a directly rounded final amount table,
   use that table for the final amount instead of recomputing the amount from
-  related rates and thresholds. For example, if an IRS revenue procedure exports
-  an EITC maximum-credit table, `eitc_maximum` must select that imported maximum
-  table, not multiply the phase-in rate by the earned-income amount and keep an
-  unrounded decimal.
-- When IRC section 32(c)(2) uses "net earnings from self-employment (within
-  the meaning of section 1402(a))" and then says those net earnings are
-  determined with regard to Section 164(f), do not import Section 1402(a)'s
-  final `net_earnings_from_self_employment` output. Section 1402(a)(12)
-  substitutes a rate-based deduction in lieu of Section 164(f). For Section
-  32(c)(2), create a local self-employment component from Section 1402(a)'s
-  pre-paragraph-12 net earnings minus the imported Section 164(f) deduction.
+  related rates and thresholds.
 - When source text says an exemption, exclusion, or adjustment applies
   `to the extent` of an amount, do not model it as all-or-nothing zeroing such as
   `if exempt_amount > 0: 0 else: tax`. Subtract or apportion the stated amount.
@@ -2982,9 +2938,7 @@ RuleSpec requirements:
   adjusted basis into the imported child result.
 - When the statute states pre-inflation base dollars that a current-year
   authority adjusts, any local statute output must be named as a statutory/base
-  concept, not as the current-year value. For IRC section 63(c)(5), use a name
-  like `dependent_basic_standard_deduction_statutory_limit`, not
-  `dependent_standard_deduction_limit`.
+  concept, not as the current-year value.
 - When the source rounds an inflation or cost-of-living increase, round the
   increase before adding it to the base amount unless the source explicitly
   says to round the final total. Companion tests must assert the rounded
@@ -3024,55 +2978,6 @@ RuleSpec requirements:
   surfaces from copied target files; migrate them to upstream imports or
   source-backed non-status leaf facts such as whether a joint or separate return
   was actually made.
-- When source text says a person is `entitled to a deduction under section 151`
-  or that a section 151 deduction is `allowed` or `allowable`, do not use the
-  monetary `us:statutes/26/151#section_151_exemption_deduction` amount as a
-  proxy. The post-2017 exemption amount can be zero while entitlement still
-  matters. Import a source-backed eligibility/judgment output such as
-  `us:statutes/26/151#exemption_individual_eligible`, or encode the missing
-  upstream 151 entitlement predicate first.
-- Hard requirement for IRC sections 2, 6013, and 7703, 5 USC section 5566,
-  and 37 USC section 556: do not emit
-  `module.status: deferred` or `module.status: entity_not_supported`. These
-  sources are the upstream filing-status source chain. Encode executable legal
-  predicates with boundary facts for marital, household, abode, support, death,
-  separation, and return-election facts not defined in the source.
-- For IRC section 6013(a), expose a source-backed joint-return eligibility
-  output before applying subsection (a)(3)'s decedent-return-maker limitation,
-  and then a final output that applies (a)(3). Downstream IRC section 2(a)(2)(B)
-  says "without regard to subsection (a)(3)", so it must be able to import the
-  pre-(a)(3) output instead of using a local `under_section_6013` placeholder.
-- For IRC section 151 repairs, preserve existing output IDs exactly while
-  removing filing-status inputs. In particular, do not rename
-  `senior_deduction_base_amount`, `senior_deduction_phaseout_threshold_other`,
-  `senior_deduction_phaseout_threshold_joint`,
-  `senior_deduction_phaseout_threshold`,
-  `senior_deduction_amount_per_qualified_individual`,
-  `senior_deduction_eligible`, or `exemption_amount`.
-- For root-file IRC section 151 repairs, do not import IRC section 7703 into
-  `statutes/26/151.yaml`: the current IRC section 7703 module imports the
-  section 151 entitlement output, so importing 7703 back into the root 151 file
-  creates a cycle. Until section 151 is split into acyclic subsection modules,
-  keep the source-named boundary predicate
-  `taxpayer_is_married_individual_within_section_7703` for section
-  151(d)(5)(C)(v).
-- For IRC section 151(d), never use runtime fact names that embed the source
-  date or year value, such as `taxable_year_begins_after_2017`,
-  `taxable_year_begins_before_2029`, or
-  `taxable_year_begins_in_calendar_year_after_1989`. Use semantic predicates
-  such as
-  `taxable_year_begins_after_inflation_start_date`,
-  `taxable_year_begins_after_exemption_amount_reduction_effective_date` and
-  `taxable_year_begins_before_senior_deduction_termination_date`.
-- For IRC section 151(a), preserve the `taxpayer_is_individual` guard on
-  `section_151_exemption_deduction`; do not replace it with only
-  `len(exemption_individual_of_tax_unit)` or a relation count.
-- Hard requirement for IRC section 151(d): do not emit
-  `module.status: deferred` or `module.status: entity_not_supported`.
-  Section 151(d) is a reusable upstream source for exemption amounts, phaseout
-  increments, and senior deduction amounts. Encode its executable parameters
-  and formulas with source-backed boundary facts for unresolved filing-return
-  or marital conditions; do not leave an empty shell.
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). Never encode US tax filing status
@@ -3120,7 +3025,7 @@ RuleSpec requirements:
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
-- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change. For example, an IRC section 24(h)(4)(B) noncitizen exception test must keep the same dependent/qualifying-child facts as its positive companion and flip only `noncitizen_exception_to_other_dependent_credit_applies`.
+- For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
 - Every local executable `kind: parameter` and `kind: derived` rule must appear
   at least once under an `output:` block in the companion `.test.yaml`; do not
   leave scalar parameters, helper parameters, or helper derived rules
@@ -3417,8 +3322,7 @@ Sibling export naming for this target:
 {collision_note}
 - Do not export any local rule with a copied sibling's name. If a suggested
   generic relation name is already reserved, use a source-specific semantic
-  name, such as `ctc_qualifying_child_of_tax_unit` for section 24 rather than
-  `qualifying_child_of_tax_unit`.
+  name rather than the sibling's generic relation name.
 - If this target is a child branch and the source states a shared parent
   consequence such as "shall be exempt if (A) ...", define the condition in this
   branch, not the shared parent consequence. Use a concise semantic output

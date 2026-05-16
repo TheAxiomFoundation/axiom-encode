@@ -414,13 +414,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "period: Day" in prompt
     assert "never use bare `YYYY-MM-DD` shorthand" in prompt
     assert "Do not preserve existing `#input.filing_status`" in prompt
-    assert "For IRC section 151 repairs, preserve existing output IDs" in prompt
-    assert "applicable_amount_in_effect_under_section_68_b" in prompt
-    assert "do not import IRC section 7703 into" in prompt
-    assert "taxpayer_is_married_individual_within_section_7703" in prompt
-    assert "taxable_year_begins_after_exemption_amount_reduction_effective_date" in prompt
-    assert "preserve the `taxpayer_is_individual` guard" in prompt
+    assert "applicable_amount_in_effect_under_section_<section>" in prompt
+    assert "Do not put the date or year value in the fact name" in prompt
     assert "Never introduce an import cycle" in prompt
+    assert "For IRC section 151 repairs" not in prompt
     assert (
         "Do not create named `parameter` rules for structural table row labels"
         in prompt
@@ -2371,31 +2368,18 @@ class TestEvalPrompt:
             "additional_standard_deduction_entitlement_count_under_subsection_f"
             in prompt
         )
-        assert "us:statutes/26/63/c/5#dependent_standard_deduction" in prompt
         assert "Do not start a local input with" in prompt
         assert "_under_section_<section>" in prompt
-        assert "For IRC section 22" in prompt
-        assert "taxpayer_or_spouse_of_tax_unit" in prompt
-        assert "elderly_disabled_member_of_tax_unit" in prompt
-        assert "section 24(h)" in prompt
+        assert "For IRC section 22" not in prompt
         assert "dependent_of_tax_unit" in prompt
-        assert "ctc_qualifying_child" in prompt
-        assert "ctc_refundable_phase_in_threshold_under_subsection_h" in prompt
         assert "only the exception input changes" in prompt
-        assert "noncitizen_exception_to_other_dependent_credit_applies" in prompt
-        assert "service_injury_pension_excluded_amount" in prompt
-        assert "TaxUnit-to-Payment" in prompt
-        assert "section_104_a_4_amounts" in prompt
+        assert "Do not replace a specific upstream output with a broad local input" in prompt
         assert "only one entity type" in prompt
         assert "Do not assert relation-child outputs" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
         assert "Never encode US tax filing status" in prompt
         assert "Do not create local `#input.filing_status` facts" in prompt
-        assert "entitled to a deduction under section 151" in prompt
-        assert "section_151_exemption_deduction" in prompt
-        assert "exemption_individual_eligible" in prompt
-        assert "Hard requirement for IRC section 151(d)" in prompt
-        assert "taxable_year_begins_after_inflation_start_date" in prompt
+        assert "Hard requirement for IRC section 151(d)" not in prompt
         assert "must use the numeric `filing_status` enum input directly" not in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
@@ -2537,9 +2521,9 @@ class TestEvalPrompt:
             include_tests=True,
         )
 
-        assert "Hard requirement for IRC sections 2, 6013, and 7703" in prompt
-        assert "do not emit `module.status: deferred`" in prompt
-        assert "section 151 deduction is `allowed` or `allowable`" in prompt
+        assert "Hard requirement for IRC sections 2, 6013, and 7703" not in prompt
+        assert "section 151 deduction is `allowed` or `allowable`" not in prompt
+        assert "Never introduce an import cycle" in prompt
 
     def test_build_eval_prompt_for_editorially_omitted_slice_allows_deferred_docstring(
         self, tmp_path
@@ -3757,24 +3741,10 @@ rules:
         assert "already executable" in prompt
         assert "do not replace it with" in prompt
         assert "requested source itself defines a legal status or test" in prompt
-        assert "section 152(c)" in prompt
-        assert "IRC section 112" in prompt
-        assert "should export an executable amount excluded" in prompt
-        assert "military pay facts" in prompt
-        assert "Hard requirement for IRC section 112" in prompt
-        assert "amount_excluded_from_gross_income_by_reason_of_section_112" in prompt
-        assert "TaxUnit/Year Money output" in prompt
-        assert "Do not create Person helper outputs" in prompt
+        assert "IRC section 112" not in prompt
+        assert "Hard requirement for IRC section 112" not in prompt
         assert "same concept or output name" in prompt
-        assert "dependent_standard_deduction_limit" in prompt
-        assert "dependent_basic_standard_deduction_statutory_limit" in prompt
         assert "directly rounded final amount table" in prompt
-        assert "EITC maximum-credit table" in prompt
-        assert "determined with regard to Section 164(f)" in prompt
-        assert "do not import Section 1402(a)'s" in prompt
-        assert "final `net_earnings_from_self_employment` output" in prompt
-        assert "pre-paragraph-12 net earnings" in prompt
-        assert "imported Section 164(f) deduction" in prompt
         assert "round the" in prompt
         assert "increase before adding it to the base amount" in prompt
         assert "17300, not 17325" in prompt
@@ -5265,10 +5235,6 @@ class TestRepoAugmentedContext:
         assert "import and use the listed exported symbol from that" in prompt
         assert "context instead of creating a local `section_...`" in prompt
         assert (
-            "`section_163_a_deduction_attributable_to_section_163_h_4_A_exception`"
-            in prompt
-        )
-        assert (
             "never write an absolute `us:...#rule_name` reference inside a formula"
             in prompt
         )
@@ -5380,7 +5346,7 @@ class TestRepoAugmentedContext:
 
         assert "Sibling export naming for this target" in prompt
         assert "`qualifying_child_of_tax_unit`" in prompt
-        assert "ctc_qualifying_child_of_tax_unit" in prompt
+        assert "Make the relation source-specific" in prompt
         assert "copied target currently exports invalid colliding names" not in prompt
 
     def test_hydrate_eval_root_copies_context_into_import_tree(self, tmp_path):

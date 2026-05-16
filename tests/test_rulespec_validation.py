@@ -44,11 +44,9 @@ from axiom_encode.harness.validator_pipeline import (
     find_partial_extent_zeroing_issues,
     find_proof_import_hash_consistency_issues,
     find_relation_aggregate_syntax_issues,
-    find_required_executable_us_tax_source_issues,
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
-    find_section_151_entitlement_proxy_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
@@ -58,7 +56,6 @@ from axiom_encode.harness.validator_pipeline import (
     find_tax_filing_status_local_input_issues,
     find_tax_filing_status_surviving_spouse_issues,
     find_tax_filing_status_test_input_issues,
-    find_tax_filing_status_upstream_source_issues,
     find_temporal_value_fact_name_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
@@ -7075,54 +7072,6 @@ rules:
     )
 
 
-def test_section_151_entitlement_rejects_deduction_amount_proxy():
-    content = """format: rulespec/v1
-imports:
-  - us:statutes/26/151#section_151_exemption_deduction
-module:
-  summary: |-
-    A taxpayer qualifies only if the taxpayer is entitled to a deduction for
-    the taxable year under section 151.
-rules:
-  - name: qualifying_dependent_entitled_to_section_151_deduction
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          section_151_exemption_deduction > 0
-"""
-
-    issues = find_section_151_entitlement_proxy_issues(content)
-
-    assert any("Section 151 entitlement must not be inferred" in issue for issue in issues)
-
-
-def test_section_151_entitlement_allows_eligibility_import():
-    content = """format: rulespec/v1
-imports:
-  - us:statutes/26/151#exemption_individual_eligible
-module:
-  summary: |-
-    A taxpayer qualifies only if the taxpayer is entitled to a deduction for
-    the taxable year under section 151.
-rules:
-  - name: qualifying_dependent_entitled_to_section_151_deduction
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          exemption_individual_eligible
-"""
-
-    assert find_section_151_entitlement_proxy_issues(content) == []
-
-
 def test_empty_rules_module_rejects_missing_status():
     content = """format: rulespec/v1
 module:
@@ -7189,177 +7138,6 @@ rules:
 
     assert any(
         "assigns filing status as a local input" in issue for issue in issues
-    )
-
-
-def test_filing_status_upstream_source_rejects_deferred_empty_module(tmp_path):
-    content = """format: rulespec/v1
-module:
-  status: deferred
-  source_verification:
-    corpus_citation_path: us/statute/26/7703
-rules: []
-"""
-
-    issues = find_tax_filing_status_upstream_source_issues(
-        content,
-        rules_file=tmp_path / "statutes" / "26" / "7703.yaml",
-    )
-
-    assert any(
-        "Upstream filing-status source must be executable" in issue
-        for issue in issues
-    )
-
-
-def test_required_tax_source_rejects_deferred_section_151_d(tmp_path):
-    content = """format: rulespec/v1
-module:
-  status: deferred
-  source_verification:
-    corpus_citation_path: us/statute/26/151
-rules: []
-"""
-
-    issues = find_required_executable_us_tax_source_issues(
-        content,
-        rules_file=tmp_path / "statutes" / "26" / "151" / "d.yaml",
-    )
-
-    assert len(issues) == 1
-    assert "Required upstream tax source must be executable" in issues[0]
-
-
-def test_filing_status_upstream_source_rejects_deferred_death_determination_source(
-    tmp_path,
-):
-    content = """format: rulespec/v1
-module:
-  status: deferred
-  source_verification:
-    corpus_citation_path: us/statute/5/5566
-rules: []
-"""
-
-    issues = find_tax_filing_status_upstream_source_issues(
-        content,
-        rules_file=tmp_path / "statutes" / "5" / "5566.yaml",
-    )
-
-    assert any(
-        "Upstream filing-status source must be executable" in issue
-        for issue in issues
-    )
-
-
-def test_filing_status_upstream_source_allows_executable_module(tmp_path):
-    content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/7703
-rules:
-  - name: taxpayer_is_married_under_section_7703_a
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          taxpayer_is_married_at_close_of_taxable_year
-          and not taxpayer_legally_separated_under_decree
-"""
-
-    assert (
-        find_tax_filing_status_upstream_source_issues(
-            content,
-            rules_file=tmp_path / "statutes" / "26" / "7703.yaml",
-        )
-        == []
-    )
-
-
-def test_filing_status_upstream_source_requires_6013_a_without_a3_surface(
-    tmp_path,
-):
-    content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/6013
-rules:
-  - name: decedent_joint_return_maker_authorized
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: death_of_one_spouse_or_both_spouses
-  - name: joint_return_may_be_made
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          taxpayers_are_husband_and_wife
-          and not either_spouse_is_nonresident_alien
-          and decedent_joint_return_maker_authorized
-"""
-
-    issues = find_tax_filing_status_upstream_source_issues(
-        content,
-        rules_file=tmp_path / "statutes" / "26" / "6013" / "a.yaml",
-    )
-
-    assert any(
-        "before applying subsection (a)(3)" in issue for issue in issues
-    )
-
-
-def test_filing_status_upstream_source_allows_6013_a_without_a3_surface(tmp_path):
-    content = """format: rulespec/v1
-module:
-  source_verification:
-    corpus_citation_path: us/statute/26/6013
-rules:
-  - name: joint_return_eligibility_without_decedent_return_maker_limitation
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          taxpayers_are_husband_and_wife
-          and not either_spouse_is_nonresident_alien
-  - name: decedent_joint_return_maker_authorized
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: death_of_one_spouse_or_both_spouses
-  - name: joint_return_may_be_made
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          joint_return_eligibility_without_decedent_return_maker_limitation
-          and decedent_joint_return_maker_authorized
-"""
-
-    assert (
-        find_tax_filing_status_upstream_source_issues(
-            content,
-            rules_file=tmp_path / "statutes" / "26" / "6013" / "a.yaml",
-        )
-        == []
     )
 
 

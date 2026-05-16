@@ -519,7 +519,7 @@ Review the RuleSpec file for integration quality:
 4. **Documentation**: Clear labels and descriptions
 5. **Completeness**: Full statute implementation, no TODO placeholders
 6. **Syntax**: RuleSpec YAML with `format: rulespec/v1`, `rules:`, versioned formulas, and tests in `.test.yaml` files
-7. **Cross-Statute Imports**: References like "as defined in section 152(c)" are satisfied by imports from the cited section
+7. **Cross-Source Imports**: References defined by another source are satisfied by imports from the cited source
 """
     + _REVIEW_JSON_FORMAT
 )
@@ -784,15 +784,6 @@ _US_TAX_FILING_STATUS_NAME_PATTERN = re.compile(
     rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
     flags=re.IGNORECASE,
 )
-_SECTION_151_ENTITLEMENT_SOURCE_PATTERN = re.compile(
-    r"(?:entitled\s+to|allowable\s+to|allowed\s+to|allowed\s+as)"
-    r"[\s\S]{0,160}\bdeduction\b[\s\S]{0,80}\bsection\s+151\b"
-    r"|"
-    r"\bdeduction\b[\s\S]{0,80}\bsection\s+151\b[\s\S]{0,160}"
-    r"(?:entitled\s+to|allowable\s+to|allowed\s+to|allowed\s+as)",
-    flags=re.IGNORECASE,
-)
-_SECTION_151_DEDUCTION_AMOUNT_SYMBOL = "section_151_exemption_deduction"
 _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN = re.compile(
     r"(?:^|_)(?:allotment|benefit|credit|deduction|allowance|subsidy|phased_in)(?:_|$)",
     flags=re.IGNORECASE,
@@ -3333,47 +3324,6 @@ def _rulespec_rule_formulas(payload: dict[str, Any]) -> list[tuple[str, str, str
     ]
 
 
-def find_section_151_entitlement_proxy_issues(content: str) -> list[str]:
-    """Reject use of the section 151 dollar deduction as an entitlement proxy."""
-    payload = _rulespec_payload(content)
-    if payload is None:
-        return []
-
-    source_text = extract_embedded_source_text(content)
-    if not _SECTION_151_ENTITLEMENT_SOURCE_PATTERN.search(source_text):
-        return []
-
-    imports = payload.get("imports")
-    imported_deduction = isinstance(imports, list) and any(
-        isinstance(item, str)
-        and item.strip().endswith(f"#{_SECTION_151_DEDUCTION_AMOUNT_SYMBOL}")
-        for item in imports
-    )
-    formula_records = _rulespec_rule_formula_records(payload)
-    formula_users = [
-        name
-        for name, _kind, formula, _source in formula_records
-        if _formula_references_symbol(formula, _SECTION_151_DEDUCTION_AMOUNT_SYMBOL)
-    ]
-    if not imported_deduction and not formula_users:
-        return []
-
-    location = (
-        f" in `{', '.join(formula_users[:3])}`"
-        if formula_users
-        else ""
-    )
-    return [
-        "Section 151 entitlement must not be inferred from the monetary "
-        f"`{_SECTION_151_DEDUCTION_AMOUNT_SYMBOL}` output"
-        f"{location}. For source language like `entitled to a deduction under "
-        "section 151` or `deduction under section 151 is allowable`, import a "
-        "source-backed eligibility/judgment output such as "
-        "`us:statutes/26/151#exemption_individual_eligible`; the post-2017 "
-        "exemption amount can be zero while entitlement still matters."
-    ]
-
-
 def find_empty_rules_module_issues(content: str) -> list[str]:
     """Reject empty RuleSpec modules that do not explicitly declare a fallback."""
     payload = _rulespec_payload(content)
@@ -3583,118 +3533,6 @@ def find_tax_filing_status_local_input_issues(
                 )
 
     return issues
-
-
-_US_TAX_FILING_STATUS_UPSTREAM_SOURCE_PATH_PATTERN = re.compile(
-    r"(?:^|/)statutes/(?:26/(?:2(?:/[^/]+)*|6013(?:/[^/]+)*|7703)|5/5566|37/556)\.yaml$"
-)
-_REQUIRED_EXECUTABLE_US_TAX_SOURCE_PATH_PATTERN = re.compile(
-    r"(?:^|/)statutes/26/151/d\.yaml$"
-)
-
-
-def find_tax_filing_status_upstream_source_issues(
-    content: str,
-    *,
-    rules_file: Path | None = None,
-) -> list[str]:
-    """Require upstream US tax filing-status source files to be executable."""
-    if rules_file is None or not _US_TAX_FILING_STATUS_UPSTREAM_SOURCE_PATH_PATTERN.search(
-        rules_file.as_posix()
-    ):
-        return []
-    payload = _rulespec_payload(content)
-    if payload is None:
-        return []
-
-    module = payload.get("module")
-    status = ""
-    if isinstance(module, dict):
-        status = str(module.get("status") or "").strip().lower()
-    executable_names = _rulespec_executable_names_from_payload(payload)
-    if status in {"deferred", "entity_not_supported"} or not executable_names:
-        return [
-            "Upstream filing-status source must be executable: "
-            f"`{rules_file.name}` is part of the source chain for deriving US "
-            "tax filing status, so it cannot be a deferred/entity-not-supported "
-            "empty artifact. Encode its legal predicates with boundary facts "
-            "for marital, household, abode, support, death, separation, and "
-            "return-election facts not defined in the source."
-        ]
-    if re.search(r"(?:^|/)statutes/26/6013/a\.yaml$", rules_file.as_posix()):
-        issues = _section_6013a_without_a3_joint_return_surface_issues(payload)
-        if issues:
-            return issues
-    return []
-
-
-def find_required_executable_us_tax_source_issues(
-    content: str,
-    *,
-    rules_file: Path | None = None,
-) -> list[str]:
-    """Require selected reusable upstream US tax sources to be executable."""
-    if (
-        rules_file is None
-        or not _REQUIRED_EXECUTABLE_US_TAX_SOURCE_PATH_PATTERN.search(
-            rules_file.as_posix()
-        )
-    ):
-        return []
-    payload = _rulespec_payload(content)
-    if payload is None:
-        return []
-
-    module = payload.get("module")
-    status = ""
-    if isinstance(module, dict):
-        status = str(module.get("status") or "").strip().lower()
-    executable_names = _rulespec_executable_names_from_payload(payload)
-    if status in {"deferred", "entity_not_supported"} or not executable_names:
-        return [
-            "Required upstream tax source must be executable: "
-            "`statutes/26/151/d.yaml` supplies the section 151(d) exemption "
-            "amounts and senior deduction parameters used by dependent and "
-            "taxable-income rules, so it cannot be a deferred/entity-not-supported "
-            "empty artifact."
-        ]
-    return []
-
-
-def _section_6013a_without_a3_joint_return_surface_issues(
-    payload: dict[str, Any],
-) -> list[str]:
-    """Require IRC 6013(a) to expose the joint-return stage before (a)(3)."""
-    for name, kind, formula in _rulespec_rule_formulas(payload):
-        if kind != "derived":
-            continue
-        normalized_name = name.lower()
-        if "joint_return" not in normalized_name:
-            continue
-        if any(
-            token in normalized_name
-            for token in {
-                "executor",
-                "administrator",
-                "disaffirm",
-                "separate",
-            }
-        ):
-            continue
-        normalized_formula = formula.lower()
-        if (
-            "husband_and_wife" in normalized_formula
-            and "decedent_joint_return_maker_authorized" not in normalized_formula
-        ):
-            return []
-    return [
-        "IRC 6013(a) must expose a source-backed joint-return eligibility "
-        "output before applying subsection (a)(3)'s decedent-return-maker "
-        "limitation. IRC 2(a)(2)(B) imports the section 6013 rule "
-        "'without regard to subsection (a)(3)', so a single final "
-        "`joint_return_may_be_made` output that depends on "
-        "`decedent_joint_return_maker_authorized` is not enough."
-    ]
 
 
 def _rulespec_import_symbol_names(payload: dict[str, Any]) -> set[str]:
@@ -9539,19 +9377,6 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
-        issues.extend(find_section_151_entitlement_proxy_issues(content))
-        issues.extend(
-            find_tax_filing_status_upstream_source_issues(
-                content,
-                rules_file=rules_file,
-            )
-        )
-        issues.extend(
-            find_required_executable_us_tax_source_issues(
-                content,
-                rules_file=rules_file,
-            )
-        )
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_formula_date_literal_issues(content))
