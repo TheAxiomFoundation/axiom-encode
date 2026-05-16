@@ -23,6 +23,7 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
+    _executable_output_preservation_issues,
     _find_rulespec_dependents,
     _has_zero_output_test,
     _insert_false_input_default,
@@ -4126,6 +4127,41 @@ rules:
 """
 
         assert _source_relation_preservation_issues(existing, generated) == []
+
+    def test_executable_output_preservation_rejects_renamed_existing_output(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: employer_oasdi_excise_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.062'
+  - name: employer_oasdi_excise_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages * employer_oasdi_excise_tax_rate
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: old_age_survivors_disability_insurance_employer_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.062'
+  - name: old_age_survivors_disability_insurance_employer_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages * old_age_survivors_disability_insurance_employer_tax_rate
+"""
+
+        issues = _executable_output_preservation_issues(existing, generated)
+
+        assert len(issues) == 1
+        assert "dropped or renamed existing executable outputs" in issues[0]
+        assert "`employer_oasdi_excise_tax`" in issues[0]
+        assert "`employer_oasdi_excise_tax_rate`" in issues[0]
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"

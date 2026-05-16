@@ -6005,6 +6005,26 @@ def _executable_rule_replacement_issues(
     ]
 
 
+def _executable_output_preservation_issues(
+    existing_content: str,
+    generated_content: str,
+) -> list[str]:
+    """Return issues for generated content that drops existing executable IDs."""
+    existing_executable = set(_executable_rule_names(existing_content))
+    if not existing_executable:
+        return []
+    generated_executable = set(_executable_rule_names(generated_content))
+    missing = sorted(existing_executable - generated_executable)
+    if not missing:
+        return []
+    formatted = ", ".join(f"`{name}`" for name in missing)
+    return [
+        "Generated RuleSpec dropped or renamed existing executable outputs: "
+        f"{formatted}. Regenerate with the existing output IDs preserved; "
+        "do not silently break downstream tests, oracle mappings, or imports."
+    ]
+
+
 def _executable_rule_names(content: str) -> list[str]:
     try:
         document = yaml.safe_load(content) or {}
@@ -6111,6 +6131,16 @@ def _validate_generated_encoding_in_policy_overlay(
             return (
                 False,
                 [f"{relative_output}: {issue}" for issue in replacement_issues],
+                {},
+            )
+        output_preservation_issues = _executable_output_preservation_issues(
+            existing_content,
+            generated_content,
+        )
+        if output_preservation_issues:
+            return (
+                False,
+                [f"{relative_output}: {issue}" for issue in output_preservation_issues],
                 {},
             )
         preservation_issues = _source_relation_preservation_issues(
