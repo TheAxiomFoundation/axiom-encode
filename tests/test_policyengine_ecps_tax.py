@@ -2,12 +2,20 @@ import pytest
 
 import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
 from axiom_encode.oracles.policyengine.ecps_tax import (
+    EMPLOYEE_OASDI_BASE,
+    EMPLOYEE_OASDI_PROGRAM_PATH,
     OASDI_WAGE_BASE_BASE,
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
+    OASDI_WAGE_BASE_PROGRAM_PATH,
     POLICYENGINE_VERSION,
     additional_standard_deduction_entitlement_count,
+    build_contribution_and_benefit_base_request,
     build_oasdi_wage_base_request,
     build_payroll_request,
+    compare_tax_ecps,
+    contribution_and_benefit_base_from_results,
+    contribution_and_benefit_base_output,
+    contribution_and_benefit_base_program_path,
     filing_status_code,
     individual_is_unmarried_and_not_surviving_spouse,
     person_entity_id,
@@ -18,7 +26,6 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
     require_policyengine_versions,
-    social_security_contribution_and_benefit_base,
     taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
     valid_child_ssn_type,
@@ -248,10 +255,54 @@ def test_within_tolerance_accepts_large_policyengine_float_noise():
     )
 
 
+def test_build_contribution_and_benefit_base_request_queries_encoded_ssa_policy():
+    request = build_contribution_and_benefit_base_request(year=2026)
+
+    assert request == {
+        "mode": "explain",
+        "dataset": {"inputs": [], "relations": []},
+        "queries": [
+            {
+                "entity_id": "tax_year_2026",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "outputs": [contribution_and_benefit_base_output(2026)],
+            }
+        ],
+    }
+
+
+def test_contribution_and_benefit_base_comes_from_axiom_results():
+    output = contribution_and_benefit_base_output(2026)
+    results = [
+        {
+            "outputs": {
+                output: {
+                    "kind": "scalar",
+                    "value": {"kind": "decimal", "value": "184500"},
+                }
+            }
+        }
+    ]
+
+    assert contribution_and_benefit_base_from_results(
+        results,
+        year=2026,
+    ) == 184_500
+
+
+def test_contribution_and_benefit_base_requires_axiom_result():
+    with pytest.raises(ValueError, match="contribution-and-benefit-base output"):
+        contribution_and_benefit_base_from_results([], year=2026)
+
+
 def test_oasdi_wage_base_projection_uses_gross_wages_and_official_base():
     projected = project_oasdi_wage_base_inputs(
         {"payroll_tax_gross_wages": 200_000},
-        contribution_base=social_security_contribution_and_benefit_base(2026),
+        contribution_base=184_500,
     )
 
     assert (
@@ -283,7 +334,11 @@ def test_build_oasdi_wage_base_request_uses_3121_inputs():
         "person_ids": [7],
     }
 
-    request = build_oasdi_wage_base_request(pe_data=pe_data, year=2026)
+    request = build_oasdi_wage_base_request(
+        pe_data=pe_data,
+        year=2026,
+        contribution_base=184_500.0,
+    )
 
     assert request["queries"] == [
         {
@@ -394,6 +449,110 @@ def test_build_oasdi_payroll_request_requires_3121_results():
             year=2026,
             surface="employee-oasdi",
         )
+
+
+def test_compare_oasdi_stage_runs_encoded_ssa_base_before_3121(
+    monkeypatch,
+    tmp_path,
+):
+    pd = pytest.importorskip("pandas")
+    rulespec_root = tmp_path / "rulespec-us"
+    for program_path in (
+        contribution_and_benefit_base_program_path(2026),
+        OASDI_WAGE_BASE_PROGRAM_PATH,
+        EMPLOYEE_OASDI_PROGRAM_PATH,
+    ):
+        target = rulespec_root / program_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+
+    pe_data = {
+        "tax_units": pd.DataFrame([{"tax_unit_id": 1}]),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "payroll_tax_gross_wages": 200_000,
+                    "employee_social_security_tax": 11_439,
+                }
+            ]
+        ),
+        "tax_unit_ids": [1],
+        "person_ids": [7],
+    }
+    monkeypatch.setattr(ecps_tax, "require_numpy", lambda: None)
+    monkeypatch.setattr(ecps_tax, "require_policyengine_versions", lambda **_: None)
+    monkeypatch.setattr(ecps_tax, "load_policyengine_tax_data", lambda **_: pe_data)
+
+    calls = []
+
+    def fake_run_axiom_program(*, program, request, rulespec_root, axiom_rules_path):
+        del rulespec_root, axiom_rules_path
+        calls.append((program.relative_to(tmp_path / "rulespec-us"), request))
+        if program.name == "2026.yaml":
+            return [
+                {
+                    "outputs": {
+                        contribution_and_benefit_base_output(2026): {
+                            "kind": "scalar",
+                            "value": {"kind": "decimal", "value": "184500"},
+                        }
+                    }
+                }
+            ]
+        if program.relative_to(tmp_path / "rulespec-us") == OASDI_WAGE_BASE_PROGRAM_PATH:
+            input_values = {
+                item["name"]: item["value"]["value"]
+                for item in request["dataset"]["inputs"]
+            }
+            assert (
+                input_values[
+                    f"{OASDI_WAGE_BASE_BASE}#input.contribution_and_benefit_base_under_section_230_of_social_security_act"
+                ]
+                == "184500.0"
+            )
+            return [
+                {
+                    "outputs": {
+                        OASDI_WAGE_BASE_EXCLUSION_OUTPUT: {
+                            "kind": "scalar",
+                            "value": {"kind": "decimal", "value": "15500"},
+                        }
+                    }
+                }
+            ]
+        return [
+            {
+                "outputs": {
+                    f"{EMPLOYEE_OASDI_BASE}#oasdi_wage_tax": {
+                        "kind": "scalar",
+                        "value": {"kind": "decimal", "value": "11439"},
+                    }
+                }
+            }
+        ]
+
+    monkeypatch.setattr(ecps_tax, "run_axiom_program", fake_run_axiom_program)
+
+    report = compare_tax_ecps(
+        workspace_root=tmp_path,
+        rulespec_root=rulespec_root,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        year=2026,
+        sample_size=1,
+        positive_ctc_only=False,
+        surface="employee-oasdi",
+        data_folder=tmp_path,
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.mismatches == []
+    assert [path for path, _request in calls] == [
+        contribution_and_benefit_base_program_path(2026),
+        OASDI_WAGE_BASE_PROGRAM_PATH,
+        EMPLOYEE_OASDI_PROGRAM_PATH,
+    ]
 
 
 def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):

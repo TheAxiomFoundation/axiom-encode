@@ -521,6 +521,10 @@ def _infer_program_from_legal_id(legal_id: str) -> str:
     lowered = legal_id.lower()
     if "snap" in lowered:
         return "snap"
-    if lowered.startswith("us:statutes/26/") or lowered.startswith("us:policies/irs/"):
+    if (
+        lowered.startswith("us:statutes/26/")
+        or lowered.startswith("us:policies/irs/")
+        or lowered.startswith("us:policies/ssa/")
+    ):
         return "tax"
     return "unknown"

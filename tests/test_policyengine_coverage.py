@@ -174,6 +174,44 @@ rules:
     )
 
 
+def test_policyengine_coverage_treats_ssa_policy_parameters_as_tax(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
+        / "policies/ssa/contribution-and-benefit-base/2026.yaml",
+        """format: rulespec/v1
+rules:
+  - name: base_year_contribution_and_benefit_base
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '60600'
+  - name: contribution_and_benefit_base_under_section_230_of_social_security_act
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '184500'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 2
+    statuses_by_id = {item["legal_id"]: item["status"] for item in report["items"]}
+    assert (
+        statuses_by_id[
+            "us:policies/ssa/contribution-and-benefit-base/2026#base_year_contribution_and_benefit_base"
+        ]
+        == "known_not_comparable"
+    )
+    assert (
+        statuses_by_id[
+            "us:policies/ssa/contribution-and-benefit-base/2026#contribution_and_benefit_base_under_section_230_of_social_security_act"
+        ]
+        == "comparable"
+    )
+
+
 def test_policyengine_coverage_tracks_comparable_test_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",

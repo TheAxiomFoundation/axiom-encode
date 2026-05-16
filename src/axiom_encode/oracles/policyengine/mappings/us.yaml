@@ -1028,6 +1028,52 @@ mappings:
     candidate_priority: P4
     rationale: PolicyEngine exposes taxable Social Security earnings after this exclusion, not the excluded-remuneration amount separately. The ECPS tax harness uses this Axiom output to stage OASDI wage inputs before comparing sections 3101(a) and 3111(a).
 
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#base_year_contribution_and_benefit_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the final Social Security taxable maximum, not the SSA automatic-determination base-year intermediate separately.
+
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#base_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the final Social Security taxable maximum, not the SSA automatic-determination wage-index intermediate separately.
+
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#computation_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the final Social Security taxable maximum, not the SSA automatic-determination wage-index intermediate separately.
+
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#prior_year_contribution_and_benefit_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the final Social Security taxable maximum, not the prior-year floor intermediate separately.
+
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#contribution_and_benefit_base_rounding_multiple
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the final Social Security taxable maximum, not the SSA automatic-determination rounding multiple separately.
+
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#wage_indexed_contribution_and_benefit_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes the final Social Security taxable maximum, not the wage-indexed pre-floor computation separately.
+
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#contribution_and_benefit_base_under_section_230_of_social_security_act
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.social_security.cap
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final section 230 Social Security contribution-and-benefit base, stored in PolicyEngine as the Social Security payroll cap parameter.
+
   - legal_id: us:statutes/26/45A/a#base_year_1993_indian_employment_costs
     country: us
     program: tax

@@ -53,6 +53,22 @@ OASDI_WAGE_BASE_EXCLUSION_OUTPUT = (
 )
 AXIOM_3121_TAXABLE_OASDI_WAGES = "axiom_3121_taxable_oasdi_wages"
 
+
+def contribution_and_benefit_base_program_path(year: int) -> Path:
+    return Path(f"policies/ssa/contribution-and-benefit-base/{year}.yaml")
+
+
+def contribution_and_benefit_base_base(year: int) -> str:
+    return f"us:policies/ssa/contribution-and-benefit-base/{year}"
+
+
+def contribution_and_benefit_base_output(year: int) -> str:
+    return (
+        f"{contribution_and_benefit_base_base(year)}"
+        "#contribution_and_benefit_base_under_section_230_of_social_security_act"
+    )
+
+
 CTC_OUTPUTS = {
     "ctc_before_advance_payments": {
         "axiom": f"{CTC_BASE}#ctc_before_advance_payments",
@@ -354,11 +370,32 @@ def compare_tax_ecps(
     surfaces = list(SURFACE_OUTPUTS) if surface == "all" else [surface]
     surface_results: dict[str, list[dict[str, Any]]] = {}
     oasdi_wage_base_results: list[dict[str, Any]] | None = None
+    contribution_base: float | None = None
     for selected_surface in surfaces:
         program = resolved_rulespec_root / SURFACE_PROGRAM_PATHS[selected_surface]
         if not program.exists():
             raise SystemExit(f"{selected_surface} RuleSpec not found: {program}")
         if payroll_surface_uses_axiom_3121(selected_surface):
+            if contribution_base is None:
+                contribution_base_program = (
+                    resolved_rulespec_root
+                    / contribution_and_benefit_base_program_path(year)
+                )
+                if not contribution_base_program.exists():
+                    raise SystemExit(
+                        "Contribution-and-benefit-base RuleSpec not found: "
+                        f"{contribution_base_program}"
+                    )
+                contribution_base_results = run_axiom_program(
+                    program=contribution_base_program,
+                    request=build_contribution_and_benefit_base_request(year=year),
+                    rulespec_root=resolved_rulespec_root,
+                    axiom_rules_path=resolved_axiom_rules_path,
+                )
+                contribution_base = contribution_and_benefit_base_from_results(
+                    contribution_base_results,
+                    year=year,
+                )
             if oasdi_wage_base_results is None:
                 oasdi_program = resolved_rulespec_root / OASDI_WAGE_BASE_PROGRAM_PATH
                 if not oasdi_program.exists():
@@ -368,6 +405,7 @@ def compare_tax_ecps(
                 oasdi_request = build_oasdi_wage_base_request(
                     pe_data=pe_data,
                     year=year,
+                    contribution_base=contribution_base,
                 )
                 oasdi_wage_base_results = run_axiom_program(
                     program=oasdi_program,
@@ -644,14 +682,57 @@ def build_payroll_request(
     }
 
 
-def build_oasdi_wage_base_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+def build_contribution_and_benefit_base_request(*, year: int) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": [], "relations": []},
+        "queries": [
+            {
+                "entity_id": f"tax_year_{year}",
+                "period": interval,
+                "outputs": [contribution_and_benefit_base_output(year)],
+            }
+        ],
+    }
+
+
+def contribution_and_benefit_base_from_results(
+    results: list[dict[str, Any]],
+    *,
+    year: int,
+) -> float:
+    output = contribution_and_benefit_base_output(year)
+    if len(results) != 1:
+        raise ValueError(
+            "Expected exactly one contribution-and-benefit-base output result; "
+            f"got {len(results)}."
+        )
+    outputs = results[0].get("outputs") or {}
+    contribution_base = output_number(outputs.get(output))
+    if math.isnan(contribution_base):
+        raise ValueError(
+            f"Axiom contribution-and-benefit-base output missing: {output}."
+        )
+    return contribution_base
+
+
+def build_oasdi_wage_base_request(
+    *,
+    pe_data: dict[str, Any],
+    year: int,
+    contribution_base: float,
+) -> dict[str, Any]:
     interval = {
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
         "end": f"{year:04d}-12-31",
     }
     inputs: list[dict[str, Any]] = []
-    contribution_base = social_security_contribution_and_benefit_base(year)
     for _idx, person in pe_data["persons"].iterrows():
         entity_id = person_entity_id(int(person["person_id"]))
         for name, value in project_oasdi_wage_base_inputs(
@@ -749,19 +830,6 @@ def payroll_surface_uses_axiom_3121(surface: str) -> bool:
         isinstance(config, dict)
         and config.get("wage_input") == AXIOM_3121_TAXABLE_OASDI_WAGES
     )
-
-
-def social_security_contribution_and_benefit_base(year: int) -> float:
-    bases = {
-        2026: 184_500,
-    }
-    try:
-        return float(bases[year])
-    except KeyError as exc:
-        raise ValueError(
-            "Social Security contribution-and-benefit base is not encoded for "
-            f"{year}; add the SSA source before comparing OASDI payroll surfaces."
-        ) from exc
 
 
 def project_tax_unit_inputs(row: Any) -> dict[str, Any]:
@@ -1063,9 +1131,9 @@ def compare_outputs(
             "those upstream facts are not yet encoded from ECPS leaf inputs.",
             "OASDI payroll projections run Axiom 3121(a)(1) before sections "
             "3101(a) and 3111(a), so taxable OASDI wages are no longer taken "
-            "from PolicyEngine. The SSA contribution-and-benefit base remains "
-            "an explicit upstream law-parameter boundary until the SSA source "
-            "is ingested and encoded.",
+            "from PolicyEngine. The section 230 contribution-and-benefit base "
+            "is resolved by running the encoded SSA automatic-determination "
+            "RuleSpec before section 3121(a)(1).",
         ],
     )
 
