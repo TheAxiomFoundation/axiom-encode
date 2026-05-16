@@ -20,6 +20,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _apply_generated_encoding_result,
+    _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
     _find_rulespec_dependents,
@@ -3452,6 +3453,66 @@ rules:
             "auto_zero_predecessor_remuneration_considered_paid_by_successor"
         ]
         assert run.outcome["status"] == "apply_applied"
+
+    def test_generated_test_input_defaults_do_not_match_rate_inside_separate(self):
+        rules_payload = {
+            "rules": [
+                {
+                    "name": "successor_employer_wage_base_continuity_applies",
+                    "kind": "derived",
+                    "dtype": "Judgment",
+                    "versions": [
+                        {
+                            "formula": (
+                                "successor_employer_acquired_substantially_all_property_"
+                                "used_in_predecessor_trade_or_business_or_separate_unit_"
+                                "during_calendar_year and "
+                                "successor_employer_immediately_after_acquisition_"
+                                "employs_individual"
+                            )
+                        }
+                    ],
+                }
+            ]
+        }
+
+        value = _default_generated_test_input_value(
+            (
+                "successor_employer_acquired_substantially_all_property_used_in_"
+                "predecessor_trade_or_business_or_separate_unit_during_calendar_year"
+            ),
+            rules_payload=rules_payload,
+        )
+
+        assert value is False
+
+    def test_generated_test_input_defaults_treat_remuneration_as_money(self):
+        rules_payload = {
+            "rules": [
+                {
+                    "name": "predecessor_remuneration_considered_paid_by_successor",
+                    "kind": "derived",
+                    "dtype": "Money",
+                    "versions": [
+                        {
+                            "formula": (
+                                "if successor_employer_wage_base_continuity_applies:\n"
+                                "    predecessor_remuneration_before_acquisition\n"
+                                "else:\n"
+                                "    0"
+                            )
+                        }
+                    ],
+                }
+            ]
+        }
+
+        value = _default_generated_test_input_value(
+            "predecessor_remuneration_before_acquisition",
+            rules_payload=rules_payload,
+        )
+
+        assert value == 0
 
     def test_encode_apply_repeats_missing_test_input_assignment_repairs(
         self, capsys, tmp_path

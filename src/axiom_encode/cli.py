@@ -5662,10 +5662,14 @@ def _factual_input_appears_numeric(
 ) -> bool:
     if input_name == "filing_status":
         return True
+    input_tokens = set(input_name.split("_"))
     numeric_name_fragments = (
         "amount",
+        "base",
         "income",
         "wage",
+        "wages",
+        "remuneration",
         "salary",
         "age",
         "threshold",
@@ -5680,7 +5684,7 @@ def _factual_input_appears_numeric(
         "gross",
         "net",
     )
-    if any(fragment in input_name for fragment in numeric_name_fragments):
+    if input_tokens.intersection(numeric_name_fragments):
         return True
 
     rules = rules_payload.get("rules")
