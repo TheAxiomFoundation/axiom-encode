@@ -4246,6 +4246,40 @@ rules:
         assert "1986-01-01" in joined
         assert "1990-01-01" in joined
 
+    def test_executable_output_preservation_rejects_surface_field_drift(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: indian_employment_credit
+    kind: derived
+    entity: Employer
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1994-01-01'
+        formula: indian_employment_credit_excess_costs * indian_employment_credit_rate
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: indian_employment_credit
+    kind: derived
+    entity: Business
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1994-01-01'
+        formula: indian_employment_credit_excess_costs * indian_employment_credit_rate
+"""
+
+        issues = _executable_output_preservation_issues(existing, generated)
+
+        assert len(issues) == 1
+        assert "changed executable surface field `entity`" in issues[0]
+        assert "`indian_employment_credit`" in issues[0]
+        assert "'Employer'" in issues[0]
+        assert "'Business'" in issues[0]
+
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us-ny"

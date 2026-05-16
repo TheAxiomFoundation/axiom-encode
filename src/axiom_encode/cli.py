@@ -6022,12 +6022,12 @@ def _executable_output_preservation_issues(
     generated_content: str,
 ) -> list[str]:
     """Return issues for generated content that drops existing executable IDs."""
-    existing_versions = _executable_rule_effective_dates(existing_content)
-    existing_executable = set(existing_versions)
+    existing_rules = _executable_rule_surfaces(existing_content)
+    existing_executable = set(existing_rules)
     if not existing_executable:
         return []
-    generated_versions = _executable_rule_effective_dates(generated_content)
-    generated_executable = set(generated_versions)
+    generated_rules = _executable_rule_surfaces(generated_content)
+    generated_executable = set(generated_rules)
     missing = sorted(existing_executable - generated_executable)
     issues: list[str] = []
     if missing:
@@ -6038,8 +6038,21 @@ def _executable_output_preservation_issues(
             "do not silently break downstream tests, oracle mappings, or imports."
         )
     for name in sorted(existing_executable & generated_executable):
-        existing_dates = existing_versions[name]
-        generated_dates = generated_versions[name]
+        for field in ("kind", "entity", "dtype", "period", "unit", "indexed_by"):
+            existing_value = existing_rules[name].get(field, "")
+            generated_value = generated_rules[name].get(field, "")
+            if existing_value == generated_value:
+                continue
+            issues.append(
+                "Generated RuleSpec changed executable surface field "
+                f"`{field}` for existing output `{name}`: existing "
+                f"{existing_value!r}, generated {generated_value!r}. "
+                "Regenerate with the existing public surface preserved unless "
+                "a source-grounded migration explicitly updates downstream "
+                "imports, tests, and oracle mappings."
+            )
+        existing_dates = existing_rules[name]["effective_dates"]
+        generated_dates = generated_rules[name]["effective_dates"]
         if existing_dates != generated_dates:
             issues.append(
                 "Generated RuleSpec changed effective dates for existing executable "
@@ -6052,10 +6065,10 @@ def _executable_output_preservation_issues(
 
 
 def _executable_rule_names(content: str) -> list[str]:
-    return list(_executable_rule_effective_dates(content))
+    return list(_executable_rule_surfaces(content))
 
 
-def _executable_rule_effective_dates(content: str) -> dict[str, tuple[str, ...]]:
+def _executable_rule_surfaces(content: str) -> dict[str, dict[str, object]]:
     try:
         document = yaml.safe_load(content) or {}
     except yaml.YAMLError:
@@ -6063,7 +6076,7 @@ def _executable_rule_effective_dates(content: str) -> dict[str, tuple[str, ...]]
     rules = document.get("rules") if isinstance(document, dict) else []
     if not isinstance(rules, list):
         return {}
-    effective_dates: dict[str, tuple[str, ...]] = {}
+    surfaces: dict[str, dict[str, object]] = {}
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -6079,8 +6092,24 @@ def _executable_rule_effective_dates(content: str) -> dict[str, tuple[str, ...]]
                     continue
                 if "effective_from" in version:
                     dates.append(str(version.get("effective_from") or "").strip())
-        effective_dates[name] = tuple(dates)
-    return effective_dates
+        surfaces[name] = {
+            "kind": kind,
+            "entity": str(rule.get("entity") or "").strip(),
+            "dtype": str(rule.get("dtype") or "").strip(),
+            "period": str(rule.get("period") or "").strip(),
+            "unit": str(rule.get("unit") or "").strip(),
+            "indexed_by": _executable_surface_sequence(rule.get("indexed_by")),
+            "effective_dates": tuple(dates),
+        }
+    return surfaces
+
+
+def _executable_surface_sequence(value: object) -> tuple[str, ...]:
+    if isinstance(value, list):
+        return tuple(str(item).strip() for item in value)
+    if value is None:
+        return ()
+    return (str(value).strip(),)
 
 
 def _rulespec_module_status(content: str) -> str:
