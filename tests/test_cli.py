@@ -3028,6 +3028,19 @@ rules:
           if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: taxable_income_for_individual_who_does_not_itemize else: taxable_income_general_rule
 """
         )
+        test_file = output_file.with_name("63.test.yaml")
+        test_file.write_text(
+            """- name: existing_positive_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 100000
+  output:
+    us:statutes/26/63#taxable_income: 100000
+"""
+        )
         result.output_file = str(output_file)
         applied_file = args.policy_repo_path / "statutes/26/63.yaml"
 
@@ -3069,6 +3082,11 @@ rules:
             "else: max(0, taxable_income_general_rule)"
             in output_file.read_text()
         )
+        test_content = test_file.read_text()
+        assert "low_income_nonitemizer_zero_taxable_income" in test_content
+        assert "us:statutes/26/63#taxable_income: 0" in test_content
+        assert "deduction_for_personal_exemptions_provided_in_section_151" not in test_content
+        assert "deduction_provided_in_section_199A" not in test_content
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_nonnegative_floors"] == ["taxable_income"]
         assert run.outcome["overlay_validation_success"] is True
@@ -4797,6 +4815,8 @@ rules:
         test_content = test_file.read_text()
         assert "low_income_nonitemizer_zero_taxable_income" in test_content
         assert "us:statutes/26/63#taxable_income: 0" in test_content
+        assert "deduction_for_personal_exemptions_provided_in_section_151" not in test_content
+        assert "deduction_provided_in_section_199A" not in test_content
         assert (
             "taxable_income_for_individual_who_does_not_itemize: -" not in test_content
         )

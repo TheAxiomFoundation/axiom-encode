@@ -4711,11 +4711,6 @@ def _append_taxable_income_zero_floor_test_if_missing(
     {target_base}#input.deductions_allowed_by_this_chapter_other_than_standard_deduction: 20000
     {target_base}#input.deductions_allowable_under_this_chapter: 30000
     {target_base}#input.deductions_allowable_in_arriving_at_adjusted_gross_income: 0
-    {target_base}#input.deduction_for_personal_exemptions_provided_in_section_151: 0
-    {target_base}#input.deduction_provided_in_section_199A: 0
-    {target_base}#input.deduction_provided_in_section_170_p: 0
-    {target_base}#input.deduction_provided_in_section_224: 0
-    {target_base}#input.deduction_provided_in_section_225: 0
     {target_base}#input.individual_makes_election_to_itemize_deductions_for_taxable_year: false
     {target_base}#input.individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: true
     us:statutes/26/63/c#input.filing_status: 0
@@ -4733,6 +4728,63 @@ def _append_taxable_income_zero_floor_test_if_missing(
     us:statutes/26/63/f#input.additional_exemption_allowable_for_spouse_under_section_151_b: false
     us:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year: false
     us:statutes/26/63/f#input.spouse_is_blind_as_of_close_of_taxable_year_or_time_of_death: false
+    us:statutes/26/151#input.taxable_year_begins_after_2017: true
+    us:statutes/26/151#input.taxable_year_begins_before_2029: true
+    us:statutes/26/151#input.taxpayer_is_individual: true
+    us:statutes/26/151#input.filing_status: 0
+    us:statutes/26/151#input.adjusted_gross_income: 1000
+    us:statutes/26/151#input.applicable_amount_in_effect_under_section_68_b: 0
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911: 0
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_933: 0
+    us:statutes/26/151#input.taxpayer_is_married_individual_within_section_7703: false
+    us:statutes/26/151#relation.exemption_individual_of_tax_unit: []
+    us:statutes/26/151#relation.senior_deduction_individual_of_tax_unit: []
+    us:statutes/26/1/h#input.net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii: 0
+    us:statutes/26/1/h#input.long_term_capital_gains: 0
+    us:statutes/26/1/h#input.short_term_capital_gains: 0
+    us:statutes/26/1/h#input.qualified_dividend_income: 0
+    us:statutes/26/199A#input.filing_status: 0
+    us:statutes/26/199A#input.qualified_trade_or_business_w2_wages: 0
+    us:statutes/26/199A#input.qualified_trade_or_business_unadjusted_basis: 0
+    us:statutes/26/199A#input.qualified_business_income: 0
+    us:statutes/26/199A#input.taxable_income_computed_without_section_199A: 0
+    us:statutes/26/199A#input.qualified_business_income_allocable_to_qualified_cooperative_payments: 0
+    us:statutes/26/199A#input.w2_wages_allocable_to_qualified_cooperative_payments: 0
+    us:statutes/26/199A#input.qualified_reit_dividends: 0
+    us:statutes/26/199A#input.qualified_publicly_traded_partnership_income: 0
+    us:statutes/26/199A#input.taxpayer_is_corporation: false
+    us:statutes/26/199A#input.minimum_deduction_cost_of_living_adjustment: 0
+    us:statutes/26/199A#input.aggregate_qualified_business_income_from_active_qualified_trades_or_businesses: 0
+    us:statutes/26/199A#input.qualified_production_activities_income: 0
+    us:statutes/26/199A#input.taxpayer_is_specified_agricultural_or_horticultural_cooperative: false
+    us:statutes/26/199A#input.cooperative_w2_wages: 0
+    us:statutes/26/170/p#input.filing_status: 0
+    us:statutes/26/170/p#input.individual_does_not_elect_to_itemize_deductions_for_taxable_year: true
+    us:statutes/26/170/p#relation.charitable_contribution_of_tax_unit: []
+    us:statutes/26/224#input.filing_status: 0
+    us:statutes/26/224#input.adjusted_gross_income: 1000
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_911: 0
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_933: 0
+    us:statutes/26/224#input.employee_qualified_tips_included_on_statements_or_form_4137: 0
+    us:statutes/26/224#input.nonemployee_trade_or_business_qualified_tips_included_on_statements_or_form_4137: 0
+    us:statutes/26/224#input.gross_income_from_nonemployee_trade_or_business_including_qualified_tips: 0
+    us:statutes/26/224#input.deductions_allocable_to_nonemployee_trade_or_business_other_than_section_224: 0
+    us:statutes/26/224#input.taxpayer_social_security_number_included_on_return: true
+    us:statutes/26/224#input.taxpayer_is_married_individual_within_section_7703: false
+    us:statutes/26/224#input.taxable_year_begins_after_december_31_2028: false
+    us:statutes/26/225#input.filing_status: 0
+    us:statutes/26/225#input.adjusted_gross_income: 1000
+    us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_911: 0
+    us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_933: 0
+    ? us:statutes/26/225#input.overtime_compensation_required_under_flsa_section_7_in_excess_of_regular_rate_included_on_statements
+    : 0
+    us:statutes/26/225#input.qualified_tips_included_in_overtime_compensation: 0
+    us:statutes/26/225#input.taxpayer_social_security_number_included_on_return: true
+    us:statutes/26/225#input.taxpayer_is_married_individual_within_section_7703: false
+    us:statutes/26/225#input.taxable_year_begins_after_december_31_2028: false
     us:statutes/26/163#input.filing_status: 0
     us:statutes/26/163#input.adjusted_gross_income: 1000
     us:statutes/26/163#input.amount_excluded_from_gross_income_under_section_911: 0
@@ -5371,6 +5423,8 @@ def cmd_encode(args):
             if not can_apply:
                 repaired_rules = _try_repair_generated_nonnegative_floors_for_apply(
                     result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
                     issues=apply_issues,
                 )
                 if repaired_rules:
@@ -5580,10 +5634,19 @@ def _can_attempt_apply(result) -> bool:
 def _try_repair_generated_nonnegative_floors_for_apply(
     result,
     *,
+    output_root: Path,
+    policy_repo_path: Path,
     issues: list[str],
 ) -> list[str]:
     """Apply deterministic nonnegative-floor repairs to the generated candidate."""
     if not _only_pending_nonnegative_amount_reduction_issues(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
         return []
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
@@ -5602,6 +5665,13 @@ def _try_repair_generated_nonnegative_floors_for_apply(
         return []
 
     rules_file.write_text(repaired_content)
+    test_file = _rulespec_test_path(rules_file)
+    _append_generated_zero_branch_tests_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        relative_output=relative_output,
+    )
     return repaired_rules
 
 
