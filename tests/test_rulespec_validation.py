@@ -7725,7 +7725,8 @@ rules:
 
     assert rules == ["eitc_phased_in"]
     assert (
-        "min(eitc_maximum, eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount))"
+        "if earned_income >= eitc_earned_income_amount: eitc_maximum else: "
+        "eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount)"
         in repaired
     )
 

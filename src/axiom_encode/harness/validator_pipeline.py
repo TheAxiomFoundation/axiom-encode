@@ -4040,11 +4040,17 @@ def _current_year_phased_in_cap_repair(
     if maximum_name not in rule_names:
         return None
     stripped = formula.strip()
-    if stripped.startswith(f"min({maximum_name},"):
+    if stripped.startswith("if earned_income >= eitc_earned_income_amount:"):
         return None
     if "phase_in_rate" not in stripped or "earned_income_amount" not in stripped:
         return None
-    return f"min({maximum_name}, {stripped})"
+    raw_formula = re.sub(
+        rf"^min\s*\(\s*{re.escape(maximum_name)}\s*,\s*(?P<body>.*)\)\s*$",
+        r"\g<body>",
+        stripped,
+        count=1,
+    )
+    return f"if earned_income >= eitc_earned_income_amount: {maximum_name} else: {raw_formula}"
 
 
 def _rulespec_rule_names(payload: dict[str, Any]) -> set[str]:
