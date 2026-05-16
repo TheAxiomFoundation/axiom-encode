@@ -1379,6 +1379,27 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert section_1222_mapping.mapping_type == "not_comparable"
     assert section_1222_mapping.match_type == "prefix"
     assert section_1222_mapping.candidate_priority == "P4"
+    section_1211_limit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1211#other_taxpayer_capital_loss_limit",
+        country="us",
+    )
+    assert section_1211_limit_mapping.mapping_type == "parameter_value"
+    assert (
+        section_1211_limit_mapping.policyengine_parameter
+        == "gov.irs.ald.loss.capital.max"
+    )
+    assert section_1211_limit_mapping.parameter_key == "SINGLE"
+    section_1211_selected_limit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1211#other_taxpayer_capital_loss_limit_by_filing_status",
+        country="us",
+    )
+    assert section_1211_selected_limit_mapping.parameter_key_input == "filing_status"
+    section_1211_formula_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1211#other_taxpayer_capital_losses_allowed",
+        country="us",
+    )
+    assert section_1211_formula_mapping.mapping_type == "not_comparable"
+    assert section_1211_formula_mapping.candidate_priority == "P4"
     oasdi_wage_base_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3121/a/1#oasdi_wage_base_excess_excluded_remuneration",
         country="us",

@@ -1707,6 +1707,45 @@ mappings:
     comparison: money
     rationale: Same section 1 regular income tax before credits used in the AMT offset calculation.
 
+  - legal_id: us:statutes/26/1211#other_taxpayer_capital_loss_limit
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.ald.loss.capital.max
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1211(b)(1) $3,000 capital-loss limit for non-separate filers, stored in PE as filing-status parameter data.
+
+  - legal_id: us:statutes/26/1211#married_separate_capital_loss_limit
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.ald.loss.capital.max
+    parameter_key: SEPARATE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1211(b)(1) $1,500 capital-loss limit for married individuals filing separately, stored in PE as filing-status parameter data.
+
+  - legal_id: us:statutes/26/1211#other_taxpayer_capital_loss_limit_by_filing_status
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.ald.loss.capital.max
+    parameter_key_input: filing_status
+    parameter_key_map:
+      0: SINGLE
+      1: JOINT
+      2: SEPARATE
+      3: HEAD_OF_HOUSEHOLD
+      4: SURVIVING_SPOUSE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1211(b)(1) filing-status-selected capital-loss limit, stored in PE as parameter data.
+
   - legal_id: us:statutes/26/63#taxable_income_deductions_if_itemizing
     country: us
     program: tax
@@ -8624,6 +8663,13 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 104(a)(4) service-injury pension exclusion outputs are source-specific exclusion predicates and amounts that PolicyEngine does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/1211#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 1211 formula outputs expose statutory loss-allowance mechanics, while PolicyEngine exposes related net-capital-gain and above-the-line deduction variables with different signs and boundaries. Compare exact parameter outputs or add a section-specific adapter before mapping formula outputs directly.
 
   - legal_id_prefix: us:statutes/26/1222#
     country: us
