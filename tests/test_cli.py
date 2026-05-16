@@ -1937,6 +1937,86 @@ rules:
         assert output["cases"] == 1
         assert output["failures"] == []
 
+    def test_executes_companion_tests_with_custom_period_name(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        target = repo / "policies/ssa/base.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: contribution_base
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 100
+"""
+        )
+        target.with_name("base.test.yaml").write_text(
+            """- name: custom_calendar_year_period
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    us:policies/ssa/base#contribution_base: 100
+"""
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(self._args(repo, json_output=True))
+
+        assert exc_info.value.code == 0
+        assert json.loads(capsys.readouterr().out)["success"] is True
+
+    def test_executes_companion_tests_with_table_rows(self, capsys, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        target = repo / "statutes/1/payment.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: net_payment
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_amount - excluded_amount
+"""
+        )
+        target.with_name("payment.test.yaml").write_text(
+            """- name: two_payment_rows
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  tables:
+    Payment:
+      - us:statutes/1/payment#input.payment_amount: 100
+        us:statutes/1/payment#input.excluded_amount: 40
+      - us:statutes/1/payment#input.payment_amount: 20
+        us:statutes/1/payment#input.excluded_amount: 50
+  output:
+    us:statutes/1/payment#net_payment:
+      - 60
+      - -30
+"""
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(self._args(repo, json_output=True))
+
+        assert exc_info.value.code == 0
+        assert json.loads(capsys.readouterr().out)["success"] is True
+
     def test_executes_companion_tests_failure_json(self, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=16)
 

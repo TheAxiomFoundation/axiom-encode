@@ -1796,6 +1796,11 @@ def _execute_rulespec_test_file(
         for derived in artifact.get("program", {}).get("derived", [])
         if isinstance(derived, dict) and derived.get("id")
     }
+    derived_by_id = {
+        str(derived.get("id")): derived
+        for derived in artifact.get("program", {}).get("derived", [])
+        if isinstance(derived, dict) and derived.get("id")
+    }
 
     for index, case in enumerate(cases):
         case_name = str(case.get("name") or f"case_{index}")
@@ -1811,6 +1816,7 @@ def _execute_rulespec_test_file(
                     env=env,
                     parameter_by_id=parameter_by_id,
                     derived_ids=derived_ids,
+                    derived_by_id=derived_by_id,
                 )
             )
         except Exception as error:
@@ -1846,6 +1852,7 @@ def _execute_rulespec_test_case(
     env: dict[str, str],
     parameter_by_id: dict[str, dict],
     derived_ids: set[str],
+    derived_by_id: dict[str, dict],
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
@@ -1899,6 +1906,61 @@ def _execute_rulespec_test_case(
                     "value": _rulespec_scalar_value(value),
                 }
             )
+
+    table_rows_by_entity: dict[str, list[tuple[str, dict]]] = {}
+    tables = case.get("tables")
+    if tables is not None:
+        if not isinstance(tables, dict):
+            failures.append(
+                {
+                    "file": str(test_file),
+                    "case": case_name,
+                    "message": "`tables` must be a mapping",
+                }
+            )
+            return failures
+        for table_entity, rows in tables.items():
+            table_entity = str(table_entity)
+            if not isinstance(rows, list):
+                failures.append(
+                    {
+                        "file": str(test_file),
+                        "case": case_name,
+                        "message": f"`tables.{table_entity}` must be a list",
+                    }
+                )
+                return failures
+            resolved_rows: list[tuple[str, dict]] = []
+            for row_index, row in enumerate(rows, 1):
+                if not isinstance(row, dict):
+                    failures.append(
+                        {
+                            "file": str(test_file),
+                            "case": case_name,
+                            "message": (
+                                f"`tables.{table_entity}` row #{row_index} "
+                                "must be a mapping"
+                            ),
+                        }
+                    )
+                    return failures
+                row_id = _rulespec_table_row_entity_id(
+                    table_entity, row, row_index
+                )
+                resolved_rows.append((row_id, row))
+                for row_key, row_value in row.items():
+                    key = str(row_key)
+                    flat_inputs[key] = row_value
+                    inputs.append(
+                        {
+                            "name": key,
+                            "entity": table_entity,
+                            "entity_id": row_id,
+                            "interval": interval,
+                            "value": _rulespec_scalar_value(row_value),
+                        }
+                    )
+            table_rows_by_entity[table_entity] = resolved_rows
 
     expected = case.get("output") or {}
     parameter_expected = {
@@ -1954,15 +2016,71 @@ def _execute_rulespec_test_case(
     if not derived_expected:
         return failures
 
+    output_entities = {
+        output: str(derived_by_id.get(output, {}).get("entity") or "Case")
+        for output in derived_expected
+    }
+    list_outputs = {
+        output
+        for output, expected_value in derived_expected.items()
+        if isinstance(expected_value, list)
+    }
+    query_entity = (
+        output_entities[next(iter(list_outputs))]
+        if list_outputs
+        else output_entities[next(iter(derived_expected))]
+    )
+    if any(output_entities[output] != query_entity for output in list_outputs):
+        failures.append(
+            {
+                "file": str(test_file),
+                "case": case_name,
+                "message": "row-ordered outputs must use one entity type",
+            }
+        )
+        return failures
+    table_rows = table_rows_by_entity.get(query_entity, [])
+    query_entity_ids = [root_entity_id]
+    if table_rows:
+        query_entity_ids = [row_id for row_id, _row in table_rows]
+        for output in list_outputs:
+            expected_value = derived_expected[output]
+            if len(expected_value) != len(table_rows):
+                failures.append(
+                    {
+                        "file": str(test_file),
+                        "case": case_name,
+                        "message": (
+                            f"{output}: expected {len(expected_value)} row "
+                            f"value(s), but tables.{query_entity} has "
+                            f"{len(table_rows)} row(s)"
+                        ),
+                    }
+                )
+                return failures
+    elif list_outputs:
+        failures.append(
+            {
+                "file": str(test_file),
+                "case": case_name,
+                "message": (
+                    "row-ordered output list requires "
+                    f"`tables.{query_entity}` rows"
+                ),
+            }
+        )
+        return failures
+
     request = {
         "mode": "explain",
         "dataset": {"inputs": inputs, "relations": relations},
         "queries": [
             {
-                "entity_id": root_entity_id,
+                "entity_id": entity_id,
                 "period": period,
                 "outputs": list(derived_expected.keys()),
             }
+            for entity_id in query_entity_ids
         ],
     }
     result = subprocess.run(
@@ -1984,8 +2102,35 @@ def _execute_rulespec_test_case(
         )
         return failures
 
-    outputs = json.loads(result.stdout)["results"][0]["outputs"]
+    results = json.loads(result.stdout)["results"]
     for output, expected_value in derived_expected.items():
+        if isinstance(expected_value, list):
+            for row_index, row_expected_value in enumerate(expected_value):
+                outputs = results[row_index]["outputs"]
+                actual = outputs.get(output)
+                if actual is None:
+                    failures.append(
+                        {
+                            "file": str(test_file),
+                            "case": case_name,
+                            "message": (
+                                f"missing output {output}; got {sorted(outputs)}"
+                            ),
+                        }
+                    )
+                elif not _rulespec_output_matches(actual, row_expected_value):
+                    failures.append(
+                        {
+                            "file": str(test_file),
+                            "case": case_name,
+                            "message": (
+                                f"{output}[{row_index}]: expected "
+                                f"{row_expected_value!r}, got {actual!r}"
+                            ),
+                        }
+                    )
+            continue
+        outputs = results[0]["outputs"]
         actual = outputs.get(output)
         if actual is None:
             failures.append(
@@ -2010,15 +2155,36 @@ def _safe_artifact_stem(path: Path) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(path.resolve()))
 
 
+def _rulespec_table_row_entity_id(
+    table_entity: str,
+    row: dict,
+    index: int,
+) -> str:
+    entity_key = f"{_snake_case(table_entity)}_id"
+    for key in ("entity_id", "id", entity_key):
+        if key in row:
+            return str(row[key])
+    return f"{_snake_case(table_entity)}-{index}"
+
+
+def _snake_case(value: str) -> str:
+    first = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", value)
+    second = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", first)
+    return re.sub(r"[^a-zA-Z0-9]+", "_", second).strip("_").lower()
+
+
 def _rulespec_period_spec(value) -> dict[str, str]:
     if isinstance(value, dict):
         start = value.get("start")
         end = value.get("end")
-        return {
+        period = {
             "period_kind": str(value.get("period_kind", "period")),
             "start": start.isoformat() if hasattr(start, "isoformat") else str(start),
             "end": end.isoformat() if hasattr(end, "isoformat") else str(end),
         }
+        if period["period_kind"] == "custom" and value.get("name") is not None:
+            period["name"] = str(value["name"])
+        return period
     if isinstance(value, int) or (
         isinstance(value, str) and len(value) == 4 and value.isdigit()
     ):
