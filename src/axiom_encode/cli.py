@@ -2945,7 +2945,11 @@ def cmd_repair_unused_imports(args):
             output_root=output_root,
             policy_repo_path=repo_path,
             relative_output=relative_output,
-            applied_files=[rules_file],
+            applied_files=(
+                [rules_file, _rulespec_test_path(rules_file)]
+                if _rulespec_test_path(rules_file).exists()
+                else [rules_file]
+            ),
             run_id="deterministic-repair",
             signing_key=signing_key,
             axiom_encode_git=axiom_encode_git,
