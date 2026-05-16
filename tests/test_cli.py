@@ -6673,11 +6673,19 @@ rules: []
         target = policy_repo / "statutes/26/24/d.yaml"
         test_file = policy_repo / "statutes/26/24/d.test.yaml"
         section_112 = policy_repo / "statutes/26/112.yaml"
+        section_32 = policy_repo / "statutes/26/32.yaml"
         target.parent.mkdir(parents=True)
         section_112.write_text(
             """format: rulespec/v1
 rules:
   - name: amount_excluded_from_gross_income_by_reason_of_section_112
+    kind: derived
+"""
+        )
+        section_32.write_text(
+            """format: rulespec/v1
+rules:
+  - name: eitc
     kind: derived
 """
         )
@@ -6701,6 +6709,21 @@ rules:
         formula: |-
           taxable_earned_income_under_section_32
           + amount_excluded_from_gross_income_under_section_112
+  - name: ctc_social_security_excess
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/32#eitc
+              output: eitc
+              hash: sha256:oldhash
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc
 """
         )
         test_file.write_text(
@@ -6753,6 +6776,8 @@ rules:
             "target: us:statutes/26/112#amount_excluded_from_gross_income_by_reason_of_section_112"
             in repaired_rules
         )
+        assert "sha256:oldhash" not in repaired_rules
+        assert f"sha256:{_sha256_file(section_32)}" in repaired_rules
 
         repaired_test = test_file.read_text()
         assert (

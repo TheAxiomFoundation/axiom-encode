@@ -3383,6 +3383,10 @@ def cmd_repair_section_112_import(args):
     except ValueError:
         print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
         sys.exit(1)
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
 
     original_content = rules_file.read_text()
     test_file = _rulespec_test_path(rules_file)
@@ -3391,6 +3395,14 @@ def cmd_repair_section_112_import(args):
         original_content,
         repo_path=repo_path,
     )
+    repaired_content, proof_hash_repairs = _repair_proof_import_hashes(
+        repaired_content,
+        target_base=target_base,
+        rules_file=rules_file,
+        repo_path=repo_path,
+    )
+    if proof_hash_repairs:
+        repaired_rules.append("proof import hashes")
     test_needs_repair = _section_112_tests_need_repair(test_file)
     if repaired_content == original_content and not test_needs_repair:
         print("No Section 112 import repairs found.")
