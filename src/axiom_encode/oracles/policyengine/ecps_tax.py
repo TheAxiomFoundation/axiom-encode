@@ -52,6 +52,8 @@ OASDI_WAGE_BASE_EXCLUSION_OUTPUT = (
     f"{OASDI_WAGE_BASE_BASE}#oasdi_wage_base_excess_excluded_remuneration"
 )
 AXIOM_3121_TAXABLE_OASDI_WAGES = "axiom_3121_taxable_oasdi_wages"
+CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
+CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
 
 
 def contribution_and_benefit_base_program_path(year: int) -> Path:
@@ -151,14 +153,26 @@ PAYROLL_SURFACES = {
         },
     },
 }
+CAPITAL_GAINS_DEFINITION_OUTPUTS = {
+    "net_capital_gain": {
+        "axiom": f"{CAPITAL_GAINS_BASE}#net_capital_gain",
+        "pe": "net_capital_gain",
+    },
+    "adjusted_net_capital_gain": {
+        "axiom": f"{CAPITAL_GAINS_BASE}#adjusted_net_capital_gain",
+        "pe": "adjusted_net_capital_gain",
+    },
+}
 SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
+    "capital-gain-definitions": CAPITAL_GAINS_DEFINITION_OUTPUTS,
     **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
 SURFACE_PROGRAM_PATHS = {
     "ctc": CTC_PROGRAM_PATH,
     "standard-deduction": STANDARD_DEDUCTION_PROGRAM_PATH,
+    "capital-gain-definitions": CAPITAL_GAINS_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
 PE_TAX_UNIT_VARIABLES = tuple(
@@ -166,6 +180,7 @@ PE_TAX_UNIT_VARIABLES = tuple(
         {
             "additional_standard_deduction",
             "adjusted_gross_income",
+            "adjusted_net_capital_gain",
             "basic_standard_deduction",
             "ctc",
             "ctc_maximum",
@@ -173,6 +188,7 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "ctc_phase_out_threshold",
             "ctc_qualifying_children",
             "filing_status",
+            "net_capital_gain",
             "standard_deduction",
         }
     )
@@ -485,17 +501,25 @@ def load_policyengine_tax_data(
     sim.run()
 
     tax_units = sim.output_dataset.data.tax_unit
+    raw_tax_units = dataset.data.tax_unit
+    tax_unit_outputs = tax_units[["tax_unit_id", *PE_TAX_UNIT_VARIABLES]].copy()
     raw_persons = dataset.data.person
     person_outputs = sim.output_dataset.data.person[
         ["person_id", *PE_PERSON_VARIABLES]
     ].copy()
-    mask = np.asarray(tax_units["tax_unit_weight"]) > 0
+    mask = np.asarray(raw_tax_units["tax_unit_weight"]) > 0
     if positive_ctc_only:
         mask &= np.asarray(tax_units["ctc"]) > 0
     indices = np.flatnonzero(mask)
     if sample_size > 0:
         indices = indices[:sample_size]
-    selected = tax_units.iloc[indices].copy()
+    selected = raw_tax_units.iloc[indices].copy()
+    selected = selected.merge(
+        tax_unit_outputs,
+        on="tax_unit_id",
+        how="left",
+        validate="one_to_one",
+    )
     selected_ids = set(int(value) for value in selected["tax_unit_id"])
     selected_persons = raw_persons[
         raw_persons["person_tax_unit_id"].astype(int).isin(selected_ids)
@@ -560,6 +584,8 @@ def build_axiom_request(
         return build_ctc_request(pe_data=pe_data, year=year)
     if surface == "standard-deduction":
         return build_standard_deduction_request(pe_data=pe_data, year=year)
+    if surface == "capital-gain-definitions":
+        return build_capital_gain_definitions_request(pe_data=pe_data, year=year)
     if surface in PAYROLL_SURFACES:
         return build_payroll_request(
             pe_data=pe_data,
@@ -676,6 +702,49 @@ def build_standard_deduction_request(
                 "period": interval,
                 "outputs": [
                     spec["axiom"] for spec in STANDARD_DEDUCTION_OUTPUTS.values()
+                ],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_capital_gain_definitions_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        for name, value in project_capital_gain_definition_inputs(
+            row=row,
+            persons=tax_unit_persons,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{CAPITAL_GAINS_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in CAPITAL_GAINS_DEFINITION_OUTPUTS.values()
                 ],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
@@ -917,6 +986,41 @@ def project_standard_deduction_inputs(row: Any, persons: list[Any]) -> dict[str,
         "individual_is_unmarried_and_not_surviving_spouse": (
             individual_is_unmarried_and_not_surviving_spouse(filing_status)
         ),
+    }
+
+
+def project_capital_gain_definition_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
+    long_term_capital_gains = person_money_sum(
+        persons,
+        "long_term_capital_gains_before_response",
+    )
+    short_term_capital_gains = person_money_sum(persons, "short_term_capital_gains")
+    qualified_dividend_income = person_money_sum(
+        persons,
+        "qualified_dividend_income",
+    )
+    investment_income_election = person_money_sum(
+        persons,
+        "investment_income_elected_form_4952",
+    )
+    capital_gains_28_percent_rate_gain = person_money_sum(
+        persons,
+        "long_term_capital_gains_on_collectibles",
+    ) + person_money_sum(
+        persons,
+        "long_term_capital_gains_on_small_business_stock",
+    )
+    return {
+        "long_term_capital_gains": long_term_capital_gains,
+        "short_term_capital_gains": short_term_capital_gains,
+        "qualified_dividend_income": qualified_dividend_income,
+        "net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii": (
+            investment_income_election
+        ),
+        "unrecaptured_section_1250_gain": money(
+            row.get("unrecaptured_section_1250_gain", 0)
+        ),
+        "capital_gains_28_percent_rate_gain": capital_gains_28_percent_rate_gain,
     }
 
 
@@ -1189,6 +1293,12 @@ def compare_outputs(
             "from PolicyEngine. The section 230 contribution-and-benefit base "
             "is resolved by running the encoded SSA automatic-determination "
             "RuleSpec before section 3121(a)(1).",
+            "Capital-gain-definition projections compare Section 1(h) net and "
+            "adjusted net capital gain from ECPS raw capital-gain, dividend, "
+            "investment-income-election, and unrecaptured-section-1250 fields. "
+            "The full capital-gains-tax surface waits on encoded upstream "
+            "taxable income rather than using PolicyEngine taxable income as "
+            "an Axiom input.",
         ],
     )
 
@@ -1232,6 +1342,10 @@ def group_person_rows_by_tax_unit(persons: Any) -> dict[int, list[Any]]:
     for _idx, person in persons.iterrows():
         grouped.setdefault(int(person["person_tax_unit_id"]), []).append(person)
     return grouped
+
+
+def person_money_sum(persons: list[Any], column: str) -> float:
+    return sum(money(person.get(column, 0)) for person in persons)
 
 
 def input_record(

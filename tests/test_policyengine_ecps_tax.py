@@ -2,6 +2,8 @@ import pytest
 
 import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
 from axiom_encode.oracles.policyengine.ecps_tax import (
+    CAPITAL_GAINS_BASE,
+    CAPITAL_GAINS_DEFINITION_OUTPUTS,
     EMPLOYEE_OASDI_BASE,
     EMPLOYEE_OASDI_PROGRAM_PATH,
     OASDI_WAGE_BASE_BASE,
@@ -9,6 +11,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_PROGRAM_PATH,
     POLICYENGINE_VERSION,
     additional_standard_deduction_entitlement_count,
+    build_capital_gain_definitions_request,
     build_contribution_and_benefit_base_request,
     build_oasdi_wage_base_request,
     build_payroll_request,
@@ -19,6 +22,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     filing_status_code,
     individual_is_unmarried_and_not_surviving_spouse,
     person_entity_id,
+    project_capital_gain_definition_inputs,
     project_ctc_h_person_inputs,
     project_ctc_person_inputs,
     project_oasdi_wage_base_inputs,
@@ -229,6 +233,99 @@ def test_standard_deduction_projection_uses_leaf_age_and_blind_inputs():
         == 2
     )
     assert projected["individual_is_unmarried_and_not_surviving_spouse"] is True
+
+
+def test_capital_gain_definition_projection_uses_ecps_leaf_inputs():
+    projected = project_capital_gain_definition_inputs(
+        row={"unrecaptured_section_1250_gain": 600},
+        persons=[
+            {
+                "long_term_capital_gains_before_response": 10_000,
+                "short_term_capital_gains": -1_500,
+                "qualified_dividend_income": 2_000,
+                "investment_income_elected_form_4952": 250,
+                "long_term_capital_gains_on_collectibles": 700,
+            },
+            {
+                "long_term_capital_gains_before_response": 3_000,
+                "short_term_capital_gains": 500,
+                "qualified_dividend_income": 400,
+                "investment_income_elected_form_4952": 50,
+                "long_term_capital_gains_on_small_business_stock": 100,
+            },
+        ],
+    )
+
+    assert projected == {
+        "long_term_capital_gains": 13_000,
+        "short_term_capital_gains": -1_000,
+        "qualified_dividend_income": 2_400,
+        "net_capital_gain_taken_into_account_as_investment_income_under_section_163_d_4_B_iii": 300,
+        "unrecaptured_section_1250_gain": 600,
+        "capital_gains_28_percent_rate_gain": 800,
+    }
+
+
+def test_build_capital_gain_definitions_request_uses_raw_person_capital_gains():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "unrecaptured_section_1250_gain": 600,
+                    "net_capital_gain": 11_000,
+                    "adjusted_net_capital_gain": 10_200,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "person_tax_unit_id": 1,
+                    "long_term_capital_gains_before_response": 10_000,
+                    "short_term_capital_gains": -1_500,
+                    "qualified_dividend_income": 2_000,
+                    "investment_income_elected_form_4952": 0,
+                    "long_term_capital_gains_on_collectibles": 800,
+                }
+            ]
+        ),
+        "tax_unit_ids": [1],
+        "person_ids": [7],
+    }
+
+    request = build_capital_gain_definitions_request(pe_data=pe_data, year=2026)
+
+    assert request["queries"] == [
+        {
+            "entity_id": "tax_unit_1",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                spec["axiom"] for spec in CAPITAL_GAINS_DEFINITION_OUTPUTS.values()
+            ],
+        }
+    ]
+    input_values = {
+        item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
+    }
+    assert input_values[f"{CAPITAL_GAINS_BASE}#input.long_term_capital_gains"] == (
+        "10000.0"
+    )
+    assert input_values[f"{CAPITAL_GAINS_BASE}#input.short_term_capital_gains"] == (
+        "-1500.0"
+    )
+    assert input_values[
+        f"{CAPITAL_GAINS_BASE}#input.unrecaptured_section_1250_gain"
+    ] == "600.0"
+    assert input_values[
+        f"{CAPITAL_GAINS_BASE}#input.capital_gains_28_percent_rate_gain"
+    ] == "800.0"
 
 
 def test_within_tolerance_keeps_cent_level_strictness_for_ordinary_outputs():
