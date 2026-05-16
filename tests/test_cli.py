@@ -4624,6 +4624,66 @@ rules:
 
         assert issues == []
 
+    def test_executable_input_preservation_allows_filing_status_cleanup(self):
+        existing = """format: rulespec/v1
+rules:
+  - name: senior_deduction_phaseout_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: if filing_status == 1: joint_threshold else: other_threshold
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: senior_deduction_phaseout_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: if joint_return_made_by_taxpayer_and_spouse: joint_threshold else: other_threshold
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert issues == []
+
+    def test_executable_input_preservation_allows_within_section_import_migration(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: senior_deduction_eligible
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxpayer_is_married_individual_within_section_7703
+"""
+        generated = """format: rulespec/v1
+imports:
+  - us:statutes/26/7703#taxpayer_considered_married_after_living_apart_rule
+rules:
+  - name: senior_deduction_eligible
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxpayer_considered_married_after_living_apart_rule
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert issues == []
+
     def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"

@@ -8755,7 +8755,8 @@ def _executable_input_preservation_issues(
     missing = sorted(
         input_name
         for input_name in existing_inputs - generated_inputs
-        if not _dropped_input_is_imported_cross_reference_migration(
+        if not _dropped_input_is_allowed_filing_status_migration(input_name)
+        and not _dropped_input_is_imported_cross_reference_migration(
             input_name,
             generated_imports=generated_imports,
         )
@@ -8769,6 +8770,11 @@ def _executable_input_preservation_issues(
         "unless a source-grounded migration explicitly updates downstream "
         "tests, imports, and oracle mappings."
     ]
+
+
+def _dropped_input_is_allowed_filing_status_migration(input_name: str) -> bool:
+    """Allow replacing the legacy local filing-status fact with legal predicates."""
+    return input_name in {"filing_status", "tax_filing_status"}
 
 
 def _dropped_input_is_imported_cross_reference_migration(
@@ -8820,6 +8826,8 @@ def _legal_cross_reference_input_target(
         r"|deduction_provided_in"
         r"|credit_allowed_under"
         r"|credits_allowable_under"
+        r"|within"
+        r"|within_meaning_of"
         r")_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
         r"(?P<tail>(?:_[A-Za-z0-9]+)*)",
         input_name,
