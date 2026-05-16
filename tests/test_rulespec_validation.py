@@ -44,6 +44,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_partial_extent_zeroing_issues,
     find_proof_import_hash_consistency_issues,
     find_relation_aggregate_syntax_issues,
+    find_required_executable_us_tax_source_issues,
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
@@ -7209,6 +7210,24 @@ rules: []
         "Upstream filing-status source must be executable" in issue
         for issue in issues
     )
+
+
+def test_required_tax_source_rejects_deferred_section_151_d(tmp_path):
+    content = """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+rules: []
+"""
+
+    issues = find_required_executable_us_tax_source_issues(
+        content,
+        rules_file=tmp_path / "statutes" / "26" / "151" / "d.yaml",
+    )
+
+    assert len(issues) == 1
+    assert "Required upstream tax source must be executable" in issues[0]
 
 
 def test_filing_status_upstream_source_rejects_deferred_death_determination_source(

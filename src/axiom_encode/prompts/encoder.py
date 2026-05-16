@@ -569,6 +569,12 @@ Hard requirements:
 - For IRC section 151(a), preserve the `taxpayer_is_individual` guard on
   `section_151_exemption_deduction`; do not replace it with only
   `len(exemption_individual_of_tax_unit)` or a relation count.
+- Hard requirement for IRC section 151(d): do not emit
+  `module.status: deferred` or `module.status: entity_not_supported`.
+  Section 151(d) is a reusable upstream source for exemption amounts, phaseout
+  increments, and senior deduction amounts. Encode its executable parameters
+  and formulas with source-backed boundary facts for unresolved filing-return
+  or marital conditions; do not leave an empty shell.
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). If the source groups surviving

@@ -3588,6 +3588,9 @@ def find_tax_filing_status_local_input_issues(
 _US_TAX_FILING_STATUS_UPSTREAM_SOURCE_PATH_PATTERN = re.compile(
     r"(?:^|/)statutes/(?:26/(?:2(?:/[^/]+)*|6013(?:/[^/]+)*|7703)|5/5566|37/556)\.yaml$"
 )
+_REQUIRED_EXECUTABLE_US_TAX_SOURCE_PATH_PATTERN = re.compile(
+    r"(?:^|/)statutes/26/151/d\.yaml$"
+)
 
 
 def find_tax_filing_status_upstream_source_issues(
@@ -3622,6 +3625,39 @@ def find_tax_filing_status_upstream_source_issues(
         issues = _section_6013a_without_a3_joint_return_surface_issues(payload)
         if issues:
             return issues
+    return []
+
+
+def find_required_executable_us_tax_source_issues(
+    content: str,
+    *,
+    rules_file: Path | None = None,
+) -> list[str]:
+    """Require selected reusable upstream US tax sources to be executable."""
+    if (
+        rules_file is None
+        or not _REQUIRED_EXECUTABLE_US_TAX_SOURCE_PATH_PATTERN.search(
+            rules_file.as_posix()
+        )
+    ):
+        return []
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    module = payload.get("module")
+    status = ""
+    if isinstance(module, dict):
+        status = str(module.get("status") or "").strip().lower()
+    executable_names = _rulespec_executable_names_from_payload(payload)
+    if status in {"deferred", "entity_not_supported"} or not executable_names:
+        return [
+            "Required upstream tax source must be executable: "
+            "`statutes/26/151/d.yaml` supplies the section 151(d) exemption "
+            "amounts and senior deduction parameters used by dependent and "
+            "taxable-income rules, so it cannot be a deferred/entity-not-supported "
+            "empty artifact."
+        ]
     return []
 
 
@@ -9506,6 +9542,12 @@ class ValidatorPipeline:
         issues.extend(find_section_151_entitlement_proxy_issues(content))
         issues.extend(
             find_tax_filing_status_upstream_source_issues(
+                content,
+                rules_file=rules_file,
+            )
+        )
+        issues.extend(
+            find_required_executable_us_tax_source_issues(
                 content,
                 rules_file=rules_file,
             )
