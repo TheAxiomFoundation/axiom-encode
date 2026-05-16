@@ -4490,11 +4490,14 @@ def _repair_section_32_c_2_164f_self_employment_tests(test_file: Path) -> bool:
         component_key = (
             f"us:statutes/26/32/c/2#{_SECTION_32_C_2_SELF_EMPLOYMENT_OUTPUT}"
         )
+        component_already_present = component_key in outputs
         changed |= _setdefault_test_output(
             outputs,
             component_key,
             _restore_numeric_type(round(new_self_employment, 6)),
         )
+        if component_already_present:
+            continue
         for key in (
             f"us:statutes/26/32/c/2#{_SECTION_32_C_2_EARNED_PRE_112_OUTPUT}",
             "us:statutes/26/32/c/2#earned_income",

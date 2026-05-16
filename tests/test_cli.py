@@ -7198,6 +7198,35 @@ rules:
             "us:statutes/26/1401#input.self_employment_income: 0"
             in dependent_test_content
         )
+        dependent_test_file.write_text(
+            "\n".join(
+                line
+                for line in dependent_test_content.splitlines()
+                if "us:statutes/26/164/f#input." not in line
+                and "us:statutes/26/1401#input." not in line
+                and "us:statutes/26/32/c/2#self_employment_earned_income_component"
+                not in line
+            )
+            + "\n"
+        )
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_32_c_2_section_112_split(args)
+        repaired_test_content = test_file.read_text()
+        assert (
+            "us:statutes/26/32/c/2#earned_income_before_section_112_election: 59293.5225"
+            in repaired_test_content
+        )
+        assert "59352.045" not in repaired_test_content
         manifest_payload = json.loads(
             (
                 policy_repo
