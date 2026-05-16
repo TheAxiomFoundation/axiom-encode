@@ -56,6 +56,7 @@ from axiom_encode.cli import (
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
     cmd_repair_proof_import_hashes,
+    cmd_repair_section_32_c_2_section_112_split,
     cmd_repair_section_112_import,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_zero_branch_tests,
@@ -6694,6 +6695,8 @@ rules:
         section_32_c_2.write_text(
             """format: rulespec/v1
 rules:
+  - name: earned_income_before_section_112_election
+    kind: derived
   - name: earned_income
     kind: derived
 """
@@ -6782,16 +6785,16 @@ rules:
             "amount_excluded_from_gross_income_by_reason_of_section_112"
             in repaired_rules
         )
-        assert (
-            "max(0, earned_income - section_112_amounts_excluded_from_gross_income)"
-            in repaired_rules
-        )
+        assert "earned_income_before_section_112_election" in repaired_rules
         assert "  - us:statutes/26/32/c/2\n" in repaired_rules
         assert (
             "target: us:statutes/26/112#amount_excluded_from_gross_income_by_reason_of_section_112"
             in repaired_rules
         )
-        assert "target: us:statutes/26/32/c/2#earned_income" in repaired_rules
+        assert (
+            "target: us:statutes/26/32/c/2#earned_income_before_section_112_election"
+            in repaired_rules
+        )
         assert "sha256:oldhash" not in repaired_rules
         assert f"sha256:{_sha256_file(section_32)}" in repaired_rules
 
@@ -6820,6 +6823,140 @@ rules:
             "statutes/26/24/d.yaml",
             "statutes/26/24/d.test.yaml",
         ]
+
+    def test_repair_section_32_c_2_splits_section_112_election(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/32/c/2.yaml"
+        test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
+        section_1402 = policy_repo / "statutes/26/1402/a.yaml"
+        target.parent.mkdir(parents=True)
+        section_1402.parent.mkdir(parents=True)
+        section_1402.write_text(
+            """format: rulespec/v1
+rules:
+  - name: net_earnings_from_self_employment
+    kind: derived
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/a#net_earnings_from_self_employment
+rules:
+  - name: employee_compensation_earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A)(i), 32(c)(2)(B)(ii)-(vi)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: wages, salaries, tips, and other employee compensation
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income
+              - pension_or_annuity_amounts_received
+              - amounts_to_which_section_871_a_applies
+              - amounts_received_for_services_while_inmate_at_penal_institution
+              - subsidized_state_work_activity_amounts_received
+          )
+          + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:
+              section_112_amounts_excluded_from_gross_income
+          else:
+              0)
+
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A), 32(c)(2)(B)
+    metadata:
+      proof:
+        atoms: []
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              employee_compensation_earned_income
+              + net_earnings_from_self_employment
+          )
+"""
+        )
+        test_file.write_text(
+            """- name: section_112_election_adds_excluded_amounts
+  input:
+    us:statutes/26/32/c/2#input.taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income: true
+    us:statutes/26/32/c/2#input.section_112_amounts_excluded_from_gross_income: 5000
+  output:
+    us:statutes/26/32/c/2#employee_compensation_earned_income: 25000
+    us:statutes/26/32/c/2#earned_income: 25000
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/32/c/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_32_c_2_section_112_split(args)
+
+        repaired_rules = target.read_text()
+        assert (
+            "employee_compensation_earned_income_before_section_112_election"
+            in repaired_rules
+        )
+        assert "earned_income_before_section_112_election" in repaired_rules
+        repaired_tests = yaml.safe_load(test_file.read_text())
+        outputs = repaired_tests[0]["output"]
+        assert (
+            outputs[
+                "us:statutes/26/32/c/2#employee_compensation_earned_income_before_section_112_election"
+            ]
+            == 20000
+        )
+        assert (
+            outputs["us:statutes/26/32/c/2#earned_income_before_section_112_election"]
+            == 20000
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
+        manifest_payload = json.loads(manifest.read_text())
+        assert manifest_payload["model"] == "section-32-c-2-section-112-split-v1"
+        assert (
+            manifest_payload["tool"]
+            == "axiom-encode repair-section-32-c-2-section-112-split"
+        )
 
     def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(
         self, tmp_path

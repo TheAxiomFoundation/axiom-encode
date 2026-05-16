@@ -727,6 +727,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_section_32_c_2_parser = subparsers.add_parser(
+        "repair-section-32-c-2-section-112-split",
+        help="Apply signed deterministic repair for Section 32(c)(2) Section 112 split",
+    )
+    repair_section_32_c_2_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_section_32_c_2_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_section_32_c_2_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_zero_tests_parser = subparsers.add_parser(
         "repair-zero-branch-tests",
         help="Apply signed deterministic repairs for missing zero-branch tests",
@@ -1444,6 +1466,8 @@ def main():
         cmd_repair_eitc_earned_income_import(args)
     elif args.command == "repair-section-112-import":
         cmd_repair_section_112_import(args)
+    elif args.command == "repair-section-32-c-2-section-112-split":
+        cmd_repair_section_32_c_2_section_112_split(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
     elif args.command == "repair-unused-imports":
@@ -3483,6 +3507,102 @@ def cmd_repair_section_112_import(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_section_32_c_2_section_112_split(args):
+    """Apply a signed deterministic Section 32(c)(2) Section 112 split repair."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_content, repaired_rules = _repair_section_32_c_2_section_112_split_content(
+        original_content,
+        repo_path=repo_path,
+    )
+    test_needs_repair = _section_32_c_2_section_112_split_tests_need_repair(test_file)
+    if repaired_content == original_content and not test_needs_repair:
+        print("No Section 32(c)(2) Section 112 split repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+
+        rules_file.write_text(repaired_content)
+        applied_files = [rules_file]
+        if _repair_section_32_c_2_section_112_split_tests(test_file):
+            applied_files.append(test_file)
+        elif test_file.exists():
+            applied_files.append(test_file)
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        validation_issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        if not validation.all_passed:
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original file.")
+            for issue in validation_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="section-32-c-2-section-112-split-v1",
+            tool="axiom-encode repair-section-32-c-2-section-112-split",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied Section 32(c)(2) Section 112 split repair to "
+        f"{relative_output}: {', '.join(repaired_rules) or 'tests'}"
+    )
+    print(f"manifest={manifest_path}")
+
+
 def _repair_eitc_section_152_import_content(
     content: str,
     *,
@@ -3534,8 +3654,12 @@ _SECTION_112_IMPORT = "us:statutes/26/112"
 _SECTION_112_TARGET = f"{_SECTION_112_IMPORT}#{_SECTION_112_OUTPUT}"
 _SECTION_24_TAXABLE_EARNED_INCOME_PLACEHOLDER = "taxable_earned_income_under_section_32"
 _SECTION_32_C_2_IMPORT = "us:statutes/26/32/c/2"
-_SECTION_32_C_2_OUTPUT = "earned_income"
+_SECTION_32_C_2_OUTPUT = "earned_income_before_section_112_election"
 _SECTION_32_C_2_TARGET = f"{_SECTION_32_C_2_IMPORT}#{_SECTION_32_C_2_OUTPUT}"
+_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT = (
+    "employee_compensation_earned_income_before_section_112_election"
+)
+_SECTION_32_C_2_EARNED_PRE_112_OUTPUT = "earned_income_before_section_112_election"
 
 
 def _repair_section_112_import_content(
@@ -3579,6 +3703,156 @@ def _repair_section_112_import_content(
     return repaired, [_SECTION_112_OUTPUT]
 
 
+def _repair_section_32_c_2_section_112_split_content(
+    content: str,
+    *,
+    repo_path: Path,
+) -> tuple[str, list[str]]:
+    if _SECTION_32_C_2_EARNED_PRE_112_OUTPUT in content:
+        return content, []
+    section_1402_file = repo_path / "statutes/26/1402/a.yaml"
+    if not section_1402_file.exists():
+        return content, []
+
+    repaired = content
+    repaired = repaired.replace(
+        "  - name: employee_compensation_earned_income\n",
+        _section_32_c_2_employee_pre_112_rule()
+        + "\n  - name: employee_compensation_earned_income\n",
+        1,
+    )
+    repaired = repaired.replace(
+        """          max(
+              0,
+              wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income
+              - pension_or_annuity_amounts_received
+              - amounts_to_which_section_871_a_applies
+              - amounts_received_for_services_while_inmate_at_penal_institution
+              - subsidized_state_work_activity_amounts_received
+          )
+          + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:
+              section_112_amounts_excluded_from_gross_income
+          else:
+              0)""",
+        """          employee_compensation_earned_income_before_section_112_election
+          + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:
+              section_112_amounts_excluded_from_gross_income
+          else:
+              0)""",
+        1,
+    )
+    repaired = _insert_rule_import_proof_atom(
+        repaired,
+        rule_name="employee_compensation_earned_income",
+        target=(f"us:statutes/26/32/c/2#{_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT}"),
+        output=_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT,
+        import_hash="sha256:local",
+    )
+    repaired = repaired.replace(
+        "  - name: earned_income\n",
+        _section_32_c_2_earned_pre_112_rule(
+            section_1402_hash=f"sha256:{_sha256_file(section_1402_file)}"
+        )
+        + "\n  - name: earned_income\n",
+        1,
+    )
+    if repaired == content:
+        return content, []
+    return repaired, [
+        _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT,
+        _SECTION_32_C_2_EARNED_PRE_112_OUTPUT,
+    ]
+
+
+def _section_32_c_2_employee_pre_112_rule() -> str:
+    return """  - name: employee_compensation_earned_income_before_section_112_election
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A)(i), 32(c)(2)(B)(ii)-(v)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: "wages, salaries, tips, and other employee compensation, but only if such amounts are includible in gross income for the taxable year"
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: "no amount received as a pension or annuity shall be taken into account"
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: "no amount to which section 871(a) applies ... shall be taken into account"
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: "no amount received for services provided by an individual while the individual is an inmate at a penal institution shall be taken into account"
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: "no amount described in subparagraph (A) received for service performed in work activities ... shall be taken into account, but only to the extent such amount is subsidized under such State program"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income
+              - pension_or_annuity_amounts_received
+              - amounts_to_which_section_871_a_applies
+              - amounts_received_for_services_while_inmate_at_penal_institution
+              - subsidized_state_work_activity_amounts_received
+          )
+"""
+
+
+def _section_32_c_2_earned_pre_112_rule(section_1402_hash: str) -> str:
+    return f"""  - name: earned_income_before_section_112_election
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/32/c/2#employee_compensation_earned_income_before_section_112_election
+              output: employee_compensation_earned_income_before_section_112_election
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1402/a#net_earnings_from_self_employment
+              output: net_earnings_from_self_employment
+              hash: {section_1402_hash}
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/32
+              excerpt: "The term “earned income” means— (i) wages, salaries, tips, and other employee compensation ... plus (ii) the amount of the taxpayer’s net earnings from self-employment for the taxable year"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              employee_compensation_earned_income_before_section_112_election
+              + net_earnings_from_self_employment
+          )
+"""
+
+
 def _ensure_rulespec_import(content: str, import_base: str) -> str:
     import_line = f"  - {import_base}"
     if re.search(rf"^\s*-\s+{re.escape(import_base)}\s*$", content, re.MULTILINE):
@@ -3598,8 +3872,7 @@ def _repair_ctc_phase_in_earned_income_base_formula(content: str) -> str:
         f"          + {_SECTION_112_OUTPUT}"
     )
     replacement = (
-        "max(0, earned_income - section_112_amounts_excluded_from_gross_income)\n"
-        f"          + {_SECTION_112_OUTPUT}"
+        f"earned_income_before_section_112_election\n          + {_SECTION_112_OUTPUT}"
     )
     repaired = content.replace(source, replacement)
     return repaired.replace(
@@ -3608,9 +3881,10 @@ def _repair_ctc_phase_in_earned_income_base_formula(content: str) -> str:
     )
 
 
-def _insert_ctc_phase_in_import_proof_atom(
+def _insert_rule_import_proof_atom(
     content: str,
     *,
+    rule_name: str,
     target: str,
     output: str,
     import_hash: str,
@@ -3619,8 +3893,9 @@ def _insert_ctc_phase_in_import_proof_atom(
     repaired: list[str] = []
     in_rule = False
     inserted = False
+    rule_pattern = re.compile(rf"^\s+- name:\s+{re.escape(rule_name)}\s*$")
     for line in lines:
-        if re.match(r"^\s+- name:\s+ctc_phase_in_earned_income_base\s*$", line):
+        if rule_pattern.match(line):
             in_rule = True
         elif in_rule and re.match(r"^\s+- name:\s+", line):
             in_rule = False
@@ -3641,6 +3916,22 @@ def _insert_ctc_phase_in_import_proof_atom(
             inserted = True
 
     return "".join(repaired)
+
+
+def _insert_ctc_phase_in_import_proof_atom(
+    content: str,
+    *,
+    target: str,
+    output: str,
+    import_hash: str,
+) -> str:
+    return _insert_rule_import_proof_atom(
+        content,
+        rule_name="ctc_phase_in_earned_income_base",
+        target=target,
+        output=output,
+        import_hash=import_hash,
+    )
 
 
 def _eitc_qualifying_child_base_rule(import_hash: str) -> str:
@@ -3853,12 +4144,101 @@ def _repair_ctc_taxable_earned_income_test_inputs(test_file: Path) -> bool:
     return True
 
 
+def _repair_section_32_c_2_section_112_split_tests(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    try:
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except yaml.YAMLError:
+        return False
+    if not isinstance(cases, list):
+        return False
+
+    changed = False
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        outputs = case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        employee_key = "us:statutes/26/32/c/2#employee_compensation_earned_income"
+        earned_key = "us:statutes/26/32/c/2#earned_income"
+        employee_before_key = (
+            f"us:statutes/26/32/c/2#{_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT}"
+        )
+        earned_before_key = (
+            f"us:statutes/26/32/c/2#{_SECTION_32_C_2_EARNED_PRE_112_OUTPUT}"
+        )
+        if employee_before_key in outputs and earned_before_key in outputs:
+            continue
+        section_112_added = _section_32_c_2_test_section_112_addition(inputs)
+        employee = _coerce_numeric_test_value(outputs.get(employee_key))
+        earned = _coerce_numeric_test_value(outputs.get(earned_key))
+        if employee is None or earned is None or section_112_added is None:
+            continue
+        outputs.setdefault(
+            employee_before_key, _restore_numeric_type(employee - section_112_added)
+        )
+        outputs.setdefault(
+            earned_before_key, _restore_numeric_type(earned - section_112_added)
+        )
+        changed = True
+    if not changed:
+        return False
+    test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=False))
+    return True
+
+
 def _section_112_tests_need_repair(test_file: Path) -> bool:
     return (
         test_file.exists()
         and f"us:statutes/26/24/d#input.{_SECTION_112_OLD_PLACEHOLDER}:"
         in test_file.read_text()
     )
+
+
+def _section_32_c_2_section_112_split_tests_need_repair(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    content = test_file.read_text()
+    return (
+        "us:statutes/26/32/c/2#employee_compensation_earned_income:" in content
+        and "employee_compensation_earned_income_before_section_112_election"
+        not in content
+    )
+
+
+def _section_32_c_2_test_section_112_addition(inputs: dict) -> float | int | None:
+    election = inputs.get(
+        "us:statutes/26/32/c/2#input."
+        "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income"
+    )
+    if election is not True:
+        return 0
+    return _coerce_numeric_test_value(
+        inputs.get(
+            "us:statutes/26/32/c/2#input.section_112_amounts_excluded_from_gross_income"
+        )
+    )
+
+
+def _coerce_numeric_test_value(value: object) -> float | int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int | float):
+        return value
+    if isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            parsed = float(value.strip())
+            return int(parsed) if parsed.is_integer() else parsed
+    return None
+
+
+def _restore_numeric_type(value: float | int) -> float | int:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 def _ctc_taxable_earned_income_tests_need_repair(test_file: Path) -> bool:
