@@ -281,6 +281,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
+        "--allow-policyengine-us-version",
+        action="store_true",
+        help=(
+            "Allow the installed policyengine-us version to differ from the "
+            "pinned oracle baseline. Intended only for validating local "
+            "PolicyEngine fixes before release."
+        ),
+    )
+    parser.add_argument(
         "--fail-on-mismatch",
         action="store_true",
         help="Exit nonzero when any compared value differs beyond tolerance",
@@ -299,6 +308,7 @@ def main(args: argparse.Namespace) -> int:
         data_folder=args.data_folder,
         tolerance=args.tolerance,
         relative_tolerance=args.relative_tolerance,
+        allow_policyengine_us_version=args.allow_policyengine_us_version,
     )
     if args.json:
         print(json.dumps(report.to_json(), indent=2, sort_keys=True))
@@ -325,9 +335,12 @@ def compare_tax_ecps(
     data_folder: Path,
     tolerance: float,
     relative_tolerance: float,
+    allow_policyengine_us_version: bool = False,
 ) -> TaxComparisonReport:
     require_numpy()
-    require_policyengine_versions()
+    require_policyengine_versions(
+        allow_policyengine_us_version=allow_policyengine_us_version,
+    )
     resolved_rulespec_root = (rulespec_root or workspace_root / "rulespec-us").resolve()
     resolved_axiom_rules_path = (
         axiom_rules_path or workspace_root / "axiom-rules-engine"
@@ -1207,7 +1220,9 @@ def require_numpy() -> None:
         raise SystemExit(policyengine_install_message())
 
 
-def require_policyengine_versions() -> None:
+def require_policyengine_versions(
+    *, allow_policyengine_us_version: bool = False
+) -> None:
     try:
         policyengine_version = version("policyengine")
         policyengine_us_version = version("policyengine-us")
@@ -1218,7 +1233,10 @@ def require_policyengine_versions() -> None:
             f"policyengine=={POLICYENGINE_VERSION} required; found "
             f"{policyengine_version}. {policyengine_install_message()}"
         )
-    if policyengine_us_version != POLICYENGINE_US_VERSION:
+    if (
+        policyengine_us_version != POLICYENGINE_US_VERSION
+        and not allow_policyengine_us_version
+    ):
         raise SystemExit(
             f"policyengine-us=={POLICYENGINE_US_VERSION} required; found "
             f"{policyengine_us_version}. {policyengine_install_message()}"

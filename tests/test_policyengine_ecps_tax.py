@@ -1,8 +1,10 @@
 import pytest
 
+import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
 from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_BASE,
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
+    POLICYENGINE_VERSION,
     additional_standard_deduction_entitlement_count,
     build_oasdi_wage_base_request,
     build_payroll_request,
@@ -15,6 +17,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
+    require_policyengine_versions,
     social_security_contribution_and_benefit_base,
     taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
@@ -391,3 +394,30 @@ def test_build_oasdi_payroll_request_requires_3121_results():
             year=2026,
             surface="employee-oasdi",
         )
+
+
+def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):
+    def fake_version(package):
+        if package == "policyengine":
+            return POLICYENGINE_VERSION
+        if package == "policyengine-us":
+            return "999.0.0"
+        raise AssertionError(package)
+
+    monkeypatch.setattr(ecps_tax, "version", fake_version)
+
+    with pytest.raises(SystemExit, match="policyengine-us=="):
+        require_policyengine_versions()
+
+
+def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
+    def fake_version(package):
+        if package == "policyengine":
+            return POLICYENGINE_VERSION
+        if package == "policyengine-us":
+            return "999.0.0"
+        raise AssertionError(package)
+
+    monkeypatch.setattr(ecps_tax, "version", fake_version)
+
+    require_policyengine_versions(allow_policyengine_us_version=True)
