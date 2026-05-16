@@ -523,7 +523,8 @@ Hard requirements:
   matters. Import a source-backed eligibility/judgment output such as
   `us:statutes/26/151#exemption_individual_eligible`, or encode the missing
   upstream 151 entitlement predicate first.
-- Hard requirement for IRC sections 2, 6013, and 7703: do not emit
+- Hard requirement for IRC sections 2, 6013, and 7703, 5 USC section 5566,
+  and 37 USC section 556: do not emit
   `module.status: deferred` or `module.status: entity_not_supported`. These
   sources are the upstream filing-status source chain. Encode executable legal
   predicates with boundary facts for marital, household, abode, support, death,

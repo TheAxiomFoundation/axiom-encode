@@ -3573,7 +3573,7 @@ def find_tax_filing_status_local_input_issues(
 
 
 _US_TAX_FILING_STATUS_UPSTREAM_SOURCE_PATH_PATTERN = re.compile(
-    r"(?:^|/)statutes/26/(?:2|6013|7703)\.yaml$"
+    r"(?:^|/)statutes/(?:26/(?:2|6013|7703)|5/5566|37/556)\.yaml$"
 )
 
 

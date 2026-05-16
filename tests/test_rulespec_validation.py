@@ -7135,6 +7135,28 @@ rules: []
     )
 
 
+def test_filing_status_upstream_source_rejects_deferred_death_determination_source(
+    tmp_path,
+):
+    content = """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/5/5566
+rules: []
+"""
+
+    issues = find_tax_filing_status_upstream_source_issues(
+        content,
+        rules_file=tmp_path / "statutes" / "5" / "5566.yaml",
+    )
+
+    assert any(
+        "Upstream filing-status source must be executable" in issue
+        for issue in issues
+    )
+
+
 def test_filing_status_upstream_source_allows_executable_module(tmp_path):
     content = """format: rulespec/v1
 module:
