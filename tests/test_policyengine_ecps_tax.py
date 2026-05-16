@@ -1,15 +1,22 @@
 import pytest
 
 from axiom_encode.oracles.policyengine.ecps_tax import (
+    OASDI_WAGE_BASE_BASE,
+    OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     additional_standard_deduction_entitlement_count,
+    build_oasdi_wage_base_request,
+    build_payroll_request,
     filing_status_code,
     individual_is_unmarried_and_not_surviving_spouse,
     person_entity_id,
     project_ctc_h_person_inputs,
     project_ctc_person_inputs,
+    project_oasdi_wage_base_inputs,
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
+    social_security_contribution_and_benefit_base,
+    taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
     valid_child_ssn_type,
     within_tolerance,
@@ -236,3 +243,151 @@ def test_within_tolerance_accepts_large_policyengine_float_noise():
         absolute_tolerance=0.01,
         relative_tolerance=2e-7,
     )
+
+
+def test_oasdi_wage_base_projection_uses_gross_wages_and_official_base():
+    projected = project_oasdi_wage_base_inputs(
+        {"payroll_tax_gross_wages": 200_000},
+        contribution_base=social_security_contribution_and_benefit_base(2026),
+    )
+
+    assert (
+        projected[
+            "contribution_and_benefit_base_under_section_230_of_social_security_act"
+        ]
+        == 184_500
+    )
+    assert (
+        projected[
+            "remuneration_paid_to_individual_by_employer_with_respect_to_employment"
+        ]
+        == 200_000
+    )
+    assert (
+        projected[
+            "remuneration_other_than_succeeding_paragraphs_paid_to_individual_by_employer_during_calendar_year_before_payment"
+        ]
+        == 0
+    )
+
+
+def test_build_oasdi_wage_base_request_uses_3121_inputs():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "persons": pd.DataFrame(
+            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
+        ),
+        "person_ids": [7],
+    }
+
+    request = build_oasdi_wage_base_request(pe_data=pe_data, year=2026)
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [OASDI_WAGE_BASE_EXCLUSION_OUTPUT],
+        }
+    ]
+    input_values = {
+        item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
+    }
+    assert (
+        input_values[
+            f"{OASDI_WAGE_BASE_BASE}#input.contribution_and_benefit_base_under_section_230_of_social_security_act"
+        ]
+        == "184500.0"
+    )
+    assert (
+        input_values[
+            f"{OASDI_WAGE_BASE_BASE}#input.remuneration_paid_to_individual_by_employer_with_respect_to_employment"
+        ]
+        == "200000.0"
+    )
+
+
+def test_taxable_oasdi_wages_come_from_axiom_3121_results():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "persons": pd.DataFrame(
+            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
+        ),
+        "person_ids": [7],
+    }
+    results = [
+        {
+            "outputs": {
+                OASDI_WAGE_BASE_EXCLUSION_OUTPUT: {
+                    "kind": "scalar",
+                    "value": {"kind": "decimal", "value": "15500"},
+                }
+            }
+        }
+    ]
+
+    assert taxable_oasdi_wages_by_person_id(
+        pe_data=pe_data,
+        oasdi_wage_base_results=results,
+    ) == {7: 184_500}
+
+
+def test_build_oasdi_payroll_request_feeds_3121_taxable_wages():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "persons": pd.DataFrame(
+            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
+        ),
+        "person_ids": [7],
+    }
+    results = [
+        {
+            "outputs": {
+                OASDI_WAGE_BASE_EXCLUSION_OUTPUT: {
+                    "kind": "scalar",
+                    "value": {"kind": "decimal", "value": "15500"},
+                }
+            }
+        }
+    ]
+
+    request = build_payroll_request(
+        pe_data=pe_data,
+        year=2026,
+        surface="employee-oasdi",
+        oasdi_wage_base_results=results,
+    )
+
+    assert request["dataset"]["inputs"] == [
+        {
+            "name": "us:statutes/26/3101/a#input.wages",
+            "entity": "Entity",
+            "entity_id": "person_7",
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "value": {"kind": "decimal", "value": "184500.0"},
+        }
+    ]
+
+
+def test_build_oasdi_payroll_request_requires_3121_results():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "persons": pd.DataFrame(
+            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
+        ),
+        "person_ids": [7],
+    }
+
+    with pytest.raises(ValueError, match="Axiom 3121 wage-base results"):
+        build_payroll_request(
+            pe_data=pe_data,
+            year=2026,
+            surface="employee-oasdi",
+        )

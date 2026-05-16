@@ -46,6 +46,12 @@ EMPLOYER_OASDI_PROGRAM_PATH = Path("statutes/26/3111/a.yaml")
 EMPLOYER_OASDI_BASE = "us:statutes/26/3111/a"
 EMPLOYER_MEDICARE_PROGRAM_PATH = Path("statutes/26/3111/b.yaml")
 EMPLOYER_MEDICARE_BASE = "us:statutes/26/3111/b"
+OASDI_WAGE_BASE_PROGRAM_PATH = Path("statutes/26/3121/a/1.yaml")
+OASDI_WAGE_BASE_BASE = "us:statutes/26/3121/a/1"
+OASDI_WAGE_BASE_EXCLUSION_OUTPUT = (
+    f"{OASDI_WAGE_BASE_BASE}#oasdi_wage_base_excess_excluded_remuneration"
+)
+AXIOM_3121_TAXABLE_OASDI_WAGES = "axiom_3121_taxable_oasdi_wages"
 
 CTC_OUTPUTS = {
     "ctc_before_advance_payments": {
@@ -87,7 +93,7 @@ PAYROLL_SURFACES = {
     "employee-oasdi": {
         "program": EMPLOYEE_OASDI_PROGRAM_PATH,
         "base": EMPLOYEE_OASDI_BASE,
-        "wage_input": "taxable_earnings_for_social_security",
+        "wage_input": AXIOM_3121_TAXABLE_OASDI_WAGES,
         "outputs": {
             "employee_social_security_tax": {
                 "axiom": f"{EMPLOYEE_OASDI_BASE}#oasdi_wage_tax",
@@ -109,7 +115,7 @@ PAYROLL_SURFACES = {
     "employer-oasdi": {
         "program": EMPLOYER_OASDI_PROGRAM_PATH,
         "base": EMPLOYER_OASDI_BASE,
-        "wage_input": "taxable_earnings_for_social_security",
+        "wage_input": AXIOM_3121_TAXABLE_OASDI_WAGES,
         "outputs": {
             "employer_social_security_tax": {
                 "axiom": f"{EMPLOYER_OASDI_BASE}#employer_oasdi_excise_tax",
@@ -164,7 +170,6 @@ PE_PERSON_VARIABLES = tuple(
             "employer_social_security_tax",
             "irs_employment_income",
             "payroll_tax_gross_wages",
-            "taxable_earnings_for_social_security",
         }
     )
 )
@@ -335,12 +340,33 @@ def compare_tax_ecps(
     )
     surfaces = list(SURFACE_OUTPUTS) if surface == "all" else [surface]
     surface_results: dict[str, list[dict[str, Any]]] = {}
+    oasdi_wage_base_results: list[dict[str, Any]] | None = None
     for selected_surface in surfaces:
         program = resolved_rulespec_root / SURFACE_PROGRAM_PATHS[selected_surface]
         if not program.exists():
             raise SystemExit(f"{selected_surface} RuleSpec not found: {program}")
+        if payroll_surface_uses_axiom_3121(selected_surface):
+            if oasdi_wage_base_results is None:
+                oasdi_program = resolved_rulespec_root / OASDI_WAGE_BASE_PROGRAM_PATH
+                if not oasdi_program.exists():
+                    raise SystemExit(
+                        f"OASDI wage-base RuleSpec not found: {oasdi_program}"
+                    )
+                oasdi_request = build_oasdi_wage_base_request(
+                    pe_data=pe_data,
+                    year=year,
+                )
+                oasdi_wage_base_results = run_axiom_program(
+                    program=oasdi_program,
+                    request=oasdi_request,
+                    rulespec_root=resolved_rulespec_root,
+                    axiom_rules_path=resolved_axiom_rules_path,
+                )
         request = build_axiom_request(
-            pe_data=pe_data, year=year, surface=selected_surface
+            pe_data=pe_data,
+            year=year,
+            surface=selected_surface,
+            oasdi_wage_base_results=oasdi_wage_base_results,
         )
         surface_results[selected_surface] = run_axiom_program(
             program=program,
@@ -418,14 +444,23 @@ def load_policyengine_tax_data(
 
 
 def build_axiom_request(
-    *, pe_data: dict[str, Any], year: int, surface: str = "ctc"
+    *,
+    pe_data: dict[str, Any],
+    year: int,
+    surface: str = "ctc",
+    oasdi_wage_base_results: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if surface == "ctc":
         return build_ctc_request(pe_data=pe_data, year=year)
     if surface == "standard-deduction":
         return build_standard_deduction_request(pe_data=pe_data, year=year)
     if surface in PAYROLL_SURFACES:
-        return build_payroll_request(pe_data=pe_data, year=year, surface=surface)
+        return build_payroll_request(
+            pe_data=pe_data,
+            year=year,
+            surface=surface,
+            oasdi_wage_base_results=oasdi_wage_base_results,
+        )
     raise ValueError(f"unsupported tax surface: {surface}")
 
 
@@ -543,11 +578,23 @@ def build_standard_deduction_request(
 
 
 def build_payroll_request(
-    *, pe_data: dict[str, Any], year: int, surface: str
+    *,
+    pe_data: dict[str, Any],
+    year: int,
+    surface: str,
+    oasdi_wage_base_results: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     config = PAYROLL_SURFACES[surface]
     base = str(config["base"])
     wage_input = str(config["wage_input"])
+    oasdi_taxable_wages = (
+        taxable_oasdi_wages_by_person_id(
+            pe_data=pe_data,
+            oasdi_wage_base_results=oasdi_wage_base_results,
+        )
+        if wage_input == AXIOM_3121_TAXABLE_OASDI_WAGES
+        else None
+    )
     interval = {
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
@@ -556,12 +603,17 @@ def build_payroll_request(
     inputs: list[dict[str, Any]] = []
     for _idx, person in pe_data["persons"].iterrows():
         person_id = int(person["person_id"])
+        wages = (
+            oasdi_taxable_wages[person_id]
+            if oasdi_taxable_wages is not None
+            else money(person[wage_input])
+        )
         inputs.append(
             input_record(
                 f"{base}#input.wages",
                 person_entity_id(person_id),
                 interval,
-                money(person[wage_input]),
+                wages,
             )
         )
 
@@ -577,6 +629,126 @@ def build_payroll_request(
             for person_id in pe_data["person_ids"]
         ],
     }
+
+
+def build_oasdi_wage_base_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    contribution_base = social_security_contribution_and_benefit_base(year)
+    for _idx, person in pe_data["persons"].iterrows():
+        entity_id = person_entity_id(int(person["person_id"]))
+        for name, value in project_oasdi_wage_base_inputs(
+            person,
+            contribution_base=contribution_base,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{OASDI_WAGE_BASE_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": [
+            {
+                "entity_id": person_entity_id(person_id),
+                "period": interval,
+                "outputs": [OASDI_WAGE_BASE_EXCLUSION_OUTPUT],
+            }
+            for person_id in pe_data["person_ids"]
+        ],
+    }
+
+
+def project_oasdi_wage_base_inputs(
+    person: Any,
+    *,
+    contribution_base: float,
+) -> dict[str, Any]:
+    return {
+        (
+            "successor_employer_acquired_substantially_all_trade_or_business_property_"
+            "from_predecessor_during_calendar_year"
+        ): False,
+        (
+            "successor_employer_acquired_substantially_all_property_used_in_separate_"
+            "unit_of_predecessor_trade_or_business_during_calendar_year"
+        ): False,
+        "individual_employed_by_successor_immediately_after_acquisition": False,
+        "individual_employed_by_predecessor_immediately_before_acquisition": False,
+        (
+            "predecessor_remuneration_other_than_succeeding_paragraphs_paid_or_"
+            "considered_paid_to_individual_before_acquisition_during_calendar_year"
+        ): 0,
+        (
+            "remuneration_other_than_succeeding_paragraphs_paid_to_individual_by_"
+            "employer_during_calendar_year_before_payment"
+        ): 0,
+        "contribution_and_benefit_base_under_section_230_of_social_security_act": (
+            contribution_base
+        ),
+        "remuneration_paid_to_individual_by_employer_with_respect_to_employment": (
+            money(person["payroll_tax_gross_wages"])
+        ),
+    }
+
+
+def taxable_oasdi_wages_by_person_id(
+    *,
+    pe_data: dict[str, Any],
+    oasdi_wage_base_results: list[dict[str, Any]] | None,
+) -> dict[int, float]:
+    if oasdi_wage_base_results is None:
+        raise ValueError(
+            "OASDI payroll surfaces require Axiom 3121 wage-base results."
+        )
+    person_ids = [int(person_id) for person_id in pe_data["person_ids"]]
+    if len(oasdi_wage_base_results) != len(person_ids):
+        raise ValueError(
+            "Axiom 3121 wage-base result count does not match selected persons."
+        )
+
+    values: dict[int, float] = {}
+    persons = pe_data["persons"].reset_index(drop=True)
+    for index, person_id in enumerate(person_ids):
+        outputs = oasdi_wage_base_results[index].get("outputs") or {}
+        exclusion = output_number(outputs.get(OASDI_WAGE_BASE_EXCLUSION_OUTPUT))
+        if math.isnan(exclusion):
+            raise ValueError(
+                f"Axiom 3121 wage-base output missing for {person_entity_id(person_id)}."
+            )
+        gross_wages = money(persons.iloc[index]["payroll_tax_gross_wages"])
+        values[person_id] = max(0.0, gross_wages - exclusion)
+    return values
+
+
+def payroll_surface_uses_axiom_3121(surface: str) -> bool:
+    config = PAYROLL_SURFACES.get(surface)
+    return (
+        isinstance(config, dict)
+        and config.get("wage_input") == AXIOM_3121_TAXABLE_OASDI_WAGES
+    )
+
+
+def social_security_contribution_and_benefit_base(year: int) -> float:
+    bases = {
+        2026: 184_500,
+    }
+    try:
+        return float(bases[year])
+    except KeyError as exc:
+        raise ValueError(
+            "Social Security contribution-and-benefit base is not encoded for "
+            f"{year}; add the SSA source before comparing OASDI payroll surfaces."
+        ) from exc
 
 
 def project_tax_unit_inputs(row: Any) -> dict[str, Any]:
@@ -876,9 +1048,11 @@ def compare_outputs(
             "The standard deduction comparison currently treats dependency by "
             "another taxpayer and earned income as boundary-false/zero because "
             "those upstream facts are not yet encoded from ECPS leaf inputs.",
-            "Payroll projections feed section 3101/3111 with upstream taxable "
-            "wage bases from PolicyEngine until the section 3121 wage-base "
-            "rules are encoded and compared directly.",
+            "OASDI payroll projections run Axiom 3121(a)(1) before sections "
+            "3101(a) and 3111(a), so taxable OASDI wages are no longer taken "
+            "from PolicyEngine. The SSA contribution-and-benefit base remains "
+            "an explicit upstream law-parameter boundary until the SSA source "
+            "is ingested and encoded.",
         ],
     )
 
