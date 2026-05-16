@@ -3319,7 +3319,9 @@ def cmd_repair_eitc_earned_income_import(args):
         )
     else:
         repaired_content, repaired_rules = original_content, []
-    test_needs_repair = _eitc_earned_income_tests_need_repair(test_file)
+    test_needs_repair = _eitc_earned_income_tests_need_repair(
+        test_file
+    ) or _section_32_c_2_section_112_split_tests_need_repair(test_file)
     if repaired_content == original_content and not test_needs_repair:
         print("No EITC earned-income import repairs found.")
         return
@@ -3338,7 +3340,12 @@ def cmd_repair_eitc_earned_income_import(args):
 
         rules_file.write_text(repaired_content)
         applied_files = [rules_file]
+        test_repaired = False
         if _repair_eitc_earned_income_test_inputs(test_file):
+            test_repaired = True
+        if _repair_section_32_c_2_section_112_test_inputs(test_file):
+            test_repaired = True
+        if test_repaired:
             applied_files.append(test_file)
         elif test_file.exists():
             applied_files.append(test_file)

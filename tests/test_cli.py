@@ -6553,6 +6553,7 @@ rules:
   input:
     us:statutes/26/32#input.adjusted_gross_income: 22000
     us:statutes/26/32#input.earned_income: 18000
+    us:statutes/26/32/c/2#input.section_112_amounts_excluded_from_gross_income: 0
   output:
     us:statutes/26/32#eitc_phase_out_income: 22000
 """
@@ -6589,9 +6590,17 @@ rules:
         repaired_test = test_file.read_text()
         assert "us:statutes/26/32#input.earned_income" not in repaired_test
         assert (
+            "us:statutes/26/32/c/2#input.section_112_amounts_excluded_from_gross_income"
+            not in repaired_test
+        )
+        assert (
             "us:statutes/26/32/c/2#input."
             "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 18000"
         ) in repaired_test
+        assert (
+            "us:statutes/26/112#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay: 0"
+            in repaired_test
+        )
         assert (
             "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0"
             in repaired_test
