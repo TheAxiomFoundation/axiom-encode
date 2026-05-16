@@ -6828,9 +6828,18 @@ rules:
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/32/c/2.yaml"
         test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
+        section_112 = policy_repo / "statutes/26/112.yaml"
         section_1402 = policy_repo / "statutes/26/1402/a.yaml"
         target.parent.mkdir(parents=True)
+        section_112.parent.mkdir(parents=True, exist_ok=True)
         section_1402.parent.mkdir(parents=True)
+        section_112.write_text(
+            """format: rulespec/v1
+rules:
+  - name: amount_excluded_from_gross_income_by_reason_of_section_112
+    kind: derived
+"""
+        )
         section_1402.write_text(
             """format: rulespec/v1
 rules:
@@ -6938,6 +6947,25 @@ rules:
             in repaired_rules
         )
         assert "earned_income_before_section_112_election" in repaired_rules
+        assert "section_112_amounts_excluded_from_gross_income" not in repaired_rules
+        assert "  - us:statutes/26/112\n" in repaired_rules
+        assert (
+            "target: us:statutes/26/112#amount_excluded_from_gross_income_by_reason_of_section_112"
+            in repaired_rules
+        )
+        assert (
+            "amount_excluded_from_gross_income_by_reason_of_section_112"
+            in repaired_rules
+        )
+        repaired_test_content = test_file.read_text()
+        assert (
+            "us:statutes/26/32/c/2#input.section_112_amounts_excluded_from_gross_income"
+            not in repaired_test_content
+        )
+        assert (
+            "us:statutes/26/112#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay: 5000"
+            in repaired_test_content
+        )
         repaired_tests = yaml.safe_load(test_file.read_text())
         outputs = repaired_tests[0]["output"]
         assert (

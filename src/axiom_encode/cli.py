@@ -3708,19 +3708,26 @@ def _repair_section_32_c_2_section_112_split_content(
     *,
     repo_path: Path,
 ) -> tuple[str, list[str]]:
-    if _SECTION_32_C_2_EARNED_PRE_112_OUTPUT in content:
+    if (
+        _SECTION_32_C_2_EARNED_PRE_112_OUTPUT in content
+        and "section_112_amounts_excluded_from_gross_income" not in content
+    ):
+        return content, []
+    section_112_file = repo_path / "statutes/26/112.yaml"
+    if not section_112_file.exists():
         return content, []
     section_1402_file = repo_path / "statutes/26/1402/a.yaml"
     if not section_1402_file.exists():
         return content, []
 
-    repaired = content
-    repaired = repaired.replace(
-        "  - name: employee_compensation_earned_income\n",
-        _section_32_c_2_employee_pre_112_rule()
-        + "\n  - name: employee_compensation_earned_income\n",
-        1,
-    )
+    repaired = _ensure_rulespec_import(content, _SECTION_112_IMPORT)
+    if _SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT not in repaired:
+        repaired = repaired.replace(
+            "  - name: employee_compensation_earned_income\n",
+            _section_32_c_2_employee_pre_112_rule()
+            + "\n  - name: employee_compensation_earned_income\n",
+            1,
+        )
     repaired = repaired.replace(
         """          max(
               0,
@@ -3736,10 +3743,14 @@ def _repair_section_32_c_2_section_112_split_content(
               0)""",
         """          employee_compensation_earned_income_before_section_112_election
           + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:
-              section_112_amounts_excluded_from_gross_income
+              amount_excluded_from_gross_income_by_reason_of_section_112
           else:
               0)""",
         1,
+    )
+    repaired = repaired.replace(
+        "section_112_amounts_excluded_from_gross_income",
+        _SECTION_112_OUTPUT,
     )
     repaired = _insert_rule_import_proof_atom(
         repaired,
@@ -3748,14 +3759,22 @@ def _repair_section_32_c_2_section_112_split_content(
         output=_SECTION_32_C_2_EMPLOYEE_PRE_112_OUTPUT,
         import_hash="sha256:local",
     )
-    repaired = repaired.replace(
-        "  - name: earned_income\n",
-        _section_32_c_2_earned_pre_112_rule(
-            section_1402_hash=f"sha256:{_sha256_file(section_1402_file)}"
-        )
-        + "\n  - name: earned_income\n",
-        1,
+    repaired = _insert_rule_import_proof_atom(
+        repaired,
+        rule_name="employee_compensation_earned_income",
+        target=_SECTION_112_TARGET,
+        output=_SECTION_112_OUTPUT,
+        import_hash=f"sha256:{_sha256_file(section_112_file)}",
     )
+    if _SECTION_32_C_2_EARNED_PRE_112_OUTPUT not in repaired:
+        repaired = repaired.replace(
+            "  - name: earned_income\n",
+            _section_32_c_2_earned_pre_112_rule(
+                section_1402_hash=f"sha256:{_sha256_file(section_1402_file)}"
+            )
+            + "\n  - name: earned_income\n",
+            1,
+        )
     if repaired == content:
         return content, []
     return repaired, [
@@ -3889,6 +3908,8 @@ def _insert_rule_import_proof_atom(
     output: str,
     import_hash: str,
 ) -> str:
+    if _rule_has_import_target(content, rule_name=rule_name, target=target):
+        return content
     lines = content.splitlines(keepends=True)
     repaired: list[str] = []
     in_rule = False
@@ -3916,6 +3937,20 @@ def _insert_rule_import_proof_atom(
             inserted = True
 
     return "".join(repaired)
+
+
+def _rule_has_import_target(content: str, *, rule_name: str, target: str) -> bool:
+    in_rule = False
+    rule_pattern = re.compile(rf"^\s+- name:\s+{re.escape(rule_name)}\s*$")
+    for line in content.splitlines():
+        if rule_pattern.match(line):
+            in_rule = True
+            continue
+        if in_rule and re.match(r"^\s+- name:\s+", line):
+            return False
+        if in_rule and f"target: {target}" in line:
+            return True
+    return False
 
 
 def _insert_ctc_phase_in_import_proof_atom(
@@ -4147,8 +4182,9 @@ def _repair_ctc_taxable_earned_income_test_inputs(test_file: Path) -> bool:
 def _repair_section_32_c_2_section_112_split_tests(test_file: Path) -> bool:
     if not test_file.exists():
         return False
+    original_content = test_file.read_text()
     try:
-        cases = yaml.safe_load(test_file.read_text()) or []
+        cases = yaml.safe_load(original_content) or []
     except yaml.YAMLError:
         return False
     if not isinstance(cases, list):
@@ -4184,9 +4220,12 @@ def _repair_section_32_c_2_section_112_split_tests(test_file: Path) -> bool:
             earned_before_key, _restore_numeric_type(earned - section_112_added)
         )
         changed = True
-    if not changed:
+    rendered = yaml.safe_dump(cases, sort_keys=False, allow_unicode=False)
+    test_file.write_text(rendered)
+    input_repaired = _repair_section_32_c_2_section_112_test_inputs(test_file)
+    if not changed and not input_repaired:
+        test_file.write_text(original_content)
         return False
-    test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=False))
     return True
 
 
@@ -4206,7 +4245,35 @@ def _section_32_c_2_section_112_split_tests_need_repair(test_file: Path) -> bool
         "us:statutes/26/32/c/2#employee_compensation_earned_income:" in content
         and "employee_compensation_earned_income_before_section_112_election"
         not in content
+    ) or (
+        "us:statutes/26/32/c/2#input."
+        "section_112_amounts_excluded_from_gross_income:" in content
     )
+
+
+def _repair_section_32_c_2_section_112_test_inputs(test_file: Path) -> bool:
+    pattern = re.compile(
+        r"^(?P<prefix>\s*)us:statutes/26/32/c/2#input\."
+        r"section_112_amounts_excluded_from_gross_income:"
+        r"\s*(?P<value>.+?)(?P<newline>\n?)$"
+    )
+    repaired: list[str] = []
+    changed = False
+    for line in test_file.read_text().splitlines(keepends=True):
+        match = pattern.match(line)
+        if not match:
+            repaired.append(line)
+            continue
+        prefix = match.group("prefix")
+        value = match.group("value")
+        newline = match.group("newline") or "\n"
+        for input_line in _section_112_test_input_lines(value):
+            repaired.append(f"{prefix}{input_line}{newline}")
+        changed = True
+    if not changed:
+        return False
+    test_file.write_text("".join(repaired))
+    return True
 
 
 def _section_32_c_2_test_section_112_addition(inputs: dict) -> float | int | None:
@@ -4282,7 +4349,7 @@ def _eitc_earned_income_test_input_lines(wages_value: str) -> list[str]:
         "us:statutes/26/32/c/2#input.amounts_received_for_services_while_inmate_at_penal_institution: 0",
         "us:statutes/26/32/c/2#input.subsidized_state_work_activity_amounts_received: 0",
         "us:statutes/26/32/c/2#input.taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income: false",
-        "us:statutes/26/32/c/2#input.section_112_amounts_excluded_from_gross_income: 0",
+        *_section_112_test_input_lines("0"),
         "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0",
         "us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 0",
         "us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0",
