@@ -3610,6 +3610,8 @@ rules:
         assert "round the" in prompt
         assert "increase before adding it to the base amount" in prompt
         assert "17300, not 17325" in prompt
+        assert "Outputs named `taxable_income`" in prompt
+        assert "if condition: max(0, branch_a) else: max(0, branch_b)" in prompt
         assert "says a value is determined `in accordance with section X`" in prompt
         assert "do not invent `import` statements or `imports:` blocks" in prompt
 

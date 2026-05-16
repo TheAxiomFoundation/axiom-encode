@@ -386,6 +386,10 @@ Hard requirements:
   never emit negative money. When subtracting an income, contribution, or other
   reduction from a maximum amount, floor the result with `max(0, ...)` before
   applying downstream minimum-benefit or issuance branches.
+- Outputs named `taxable_income` or ending in `_taxable_income` must also never
+  be negative. Wrap the final selected branch at zero, including both sides of
+  conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`,
+  not `if condition: branch_a else: branch_b`.
 - If that reduction has rounding alternatives, every branch must be floored:
   use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`,
   never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
