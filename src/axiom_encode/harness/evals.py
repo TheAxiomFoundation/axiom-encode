@@ -3049,6 +3049,13 @@ RuleSpec requirements:
   `senior_deduction_phaseout_threshold`,
   `senior_deduction_amount_per_qualified_individual`,
   `senior_deduction_eligible`, or `exemption_amount`.
+- For root-file IRC section 151 repairs, do not import IRC section 7703 into
+  `statutes/26/151.yaml`: the current IRC section 7703 module imports the
+  section 151 entitlement output, so importing 7703 back into the root 151 file
+  creates a cycle. Until section 151 is split into acyclic subsection modules,
+  keep the source-named boundary predicate
+  `taxpayer_is_married_individual_within_section_7703` for section
+  151(d)(5)(C)(v).
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). Never encode US tax filing status
