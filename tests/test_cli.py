@@ -33,6 +33,7 @@ from axiom_encode.cli import (
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
     _validate_generated_encoding_in_policy_overlay,
+    _write_applied_encoding_manifest,
     cmd_calibration,
     cmd_compile,
     cmd_encode,
@@ -2832,6 +2833,50 @@ class TestCmdEncode:
                 "path": "regulations/18-nycrr/387/12/f/3/v/c.test.yaml",
                 "sha256": _sha256_file(target_test),
             },
+        ]
+
+    def test_write_applied_manifest_deduplicates_applied_files(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/1401.yaml"
+        target_test = policy_repo / "statutes/26/1401.test.yaml"
+        generated = output_root / "deterministic-repair" / "statutes/26/1401.yaml"
+        target.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        target_test.write_text("- name: existing_case\n  period: 2026\n")
+        generated.write_text(target.read_text())
+        result = SimpleNamespace(
+            output_file=str(generated),
+            context_manifest_file=None,
+            trace_file=None,
+            generation_prompt_sha256=None,
+            tool="axiom-encode test",
+            citation="us:statutes/26/1401",
+            runner="deterministic",
+            backend="deterministic",
+            model="manifest-test",
+        )
+
+        manifest = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            relative_output=Path("statutes/26/1401.yaml"),
+            applied_files=[target, target_test, target_test],
+            axiom_encode_git={
+                "root": "/repo/axiom-encode",
+                "commit": "abc123",
+                "dirty_tracked": False,
+            },
+            signing_key=TEST_APPLY_SIGNING_KEY,
+            run_id="run-123",
+        )
+
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/1401.yaml",
+            "statutes/26/1401.test.yaml",
         ]
 
     def test_apply_generated_encoding_rejects_dirty_encoder_build(self, tmp_path):

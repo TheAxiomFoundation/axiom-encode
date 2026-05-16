@@ -5910,6 +5910,14 @@ def _write_applied_encoding_manifest(
     tool = getattr(result, "tool", None)
     if not isinstance(tool, str) or not tool.strip():
         tool = "axiom-encode encode --apply"
+    unique_applied_files: list[Path] = []
+    seen_applied_paths: set[str] = set()
+    for path in applied_files:
+        relative_path = path.relative_to(policy_repo_path).as_posix()
+        if relative_path in seen_applied_paths:
+            continue
+        seen_applied_paths.add(relative_path)
+        unique_applied_files.append(path)
     payload = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -5942,7 +5950,7 @@ def _write_applied_encoding_manifest(
                 "path": path.relative_to(policy_repo_path).as_posix(),
                 "sha256": _sha256_file(path),
             }
-            for path in applied_files
+            for path in unique_applied_files
         ],
     }
     _sign_applied_encoding_manifest(payload, signing_key)
