@@ -6826,6 +6826,12 @@ rules:
             "us:statutes/26/112#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay: 3000"
             in repaired_test
         )
+        assert (
+            repaired_test.count(
+                "us:statutes/26/112#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay:"
+            )
+            == 1
+        )
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24/d.json"
         manifest_payload = json.loads(manifest.read_text())
         assert manifest_payload["model"] == "section-112-import-v1"

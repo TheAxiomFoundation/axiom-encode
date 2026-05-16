@@ -3438,6 +3438,7 @@ def cmd_repair_section_112_import(args):
         _section_112_tests_need_repair(test_file)
         or _ctc_taxable_earned_income_tests_need_repair(test_file)
         or _eitc_earned_income_tests_need_repair(test_file)
+        or _test_inputs_have_duplicate_keys(test_file)
     )
     if repaired_content == original_content and not test_needs_repair:
         print("No Section 112 import repairs found.")
@@ -3463,6 +3464,8 @@ def cmd_repair_section_112_import(args):
         if _repair_section_112_test_inputs(test_file):
             test_repaired = True
         if _repair_eitc_earned_income_test_inputs(test_file):
+            test_repaired = True
+        if _dedupe_duplicate_test_input_lines(test_file):
             test_repaired = True
         if test_repaired:
             applied_files.append(test_file)
@@ -4139,7 +4142,7 @@ def _repair_eitc_earned_income_test_inputs(test_file: Path) -> bool:
         prefix = match.group("prefix")
         value = match.group("value")
         newline = match.group("newline") or "\n"
-        for input_line in _eitc_earned_income_test_input_lines(value):
+        for input_line in _earned_income_before_section_112_test_input_lines(value):
             repaired.append(f"{prefix}{input_line}{newline}")
         changed = True
     if not changed:
@@ -4306,6 +4309,56 @@ def _repair_section_32_c_2_section_112_test_inputs(test_file: Path) -> bool:
     return True
 
 
+def _test_inputs_have_duplicate_keys(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    seen_by_case: set[str] = set()
+    for line in test_file.read_text().splitlines():
+        if re.match(r"^\s*-\s+name:\s+", line):
+            seen_by_case = set()
+            continue
+        match = re.match(r"^\s+(?P<key>\S+#input\.[^:]+):", line)
+        if not match:
+            continue
+        key = match.group("key")
+        if key in seen_by_case:
+            return True
+        seen_by_case.add(key)
+    return False
+
+
+def _dedupe_duplicate_test_input_lines(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    lines = test_file.read_text().splitlines(keepends=True)
+    keep = [True] * len(lines)
+    case_start = 0
+
+    def mark_duplicate_input_lines(start: int, end: int) -> None:
+        last_index_by_key: dict[str, int] = {}
+        for index in range(start, end):
+            match = re.match(r"^\s+(?P<key>\S+#input\.[^:]+):", lines[index])
+            if match:
+                last_index_by_key[match.group("key")] = index
+        for index in range(start, end):
+            match = re.match(r"^\s+(?P<key>\S+#input\.[^:]+):", lines[index])
+            if match and index != last_index_by_key[match.group("key")]:
+                keep[index] = False
+
+    for index, line in enumerate(lines):
+        if index > case_start and re.match(r"^\s*-\s+name:\s+", line):
+            mark_duplicate_input_lines(case_start, index)
+            case_start = index
+    mark_duplicate_input_lines(case_start, len(lines))
+
+    if all(keep):
+        return False
+    test_file.write_text(
+        "".join(line for index, line in enumerate(lines) if keep[index])
+    )
+    return True
+
+
 def _section_32_c_2_test_section_112_addition(inputs: dict) -> float | int | None:
     election = inputs.get(
         "us:statutes/26/32/c/2#input."
@@ -4369,6 +4422,24 @@ def _section_112_test_input_lines(amount_value: str) -> list[str]:
 
 def _eitc_earned_income_test_input_lines(wages_value: str) -> list[str]:
     return [
+        *_employee_earned_income_before_section_112_test_input_lines(wages_value),
+        "us:statutes/26/32/c/2#input.taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income: false",
+        *_section_112_test_input_lines("0"),
+        *_section_1402_a_zero_test_input_lines(),
+    ]
+
+
+def _earned_income_before_section_112_test_input_lines(wages_value: str) -> list[str]:
+    return [
+        *_employee_earned_income_before_section_112_test_input_lines(wages_value),
+        *_section_1402_a_zero_test_input_lines(),
+    ]
+
+
+def _employee_earned_income_before_section_112_test_input_lines(
+    wages_value: str,
+) -> list[str]:
+    return [
         (
             "us:statutes/26/32/c/2#input."
             "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: "
@@ -4378,8 +4449,11 @@ def _eitc_earned_income_test_input_lines(wages_value: str) -> list[str]:
         "us:statutes/26/32/c/2#input.amounts_to_which_section_871_a_applies: 0",
         "us:statutes/26/32/c/2#input.amounts_received_for_services_while_inmate_at_penal_institution: 0",
         "us:statutes/26/32/c/2#input.subsidized_state_work_activity_amounts_received: 0",
-        "us:statutes/26/32/c/2#input.taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income: false",
-        *_section_112_test_input_lines("0"),
+    ]
+
+
+def _section_1402_a_zero_test_input_lines() -> list[str]:
+    return [
         "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0",
         "us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 0",
         "us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0",
