@@ -561,6 +561,11 @@ Hard requirements:
   keep the source-named boundary predicate
   `taxpayer_is_married_individual_within_section_7703` for section
   151(d)(5)(C)(v).
+- For IRC section 151(d)(5), never use runtime fact names such as
+  `taxable_year_begins_after_2017` or `taxable_year_begins_before_2029`.
+  Use semantic predicates such as
+  `taxable_year_begins_after_exemption_amount_reduction_effective_date` and
+  `taxable_year_begins_before_senior_deduction_termination_date`.
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). If the source groups surviving

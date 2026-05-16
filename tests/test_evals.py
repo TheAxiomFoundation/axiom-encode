@@ -418,6 +418,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "applicable_amount_in_effect_under_section_68_b" in prompt
     assert "do not import IRC section 7703 into" in prompt
     assert "taxpayer_is_married_individual_within_section_7703" in prompt
+    assert "taxable_year_begins_after_exemption_amount_reduction_effective_date" in prompt
     assert "Never introduce an import cycle" in prompt
     assert (
         "Do not create named `parameter` rules for structural table row labels"
