@@ -1021,6 +1021,18 @@ mappings:
     comparison: money
     rationale: Same employer-side Medicare payroll tax on wages for current-year oracle cases.
 
+  - legal_id: us:statutes/26/3101/c#international_social_security_agreement_wage_exemption_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 3101(c) foreign-social-security agreement wage exemption predicate as a separate output.
+
+  - legal_id: us:statutes/26/3101/c#wages_exempt_from_section_3101_taxes_under_international_agreement
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3101(c) wages exempted by an international social-security agreement as a separate output.
+
   - legal_id: us:statutes/26/3111/c#wages_exempt_by_international_social_security_agreement
     country: us
     program: tax
@@ -1138,6 +1150,96 @@ mappings:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine does not currently expose the section 45A Indian employment credit rate as a variable.
+
+  - legal_id: us:statutes/26/45A/b#employee_qualified_costs_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A qualified-wage and health-cost caps or intermediates.
+
+  - legal_id: us:statutes/26/45A/b#qualified_employee_health_insurance_costs_before_employee_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A qualified employee health insurance cost intermediates.
+
+  - legal_id: us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A qualified-wage and health-cost intermediates.
+
+  - legal_id: us:statutes/26/45A/b#qualified_wages_before_employee_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A qualified-wage intermediates.
+
+  - legal_id: us:statutes/26/45A/b#section_51_e_1_A_coordination_period_years
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A coordination-period constants tied to section 51(e)(1)(A).
+
+  - legal_id: us:statutes/26/45A/b#work_opportunity_credit_coordination_period_years
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A coordination-period constants tied to the work opportunity credit.
+
+  - legal_id: us:statutes/26/45A/c#employment_trade_or_business_requirement_satisfied
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A qualified-employee trade-or-business predicates.
+
+  - legal_id: us:statutes/26/45A/c#qualified_employee
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose the section 45A qualified-employee predicate.
+
+  - legal_id: us:statutes/26/45A/c#qualified_employee_statutory_wage_limit_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A qualified-employee wage-limit base parameters.
+
+  - legal_id: us:statutes/26/45A/c#qualified_employee_wage_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose the section 45A qualified-employee wage limit as an oracle variable.
+
+  - legal_id: us:statutes/26/45A/c#trade_or_business_wages_required_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A trade-or-business wage-percentage thresholds.
+
+  - legal_id: us:statutes/26/45A/e#base_year_1993_indian_employment_costs_after_short_year_rule
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A short-taxable-year base-period cost adjustments.
+
+  - legal_id: us:statutes/26/45A/e#short_taxable_year_month_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A short-taxable-year constants.
+
+  - legal_id: us:statutes/26/45A/e#short_taxable_year_proration_denominator_days
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A short-taxable-year proration constants.
+
+  - legal_id: us:statutes/26/45A/f#indian_employment_credit_section_applies_before_termination
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not currently expose section 45A termination applicability as a separate variable.
 
   - legal_id: us:policies/irs/rev-proc-2025-32/income-tax-brackets#income_tax_bracket_rates
     country: us
