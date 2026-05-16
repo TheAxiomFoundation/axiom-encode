@@ -2891,6 +2891,10 @@ RuleSpec requirements:
   `module.status: entity_not_supported` with `rules: []` instead of inventing a
   local cross-reference fact. If that section is present in repo context, import
   it and use its exported output instead.
+- Never introduce an import cycle. If a cited source already imports the current
+  target module, do not import that source back into the same module; keep a
+  source-named boundary predicate for that cyclic condition until the sources
+  are split into acyclic subsection modules.
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.
