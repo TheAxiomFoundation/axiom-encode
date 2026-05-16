@@ -56,6 +56,7 @@ from axiom_encode.cli import (
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
     cmd_repair_proof_import_hashes,
+    cmd_repair_section_112_import,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_zero_branch_tests,
     cmd_runs,
@@ -1940,9 +1941,7 @@ rules:
         assert output["cases"] == 1
         assert output["failures"] == []
 
-    def test_executes_companion_tests_with_custom_period_name(
-        self, capsys, tmp_path
-    ):
+    def test_executes_companion_tests_with_custom_period_name(self, capsys, tmp_path):
         repo = tmp_path / "rulespec-us"
         target = repo / "policies/ssa/base.yaml"
         target.parent.mkdir(parents=True)
@@ -3162,13 +3161,15 @@ rules:
         assert (
             "if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: "
             "max(0, taxable_income_for_individual_who_does_not_itemize) "
-            "else: max(0, taxable_income_general_rule)"
-            in output_file.read_text()
+            "else: max(0, taxable_income_general_rule)" in output_file.read_text()
         )
         test_content = test_file.read_text()
         assert "low_income_nonitemizer_zero_taxable_income" in test_content
         assert "us:statutes/26/63#taxable_income: 0" in test_content
-        assert "deduction_for_personal_exemptions_provided_in_section_151" not in test_content
+        assert (
+            "deduction_for_personal_exemptions_provided_in_section_151"
+            not in test_content
+        )
         assert "deduction_provided_in_section_199A" not in test_content
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_nonnegative_floors"] == ["taxable_income"]
@@ -4684,10 +4685,7 @@ rules: []
         assert changed is True
         updated = dependent_test.read_text()
         assert (
-            updated.count(
-                "us:statutes/26/1/h#input.investment_income_amount: 0"
-            )
-            == 2
+            updated.count("us:statutes/26/1/h#input.investment_income_amount: 0") == 2
         )
 
     def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
@@ -5164,7 +5162,10 @@ rules:
         test_content = test_file.read_text()
         assert "low_income_nonitemizer_zero_taxable_income" in test_content
         assert "us:statutes/26/63#taxable_income: 0" in test_content
-        assert "deduction_for_personal_exemptions_provided_in_section_151" not in test_content
+        assert (
+            "deduction_for_personal_exemptions_provided_in_section_151"
+            not in test_content
+        )
         assert "deduction_provided_in_section_199A" not in test_content
         assert (
             "taxable_income_for_individual_who_does_not_itemize: -" not in test_content
@@ -5233,7 +5234,10 @@ rules:
         ):
             cmd_repair_nonnegative_floors(args)
 
-        assert "max(0, maximum_credit_amount - adjusted_gross_income)" in target.read_text()
+        assert (
+            "max(0, maximum_credit_amount - adjusted_gross_income)"
+            in target.read_text()
+        )
         assert test_file.read_text().startswith("- name: existing_case")
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/999.json"
         payload = json.loads(manifest.read_text())
@@ -6522,9 +6526,7 @@ rules:
             "statutes/26/32.test.yaml",
         ]
 
-    def test_repair_eitc_earned_income_import_replaces_boundary_input(
-        self, tmp_path
-    ):
+    def test_repair_eitc_earned_income_import_replaces_boundary_input(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         target = policy_repo / "statutes/26/32.yaml"
         test_file = policy_repo / "statutes/26/32.test.yaml"
@@ -6596,7 +6598,9 @@ rules:
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32.json"
         manifest_payload = json.loads(manifest.read_text())
         assert manifest_payload["model"] == "eitc-earned-income-import-v1"
-        assert manifest_payload["tool"] == "axiom-encode repair-eitc-earned-income-import"
+        assert (
+            manifest_payload["tool"] == "axiom-encode repair-eitc-earned-income-import"
+        )
         assert [item["path"] for item in manifest_payload["applied_files"]] == [
             "statutes/26/32.yaml",
             "statutes/26/32.test.yaml",
@@ -6659,6 +6663,110 @@ rules: []
         ) in test_file.read_text()
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24/d.json"
         manifest_payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in manifest_payload["applied_files"]] == [
+            "statutes/26/24/d.yaml",
+            "statutes/26/24/d.test.yaml",
+        ]
+
+    def test_repair_section_112_import_replaces_local_placeholder(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/24/d.yaml"
+        test_file = policy_repo / "statutes/26/24/d.test.yaml"
+        section_112 = policy_repo / "statutes/26/112.yaml"
+        target.parent.mkdir(parents=True)
+        section_112.write_text(
+            """format: rulespec/v1
+rules:
+  - name: amount_excluded_from_gross_income_by_reason_of_section_112
+    kind: derived
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/32
+rules:
+  - name: ctc_phase_in_earned_income_base
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/24
+              text: earned income ... any amount excluded from gross income by reason of section 112
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          taxable_earned_income_under_section_32
+          + amount_excluded_from_gross_income_under_section_112
+"""
+        )
+        test_file.write_text(
+            """- name: section_112_excluded_amount_counts_as_earned_income
+  input:
+    us:statutes/26/24/d#input.taxable_earned_income_under_section_32: 2000
+    us:statutes/26/24/d#input.amount_excluded_from_gross_income_under_section_112: 3000
+  output:
+    us:statutes/26/24/d#ctc_phase_in_earned_income_base: 5000
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/24/d.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_112_import(args)
+
+        repaired_rules = target.read_text()
+        assert "  - us:statutes/26/112\n" in repaired_rules
+        assert (
+            "amount_excluded_from_gross_income_under_section_112" not in repaired_rules
+        )
+        assert (
+            "amount_excluded_from_gross_income_by_reason_of_section_112"
+            in repaired_rules
+        )
+        assert (
+            "target: us:statutes/26/112#amount_excluded_from_gross_income_by_reason_of_section_112"
+            in repaired_rules
+        )
+
+        repaired_test = test_file.read_text()
+        assert (
+            "us:statutes/26/24/d#input.amount_excluded_from_gross_income_under_section_112"
+            not in repaired_test
+        )
+        assert (
+            "us:statutes/26/112#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay: 3000"
+            in repaired_test
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24/d.json"
+        manifest_payload = json.loads(manifest.read_text())
+        assert manifest_payload["model"] == "section-112-import-v1"
+        assert manifest_payload["tool"] == "axiom-encode repair-section-112-import"
         assert [item["path"] for item in manifest_payload["applied_files"]] == [
             "statutes/26/24/d.yaml",
             "statutes/26/24/d.test.yaml",

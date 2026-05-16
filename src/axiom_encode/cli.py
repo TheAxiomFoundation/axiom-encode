@@ -707,6 +707,26 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_section_112_parser = subparsers.add_parser(
+        "repair-section-112-import",
+        help="Apply signed deterministic repair for Section 112 imported amounts",
+    )
+    repair_section_112_parser.add_argument("file", type=Path, help="RuleSpec YAML file")
+    repair_section_112_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_section_112_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_zero_tests_parser = subparsers.add_parser(
         "repair-zero-branch-tests",
         help="Apply signed deterministic repairs for missing zero-branch tests",
@@ -1422,6 +1442,8 @@ def main():
         cmd_repair_eitc_section_152_import(args)
     elif args.command == "repair-eitc-earned-income-import":
         cmd_repair_eitc_earned_income_import(args)
+    elif args.command == "repair-section-112-import":
+        cmd_repair_section_112_import(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
     elif args.command == "repair-unused-imports":
@@ -2039,9 +2061,7 @@ def _execute_rulespec_test_case(
                         }
                     )
                     return failures
-                row_id = _rulespec_table_row_entity_id(
-                    table_entity, row, row_index
-                )
+                row_id = _rulespec_table_row_entity_id(table_entity, row, row_index)
                 resolved_rows.append((row_id, row))
                 for row_key, row_value in row.items():
                     key = str(row_key)
@@ -2159,8 +2179,7 @@ def _execute_rulespec_test_case(
                 "file": str(test_file),
                 "case": case_name,
                 "message": (
-                    "row-ordered output list requires "
-                    f"`tables.{query_entity}` rows"
+                    f"row-ordered output list requires `tables.{query_entity}` rows"
                 ),
             }
         )
@@ -3103,8 +3122,9 @@ def cmd_repair_current_year_final_amounts(args):
         validation_issues = [
             result.error for result in validation.results.values() if result.error
         ]
-        if not validation.all_passed and not _only_pending_nonnegative_amount_reduction_issues(
-            validation_issues
+        if (
+            not validation.all_passed
+            and not _only_pending_nonnegative_amount_reduction_issues(validation_issues)
         ):
             rules_file.write_text(original_content)
             if original_test_content is not None:
@@ -3171,7 +3191,11 @@ def cmd_repair_eitc_section_152_import(args):
     )
     test_needs_repair = _eitc_section_152_tests_need_repair(test_file)
     bridge_present = "name: eitc_qualifying_child_base" in original_content
-    if repaired_content == original_content and not test_needs_repair and not bridge_present:
+    if (
+        repaired_content == original_content
+        and not test_needs_repair
+        and not bridge_present
+    ):
         print("No EITC Section 152(c) import repairs found.")
         return
 
@@ -3202,8 +3226,9 @@ def cmd_repair_eitc_section_152_import(args):
         validation_issues = [
             result.error for result in validation.results.values() if result.error
         ]
-        if not validation.all_passed and not _only_pending_nonnegative_amount_reduction_issues(
-            validation_issues
+        if (
+            not validation.all_passed
+            and not _only_pending_nonnegative_amount_reduction_issues(validation_issues)
         ):
             rules_file.write_text(original_content)
             if original_test_content is not None:
@@ -3343,6 +3368,102 @@ def cmd_repair_eitc_earned_income_import(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_section_112_import(args):
+    """Apply a signed deterministic Section 112 import repair."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_content, repaired_rules = _repair_section_112_import_content(
+        original_content,
+        repo_path=repo_path,
+    )
+    test_needs_repair = _section_112_tests_need_repair(test_file)
+    if repaired_content == original_content and not test_needs_repair:
+        print("No Section 112 import repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+
+        rules_file.write_text(repaired_content)
+        applied_files = [rules_file]
+        if _repair_section_112_test_inputs(test_file):
+            applied_files.append(test_file)
+        elif test_file.exists():
+            applied_files.append(test_file)
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        validation_issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        if not validation.all_passed:
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            print("Repair failed validation; restored original file.")
+            for issue in validation_issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="section-112-import-v1",
+            tool="axiom-encode repair-section-112-import",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied Section 112 import repair to "
+        f"{relative_output}: {', '.join(repaired_rules) or 'tests'}"
+    )
+    print(f"manifest={manifest_path}")
+
+
 def _repair_eitc_section_152_import_content(
     content: str,
     *,
@@ -3386,6 +3507,75 @@ def _repair_eitc_earned_income_import_content(content: str) -> tuple[str, list[s
             1,
         )
     return repaired, ["earned_income"]
+
+
+_SECTION_112_OLD_PLACEHOLDER = "amount_excluded_from_gross_income_under_section_112"
+_SECTION_112_OUTPUT = "amount_excluded_from_gross_income_by_reason_of_section_112"
+_SECTION_112_IMPORT = "us:statutes/26/112"
+_SECTION_112_TARGET = f"{_SECTION_112_IMPORT}#{_SECTION_112_OUTPUT}"
+
+
+def _repair_section_112_import_content(
+    content: str,
+    *,
+    repo_path: Path,
+) -> tuple[str, list[str]]:
+    if _SECTION_112_OLD_PLACEHOLDER not in content and _SECTION_112_TARGET in content:
+        return content, []
+    section_112_file = repo_path / "statutes/26/112.yaml"
+    if not section_112_file.exists():
+        return content, []
+
+    repaired = _ensure_rulespec_import(content, _SECTION_112_IMPORT)
+    repaired = repaired.replace(_SECTION_112_OLD_PLACEHOLDER, _SECTION_112_OUTPUT)
+    if _SECTION_112_TARGET not in repaired:
+        import_hash = f"sha256:{_sha256_file(section_112_file)}"
+        repaired = _insert_section_112_import_proof_atom(repaired, import_hash)
+    if repaired == content:
+        return content, []
+    return repaired, [_SECTION_112_OUTPUT]
+
+
+def _ensure_rulespec_import(content: str, import_base: str) -> str:
+    import_line = f"  - {import_base}"
+    if re.search(rf"^\s*-\s+{re.escape(import_base)}\s*$", content, re.MULTILINE):
+        return content
+    if "imports:\n" in content:
+        return content.replace("imports:\n", f"imports:\n{import_line}\n", 1)
+    return content.replace(
+        "format: rulespec/v1\n",
+        f"format: rulespec/v1\nimports:\n{import_line}\n",
+        1,
+    )
+
+
+def _insert_section_112_import_proof_atom(content: str, import_hash: str) -> str:
+    lines = content.splitlines(keepends=True)
+    repaired: list[str] = []
+    in_rule = False
+    inserted = False
+    for line in lines:
+        if re.match(r"^\s+- name:\s+ctc_phase_in_earned_income_base\s*$", line):
+            in_rule = True
+        elif in_rule and re.match(r"^\s+- name:\s+", line):
+            in_rule = False
+
+        repaired.append(line)
+        if in_rule and not inserted and re.match(r"^\s*atoms:\s*$", line):
+            atom_indent = line[: len(line) - len(line.lstrip())] + "  "
+            child_indent = atom_indent + "  "
+            import_atom = (
+                f"{atom_indent}- path: versions[0].formula\n"
+                f"{child_indent}kind: import\n"
+                f"{child_indent}import:\n"
+                f"{child_indent}  target: {_SECTION_112_TARGET}\n"
+                f"{child_indent}  output: {_SECTION_112_OUTPUT}\n"
+                f"{child_indent}  hash: {import_hash}\n"
+            )
+            repaired.append(import_atom)
+            inserted = True
+
+    return "".join(repaired)
 
 
 def _eitc_qualifying_child_base_rule(import_hash: str) -> str:
@@ -3470,8 +3660,7 @@ def _repair_eitc_section_152_test_inputs(test_file: Path) -> bool:
             prefix = line[: len(line) - len(line.lstrip())]
             newline = "\n" if line.endswith("\n") else ""
             repaired.append(
-                f"{prefix}us:statutes/26/32#eitc_qualifying_child_base: holds"
-                f"{newline}"
+                f"{prefix}us:statutes/26/32#eitc_qualifying_child_base: holds{newline}"
             )
             changed = True
     if not changed:
@@ -3484,12 +3673,9 @@ def _eitc_section_152_tests_need_repair(test_file: Path) -> bool:
     if not test_file.exists():
         return False
     content = test_file.read_text()
-    return (
-        "qualifying_child_under_section_152_c_as_modified_for_eitc" in content
-        or (
-            "us:statutes/26/32#eitc_qualifying_child:" in content
-            and "us:statutes/26/32#eitc_qualifying_child_base:" not in content
-        )
+    return "qualifying_child_under_section_152_c_as_modified_for_eitc" in content or (
+        "us:statutes/26/32#eitc_qualifying_child:" in content
+        and "us:statutes/26/32#eitc_qualifying_child_base:" not in content
     )
 
 
@@ -3546,6 +3732,62 @@ def _eitc_earned_income_tests_need_repair(test_file: Path) -> bool:
         test_file.exists()
         and "us:statutes/26/32#input.earned_income:" in test_file.read_text()
     )
+
+
+def _repair_section_112_test_inputs(test_file: Path) -> bool:
+    if not test_file.exists():
+        return False
+    pattern = re.compile(
+        r"^(?P<prefix>\s*)us:statutes/26/24/d#input\."
+        rf"{re.escape(_SECTION_112_OLD_PLACEHOLDER)}:"
+        r"\s*(?P<value>.+?)(?P<newline>\n?)$"
+    )
+    repaired: list[str] = []
+    changed = False
+    for line in test_file.read_text().splitlines(keepends=True):
+        match = pattern.match(line)
+        if not match:
+            repaired.append(line)
+            continue
+        prefix = match.group("prefix")
+        value = match.group("value")
+        newline = match.group("newline") or "\n"
+        for input_line in _section_112_test_input_lines(value):
+            repaired.append(f"{prefix}{input_line}{newline}")
+        changed = True
+    if not changed:
+        return False
+    test_file.write_text("".join(repaired))
+    return True
+
+
+def _section_112_tests_need_repair(test_file: Path) -> bool:
+    return (
+        test_file.exists()
+        and f"us:statutes/26/24/d#input.{_SECTION_112_OLD_PLACEHOLDER}:"
+        in test_file.read_text()
+    )
+
+
+def _section_112_test_input_lines(amount_value: str) -> list[str]:
+    positive = "false" if _is_generated_zero_expected_value(amount_value) else "true"
+    return [
+        f"us:statutes/26/112#input.member_below_grade_of_commissioned_officer_in_armed_forces: {positive}",
+        f"us:statutes/26/112#input.served_in_combat_zone_during_month: {positive}",
+        "us:statutes/26/112#input.hospitalized_resulting_from_combat_zone_wounds_disease_or_injury: false",
+        "us:statutes/26/112#input.months_beginning_after_combatant_activities_termination: 0",
+        "us:statutes/26/112#input.vietnam_combat_zone_hospitalization_month_after_january_1978: false",
+        "us:statutes/26/112#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay: "
+        f"{amount_value}",
+        "us:statutes/26/112#input.commissioned_officer_in_armed_forces_excluding_commissioned_warrant_officer: false",
+        "us:statutes/26/112#input.active_service_compensation_as_commissioned_officer_excluding_pensions_and_retirement_pay: 0",
+        "us:statutes/26/112#input.maximum_enlisted_amount_for_commissioned_officer_months: 0",
+        "us:statutes/26/112#input.armed_forces_member_in_missing_status_during_vietnam_conflict_as_result_of_conflict: false",
+        "us:statutes/26/112#input.officially_absent_from_post_of_duty_without_authority: false",
+        "us:statutes/26/112#input.armed_forces_missing_status_active_service_compensation: 0",
+        "us:statutes/26/112#input.civilian_employee_in_missing_status_during_vietnam_conflict_as_result_of_conflict: false",
+        "us:statutes/26/112#input.civilian_employee_missing_status_active_service_compensation: 0",
+    ]
 
 
 def _eitc_earned_income_test_input_lines(wages_value: str) -> list[str]:
@@ -3919,9 +4161,7 @@ def cmd_repair_unused_imports(args):
             policy_repo_path=repo_path,
             relative_output=relative_output,
             applied_files=(
-                [rules_file, test_file]
-                if test_file.exists()
-                else [rules_file]
+                [rules_file, test_file] if test_file.exists() else [rules_file]
             ),
             run_id="deterministic-repair",
             signing_key=signing_key,
@@ -7516,9 +7756,7 @@ def _executable_input_preservation_issues(
     existing_inputs = _local_factual_input_names_from_rules_content(existing_content)
     if not existing_inputs:
         return []
-    generated_inputs = _local_factual_input_names_from_rules_content(
-        generated_content
-    )
+    generated_inputs = _local_factual_input_names_from_rules_content(generated_content)
     generated_imports = _rulespec_import_bases_from_content(generated_content)
     missing = sorted(
         input_name
