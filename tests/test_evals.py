@@ -3667,6 +3667,64 @@ rules:
         )
         assert "Do not keep a local `_under_section_...`" in prompt
 
+    def test_build_eval_prompt_highlights_terminal_child_exports(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_file = policy_repo_root / "statutes" / "26" / "3101" / "b" / "2.yaml"
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: additional_medicare_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 0.009
+  - name: additional_medicare_excess_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2013-01-01'
+        formula: max(0, wages - additional_medicare_wage_tax_threshold)
+  - name: additional_medicare_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2013-01-01'
+        formula: additional_medicare_excess_wages * additional_medicare_tax_rate
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 3101",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Section 3101 imposes the taxes described in subsection (b)(2).",
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 3101",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="3101.yaml",
+            target_ref_prefix="us:statutes/26/3101",
+            include_tests=True,
+        )
+
+        assert (
+            "terminal exports `us:statutes/26/3101/b/2#additional_medicare_tax`"
+            in prompt
+        )
+
     def test_build_eval_prompt_recommends_final_deduction_imports(
         self, tmp_path
     ):

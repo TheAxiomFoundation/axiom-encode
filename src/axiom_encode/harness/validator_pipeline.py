@@ -42,6 +42,7 @@ from typing import Any, Iterable, Optional
 import yaml
 
 from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL, REVIEWER_CLI_MODEL
 from axiom_encode.oracles.policyengine.adapters import (
     PE_US_MONTHLY_VAR_NAMES,
@@ -4887,6 +4888,65 @@ def _rulespec_executable_names_from_payload(payload: Any) -> set[str]:
     return names
 
 
+def _rulespec_executable_names_in_order_from_payload(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    names: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+        }:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _rulespec_terminal_executable_names_from_payload(payload: Any) -> list[str]:
+    """Return executable exports that other local executable rules do not consume."""
+    names = _rulespec_executable_names_in_order_from_payload(payload)
+    if not names or not isinstance(payload, dict):
+        return names
+
+    name_set = set(names)
+    referenced: set[str] = set()
+    for owner, _kind, formula in _rulespec_rule_formulas(payload):
+        referenced.update(
+            identifier
+            for identifier in _formula_local_identifiers(formula)
+            if identifier in name_set and identifier != owner
+        )
+    terminal = [name for name in names if name not in referenced]
+    return terminal or names
+
+
+def _rulespec_child_export_targets(
+    names: Iterable[str],
+    *,
+    child_import_base: str,
+    policy_repo_path: Path,
+) -> list[str]:
+    prefix = jurisdiction_prefix(policy_repo_path)
+    return [f"{prefix}:{child_import_base}#{name}" for name in names]
+
+
+def _format_child_export_hint(targets: list[str]) -> str:
+    if not targets:
+        return "from that child"
+    formatted = ", ".join(f"`{target}`" for target in targets[:3])
+    if len(targets) > 3:
+        formatted += ", ..."
+    noun = "output" if len(targets) == 1 else "outputs"
+    return f"{noun} {formatted}"
+
+
 def _rulespec_payload_from_file(path: Path) -> dict[str, Any] | None:
     try:
         payload = yaml.safe_load(path.read_text())
@@ -5109,17 +5169,20 @@ def _child_numeric_output_reencoding_issues(
     parent_hint = ", ".join(f"`{name}`" for name in parent_rules[:4])
     if len(parent_rules) > 4:
         parent_hint += ", ..."
-    child_exports = sorted(
-        {name for _value, names, _parent_names in matches for name in names}
+    child_import_base = (
+        child.resolve().relative_to(policy_repo_path).with_suffix("").as_posix()
     )
-    export_hint = (
-        f" such as `{child_exports[0]}`" if child_exports else " from that child"
+    child_exports = _rulespec_child_export_targets(
+        sorted({name for _value, names, _parent_names in matches for name in names}),
+        child_import_base=child_import_base,
+        policy_repo_path=policy_repo_path,
     )
+    export_hint = _format_child_export_hint(child_exports)
     return [
         "Child fragment numeric output re-encoded: "
         f"`{rules_file.name}` copies numeric literal(s) {copied_values} from child "
         f"`{child_display_path}` in rule(s) {parent_hint}. Import and reference "
-        f"the child output{export_hint} instead of copying the child value into "
+        f"the child {export_hint} instead of copying the child value into "
         "the parent formula."
     ]
 
@@ -5192,22 +5255,20 @@ def find_child_fragment_reencoding_issues(
         if parent_inputs:
             shared_inputs = sorted(parent_inputs & child_inputs)
             if shared_inputs:
-                child_exports = sorted(
-                    _rulespec_executable_names_from_payload(child_payload)
+                child_exports = _rulespec_child_export_targets(
+                    _rulespec_terminal_executable_names_from_payload(child_payload),
+                    child_import_base=child_import_base,
+                    policy_repo_path=policy_repo_path,
                 )
-                export_hint = (
-                    f" such as `{child_exports[0]}`"
-                    if child_exports
-                    else " from that child"
-                )
+                export_hint = _format_child_export_hint(child_exports)
                 shared = ", ".join(f"`{name}`" for name in shared_inputs[:4])
                 if len(shared_inputs) > 4:
                     shared += ", ..."
                 issues.append(
                     "Child fragment re-encoded: "
                     f"`{rules_file.name}` uses child-local input(s) {shared} also used by "
-                    f"`{child_display_path}` without importing `{child_import_base}`. "
-                    f"Import and compose the child output{export_hint} "
+                    f"`{child_display_path}` without importing a terminal child output. "
+                    f"Import and compose the child {export_hint} "
                     "instead of copying the child formula or factual inputs into the parent."
                 )
         issues.extend(

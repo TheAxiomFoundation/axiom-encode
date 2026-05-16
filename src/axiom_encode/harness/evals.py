@@ -3493,7 +3493,16 @@ def _context_file_export_detail(item: EvalContextFile) -> str:
     references = ", ".join(f"`{item.import_path}#{name}`" for name in exports[:8])
     if len(exports) > 8:
         references += ", ..."
-    return f"; exports {references}"
+    terminal_exports = _context_file_terminal_exports(item.source_path)
+    terminal_detail = ""
+    if terminal_exports:
+        terminal_references = ", ".join(
+            f"`{item.import_path}#{name}`" for name in terminal_exports[:5]
+        )
+        if len(terminal_exports) > 5:
+            terminal_references += ", ..."
+        terminal_detail = f"; terminal exports {terminal_references}"
+    return f"; exports {references}{terminal_detail}"
 
 
 def _context_file_exports(source_path: str) -> list[str]:
@@ -3515,6 +3524,77 @@ def _context_file_exports(source_path: str) -> list[str]:
         if name:
             exports.append(name)
     return exports
+
+
+_CONTEXT_FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_CONTEXT_FORMULA_BUILTINS = {
+    "and",
+    "ceil",
+    "else",
+    "false",
+    "floor",
+    "if",
+    "match",
+    "max",
+    "min",
+    "not",
+    "or",
+    "true",
+}
+
+
+def _context_file_terminal_exports(source_path: str) -> list[str]:
+    """Return executable exports not consumed by another local executable rule."""
+    try:
+        payload = yaml.safe_load(Path(source_path).read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    exports: list[str] = []
+    formulas: list[tuple[str, str]] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+        }:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        exports.append(name)
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                formulas.append((name, str(formula)))
+            elif isinstance(formula, str) and formula.strip():
+                formulas.append((name, formula))
+    if not exports:
+        return []
+
+    export_names = set(exports)
+    referenced: set[str] = set()
+    for owner, formula in formulas:
+        referenced.update(
+            identifier
+            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula)
+            if identifier in export_names
+            and identifier != owner
+            and identifier not in _CONTEXT_FORMULA_BUILTINS
+        )
+    terminal = [name for name in exports if name not in referenced]
+    return terminal or exports
 
 
 def _collect_scaffold_dates(

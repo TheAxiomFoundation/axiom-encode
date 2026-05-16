@@ -4628,6 +4628,72 @@ rules:
     )
 
 
+def test_child_fragment_reencoding_points_to_terminal_child_output(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3101.yaml"
+    child = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: additional_medicare_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 0.009
+
+  - name: additional_medicare_wage_tax_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 200000
+
+  - name: additional_medicare_excess_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2013-01-01'
+        formula: max(0, wages - additional_medicare_wage_tax_threshold)
+
+  - name: additional_medicare_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2013-01-01'
+        formula: additional_medicare_excess_wages * additional_medicare_tax_rate
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/3101/b/2#additional_medicare_tax_rate
+rules:
+  - name: section_3101_additional_medicare_component
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2013-01-01'
+        formula: max(0, wages - additional_medicare_wage_tax_threshold) * additional_medicare_tax_rate
+"""
+
+    issues = find_child_fragment_reencoding_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Child fragment re-encoded" in issues[0]
+    assert "us:statutes/26/3101/b/2#additional_medicare_tax" in issues[0]
+
+
 def test_child_fragment_reencoding_rejects_parent_copying_child_numeric_output(
     tmp_path,
 ):
