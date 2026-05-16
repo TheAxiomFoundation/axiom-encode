@@ -6117,7 +6117,7 @@ def _dropped_input_is_imported_cross_reference_migration(
     generated_imports: set[str],
 ) -> bool:
     """Allow replacing a local legal cross-reference input with an import."""
-    target = _under_section_input_target(input_name)
+    target = _legal_cross_reference_input_target(input_name)
     if target is None:
         return False
     section, fragments = target
@@ -6139,9 +6139,28 @@ def _dropped_input_is_imported_cross_reference_migration(
     return False
 
 
-def _under_section_input_target(input_name: str) -> tuple[str, tuple[str, ...]] | None:
+def _legal_cross_reference_input_target(
+    input_name: str,
+) -> tuple[str, tuple[str, ...]] | None:
     match = re.search(
-        r"(?:^|_)under_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
+        r"(?:^|_)(?:"
+        r"under"
+        r"|provided_in"
+        r"|provided_by"
+        r"|allowed_under"
+        r"|allowable_under"
+        r"|allowed_by"
+        r"|allowable_by"
+        r"|excluded_under"
+        r"|excludable_under"
+        r"|excluded_from_gross_income_under"
+        r"|income_excluded_from_gross_income_under"
+        r"|amount_excluded_from_gross_income_under"
+        r"|deduction_under"
+        r"|deduction_provided_in"
+        r"|credit_allowed_under"
+        r"|credits_allowable_under"
+        r")_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
         r"(?P<tail>(?:_[A-Za-z0-9]+)*)",
         input_name,
     )
@@ -6151,7 +6170,7 @@ def _under_section_input_target(input_name: str) -> tuple[str, tuple[str, ...]] 
     for fragment in (match.group("tail") or "").split("_"):
         if not fragment:
             continue
-        if re.fullmatch(r"[A-Za-z0-9]+", fragment):
+        if re.fullmatch(r"\d+[A-Za-z]?|[A-Za-z]|[ivxlcdm]+", fragment):
             fragments.append(fragment)
             continue
         break

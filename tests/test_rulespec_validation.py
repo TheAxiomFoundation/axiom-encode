@@ -4864,6 +4864,60 @@ rules:
     assert "statutes/26/1211" in issues[0]
 
 
+def test_encoded_cross_reference_placeholder_rejects_provided_in_section_input_when_source_exists(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "63.yaml"
+    imported_file = repo / "statutes" / "26" / "170" / "p.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: qualified_charitable_contribution_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: qualified_charitable_contributions
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Taxable income means adjusted gross income minus any deduction provided
+    in section 170(p).
+rules:
+  - name: deductions_referred_to_in_subsection_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          standard_deduction
+          + deduction_provided_in_section_170_p
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_encoded_cross_reference_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Encoded cross-reference placeholder" in issues[0]
+    assert "deduction_provided_in_section_170_p" in issues[0]
+    assert "statutes/26/170/p" in issues[0]
+
+
 def test_encoded_cross_reference_placeholder_allows_under_section_when_unencoded(
     tmp_path,
 ):

@@ -4355,6 +4355,42 @@ rules:
 
         assert issues == []
 
+    def test_executable_input_preservation_allows_provided_in_section_import_migration(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: deductions_referred_to_in_subsection_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          standard_deduction
+          + deduction_provided_in_section_170_p
+"""
+        generated = """format: rulespec/v1
+imports:
+  - us:statutes/26/170/p#qualified_charitable_contribution_deduction
+rules:
+  - name: deductions_referred_to_in_subsection_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          standard_deduction
+          + qualified_charitable_contribution_deduction
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert issues == []
+
     def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"

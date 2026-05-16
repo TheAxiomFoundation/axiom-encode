@@ -8961,7 +8961,7 @@ class ValidatorPipeline:
                     source_text=source_text,
                 )
                 if not import_base:
-                    import_base = self._under_section_placeholder_import_base(
+                    import_base = self._semantic_section_placeholder_import_base(
                         identifier,
                         title=title,
                         current_section=current_section,
@@ -9118,7 +9118,7 @@ class ValidatorPipeline:
             break
         return "/".join(["statutes", title, match.group("section"), *fragments])
 
-    def _under_section_placeholder_import_base(
+    def _semantic_section_placeholder_import_base(
         self,
         identifier: str,
         *,
@@ -9126,9 +9126,26 @@ class ValidatorPipeline:
         current_section: str | None,
         source_text: str,
     ) -> str | None:
-        """Infer import path from a semantic `*_under_section_...` placeholder."""
+        """Infer import path from a semantic legal cross-reference placeholder."""
         match = re.search(
-            r"(?:^|_)under_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
+            r"(?:^|_)(?:"
+            r"under"
+            r"|provided_in"
+            r"|provided_by"
+            r"|allowed_under"
+            r"|allowable_under"
+            r"|allowed_by"
+            r"|allowable_by"
+            r"|excluded_under"
+            r"|excludable_under"
+            r"|excluded_from_gross_income_under"
+            r"|income_excluded_from_gross_income_under"
+            r"|amount_excluded_from_gross_income_under"
+            r"|deduction_under"
+            r"|deduction_provided_in"
+            r"|credit_allowed_under"
+            r"|credits_allowable_under"
+            r")_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
             r"(?P<tail>(?:_[A-Za-z0-9]+)*)",
             identifier,
         )

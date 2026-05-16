@@ -179,9 +179,12 @@ Hard requirements:
   `_under_subsection_<subsection>` suffix. Do not start a local input with
   `section_<section>_` or `subsection_<subsection>_`; those names are reserved
   for imported legal outputs and will be treated as missing imports.
-  The `_under_section_<section>` fallback is only allowed when the cited source
-  is not available as RuleSpec. If that section is present in repo context,
-  import it and use its exported output instead.
+  Cross-reference local inputs such as `_under_section_<section>`,
+  `_provided_in_section_<section>`, `_allowed_under_section_<section>`,
+  `_deduction_under_section_<section>`, or `_credit_allowed_under_section_<section>`
+  are only allowed when the cited source is not available as RuleSpec. If that
+  section is present in repo context, import it and use its exported output
+  instead.
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.
