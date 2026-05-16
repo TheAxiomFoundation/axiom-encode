@@ -8116,6 +8116,10 @@ class ValidatorPipeline:
                 f"Test case `{case_name}` output `{output_name}` returned "
                 "an unrecognised value shape."
             )
+        if actual_scalar.get("kind") == "bool" and isinstance(expected_value, str):
+            expected_judgment = expected_value.strip().lower().replace("-", "_")
+            if expected_judgment in {"holds", "not_holds"}:
+                expected_value = expected_judgment == "holds"
         expected_scalar = self._rulespec_expected_scalar_value(expected_value)
         if not self._rulespec_scalar_values_equal(actual_scalar, expected_scalar):
             return (

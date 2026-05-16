@@ -8049,6 +8049,47 @@ rules:
     )
 
 
+def test_rulespec_ci_accepts_holds_for_boolean_scalar_outputs(tmp_path):
+    if not AXIOM_RULES_ENGINE_BINARY.exists():
+        pytest.skip("local axiom-rules-engine binary is not built")
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: The formula applies.
+rules:
+  - name: formula_applies
+    kind: parameter
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'true'
+"""
+    )
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: formula_applies
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    formula_applies: holds
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is True
+
+
 def test_rulespec_ci_rejects_malformed_period_mapping(tmp_path):
     if not AXIOM_RULES_ENGINE_BINARY.exists():
         pytest.skip("local axiom-rules-engine binary is not built")
