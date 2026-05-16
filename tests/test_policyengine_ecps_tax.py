@@ -15,6 +15,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_PROGRAM_PATH,
     POLICYENGINE_VERSION,
     SECTION_32_C_2_BASE,
+    SECTION_112_BASE,
     SECTION_152_C_BASE,
     SECTION_1402_A_BASE,
     additional_standard_deduction_entitlement_count,
@@ -39,6 +40,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_eitc_tax_unit_inputs,
     project_oasdi_wage_base_inputs,
     project_section_32_c_2_tax_unit_inputs,
+    project_section_112_tax_unit_inputs,
     project_section_152_c_person_inputs,
     project_section_1402_a_tax_unit_inputs,
     project_standard_deduction_inputs,
@@ -318,13 +320,10 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
     assert "earned_income" not in projected
     assert projected["adjusted_gross_income"] == 22_000
     assert projected["eitc_relevant_investment_income"] == 510
+    assert projected["childless_taxpayer_or_spouse_age_eligible_for_eitc"] is True
     assert (
-        projected[
-            "childless_taxpayer_or_spouse_age_eligible_for_eitc"
-        ]
-        is True
+        projected["taxpayer_includes_required_social_security_number_on_return"] is True
     )
-    assert projected["taxpayer_includes_required_social_security_number_on_return"] is True
 
     contexts = project_tax_unit_person_contexts(persons)
     earned_income_inputs = project_section_32_c_2_tax_unit_inputs(
@@ -342,8 +341,13 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
-        "section_112_amounts_excluded_from_gross_income": 0,
     }
+    assert (
+        project_section_112_tax_unit_inputs()[
+            "active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay"
+        ]
+        == 0
+    )
     assert self_employment_inputs == {
         "self_employment_trade_or_business_gross_income": 0,
         "self_employment_trade_or_business_deductions": 0,
@@ -387,7 +391,6 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
-        "section_112_amounts_excluded_from_gross_income": 0,
     }
     assert project_section_1402_a_tax_unit_inputs(
         persons=persons,
@@ -450,9 +453,9 @@ def test_section_152_c_projection_uses_leaf_child_facts():
         child_context,
     )
 
-    assert projected[
-        "individual_is_child_of_taxpayer_or_descendant_of_such_child"
-    ] is True
+    assert (
+        projected["individual_is_child_of_taxpayer_or_descendant_of_such_child"] is True
+    )
     assert projected["individual_principal_place_of_abode_with_taxpayer_fraction"] == 1
     assert projected["individual_is_younger_than_taxpayer"] is True
     assert projected["individual_age_at_close_of_calendar_year"] == 20
@@ -573,10 +576,20 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     }
     assert f"{EITC_BASE}#input.earned_income" not in input_values
     assert (
+        f"{SECTION_32_C_2_BASE}#input.section_112_amounts_excluded_from_gross_income"
+        not in input_values
+    )
+    assert (
         input_values[
             f"{SECTION_32_C_2_BASE}#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
         ]
         == "18000.0"
+    )
+    assert (
+        input_values[
+            f"{SECTION_112_BASE}#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay"
+        ]
+        == 0
     )
     assert (
         input_values[
@@ -652,12 +665,14 @@ def test_build_capital_gain_definitions_request_uses_raw_person_capital_gains():
     assert input_values[f"{CAPITAL_GAINS_BASE}#input.short_term_capital_gains"] == (
         "-1500.0"
     )
-    assert input_values[
-        f"{CAPITAL_GAINS_BASE}#input.unrecaptured_section_1250_gain"
-    ] == "600.0"
-    assert input_values[
-        f"{CAPITAL_GAINS_BASE}#input.capital_gains_28_percent_rate_gain"
-    ] == "800.0"
+    assert (
+        input_values[f"{CAPITAL_GAINS_BASE}#input.unrecaptured_section_1250_gain"]
+        == "600.0"
+    )
+    assert (
+        input_values[f"{CAPITAL_GAINS_BASE}#input.capital_gains_28_percent_rate_gain"]
+        == "800.0"
+    )
 
 
 def test_within_tolerance_keeps_cent_level_strictness_for_ordinary_outputs():
@@ -735,9 +750,7 @@ def test_compare_outputs_reports_max_relative_diff_for_large_float_noise():
     )
 
     net_capital_gain_summary = next(
-        item
-        for item in report.output_summary
-        if item["output"] == "net_capital_gain"
+        item for item in report.output_summary if item["output"] == "net_capital_gain"
     )
     assert net_capital_gain_summary["max_abs_diff"] == 98
     assert net_capital_gain_summary["max_relative_diff"] == pytest.approx(
@@ -778,10 +791,13 @@ def test_contribution_and_benefit_base_comes_from_axiom_results():
         }
     ]
 
-    assert contribution_and_benefit_base_from_results(
-        results,
-        year=2026,
-    ) == 184_500
+    assert (
+        contribution_and_benefit_base_from_results(
+            results,
+            year=2026,
+        )
+        == 184_500
+    )
 
 
 def test_contribution_and_benefit_base_requires_axiom_result():
@@ -818,9 +834,7 @@ def test_oasdi_wage_base_projection_uses_gross_wages_and_official_base():
 def test_build_oasdi_wage_base_request_uses_3121_inputs():
     pd = pytest.importorskip("pandas")
     pe_data = {
-        "persons": pd.DataFrame(
-            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
-        ),
+        "persons": pd.DataFrame([{"person_id": 7, "payroll_tax_gross_wages": 200_000}]),
         "person_ids": [7],
     }
 
@@ -861,9 +875,7 @@ def test_build_oasdi_wage_base_request_uses_3121_inputs():
 def test_taxable_oasdi_wages_come_from_axiom_3121_results():
     pd = pytest.importorskip("pandas")
     pe_data = {
-        "persons": pd.DataFrame(
-            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
-        ),
+        "persons": pd.DataFrame([{"person_id": 7, "payroll_tax_gross_wages": 200_000}]),
         "person_ids": [7],
     }
     results = [
@@ -886,9 +898,7 @@ def test_taxable_oasdi_wages_come_from_axiom_3121_results():
 def test_build_oasdi_payroll_request_feeds_3121_taxable_wages():
     pd = pytest.importorskip("pandas")
     pe_data = {
-        "persons": pd.DataFrame(
-            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
-        ),
+        "persons": pd.DataFrame([{"person_id": 7, "payroll_tax_gross_wages": 200_000}]),
         "person_ids": [7],
     }
     results = [
@@ -927,9 +937,7 @@ def test_build_oasdi_payroll_request_feeds_3121_taxable_wages():
 def test_build_oasdi_payroll_request_requires_3121_results():
     pd = pytest.importorskip("pandas")
     pe_data = {
-        "persons": pd.DataFrame(
-            [{"person_id": 7, "payroll_tax_gross_wages": 200_000}]
-        ),
+        "persons": pd.DataFrame([{"person_id": 7, "payroll_tax_gross_wages": 200_000}]),
         "person_ids": [7],
     }
 
@@ -990,7 +998,10 @@ def test_compare_oasdi_stage_runs_encoded_ssa_base_before_3121(
                     }
                 }
             ]
-        if program.relative_to(tmp_path / "rulespec-us") == OASDI_WAGE_BASE_PROGRAM_PATH:
+        if (
+            program.relative_to(tmp_path / "rulespec-us")
+            == OASDI_WAGE_BASE_PROGRAM_PATH
+        ):
             input_values = {
                 item["name"]: item["value"]["value"]
                 for item in request["dataset"]["inputs"]

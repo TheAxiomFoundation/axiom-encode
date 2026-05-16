@@ -56,6 +56,7 @@ CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
 CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
 EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
 EITC_BASE = "us:statutes/26/32"
+SECTION_112_BASE = "us:statutes/26/112"
 SECTION_32_C_2_BASE = "us:statutes/26/32/c/2"
 SECTION_152_C_BASE = "us:statutes/26/152/c"
 SECTION_1402_A_BASE = "us:statutes/26/1402/a"
@@ -855,6 +856,15 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
                     value,
                 )
             )
+        for name, value in project_section_112_tax_unit_inputs().items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_112_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
         for name, value in project_section_1402_a_tax_unit_inputs(
             persons=tax_unit_persons,
             contexts=contexts,
@@ -881,7 +891,9 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
             )
             for name, value in project_eitc_person_inputs(person, context).items():
                 inputs.append(
-                    input_record(f"{EITC_BASE}#input.{name}", person_id, interval, value)
+                    input_record(
+                        f"{EITC_BASE}#input.{name}", person_id, interval, value
+                    )
                 )
             for name, value in project_section_152_c_person_inputs(
                 person,
@@ -1083,9 +1095,7 @@ def taxable_oasdi_wages_by_person_id(
     oasdi_wage_base_results: list[dict[str, Any]] | None,
 ) -> dict[int, float]:
     if oasdi_wage_base_results is None:
-        raise ValueError(
-            "OASDI payroll surfaces require Axiom 3121 wage-base results."
-        )
+        raise ValueError("OASDI payroll surfaces require Axiom 3121 wage-base results.")
     person_ids = [int(person_id) for person_id in pe_data["person_ids"]]
     if len(oasdi_wage_base_results) != len(person_ids):
         raise ValueError(
@@ -1147,7 +1157,9 @@ def project_standard_deduction_inputs(row: Any, persons: list[Any]) -> dict[str,
     }
 
 
-def project_capital_gain_definition_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
+def project_capital_gain_definition_inputs(
+    row: Any, persons: list[Any]
+) -> dict[str, Any]:
     long_term_capital_gains = person_money_sum(
         persons,
         "long_term_capital_gains_before_response",
@@ -1191,9 +1203,8 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
     filer_contexts = [
         context for index, context in enumerate(contexts) if index in filer_indices
     ]
-    spouse_has_required_ssn = (
-        spouse_index is not None
-        and valid_child_ssn_type(str(persons[spouse_index].get("ssn_card_type", "")))
+    spouse_has_required_ssn = spouse_index is not None and valid_child_ssn_type(
+        str(persons[spouse_index].get("ssn_card_type", ""))
     )
     return {
         "filing_status": filing_status_numeric,
@@ -1208,10 +1219,7 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
             for context in filer_contexts
             if context.is_head or context.is_spouse
         )
-        and any(
-            25 <= money(persons[index]["age"]) < 65
-            for index in filer_indices
-        ),
+        and any(25 <= money(persons[index]["age"]) < 65 for index in filer_indices),
         "taxpayer_is_dependent_for_section_151_to_another_taxpayer": False,
         "taxpayer_is_qualifying_child_of_another_taxpayer": False,
         "taxpayer_claims_section_911_benefits": False,
@@ -1251,7 +1259,25 @@ def project_section_32_c_2_tax_unit_inputs(
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
-        "section_112_amounts_excluded_from_gross_income": 0,
+    }
+
+
+def project_section_112_tax_unit_inputs() -> dict[str, Any]:
+    return {
+        "member_below_grade_of_commissioned_officer_in_armed_forces": False,
+        "served_in_combat_zone_during_month": False,
+        "hospitalized_resulting_from_combat_zone_wounds_disease_or_injury": False,
+        "months_beginning_after_combatant_activities_termination": 0,
+        "vietnam_combat_zone_hospitalization_month_after_january_1978": False,
+        "active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay": 0,
+        "commissioned_officer_in_armed_forces_excluding_commissioned_warrant_officer": False,
+        "active_service_compensation_as_commissioned_officer_excluding_pensions_and_retirement_pay": 0,
+        "maximum_enlisted_amount_for_commissioned_officer_months": 0,
+        "armed_forces_member_in_missing_status_during_vietnam_conflict_as_result_of_conflict": False,
+        "officially_absent_from_post_of_duty_without_authority": False,
+        "armed_forces_missing_status_active_service_compensation": 0,
+        "civilian_employee_in_missing_status_during_vietnam_conflict_as_result_of_conflict": False,
+        "civilian_employee_missing_status_active_service_compensation": 0,
     }
 
 
@@ -1481,9 +1507,7 @@ def tax_unit_head_spouse_indices(persons: list[Any]) -> tuple[int | None, int | 
     separated = any(bool_value(person.get("is_separated", False)) for person in persons)
     if separated:
         return head_index, None
-    spouse_candidates = [
-        index for index in filer_adult_indices if index != head_index
-    ]
+    spouse_candidates = [index for index in filer_adult_indices if index != head_index]
     spouse_index = (
         max(spouse_candidates, key=lambda index: money(persons[index]["age"]))
         if spouse_candidates
