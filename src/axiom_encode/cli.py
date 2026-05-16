@@ -2893,13 +2893,20 @@ def cmd_repair_unused_imports(args):
 
     original_content = rules_file.read_text()
     repaired_content, removed_imports = _prune_unused_imports(original_content)
-    if not removed_imports:
+    test_file = _rulespec_test_path(rules_file)
+    manifest_needs_refresh = test_file.exists() and _applied_manifest_missing_file(
+        repo_path,
+        relative_output,
+        test_file,
+    )
+    if not removed_imports and not manifest_needs_refresh:
         print("No unused imports found.")
         return
 
     signing_key = _require_applied_encoding_manifest_signing_key()
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-    rules_file.write_text(repaired_content)
+    if removed_imports:
+        rules_file.write_text(repaired_content)
 
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
@@ -2946,8 +2953,8 @@ def cmd_repair_unused_imports(args):
             policy_repo_path=repo_path,
             relative_output=relative_output,
             applied_files=(
-                [rules_file, _rulespec_test_path(rules_file)]
-                if _rulespec_test_path(rules_file).exists()
+                [rules_file, test_file]
+                if test_file.exists()
                 else [rules_file]
             ),
             run_id="deterministic-repair",
@@ -2955,11 +2962,35 @@ def cmd_repair_unused_imports(args):
             axiom_encode_git=axiom_encode_git,
         )
 
-    print(
-        "Applied unused-import repair to "
-        f"{relative_output}: {', '.join(removed_imports)}"
-    )
+    if removed_imports:
+        print(
+            "Applied unused-import repair to "
+            f"{relative_output}: {', '.join(removed_imports)}"
+        )
+    else:
+        print(f"Refreshed unused-import repair manifest for {relative_output}")
     print(f"manifest={manifest_path}")
+
+
+def _applied_manifest_missing_file(
+    repo_path: Path,
+    relative_output: Path,
+    applied_file: Path,
+) -> bool:
+    manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+    if not manifest_path.exists():
+        return True
+    with contextlib.suppress(json.JSONDecodeError, OSError, ValueError):
+        payload = json.loads(manifest_path.read_text())
+        applied_files = payload.get("applied_files")
+        if not isinstance(applied_files, list):
+            return True
+        relative = applied_file.relative_to(repo_path).as_posix()
+        return not any(
+            isinstance(item, dict) and item.get("path") == relative
+            for item in applied_files
+        )
+    return True
 
 
 def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
