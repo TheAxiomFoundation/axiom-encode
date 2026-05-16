@@ -2905,6 +2905,11 @@ RuleSpec requirements:
   final exported amount must apply that limitation. If a copied sibling/context
   file already encodes the limitation, import it and compose with it instead of
   duplicating or ignoring it.
+- If the copied target file is already executable, do not replace it with
+  `module.status: deferred` merely because upstream cross-references are not
+  fully encoded yet. Preserve the executable public surface and improve the
+  source-faithful formulas/tests; only defer an already executable target when
+  the existing executable surface is legally impossible to preserve.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,
@@ -2921,6 +2926,12 @@ RuleSpec requirements:
   `source_relation` records in the statute file. For IRC section 63(c)(5), if
   Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
   not recreate it in the statute file.
+- If a current-year authority provides a directly rounded final amount table,
+  use that table for the final amount instead of recomputing the amount from
+  related rates and thresholds. For example, if an IRS revenue procedure exports
+  an EITC maximum-credit table, `eitc_maximum` must select that imported maximum
+  table, not multiply the phase-in rate by the earned-income amount and keep an
+  unrounded decimal.
 - When source text says an exemption, exclusion, or adjustment applies
   `to the extent` of an amount, do not model it as all-or-nothing zeroing such as
   `if exempt_amount > 0: 0 else: tax`. Subtract or apportion the stated amount.
@@ -2962,7 +2973,7 @@ RuleSpec requirements:
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
-- Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches.
+- Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
 - If that reduction has rounding alternatives, every branch must be floored: use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`, never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
 - US tax `filing_status` is a structural enum: 0 single, 1 joint return,

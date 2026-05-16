@@ -3709,14 +3709,19 @@ rules:
             "emit the upstream import instead of restating the concept locally"
             in prompt
         )
+        assert "already executable" in prompt
+        assert "do not replace it with" in prompt
         assert "same concept or output name" in prompt
         assert "dependent_standard_deduction_limit" in prompt
         assert "dependent_basic_standard_deduction_statutory_limit" in prompt
+        assert "directly rounded final amount table" in prompt
+        assert "EITC maximum-credit table" in prompt
         assert "round the" in prompt
         assert "increase before adding it to the base amount" in prompt
         assert "17300, not 17325" in prompt
         assert "Outputs named `taxable_income`" in prompt
         assert "if condition: max(0, branch_a) else: max(0, branch_b)" in prompt
+        assert "rate * min(max(0, earned_income), cap)" in prompt
         assert "says a value is determined `in accordance with section X`" in prompt
         assert "do not invent `import` statements or `imports:` blocks" in prompt
         assert "Importing a child rate or threshold is not enough" in prompt

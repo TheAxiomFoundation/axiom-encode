@@ -54,6 +54,8 @@ OASDI_WAGE_BASE_EXCLUSION_OUTPUT = (
 AXIOM_3121_TAXABLE_OASDI_WAGES = "axiom_3121_taxable_oasdi_wages"
 CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
 CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
+EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
+EITC_BASE = "us:statutes/26/32"
 
 
 def contribution_and_benefit_base_program_path(year: int) -> Path:
@@ -163,16 +165,60 @@ CAPITAL_GAINS_DEFINITION_OUTPUTS = {
         "pe": "adjusted_net_capital_gain",
     },
 }
+EITC_OUTPUTS = {
+    "eitc_child_count": {
+        "axiom": f"{EITC_BASE}#eitc_child_count",
+        "pe": "eitc_child_count",
+    },
+    "eitc_phase_in_rate": {
+        "axiom": f"{EITC_BASE}#eitc_phase_in_rate",
+        "pe": "eitc_phase_in_rate",
+    },
+    "eitc_phase_out_rate": {
+        "axiom": f"{EITC_BASE}#eitc_phase_out_rate",
+        "pe": "eitc_phase_out_rate",
+    },
+    "eitc_maximum": {
+        "axiom": f"{EITC_BASE}#eitc_maximum",
+        "pe": "eitc_maximum",
+    },
+    "eitc_phase_out_start": {
+        "axiom": f"{EITC_BASE}#eitc_phase_out_start",
+        "pe": "eitc_phase_out_start",
+    },
+    "eitc_phased_in": {
+        "axiom": f"{EITC_BASE}#eitc_phased_in",
+        "pe": "eitc_phased_in",
+    },
+    "eitc_reduction": {
+        "axiom": f"{EITC_BASE}#eitc_reduction",
+        "pe": "eitc_reduction",
+    },
+    "eitc_investment_income_eligible": {
+        "axiom": f"{EITC_BASE}#eitc_investment_income_eligible",
+        "pe": "eitc_investment_income_eligible",
+    },
+    "eitc_demographic_eligible": {
+        "axiom": f"{EITC_BASE}#eitc_demographic_eligible",
+        "pe": "eitc_demographic_eligible",
+    },
+    "eitc_eligible": {
+        "axiom": f"{EITC_BASE}#eitc_allowed",
+        "pe": "eitc_eligible",
+    },
+}
 SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
     "capital-gain-definitions": CAPITAL_GAINS_DEFINITION_OUTPUTS,
+    "eitc": EITC_OUTPUTS,
     **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
 SURFACE_PROGRAM_PATHS = {
     "ctc": CTC_PROGRAM_PATH,
     "standard-deduction": STANDARD_DEDUCTION_PROGRAM_PATH,
     "capital-gain-definitions": CAPITAL_GAINS_PROGRAM_PATH,
+    "eitc": EITC_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
 PE_TAX_UNIT_VARIABLES = tuple(
@@ -187,6 +233,16 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "ctc_phase_out",
             "ctc_phase_out_threshold",
             "ctc_qualifying_children",
+            "eitc_child_count",
+            "eitc_demographic_eligible",
+            "eitc_eligible",
+            "eitc_investment_income_eligible",
+            "eitc_maximum",
+            "eitc_phase_in_rate",
+            "eitc_phase_out_rate",
+            "eitc_phase_out_start",
+            "eitc_phased_in",
+            "eitc_reduction",
             "filing_status",
             "net_capital_gain",
             "standard_deduction",
@@ -594,6 +650,8 @@ def build_axiom_request(
         return build_standard_deduction_request(pe_data=pe_data, year=year)
     if surface == "capital-gain-definitions":
         return build_capital_gain_definitions_request(pe_data=pe_data, year=year)
+    if surface == "eitc":
+        return build_eitc_request(pe_data=pe_data, year=year)
     if surface in PAYROLL_SURFACES:
         return build_payroll_request(
             pe_data=pe_data,
@@ -754,6 +812,59 @@ def build_capital_gain_definitions_request(
                 "outputs": [
                     spec["axiom"] for spec in CAPITAL_GAINS_DEFINITION_OUTPUTS.values()
                 ],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        for name, value in project_eitc_tax_unit_inputs(
+            row=row,
+            persons=tax_unit_persons,
+        ).items():
+            inputs.append(
+                input_record(f"{EITC_BASE}#input.{name}", entity_id, interval, value)
+            )
+
+        contexts = project_tax_unit_person_contexts(tax_unit_persons)
+        for person_index, (person, context) in enumerate(
+            zip(tax_unit_persons, contexts, strict=True)
+        ):
+            person_id = f"{entity_id}_person_{person_index}"
+            relations.append(
+                {
+                    "name": f"{EITC_BASE}#relation.qualifying_child_of_tax_unit",
+                    "tuple": [person_id, entity_id],
+                    "interval": interval,
+                }
+            )
+            for name, value in project_eitc_person_inputs(person, context).items():
+                inputs.append(
+                    input_record(f"{EITC_BASE}#input.{name}", person_id, interval, value)
+                )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in EITC_OUTPUTS.values()],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
         ],
@@ -1029,6 +1140,104 @@ def project_capital_gain_definition_inputs(row: Any, persons: list[Any]) -> dict
             row.get("unrecaptured_section_1250_gain", 0)
         ),
         "capital_gains_28_percent_rate_gain": capital_gains_28_percent_rate_gain,
+    }
+
+
+def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
+    filing_status = str(row["filing_status"])
+    filing_status_numeric = filing_status_code(filing_status)
+    contexts = project_tax_unit_person_contexts(persons)
+    head_index, spouse_index = tax_unit_head_spouse_indices(persons)
+    filer_indices = {index for index in (head_index, spouse_index) if index is not None}
+    filer_contexts = [
+        context for index, context in enumerate(contexts) if index in filer_indices
+    ]
+    spouse_has_required_ssn = (
+        spouse_index is not None
+        and valid_child_ssn_type(str(persons[spouse_index].get("ssn_card_type", "")))
+    )
+    return {
+        "filing_status": filing_status_numeric,
+        "earned_income": project_eitc_earned_income(persons, contexts),
+        "adjusted_gross_income": money(row["adjusted_gross_income"]),
+        "eitc_relevant_investment_income": project_eitc_relevant_investment_income(
+            row=row,
+            persons=persons,
+        ),
+        "childless_taxpayer_principal_place_of_abode_in_united_states_more_than_half_year": True,
+        "childless_taxpayer_or_spouse_age_eligible_for_eitc": any(
+            context.is_head or context.is_spouse
+            for context in filer_contexts
+            if context.is_head or context.is_spouse
+        )
+        and any(
+            25 <= money(persons[index]["age"]) < 65
+            for index in filer_indices
+        ),
+        "taxpayer_is_dependent_for_section_151_to_another_taxpayer": False,
+        "taxpayer_is_qualifying_child_of_another_taxpayer": False,
+        "taxpayer_claims_section_911_benefits": False,
+        "taxpayer_is_nonresident_alien_for_any_portion_of_year": False,
+        "taxpayer_treated_as_resident_by_section_6013_g_or_h_election": False,
+        "taxpayer_is_married_under_section_7703_a": filing_status_numeric in {1, 2},
+        "satisfies_eitc_separated_spouse_rules": False,
+        "taxable_year_is_full_12_months": True,
+        "taxable_year_closed_by_reason_of_taxpayer_death": False,
+        "eitc_disallowance_period_applies": False,
+        "prior_deficiency_denial_without_required_eligibility_information": False,
+        "taxpayer_includes_required_social_security_number_on_return": any(
+            context.filer_has_valid_child_ctc_ssn for context in contexts
+        ),
+        "spouse_includes_required_social_security_number_on_return": (
+            spouse_has_required_ssn
+        ),
+    }
+
+
+def project_eitc_earned_income(
+    persons: list[Any],
+    contexts: list[PersonProjectionContext],
+) -> float:
+    return sum(
+        money(person.get("employment_income_before_lsr", 0))
+        + money(person.get("self_employment_income_before_lsr", 0))
+        + money(person.get("sstb_self_employment_income_before_lsr", 0))
+        for person, context in zip(persons, contexts, strict=True)
+        if context.is_head or context.is_spouse
+    )
+
+
+def project_eitc_relevant_investment_income(row: Any, persons: list[Any]) -> float:
+    net_capital_gains = person_money_sum(
+        persons,
+        "long_term_capital_gains_before_response",
+    ) + person_money_sum(persons, "short_term_capital_gains")
+    return (
+        person_money_sum(persons, "taxable_interest_income")
+        + person_money_sum(persons, "tax_exempt_interest_income")
+        + person_money_sum(persons, "qualified_dividend_income")
+        + person_money_sum(persons, "non_qualified_dividend_income")
+        + person_money_sum(persons, "rental_income")
+        + max(0.0, net_capital_gains)
+    )
+
+
+def project_eitc_person_inputs(
+    person: Any,
+    context: PersonProjectionContext,
+) -> dict[str, Any]:
+    return {
+        "qualifying_child_under_section_152_c_as_modified_for_eitc": (
+            context.qualifying_child_under_section_152_c
+        ),
+        "qualifying_child_principal_place_of_abode_is_in_united_states": True,
+        "qualifying_child_name_age_and_tin_included_on_return": (
+            context.has_valid_child_ssn
+        ),
+        "qualifying_child_is_married_at_close_of_taxable_year": False,
+        "taxpayer_entitled_to_section_151_deduction_for_child_or_would_be_but_for_section_152_e": (
+            context.is_tax_unit_dependent
+        ),
     }
 
 
@@ -1387,10 +1596,18 @@ def scalar_value(value: Any) -> dict[str, Any]:
 def output_number(output: Any) -> float:
     if not isinstance(output, dict):
         return math.nan
+    if output.get("kind") == "judgment":
+        outcome = str(output.get("outcome", "")).strip().lower()
+        if outcome == "holds":
+            return 1.0
+        if outcome == "not_holds":
+            return 0.0
     value = output.get("value") or {}
     raw = value.get("value")
     if raw is None:
         return math.nan
+    if isinstance(raw, bool):
+        return float(raw)
     return float(raw)
 
 

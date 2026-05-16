@@ -231,6 +231,11 @@ Hard requirements:
   final exported amount must apply that limitation. If a copied sibling/context
   file already encodes the limitation, import it and compose with it instead of
   duplicating or ignoring it.
+- If the copied target file is already executable, do not replace it with
+  `module.status: deferred` merely because upstream cross-references are not
+  fully encoded yet. Preserve the executable public surface and improve the
+  source-faithful formulas/tests; only defer an already executable target when
+  the existing executable surface is legally impossible to preserve.
 - Do not create parallel statutory-dollar executable parameters when a copied
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
@@ -242,6 +247,12 @@ Hard requirements:
   `source_relation` records in the statute file. For IRC section 63(c)(5), if
   Rev. Proc. context already exports `dependent_standard_deduction_limit`, do
   not recreate it in the statute file.
+- If a current-year authority provides a directly rounded final amount table,
+  use that table for the final amount instead of recomputing the amount from
+  related rates and thresholds. For example, if an IRS revenue procedure exports
+  an EITC maximum-credit table, `eitc_maximum` must select that imported maximum
+  table, not multiply the phase-in rate by the earned-income amount and keep an
+  unrounded decimal.
 - When the statute states pre-inflation base dollars that a current-year
   authority adjusts, any local statute output must be named as a statutory/base
   concept, not as the current-year value. For IRC section 63(c)(5), use a name
@@ -419,6 +430,10 @@ Hard requirements:
   never emit negative money. When subtracting an income, contribution, or other
   reduction from a maximum amount, floor the result with `max(0, ...)` before
   applying downstream minimum-benefit or issuance branches.
+- When a nonnegative credit, deduction, allowance, subsidy, or benefit is a
+  percentage of `min(income, cap)` or similar, floor the income base at zero:
+  use `rate * min(max(0, earned_income), cap)`, not
+  `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never
   be negative. Wrap the final selected branch at zero, including both sides of
   conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`,

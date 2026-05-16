@@ -6,6 +6,8 @@ import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
 from axiom_encode.oracles.policyengine.ecps_tax import (
     CAPITAL_GAINS_BASE,
     CAPITAL_GAINS_DEFINITION_OUTPUTS,
+    EITC_BASE,
+    EITC_OUTPUTS,
     EMPLOYEE_OASDI_BASE,
     EMPLOYEE_OASDI_PROGRAM_PATH,
     OASDI_WAGE_BASE_BASE,
@@ -15,6 +17,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
     build_contribution_and_benefit_base_request,
+    build_eitc_request,
     build_oasdi_wage_base_request,
     build_payroll_request,
     compare_tax_ecps,
@@ -23,10 +26,14 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     contribution_and_benefit_base_program_path,
     filing_status_code,
     individual_is_unmarried_and_not_surviving_spouse,
+    output_number,
     person_entity_id,
     project_capital_gain_definition_inputs,
     project_ctc_h_person_inputs,
     project_ctc_person_inputs,
+    project_eitc_person_inputs,
+    project_eitc_relevant_investment_income,
+    project_eitc_tax_unit_inputs,
     project_oasdi_wage_base_inputs,
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
@@ -268,6 +275,198 @@ def test_capital_gain_definition_projection_uses_ecps_leaf_inputs():
     }
 
 
+def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
+    row = {
+        "filing_status": "HEAD_OF_HOUSEHOLD",
+        "adjusted_gross_income": 22_000,
+        "unrecaptured_section_1250_gain": 0,
+    }
+    persons = [
+        {
+            "age": 34,
+            "ssn_card_type": "CITIZEN",
+            "employment_income_before_lsr": 18_000,
+            "self_employment_income_before_lsr": 0,
+            "sstb_self_employment_income_before_lsr": 0,
+            "taxable_interest_income": 40,
+            "tax_exempt_interest_income": 20,
+            "qualified_dividend_income": 100,
+            "non_qualified_dividend_income": 50,
+            "rental_income": 0,
+            "long_term_capital_gains_before_response": 400,
+            "short_term_capital_gains": -100,
+        },
+        {
+            "age": 8,
+            "ssn_card_type": "CITIZEN",
+            "is_full_time_college_student": False,
+            "employment_income_before_lsr": 0,
+            "self_employment_income_before_lsr": 0,
+            "sstb_self_employment_income_before_lsr": 0,
+        },
+    ]
+
+    projected = project_eitc_tax_unit_inputs(row=row, persons=persons)
+
+    assert projected["filing_status"] == 3
+    assert projected["earned_income"] == 18_000
+    assert projected["adjusted_gross_income"] == 22_000
+    assert projected["eitc_relevant_investment_income"] == 510
+    assert (
+        projected[
+            "childless_taxpayer_or_spouse_age_eligible_for_eitc"
+        ]
+        is True
+    )
+    assert projected["taxpayer_includes_required_social_security_number_on_return"] is True
+
+
+def test_eitc_person_projection_marks_valid_minor_child():
+    [head_context, child_context] = project_tax_unit_person_contexts(
+        [
+            {"age": 34, "ssn_card_type": "CITIZEN"},
+            {
+                "age": 8,
+                "ssn_card_type": "CITIZEN",
+                "is_full_time_college_student": False,
+            },
+        ]
+    )
+
+    projected = project_eitc_person_inputs(
+        {
+            "age": 8,
+            "ssn_card_type": "CITIZEN",
+            "is_full_time_college_student": False,
+        },
+        child_context,
+    )
+
+    assert head_context.is_head is True
+    assert projected == {
+        "qualifying_child_under_section_152_c_as_modified_for_eitc": True,
+        "qualifying_child_principal_place_of_abode_is_in_united_states": True,
+        "qualifying_child_name_age_and_tin_included_on_return": True,
+        "qualifying_child_is_married_at_close_of_taxable_year": False,
+        "taxpayer_entitled_to_section_151_deduction_for_child_or_would_be_but_for_section_152_e": True,
+    }
+
+
+def test_eitc_relevant_investment_income_replaces_limited_loss_with_nonnegative_gain():
+    assert (
+        project_eitc_relevant_investment_income(
+            row={"filing_status": "SINGLE"},
+            persons=[
+                {
+                    "taxable_interest_income": 10,
+                    "tax_exempt_interest_income": 20,
+                    "qualified_dividend_income": 30,
+                    "non_qualified_dividend_income": 40,
+                    "rental_income": 50,
+                    "long_term_capital_gains_before_response": -1_000,
+                    "short_term_capital_gains": 200,
+                }
+            ],
+        )
+        == 150
+    )
+
+
+def test_build_eitc_request_uses_structural_child_relation_and_component_outputs():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "filing_status": "HEAD_OF_HOUSEHOLD",
+                    "adjusted_gross_income": 22_000,
+                    "unrecaptured_section_1250_gain": 0,
+                    "eitc_child_count": 1,
+                    "eitc_phase_in_rate": 0.34,
+                    "eitc_phase_out_rate": 0.1598,
+                    "eitc_maximum": 4_427,
+                    "eitc_phase_out_start": 23_890,
+                    "eitc_phased_in": 4_427,
+                    "eitc_reduction": 0,
+                    "eitc_investment_income_eligible": True,
+                    "eitc_demographic_eligible": True,
+                    "eitc_eligible": True,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "person_tax_unit_id": 1,
+                    "age": 34,
+                    "ssn_card_type": "CITIZEN",
+                    "employment_income_before_lsr": 18_000,
+                    "self_employment_income_before_lsr": 0,
+                    "sstb_self_employment_income_before_lsr": 0,
+                },
+                {
+                    "person_id": 8,
+                    "person_tax_unit_id": 1,
+                    "age": 8,
+                    "ssn_card_type": "CITIZEN",
+                    "is_full_time_college_student": False,
+                    "employment_income_before_lsr": 0,
+                    "self_employment_income_before_lsr": 0,
+                    "sstb_self_employment_income_before_lsr": 0,
+                },
+            ]
+        ),
+        "tax_unit_ids": [1],
+        "person_ids": [7, 8],
+    }
+
+    request = build_eitc_request(pe_data=pe_data, year=2026)
+
+    assert request["queries"] == [
+        {
+            "entity_id": "tax_unit_1",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [spec["axiom"] for spec in EITC_OUTPUTS.values()],
+        }
+    ]
+    assert request["dataset"]["relations"] == [
+        {
+            "name": f"{EITC_BASE}#relation.qualifying_child_of_tax_unit",
+            "tuple": ["tax_unit_1_person_0", "tax_unit_1"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+        {
+            "name": f"{EITC_BASE}#relation.qualifying_child_of_tax_unit",
+            "tuple": ["tax_unit_1_person_1", "tax_unit_1"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+    ]
+    input_values = {
+        item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
+    }
+    assert input_values[f"{EITC_BASE}#input.earned_income"] == "18000.0"
+    assert (
+        input_values[
+            f"{EITC_BASE}#input.qualifying_child_name_age_and_tin_included_on_return"
+        ]
+        is True
+    )
+
+
 def test_build_capital_gain_definitions_request_uses_raw_person_capital_gains():
     pd = pytest.importorskip("pandas")
     pe_data = {
@@ -352,6 +551,11 @@ def test_within_tolerance_accepts_large_policyengine_float_noise():
         absolute_tolerance=0.01,
         relative_tolerance=2e-7,
     )
+
+
+def test_output_number_maps_axiom_judgments_to_boolean_numbers():
+    assert output_number({"kind": "judgment", "outcome": "holds"}) == 1
+    assert output_number({"kind": "judgment", "outcome": "not_holds"}) == 0
 
 
 def test_tax_ecps_parser_documents_full_sample_size():

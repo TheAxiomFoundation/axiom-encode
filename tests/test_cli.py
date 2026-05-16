@@ -49,6 +49,7 @@ from axiom_encode.cli import (
     cmd_log_event,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_repair_current_year_final_amounts,
     cmd_repair_imported_test_inputs,
     cmd_repair_missing_source_proofs,
     cmd_repair_nonnegative_floors,
@@ -4978,6 +4979,115 @@ rules:
             "regulations/7-cfr/273/10.test.yaml",
         ]
         assert payload["tool"] == "axiom-encode repair-nonnegative-floors"
+
+    def test_repair_current_year_final_amounts_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = (
+            policy_repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
+        )
+        imported.parent.mkdir(parents=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: eitc_maximum_credit_amounts
+    kind: parameter
+    dtype: Money
+    indexed_by: qualifying_child_count
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 664
+          1: 4427
+"""
+        )
+        target = policy_repo / "statutes/26/32.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/earned-income-credit
+rules:
+  - name: eitc_capped_child_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(eitc_child_count, 3)
+  - name: eitc_maximum
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/32
+              text: "credit percentage of the earned income amount"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc_phase_in_rate * eitc_earned_income_amount
+"""
+        )
+        test_file = policy_repo / "statutes/26/32.test.yaml"
+        test_file.write_text(
+            """- name: one_child_phase_in
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  output:
+    us:statutes/26/32#eitc_capped_child_count: 1
+    us:statutes/26/32#eitc_maximum: 4426.8
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/32.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_current_year_final_amounts(args)
+
+        content = target.read_text()
+        assert isinstance(yaml.safe_load(content), dict)
+        assert "match eitc_capped_child_count:" in content
+        assert "1 => eitc_maximum_credit_amounts[1]" in content
+        assert "output: eitc_maximum_credit_amounts" in content
+        assert "us:statutes/26/32#eitc_maximum: 4427" in test_file.read_text()
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/32.yaml",
+            "statutes/26/32.test.yaml",
+        ]
+        assert payload["tool"] == "axiom-encode repair-current-year-final-amounts"
 
     def test_repair_nonnegative_floors_taxable_income_test_checks_final_output_only(
         self, tmp_path

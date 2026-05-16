@@ -65,6 +65,7 @@ from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
     ValidatorPipeline,
     find_unused_import_issues,
+    repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
 )
 from .oracles.policyengine.coverage import (
@@ -634,6 +635,28 @@ def main():
         help="Rules repository root used for manifest signing",
     )
     repair_floor_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_final_amount_parser = subparsers.add_parser(
+        "repair-current-year-final-amounts",
+        help="Apply signed deterministic repairs for imported final amount tables",
+    )
+    repair_final_amount_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_final_amount_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_final_amount_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -1351,6 +1374,8 @@ def main():
         cmd_guard_generated(args)
     elif args.command == "repair-nonnegative-floors":
         cmd_repair_nonnegative_floors(args)
+    elif args.command == "repair-current-year-final-amounts":
+        cmd_repair_current_year_final_amounts(args)
     elif args.command == "repair-zero-branch-tests":
         cmd_repair_zero_branch_tests(args)
     elif args.command == "repair-unused-imports":
@@ -2974,6 +2999,288 @@ def cmd_repair_nonnegative_floors(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_current_year_final_amounts(args):
+    """Apply signed deterministic repairs for imported final amount tables."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    test_file = _rulespec_test_path(rules_file)
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_content, repaired_rules = repair_current_year_final_amount_tables(
+        original_content,
+        rules_file=rules_file,
+        policy_repo_path=repo_path,
+    )
+    if repaired_content == original_content:
+        print("No current-year final amount repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+
+        rules_file.write_text(repaired_content)
+        applied_files = [rules_file]
+        if _repair_current_year_final_amount_test_expectations(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=relative_output,
+        ):
+            applied_files.append(test_file)
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        if not validation.all_passed:
+            rules_file.write_text(original_content)
+            if original_test_content is not None:
+                test_file.write_text(original_test_content)
+            issues = [
+                result.error for result in validation.results.values() if result.error
+            ]
+            print("Repair failed validation; restored original file.")
+            for issue in issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="current-year-final-amount-v1",
+            tool="axiom-encode repair-current-year-final-amounts",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied current-year final amount repair to "
+        f"{relative_output}: {', '.join(repaired_rules)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
+def _repair_current_year_final_amount_test_expectations(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> bool:
+    if not test_file.exists():
+        return False
+    try:
+        payload = yaml.safe_load(rules_file.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    specs = _current_year_final_amount_test_specs(payload, repo_path=repo_path)
+    if not specs:
+        return False
+
+    original = test_file.read_text()
+    lines = original.splitlines(keepends=True)
+    case_starts = [
+        index for index, line in enumerate(lines) if re.match(r"^- name:\s*", line)
+    ]
+    if not case_starts:
+        return False
+
+    changed = False
+    output = lines[:]
+    for case_start, next_case_start in zip(
+        case_starts,
+        case_starts[1:] + [len(output)],
+        strict=False,
+    ):
+        block = "".join(output[case_start:next_case_start])
+        for spec in specs:
+            index_match = re.search(
+                rf"^\s*{re.escape(target_base)}#{re.escape(spec['index_rule'])}:\s*(?P<index>[0-9]+)\s*$",
+                block,
+                flags=re.MULTILINE,
+            )
+            if index_match is None:
+                continue
+            expected = spec["values"].get(index_match.group("index"))
+            if expected is None:
+                continue
+            rule_key = f"{target_base}#{spec['rule_name']}"
+            for line_index in range(case_start, next_case_start):
+                line = output[line_index]
+                match = re.match(
+                    rf"^(?P<prefix>\s*{re.escape(rule_key)}:\s*)"
+                    r"(?P<value>-?[0-9]+(?:\.[0-9]+)?)"
+                    r"(?P<suffix>\s*)$",
+                    line,
+                )
+                if match is None or match.group("value") == expected:
+                    continue
+                newline = "\n" if line.endswith("\n") else ""
+                output[line_index] = (
+                    f"{match.group('prefix')}{expected}{match.group('suffix').rstrip()}"
+                    f"{newline}"
+                )
+                changed = True
+
+    if changed:
+        test_file.write_text("".join(output))
+    return changed
+
+
+def _current_year_final_amount_test_specs(
+    payload: dict,
+    *,
+    repo_path: Path,
+) -> list[dict[str, object]]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    specs: list[dict[str, object]] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        versions = rule.get("versions")
+        if not rule_name or not isinstance(versions, list) or not versions:
+            continue
+        first_version = versions[0]
+        if not isinstance(first_version, dict):
+            continue
+        formula = first_version.get("formula")
+        if not isinstance(formula, str):
+            continue
+        match_header = re.match(
+            r"^match\s+(?P<index>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*\n(?P<body>.*)\Z",
+            formula.strip(),
+            flags=re.DOTALL,
+        )
+        if match_header is None:
+            continue
+        table_names = {
+            table_name
+            for _key, table_name in re.findall(
+                r"^\s*([0-9]+)\s*=>\s*([A-Za-z_][A-Za-z0-9_]*)\[\1\]\s*$",
+                match_header.group("body"),
+                flags=re.MULTILINE,
+            )
+        }
+        if len(table_names) != 1:
+            continue
+        table_name = next(iter(table_names))
+        values = _imported_parameter_values(payload, table_name, repo_path=repo_path)
+        if values:
+            specs.append(
+                {
+                    "rule_name": rule_name,
+                    "index_rule": match_header.group("index"),
+                    "values": values,
+                }
+            )
+    return specs
+
+
+def _imported_parameter_values(
+    payload: dict,
+    table_name: str,
+    *,
+    repo_path: Path,
+) -> dict[str, str]:
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return {}
+
+    jurisdiction = _repo_jurisdiction_prefix(repo_path)
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        target = raw_import.split("#", 1)[0].strip().strip("/")
+        if target.startswith(f"{jurisdiction}:"):
+            target = target.split(":", 1)[1].strip().strip("/")
+        if not target:
+            continue
+        relative = Path(
+            target if target.endswith((".yaml", ".yml")) else f"{target}.yaml"
+        )
+        if relative.is_absolute() or any(
+            part in {"", ".", ".."} for part in relative.parts
+        ):
+            continue
+        target_file = repo_path / relative
+        if not target_file.exists():
+            continue
+        try:
+            imported_payload = yaml.safe_load(target_file.read_text())
+        except (OSError, yaml.YAMLError, ValueError):
+            continue
+        if not isinstance(imported_payload, dict):
+            continue
+        rules = imported_payload.get("rules")
+        if not isinstance(rules, list):
+            continue
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            if str(rule.get("name") or "").strip() != table_name:
+                continue
+            versions = rule.get("versions")
+            if not isinstance(versions, list) or not versions:
+                return {}
+            first_version = versions[0]
+            if not isinstance(first_version, dict):
+                return {}
+            values = first_version.get("values")
+            if not isinstance(values, dict):
+                return {}
+            return {str(key): str(value) for key, value in values.items()}
+    return {}
+
+
 def cmd_repair_zero_branch_tests(args):
     """Apply signed deterministic zero-branch companion test repairs."""
     repo_path = Path(args.repo).resolve()
@@ -3875,6 +4182,7 @@ def _only_pending_tax_filing_status_branch_issues(issues: list[str]) -> bool:
 def _only_pending_nonnegative_amount_reduction_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
         "Nonnegative amount reduction missing floor:" in issue
+        or "Nonnegative amount income base missing floor:" in issue
         or "Nonnegative taxable income missing floor:" in issue
         for issue in issues
     )

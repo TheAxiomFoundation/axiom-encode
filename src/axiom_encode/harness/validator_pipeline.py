@@ -785,7 +785,7 @@ _US_TAX_FILING_STATUS_NAME_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN = re.compile(
-    r"(?:^|_)(?:allotment|benefit|credit|deduction|allowance|subsidy)(?:_|$)",
+    r"(?:^|_)(?:allotment|benefit|credit|deduction|allowance|subsidy|phased_in)(?:_|$)",
     flags=re.IGNORECASE,
 )
 _NONNEGATIVE_TAXABLE_INCOME_NAME_PATTERN = re.compile(
@@ -802,6 +802,26 @@ _ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN = re.compile(
     r"\b[A-Za-z_][A-Za-z0-9_]*\b"
     r"[\s\S]{0,180}-[\s\S]{0,220}"
     r"(?:^|_)(?:income|contribution|reduction)(?:_|\b)",
+    flags=re.IGNORECASE,
+)
+_NONNEGATIVE_INCOME_BASE_FORMULA_PATTERN = re.compile(
+    r"\bmin\s*\([^)]*\b[A-Za-z_][A-Za-z0-9_]*(?:income|earnings|wages)[A-Za-z0-9_]*\b[^)]*\)",
+    flags=re.IGNORECASE,
+)
+_ZERO_FLOORED_INCOME_BASE_PATTERN = re.compile(
+    r"\bmax\s*\(\s*0\s*,[^)]*\b[A-Za-z_][A-Za-z0-9_]*(?:income|earnings|wages)[A-Za-z0-9_]*\b",
+    flags=re.IGNORECASE,
+)
+_CURRENT_YEAR_FINAL_AMOUNT_RULE_PATTERN = re.compile(
+    r"(?:^|_)(?:maximum|max)(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_CURRENT_YEAR_FINAL_AMOUNT_RECOMPUTE_PATTERN = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*rate[A-Za-z0-9_]*\b\s*\*\s*"
+    r"\b[A-Za-z_][A-Za-z0-9_]*amount[A-Za-z0-9_]*\b"
+    r"|"
+    r"\b[A-Za-z_][A-Za-z0-9_]*amount[A-Za-z0-9_]*\b\s*\*\s*"
+    r"\b[A-Za-z_][A-Za-z0-9_]*rate[A-Za-z0-9_]*\b",
     flags=re.IGNORECASE,
 )
 _FORMULA_ISO_DATE_LITERAL_PATTERN = re.compile(
@@ -3707,15 +3727,38 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
                 and not _final_expression_has_zero_floor(expression)
             ]
             if not unfloored_expressions:
-                continue
-            issues.append(
-                "Nonnegative amount reduction missing floor: "
-                f"`{name}` subtracts an income/contribution-style reduction from a "
-                "maximum amount but does not floor the result at zero. Benefit, "
-                "allotment, credit, deduction, allowance, and subsidy outputs must "
-                "use `max(0, ...)` before downstream minimums or eligibility branches."
-            )
+                unfloored_income_base_expressions = [
+                    expression
+                    for expression in result_expressions
+                    if _nonnegative_income_base_missing_zero_floor(expression)
+                ]
+                if not unfloored_income_base_expressions:
+                    continue
+                issues.append(
+                    "Nonnegative amount income base missing floor: "
+                    f"`{name}` uses an income, earnings, or wages base inside "
+                    "`min(...)` without flooring that base at zero. Benefit, "
+                    "allotment, credit, deduction, allowance, and subsidy outputs "
+                    "must use `max(0, income)` when a negative income input could "
+                    "otherwise produce a negative amount."
+                )
+            else:
+                issues.append(
+                    "Nonnegative amount reduction missing floor: "
+                    f"`{name}` subtracts an income/contribution-style reduction from a "
+                    "maximum amount but does not floor the result at zero. Benefit, "
+                    "allotment, credit, deduction, allowance, and subsidy outputs must "
+                    "use `max(0, ...)` before downstream minimums or eligibility branches."
+                )
     return issues
+
+
+def _nonnegative_income_base_missing_zero_floor(expression: str) -> bool:
+    if _final_expression_has_zero_floor(expression):
+        return False
+    if not _NONNEGATIVE_INCOME_BASE_FORMULA_PATTERN.search(expression):
+        return False
+    return not _ZERO_FLOORED_INCOME_BASE_PATTERN.search(expression)
 
 
 def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
@@ -3843,6 +3886,8 @@ def _repair_nonnegative_amount_reduction_expression(expression: str) -> str:
             conditional.group("else").strip()
         )
         return f"{conditional.group('head')}: {then_expr} else: {else_expr}"
+    if _nonnegative_income_base_missing_zero_floor(expression):
+        return _repair_nonnegative_income_base_expression(expression)
     if not (
         _NONNEGATIVE_REDUCTION_FORMULA_PATTERN.search(expression)
         or _ZERO_FLOOR_REDUCTION_ARGUMENT_PATTERN.search(expression)
@@ -3853,9 +3898,309 @@ def _repair_nonnegative_amount_reduction_expression(expression: str) -> str:
     return f"max(0, {expression})"
 
 
+def _repair_nonnegative_income_base_expression(expression: str) -> str:
+    return re.sub(
+        r"\bmin\s*\(\s*"
+        r"(?P<income>[A-Za-z_][A-Za-z0-9_]*(?:income|earnings|wages)[A-Za-z0-9_]*)"
+        r"\s*,",
+        r"min(max(0, \g<income>),",
+        expression,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+
+@dataclass(frozen=True)
+class _ImportedRulespecExport:
+    name: str
+    target: str
+    file: Path
+
+
+def find_current_year_final_amount_table_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
+    """Flag formulas that recompute a final rounded table exported upstream."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    imported_exports = _imported_rulespec_exports(
+        payload,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    if not imported_exports:
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula, _source, _rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        if not _CURRENT_YEAR_FINAL_AMOUNT_RULE_PATTERN.search(name):
+            continue
+        if not _CURRENT_YEAR_FINAL_AMOUNT_RECOMPUTE_PATTERN.search(formula):
+            continue
+        final_export = _matching_final_amount_export(name, imported_exports)
+        if final_export is None:
+            continue
+        issues.append(
+            "Current-year final amount table ignored: "
+            f"`{name}` recomputes a maximum amount from a rate and amount even "
+            f"though imported RuleSpec `{final_export.target}` exports a final "
+            "rounded amount table. Select the imported table instead of "
+            "recomputing a rounded current-year value."
+        )
+    return issues
+
+
+def repair_current_year_final_amount_tables(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> tuple[str, list[str]]:
+    """Mechanically select supported imported final amount tables."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return content, []
+
+    imported_exports = _imported_rulespec_exports(
+        payload,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    if not imported_exports:
+        return content, []
+
+    rule_names = _rulespec_rule_names(payload)
+    repaired = content
+    repaired_rules: list[str] = []
+    for name, kind, formula, _source, _rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        if not _CURRENT_YEAR_FINAL_AMOUNT_RULE_PATTERN.search(name):
+            continue
+        if not _CURRENT_YEAR_FINAL_AMOUNT_RECOMPUTE_PATTERN.search(formula):
+            continue
+        final_export = _matching_final_amount_export(name, imported_exports)
+        if final_export is None:
+            continue
+        index_rule = _final_amount_index_rule_name(name, rule_names)
+        if index_rule is None:
+            continue
+        keys = _parameter_table_keys(final_export.file, final_export.name)
+        if not keys:
+            continue
+        replacement = _final_amount_table_match_formula(
+            table_name=final_export.name,
+            index_rule=index_rule,
+            keys=keys,
+        )
+        repaired = _replace_formula_text_once(repaired, formula, replacement)
+        import_hash = f"sha256:{_file_sha256(final_export.file)}"
+        repaired = _insert_rule_proof_import_atom(
+            repaired,
+            rule_name=name,
+            target=final_export.target,
+            output=final_export.name,
+            import_hash=import_hash,
+        )
+        repaired_rules.append(name)
+
+    return repaired, repaired_rules
+
+
+def _rulespec_rule_names(payload: dict[str, Any]) -> set[str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    return {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+
+def _imported_rulespec_exports(
+    payload: dict[str, Any],
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None,
+) -> dict[str, _ImportedRulespecExport]:
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return {}
+
+    exports: dict[str, _ImportedRulespecExport] = {}
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        target = raw_import.split("#", 1)[0].strip().strip("/")
+        target_ref = _parse_rulespec_target(target)
+        if target_ref is None:
+            continue
+        target_file = _resolve_rulespec_target_file(
+            target_ref,
+            policy_repo_path or _rulespec_repo_root(Path(rules_file).resolve()),
+        )
+        if target_file is None or not target_file.exists():
+            continue
+        target_payload = _rulespec_payload_from_file(target_file)
+        if target_payload is None:
+            continue
+        for rule_name in _rulespec_rule_names(target_payload):
+            exports.setdefault(
+                rule_name,
+                _ImportedRulespecExport(
+                    name=rule_name,
+                    target=f"{target}#{rule_name}",
+                    file=target_file,
+                ),
+            )
+    return exports
+
+
+def _matching_final_amount_export(
+    rule_name: str,
+    imported_exports: dict[str, _ImportedRulespecExport],
+) -> _ImportedRulespecExport | None:
+    for candidate in _final_amount_export_candidates(rule_name):
+        export = imported_exports.get(candidate)
+        if export is not None:
+            return export
+    return None
+
+
+def _final_amount_export_candidates(rule_name: str) -> tuple[str, ...]:
+    candidates = [
+        f"{rule_name}_amounts",
+        f"{rule_name}_credit_amounts",
+    ]
+    if rule_name.endswith("_maximum"):
+        prefix = rule_name.removesuffix("_maximum")
+        if prefix:
+            candidates.append(f"{prefix}_maximum_credit_amounts")
+    return tuple(dict.fromkeys(candidates))
+
+
+def _final_amount_index_rule_name(
+    rule_name: str,
+    rule_names: set[str],
+) -> str | None:
+    prefixes = [rule_name]
+    if rule_name.endswith("_maximum"):
+        prefixes.append(rule_name.removesuffix("_maximum"))
+    for prefix in prefixes:
+        for candidate in (
+            f"{prefix}_capped_child_count",
+            f"{prefix}_child_count",
+            f"{prefix}_capped_count",
+        ):
+            if candidate in rule_names:
+                return candidate
+    return None
+
+
+def _parameter_table_keys(target_file: Path, rule_name: str) -> list[str]:
+    payload = _rulespec_payload_from_file(target_file)
+    if payload is None:
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("name") or "").strip() != rule_name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            return []
+        first_version = versions[0]
+        if not isinstance(first_version, dict):
+            return []
+        values = first_version.get("values")
+        if not isinstance(values, dict):
+            return []
+        return [str(key) for key in values]
+    return []
+
+
+def _final_amount_table_match_formula(
+    *,
+    table_name: str,
+    index_rule: str,
+    keys: list[str],
+) -> str:
+    sorted_keys = sorted(keys, key=lambda key: int(key) if key.isdigit() else key)
+    lines = [f"match {index_rule}:"]
+    lines.extend(f"    {key} => {table_name}[{key}]" for key in sorted_keys)
+    return "\n".join(lines)
+
+
+def _insert_rule_proof_import_atom(
+    content: str,
+    *,
+    rule_name: str,
+    target: str,
+    output: str,
+    import_hash: str,
+) -> str:
+    if f"target: {target}" in content:
+        return content
+
+    lines = content.splitlines(keepends=True)
+    rule_starts = [
+        index for index, line in enumerate(lines) if re.match(r"^  - name:\s*", line)
+    ]
+    for rule_start, next_rule_start in zip(
+        rule_starts,
+        rule_starts[1:] + [len(lines)],
+        strict=False,
+    ):
+        name_match = re.match(r"^  - name:\s*(.+?)\s*$", lines[rule_start])
+        if name_match is None or name_match.group(1).strip() != rule_name:
+            continue
+        atom_index = next(
+            (
+                index
+                for index in range(rule_start, next_rule_start)
+                if re.match(r"^        atoms:\s*$", lines[index])
+            ),
+            None,
+        )
+        if atom_index is None:
+            return content
+        inserted = [
+            "          - path: versions[0].formula\n",
+            "            kind: import\n",
+            "            import:\n",
+            f"              target: {target}\n",
+            f"              output: {output}\n",
+            f"              hash: {import_hash}\n",
+        ]
+        return "".join(lines[: atom_index + 1] + inserted + lines[atom_index + 1 :])
+    return content
+
+
 def _replace_formula_text_once(content: str, old: str, new: str) -> str:
     if old in content:
-        return content.replace(old, new, 1)
+        replacement = new
+        if "\n" in new:
+            start = content.index(old)
+            line_start = content.rfind("\n", 0, start) + 1
+            prefix_match = re.match(r"[ \t]*", content[line_start:start])
+            prefix = prefix_match.group(0) if prefix_match is not None else ""
+            replacement = new.replace("\n", f"\n{prefix}")
+        return content.replace(old, replacement, 1)
     replaced_block = _replace_indented_block_text_once(content, old, new)
     if replaced_block != content:
         return replaced_block
@@ -8844,6 +9189,13 @@ class ValidatorPipeline:
         issues.extend(find_temporal_value_fact_name_issues(content))
         issues.extend(find_judgment_conditional_formula_issues(content))
         issues.extend(find_nonnegative_amount_reduction_issues(content))
+        issues.extend(
+            find_current_year_final_amount_table_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         issues.extend(find_relation_aggregate_syntax_issues(content))
         issues.extend(find_role_limited_relation_scope_issues(content))
         issues.extend(find_source_limitation_application_issues(content))

@@ -30,6 +30,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_broad_application_passthrough_issues,
     find_child_fragment_reencoding_issues,
     find_copied_cross_reference_source_issues,
+    find_current_year_final_amount_table_issues,
     find_deprecated_source_url_issues,
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
@@ -60,6 +61,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_upstream_placement_issues,
     find_versioned_derived_formula_issues,
     find_zero_branch_test_coverage_issues,
+    repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
 )
 from axiom_encode.oracles.policyengine.registry import (
@@ -7489,6 +7491,204 @@ rules:
 
     assert any(
         "Nonnegative amount reduction missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_rejects_unfloored_income_base_in_credit():
+    content = """format: rulespec/v1
+rules:
+  - name: eitc_phased_in
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc_phase_in_rate * min(earned_income, eitc_earned_income_amount)
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative amount income base missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_accepts_zero_floored_income_base_in_credit():
+    content = """format: rulespec/v1
+rules:
+  - name: eitc_phased_in
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount)
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_repair_nonnegative_amount_reductions_floors_income_base_in_credit():
+    content = """format: rulespec/v1
+rules:
+  - name: eitc_phased_in
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc_phase_in_rate * min(earned_income, eitc_earned_income_amount)
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["eitc_phased_in"]
+    assert (
+        "eitc_phase_in_rate * min(max(0, earned_income), eitc_earned_income_amount)"
+        in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
+def test_current_year_final_amount_table_rejects_recomputed_maximum(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
+    imported.parent.mkdir(parents=True)
+    imported.write_text(
+        """format: rulespec/v1
+rules:
+  - name: eitc_maximum_credit_amounts
+    kind: parameter
+    dtype: Money
+    indexed_by: qualifying_child_count
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 664
+          1: 4427
+"""
+    )
+    rules_file = repo / "statutes/26/32.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/earned-income-credit
+rules:
+  - name: eitc_capped_child_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(eitc_child_count, 3)
+  - name: eitc_maximum
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/32
+              text: "credit percentage of the earned income amount"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc_phase_in_rate * eitc_earned_income_amount
+"""
+
+    issues = find_current_year_final_amount_table_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert any("Current-year final amount table ignored" in issue for issue in issues)
+    assert any("eitc_maximum_credit_amounts" in issue for issue in issues)
+
+
+def test_repair_current_year_final_amount_tables_uses_imported_table(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
+    imported.parent.mkdir(parents=True)
+    imported.write_text(
+        """format: rulespec/v1
+rules:
+  - name: eitc_maximum_credit_amounts
+    kind: parameter
+    dtype: Money
+    indexed_by: qualifying_child_count
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 664
+          1: 4427
+"""
+    )
+    rules_file = repo / "statutes/26/32.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+imports:
+  - us:policies/irs/rev-proc-2025-32/earned-income-credit
+rules:
+  - name: eitc_capped_child_count
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(eitc_child_count, 3)
+  - name: eitc_maximum
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/32
+              text: "credit percentage of the earned income amount"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          eitc_phase_in_rate * eitc_earned_income_amount
+"""
+
+    repaired, rules = repair_current_year_final_amount_tables(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert rules == ["eitc_maximum"]
+    assert "match eitc_capped_child_count:" in repaired
+    assert "0 => eitc_maximum_credit_amounts[0]" in repaired
+    assert "1 => eitc_maximum_credit_amounts[1]" in repaired
+    assert (
+        "target: us:policies/irs/rev-proc-2025-32/earned-income-credit#eitc_maximum_credit_amounts"
+        in repaired
+    )
+    assert (
+        find_current_year_final_amount_table_issues(
+            repaired,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
     )
 
 
