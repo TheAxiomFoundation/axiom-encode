@@ -4804,6 +4804,140 @@ rules:
     assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
 
 
+def test_encoded_cross_reference_placeholder_rejects_under_section_input_when_source_exists(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1222.yaml"
+    imported_file = repo / "statutes" / "26" / "1211.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: other_taxpayer_capital_losses_allowed
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: allowed_capital_losses
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The term net capital loss means the excess of the losses from sales or
+    exchanges of capital assets over the sum allowed under section 1211.
+rules:
+  - name: net_capital_loss
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, losses_from_sales_or_exchanges_of_capital_assets - sum_allowed_under_section_1211)
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_encoded_cross_reference_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Encoded cross-reference placeholder" in issues[0]
+    assert "sum_allowed_under_section_1211" in issues[0]
+    assert "statutes/26/1211" in issues[0]
+
+
+def test_encoded_cross_reference_placeholder_allows_under_section_when_unencoded(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1222.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The term net capital loss means the excess of the losses from sales or
+    exchanges of capital assets over the sum allowed under section 1211.
+rules:
+  - name: net_capital_loss
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, losses_from_sales_or_exchanges_of_capital_assets - sum_allowed_under_section_1211)
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_encoded_cross_reference_placeholders(rules_file) == []
+
+
+def test_encoded_cross_reference_placeholder_allows_covering_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1222.yaml"
+    imported_file = repo / "statutes" / "26" / "1211.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: other_taxpayer_capital_losses_allowed
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: allowed_capital_losses
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The term net capital loss means the excess of the losses from sales or
+    exchanges of capital assets over the sum allowed under section 1211.
+imports:
+  - us:statutes/26/1211#other_taxpayer_capital_losses_allowed
+rules:
+  - name: net_capital_loss
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, losses_from_sales_or_exchanges_of_capital_assets - other_taxpayer_capital_losses_allowed)
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_encoded_cross_reference_placeholders(rules_file) == []
+
+
 def test_validate_rulespec_proofs_can_require_policy_proofs_without_module_flag():
     content = """format: rulespec/v1
 module:

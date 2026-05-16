@@ -8576,6 +8576,7 @@ class ValidatorPipeline:
         )
         issues.extend(find_aggregate_exception_predicate_issues(content))
         issues.extend(self._check_cross_reference_exception_placeholders(rules_file))
+        issues.extend(self._check_encoded_cross_reference_placeholders(rules_file))
         issues.extend(
             find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
         )
@@ -8933,6 +8934,64 @@ class ValidatorPipeline:
                 )
         return issues
 
+    def _check_encoded_cross_reference_placeholders(
+        self, rulespec_file: Path
+    ) -> list[str]:
+        """Reject local cross-reference placeholders when the cited source exists."""
+        content = rulespec_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        title = self._infer_title_from_rulespec_path(rulespec_file)
+        if not title:
+            return []
+        current_section = self._infer_section_from_rulespec_path(rulespec_file)
+        import_items = self._extract_import_items(content)
+
+        issues: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        for block in self._extract_definition_blocks(content):
+            formula = "\n".join(str(line) for line in block["body_lines"])
+            for identifier in sorted(_formula_local_identifiers(formula)):
+                import_base = self._cross_reference_placeholder_import_base(
+                    identifier,
+                    title=title,
+                    current_section=current_section,
+                    source_text=source_text,
+                )
+                if not import_base:
+                    import_base = self._under_section_placeholder_import_base(
+                        identifier,
+                        title=title,
+                        current_section=current_section,
+                        source_text=source_text,
+                    )
+                if not import_base:
+                    continue
+                target_import_base = import_base.removeprefix("statutes/")
+                if not self._rulespec_import_target_exists(target_import_base):
+                    continue
+                if self._imports_cover_placeholder_identifier(
+                    import_items,
+                    import_base,
+                    identifier,
+                    rulespec_file=rulespec_file,
+                ):
+                    continue
+                key = (str(block["name"]), identifier)
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(
+                    "Encoded cross-reference placeholder: "
+                    f"`{block['name']}` uses local `{identifier}` for an already "
+                    f"encoded cited source. Import `{import_base}` and reference "
+                    "the upstream output instead of keeping a local cross-reference "
+                    "input."
+                )
+        return issues
+
     def _imports_cover_placeholder_identifier(
         self,
         import_items: list[str],
@@ -9058,6 +9117,43 @@ class ValidatorPipeline:
                 continue
             break
         return "/".join(["statutes", title, match.group("section"), *fragments])
+
+    def _under_section_placeholder_import_base(
+        self,
+        identifier: str,
+        *,
+        title: str,
+        current_section: str | None,
+        source_text: str,
+    ) -> str | None:
+        """Infer import path from a semantic `*_under_section_...` placeholder."""
+        match = re.search(
+            r"(?:^|_)under_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
+            r"(?P<tail>(?:_[A-Za-z0-9]+)*)",
+            identifier,
+        )
+        if not match:
+            return None
+        section = match.group("section")
+        if current_section and section == current_section:
+            return None
+
+        fragments: list[str] = []
+        for fragment in (match.group("tail") or "").split("_"):
+            if not fragment:
+                continue
+            if self._is_cross_reference_path_fragment(fragment):
+                fragments.append(fragment)
+                continue
+            break
+        citation = section + "".join(f"({fragment})" for fragment in fragments)
+        if not re.search(
+            rf"\bsection\s+{re.escape(section)}(?:\b|\s|\()",
+            source_text,
+            flags=re.IGNORECASE,
+        ) and citation.lower() not in source_text.lower():
+            return None
+        return "/".join(["statutes", title, section, *fragments])
 
     def _is_cross_reference_path_fragment(self, fragment: str) -> bool:
         """Return whether an identifier tail fragment is a citation path token."""
