@@ -1,9 +1,9 @@
 """Compare federal tax RuleSpec output against PolicyEngine ECPS.
 
-This is the federal-tax counterpart to ``snap-ecps-compare``. The first surface
-is CTC because it is now encoded as a root section 24 program and has direct
-PolicyEngine oracle mappings. The projection is intentionally explicit and
-conservative: it does not use PE CTC outputs as Axiom inputs.
+This is the federal-tax counterpart to ``snap-ecps-compare``. Each comparison
+surface has an explicit projection from ECPS fields into Axiom inputs. The
+projection is intentionally conservative: it does not use PE outputs for the
+surface under test as Axiom inputs.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
@@ -33,6 +34,10 @@ CTC_PROGRAM_PATH = Path("statutes/26/24.yaml")
 CTC_TEST_PATH = Path("statutes/26/24.test.yaml")
 CTC_BASE = "us:statutes/26/24"
 CTC_H_BASE = "us:statutes/26/24/h"
+STANDARD_DEDUCTION_PROGRAM_PATH = Path(
+    "policies/irs/rev-proc-2025-32/standard-deduction.yaml"
+)
+STANDARD_DEDUCTION_BASE = "us:policies/irs/rev-proc-2025-32/standard-deduction"
 
 CTC_OUTPUTS = {
     "ctc_before_advance_payments": {
@@ -56,16 +61,41 @@ CTC_OUTPUTS = {
         "pe": "ctc_qualifying_children",
     },
 }
+STANDARD_DEDUCTION_OUTPUTS = {
+    "basic_standard_deduction": {
+        "axiom": f"{STANDARD_DEDUCTION_BASE}#basic_standard_deduction_after_dependent_limit",
+        "pe": "basic_standard_deduction",
+    },
+    "additional_standard_deduction": {
+        "axiom": f"{STANDARD_DEDUCTION_BASE}#additional_standard_deduction_for_aged_or_blind",
+        "pe": "additional_standard_deduction",
+    },
+    "standard_deduction": {
+        "axiom": f"{STANDARD_DEDUCTION_BASE}#standard_deduction",
+        "pe": "standard_deduction",
+    },
+}
+SURFACE_OUTPUTS = {
+    "ctc": CTC_OUTPUTS,
+    "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
+}
+SURFACE_PROGRAM_PATHS = {
+    "ctc": CTC_PROGRAM_PATH,
+    "standard-deduction": STANDARD_DEDUCTION_PROGRAM_PATH,
+}
 PE_TAX_UNIT_VARIABLES = tuple(
     sorted(
         {
+            "additional_standard_deduction",
             "adjusted_gross_income",
+            "basic_standard_deduction",
             "ctc",
             "ctc_maximum",
             "ctc_phase_out",
             "ctc_phase_out_threshold",
             "ctc_qualifying_children",
             "filing_status",
+            "standard_deduction",
         }
     )
 )
@@ -82,6 +112,7 @@ VALID_CHILD_SSN_TYPES = {"CITIZEN", "NON_CITIZEN_VALID_EAD"}
 
 @dataclass(frozen=True)
 class TaxComparisonRow:
+    surface: str
     tax_unit_id: int
     output: str
     axiom: float
@@ -146,12 +177,32 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         help="Restrict to ECPS tax units with positive PolicyEngine CTC",
     )
     parser.add_argument(
+        "--surface",
+        choices=["all", *SURFACE_OUTPUTS],
+        default="all",
+        help="Federal tax surface to compare; defaults to all supported surfaces",
+    )
+    parser.add_argument(
         "--data-folder",
         type=Path,
         default=Path(".axiom") / "policyengine-data",
         help="PolicyEngine dataset cache folder",
     )
-    parser.add_argument("--tolerance", type=float, default=0.01)
+    parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=0.01,
+        help="Absolute tolerance for matching PolicyEngine outputs",
+    )
+    parser.add_argument(
+        "--relative-tolerance",
+        type=float,
+        default=2e-7,
+        help=(
+            "Relative tolerance for large floating PolicyEngine intermediates; "
+            "ordinary dollar outputs remain controlled by --tolerance"
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument(
         "--fail-on-mismatch",
@@ -168,13 +219,19 @@ def main(args: argparse.Namespace) -> int:
         year=args.year,
         sample_size=args.sample_size,
         positive_ctc_only=args.positive_ctc_only,
+        surface=args.surface,
         data_folder=args.data_folder,
         tolerance=args.tolerance,
+        relative_tolerance=args.relative_tolerance,
     )
     if args.json:
         print(json.dumps(report.to_json(), indent=2, sort_keys=True))
     else:
-        print_report(report, tolerance=args.tolerance)
+        print_report(
+            report,
+            tolerance=args.tolerance,
+            relative_tolerance=args.relative_tolerance,
+        )
     if args.fail_on_mismatch and report.mismatches:
         return 1
     return 0
@@ -188,8 +245,10 @@ def compare_tax_ecps(
     year: int,
     sample_size: int,
     positive_ctc_only: bool,
+    surface: str,
     data_folder: Path,
     tolerance: float,
+    relative_tolerance: float,
 ) -> TaxComparisonReport:
     require_numpy()
     require_policyengine_versions()
@@ -197,24 +256,33 @@ def compare_tax_ecps(
     resolved_axiom_rules_path = (
         axiom_rules_path or workspace_root / "axiom-rules-engine"
     ).resolve()
-    program = resolved_rulespec_root / CTC_PROGRAM_PATH
-    if not program.exists():
-        raise SystemExit(f"CTC RuleSpec not found: {program}")
-
     pe_data = load_policyengine_tax_data(
         year=year,
         sample_size=sample_size,
         positive_ctc_only=positive_ctc_only,
         data_folder=data_folder,
     )
-    request = build_axiom_request(pe_data=pe_data, year=year)
-    outputs = run_axiom_program(
-        program=program,
-        request=request,
-        rulespec_root=resolved_rulespec_root,
-        axiom_rules_path=resolved_axiom_rules_path,
+    surfaces = list(SURFACE_OUTPUTS) if surface == "all" else [surface]
+    surface_results: dict[str, list[dict[str, Any]]] = {}
+    for selected_surface in surfaces:
+        program = resolved_rulespec_root / SURFACE_PROGRAM_PATHS[selected_surface]
+        if not program.exists():
+            raise SystemExit(f"{selected_surface} RuleSpec not found: {program}")
+        request = build_axiom_request(
+            pe_data=pe_data, year=year, surface=selected_surface
+        )
+        surface_results[selected_surface] = run_axiom_program(
+            program=program,
+            request=request,
+            rulespec_root=resolved_rulespec_root,
+            axiom_rules_path=resolved_axiom_rules_path,
+        )
+    return compare_outputs(
+        pe_data=pe_data,
+        axiom_outputs_by_surface=surface_results,
+        tolerance=tolerance,
+        relative_tolerance=relative_tolerance,
     )
-    return compare_outputs(pe_data=pe_data, axiom_outputs=outputs, tolerance=tolerance)
 
 
 def load_policyengine_tax_data(
@@ -230,7 +298,7 @@ def load_policyengine_tax_data(
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_install_message()) from exc
 
-    print("Loading PolicyEngine ECPS...")
+    log("Loading PolicyEngine ECPS...")
     datasets = ensure_datasets(
         datasets=[DATASET],
         years=[year],
@@ -242,7 +310,7 @@ def load_policyengine_tax_data(
         tax_benefit_model_version=us_latest,
         extra_variables={"tax_unit": list(PE_TAX_UNIT_VARIABLES)},
     )
-    print("Running PolicyEngine tax outputs...")
+    log("Running PolicyEngine tax outputs...")
     sim.run()
 
     tax_units = sim.output_dataset.data.tax_unit
@@ -265,7 +333,17 @@ def load_policyengine_tax_data(
     }
 
 
-def build_axiom_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+def build_axiom_request(
+    *, pe_data: dict[str, Any], year: int, surface: str = "ctc"
+) -> dict[str, Any]:
+    if surface == "ctc":
+        return build_ctc_request(pe_data=pe_data, year=year)
+    if surface == "standard-deduction":
+        return build_standard_deduction_request(pe_data=pe_data, year=year)
+    raise ValueError(f"unsupported tax surface: {surface}")
+
+
+def build_ctc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
     interval = {
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
@@ -335,6 +413,49 @@ def build_axiom_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]
     }
 
 
+def build_standard_deduction_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        for name, value in project_standard_deduction_inputs(
+            row=row,
+            persons=tax_unit_persons,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{STANDARD_DEDUCTION_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in STANDARD_DEDUCTION_OUTPUTS.values()
+                ],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
 def project_tax_unit_inputs(row: Any) -> dict[str, Any]:
     return {
         "adjusted_gross_income": money(row["adjusted_gross_income"]),
@@ -351,6 +472,39 @@ def project_tax_unit_inputs(row: Any) -> dict[str, Any]:
         "prior_deficiency_denial_without_required_eligibility_information": False,
         "aggregate_advance_payments_under_section_7527A": 0,
     }
+
+
+def project_standard_deduction_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
+    filing_status = str(row["filing_status"])
+    return {
+        "filing_status": filing_status_code(filing_status),
+        "may_be_claimed_as_dependent_by_another_taxpayer": False,
+        "earned_income": 0,
+        "additional_standard_deduction_entitlement_count_under_subsection_f": (
+            additional_standard_deduction_entitlement_count(persons)
+        ),
+        "individual_is_unmarried_and_not_surviving_spouse": (
+            individual_is_unmarried_and_not_surviving_spouse(filing_status)
+        ),
+    }
+
+
+def additional_standard_deduction_entitlement_count(persons: list[Any]) -> int:
+    head_index, spouse_index = tax_unit_head_spouse_indices(persons)
+    count = 0
+    for index in {head_index, spouse_index}:
+        if index is None:
+            continue
+        person = persons[index]
+        if money(person["age"]) >= 65:
+            count += 1
+        if bool_value(person.get("is_blind", False)):
+            count += 1
+    return count
+
+
+def individual_is_unmarried_and_not_surviving_spouse(value: str) -> bool:
+    return value.strip().upper() in {"SINGLE", "HEAD_OF_HOUSEHOLD"}
 
 
 def project_ctc_person_inputs(
@@ -480,7 +634,7 @@ def run_axiom_program(
     env = os.environ.copy()
     env["AXIOM_RULESPEC_REPO_ROOTS"] = str(rulespec_root)
     with tempfile.TemporaryDirectory(prefix="axiom-tax-ecps-") as tmpdir:
-        artifact = Path(tmpdir) / "ctc.json"
+        artifact = Path(tmpdir) / f"{program.stem}.json"
         compile_result = subprocess.run(
             [
                 str(binary),
@@ -517,39 +671,59 @@ def run_axiom_program(
 def compare_outputs(
     *,
     pe_data: dict[str, Any],
-    axiom_outputs: list[dict[str, Any]],
+    axiom_outputs_by_surface: dict[str, list[dict[str, Any]]],
     tolerance: float,
+    relative_tolerance: float,
 ) -> TaxComparisonReport:
     mismatches: list[TaxComparisonRow] = []
     summary: dict[str, dict[str, Any]] = {
-        name: {"output": name, "compared": 0, "mismatches": 0, "max_abs_diff": 0.0}
-        for name in CTC_OUTPUTS
+        f"{surface}:{name}": {
+            "surface": surface,
+            "output": name,
+            "compared": 0,
+            "mismatches": 0,
+            "max_abs_diff": 0.0,
+        }
+        for surface, outputs in SURFACE_OUTPUTS.items()
+        if surface in axiom_outputs_by_surface
+        for name in outputs
     }
     tax_units = pe_data["tax_units"].reset_index(drop=True)
     compared_values = 0
-    for index, result in enumerate(axiom_outputs):
-        tax_unit_id = int(pe_data["tax_unit_ids"][index])
-        outputs = result.get("outputs") or {}
-        pe_row = tax_units.iloc[index]
-        for name, spec in CTC_OUTPUTS.items():
-            axiom_value = output_number(outputs.get(spec["axiom"]))
-            pe_value = money(pe_row[spec["pe"]])
-            diff = axiom_value - pe_value
-            abs_diff = abs(diff)
-            compared_values += 1
-            summary[name]["compared"] += 1
-            summary[name]["max_abs_diff"] = max(summary[name]["max_abs_diff"], abs_diff)
-            if abs_diff > tolerance:
-                summary[name]["mismatches"] += 1
-                mismatches.append(
-                    TaxComparisonRow(
-                        tax_unit_id=tax_unit_id,
-                        output=name,
-                        axiom=axiom_value,
-                        policyengine=pe_value,
-                        diff=diff,
-                    )
+    for surface, axiom_outputs in axiom_outputs_by_surface.items():
+        output_specs = SURFACE_OUTPUTS[surface]
+        for index, result in enumerate(axiom_outputs):
+            tax_unit_id = int(pe_data["tax_unit_ids"][index])
+            outputs = result.get("outputs") or {}
+            pe_row = tax_units.iloc[index]
+            for name, spec in output_specs.items():
+                axiom_value = output_number(outputs.get(spec["axiom"]))
+                pe_value = money(pe_row[spec["pe"]])
+                diff = axiom_value - pe_value
+                abs_diff = abs(diff)
+                compared_values += 1
+                summary_key = f"{surface}:{name}"
+                summary[summary_key]["compared"] += 1
+                summary[summary_key]["max_abs_diff"] = max(
+                    summary[summary_key]["max_abs_diff"], abs_diff
                 )
+                if not within_tolerance(
+                    axiom_value,
+                    pe_value,
+                    absolute_tolerance=tolerance,
+                    relative_tolerance=relative_tolerance,
+                ):
+                    summary[summary_key]["mismatches"] += 1
+                    mismatches.append(
+                        TaxComparisonRow(
+                            surface=surface,
+                            tax_unit_id=tax_unit_id,
+                            output=name,
+                            axiom=axiom_value,
+                            policyengine=pe_value,
+                            diff=diff,
+                        )
+                    )
     return TaxComparisonReport(
         compared_cases=len(pe_data["tax_unit_ids"]),
         compared_values=compared_values,
@@ -559,23 +733,32 @@ def compare_outputs(
             "Current CTC projection uses ECPS raw tax-unit membership, age, "
             "student status, separation status, and SSN-card type to reconstruct "
             "the structural Section 152 facts needed by 26 USC 24.",
-            "AGI and filing status remain boundary inputs until upstream AGI and "
-            "filing-status rules are encoded end-to-end.",
+            "Standard deduction projection uses ECPS raw ages, blindness, and "
+            "tax-unit membership to reconstruct aged-or-blind counts under "
+            "26 USC 63(f).",
+            "AGI and filing status remain boundary inputs until upstream AGI, "
+            "filing-status, and return-filing rules are encoded end-to-end.",
+            "The standard deduction comparison currently treats dependency by "
+            "another taxpayer and earned income as boundary-false/zero because "
+            "those upstream facts are not yet encoded from ECPS leaf inputs.",
         ],
     )
 
 
-def print_report(report: TaxComparisonReport, *, tolerance: float) -> None:
+def print_report(
+    report: TaxComparisonReport, *, tolerance: float, relative_tolerance: float
+) -> None:
     print("PolicyEngine tax ECPS comparison")
     print(f"Compared cases: {report.compared_cases:,}")
     print(f"Compared values: {report.compared_values:,}")
     print(f"Tolerance: {tolerance:g}")
+    print(f"Relative tolerance: {relative_tolerance:g}")
     print(f"Mismatches: {len(report.mismatches):,}")
     print()
     print("By output:")
     for item in report.output_summary:
         print(
-            f"  - {item['output']}: "
+            f"  - {item['surface']}:{item['output']}: "
             f"{item['mismatches']:,}/{item['compared']:,} mismatch, "
             f"max_abs_diff={item['max_abs_diff']:.2f}"
         )
@@ -586,7 +769,7 @@ def print_report(report: TaxComparisonReport, *, tolerance: float) -> None:
             report.mismatches, key=lambda item: abs(item.diff), reverse=True
         )[:20]:
             print(
-                f"  - tax_unit={row.tax_unit_id} {row.output}: "
+                f"  - tax_unit={row.tax_unit_id} {row.surface}:{row.output}: "
                 f"axiom={row.axiom:.2f} pe={row.policyengine:.2f} diff={row.diff:.2f}"
             )
     print()
@@ -632,6 +815,21 @@ def output_number(output: Any) -> float:
     if raw is None:
         return math.nan
     return float(raw)
+
+
+def within_tolerance(
+    axiom_value: float,
+    policyengine_value: float,
+    *,
+    absolute_tolerance: float,
+    relative_tolerance: float,
+) -> bool:
+    return math.isclose(
+        axiom_value,
+        policyengine_value,
+        abs_tol=absolute_tolerance,
+        rel_tol=relative_tolerance,
+    )
 
 
 def filing_status_code(value: str) -> int:
@@ -715,3 +913,7 @@ def policyengine_install_message() -> str:
         "Run with: uv run --with policyengine==4.4.4 "
         "--with policyengine-us==1.691.3 axiom-encode tax-ecps-compare"
     )
+
+
+def log(message: str) -> None:
+    print(message, file=sys.stderr)

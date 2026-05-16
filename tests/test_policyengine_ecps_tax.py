@@ -1,13 +1,17 @@
 import pytest
 
 from axiom_encode.oracles.policyengine.ecps_tax import (
+    additional_standard_deduction_entitlement_count,
     filing_status_code,
+    individual_is_unmarried_and_not_surviving_spouse,
     project_ctc_h_person_inputs,
     project_ctc_person_inputs,
+    project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
     uses_joint_ctc_phaseout_threshold,
     valid_child_ssn_type,
+    within_tolerance,
 )
 
 
@@ -156,3 +160,74 @@ def test_tax_unit_projection_uses_boundary_inputs_without_ctc_outputs():
     assert projected["filing_status"] == 3
     assert projected["aggregate_advance_payments_under_section_7527A"] == 0
     assert "ctc" not in projected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("SINGLE", True),
+        ("HEAD_OF_HOUSEHOLD", True),
+        ("JOINT", False),
+        ("SEPARATE", False),
+        ("SURVIVING_SPOUSE", False),
+    ],
+)
+def test_unmarried_not_surviving_spouse_matches_standard_deduction_status(
+    value, expected
+):
+    assert individual_is_unmarried_and_not_surviving_spouse(value) is expected
+
+
+def test_additional_standard_deduction_count_uses_head_and_spouse_only():
+    count = additional_standard_deduction_entitlement_count(
+        [
+            {"age": 68, "is_blind": True},
+            {"age": 70, "is_blind": False},
+            {"age": 80, "is_blind": True},
+        ]
+    )
+
+    assert count == 3
+
+
+def test_standard_deduction_projection_uses_leaf_age_and_blind_inputs():
+    projected = project_standard_deduction_inputs(
+        row={"filing_status": "HEAD_OF_HOUSEHOLD"},
+        persons=[
+            {"age": 66, "is_blind": True},
+            {"age": 15, "is_blind": True},
+        ],
+    )
+
+    assert projected["filing_status"] == 3
+    assert projected["may_be_claimed_as_dependent_by_another_taxpayer"] is False
+    assert projected["earned_income"] == 0
+    assert (
+        projected["additional_standard_deduction_entitlement_count_under_subsection_f"]
+        == 2
+    )
+    assert projected["individual_is_unmarried_and_not_surviving_spouse"] is True
+
+
+def test_within_tolerance_keeps_cent_level_strictness_for_ordinary_outputs():
+    assert within_tolerance(
+        1000.005,
+        1000,
+        absolute_tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+    assert not within_tolerance(
+        1000.02,
+        1000,
+        absolute_tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+
+def test_within_tolerance_accepts_large_policyengine_float_noise():
+    assert within_tolerance(
+        1_271_556_450,
+        1_271_556_352,
+        absolute_tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
