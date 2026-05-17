@@ -3535,6 +3535,43 @@ def find_tax_filing_status_local_input_issues(
     return issues
 
 
+_US_TAX_STATUS_COMPONENT_NAMES = {
+    "surviving_spouse",
+    "taxpayer_is_surviving_spouse",
+    "individual_is_surviving_spouse",
+    "head_of_household",
+    "taxpayer_is_head_of_household",
+    "individual_is_head_of_household",
+}
+
+
+def find_tax_status_component_local_input_issues(content: str) -> list[str]:
+    """Reject local inputs for legal filing-status component classifications."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    available_symbols = _rulespec_executable_names_from_payload(payload)
+    available_symbols.update(_rulespec_import_symbol_names(payload))
+
+    issues: list[str] = []
+    for name, _kind, formula in _rulespec_rule_formulas(payload):
+        for identifier in sorted(
+            _formula_local_identifiers(formula) & _US_TAX_STATUS_COMPONENT_NAMES
+        ):
+            if identifier in available_symbols:
+                continue
+            issues.append(
+                "Tax filing-status component is a derived legal classification, "
+                f"not a local factual input: `{name}` references `{identifier}` "
+                "without defining or importing its absolute upstream RuleSpec "
+                "output. Encode/import the upstream status source or defer the "
+                "affected output."
+            )
+
+    return issues
+
+
 def _rulespec_import_symbol_names(payload: dict[str, Any]) -> set[str]:
     """Return explicit local symbols exposed by imports in a RuleSpec payload."""
     imports = payload.get("imports")
@@ -9794,6 +9831,7 @@ class ValidatorPipeline:
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
+        issues.extend(find_tax_status_component_local_input_issues(content))
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_formula_date_literal_issues(content))

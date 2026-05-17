@@ -3122,6 +3122,10 @@ RuleSpec requirements:
   `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`. If the source
   groups surviving spouse with joint return, every branch or match that handles
   status 1 must also handle status 4 in that same branch with the same result.
+- Do not replace filing-status components with local status inputs such as
+  `taxpayer_is_surviving_spouse`, `surviving_spouse`, or `head_of_household`.
+  Those are derived legal classifications; import their source-backed RuleSpec
+  outputs or defer the affected output until those upstream definitions exist.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write

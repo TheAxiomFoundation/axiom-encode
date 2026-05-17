@@ -59,6 +59,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_tax_filing_status_local_input_issues,
     find_tax_filing_status_surviving_spouse_issues,
     find_tax_filing_status_test_input_issues,
+    find_tax_status_component_local_input_issues,
     find_temporal_value_fact_name_issues,
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
@@ -7667,6 +7668,47 @@ rules:
 """
 
     assert find_tax_filing_status_local_input_issues(content) == []
+
+
+def test_tax_status_component_local_input_rejects_surviving_spouse_fact():
+    content = """format: rulespec/v1
+rules:
+  - name: additional_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if taxpayer_is_surviving_spouse: regular_amount else: higher_amount
+"""
+
+    issues = find_tax_status_component_local_input_issues(content)
+
+    assert any(
+        "Tax filing-status component is a derived legal classification" in issue
+        for issue in issues
+    )
+
+
+def test_tax_status_component_local_input_allows_imported_surviving_spouse():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/2/a#taxpayer_is_surviving_spouse
+rules:
+  - name: additional_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if taxpayer_is_surviving_spouse: regular_amount else: higher_amount
+"""
+
+    assert find_tax_status_component_local_input_issues(content) == []
 
 
 def test_filing_status_local_input_rejects_numeric_test_assignment():

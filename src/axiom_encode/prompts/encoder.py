@@ -531,6 +531,10 @@ Hard requirements:
   If a shared numeric filing-status output is available, import it and use the
   structural enum in formulas, e.g.
   `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`.
+- Do not replace filing-status components with local status inputs such as
+  `taxpayer_is_surviving_spouse`, `surviving_spouse`, or `head_of_household`.
+  Those are derived legal classifications; import their source-backed RuleSpec
+  outputs or defer the affected output until those upstream definitions exist.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.
