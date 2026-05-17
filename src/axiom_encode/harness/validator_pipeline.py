@@ -3403,7 +3403,7 @@ def _rule_proof_source_texts(rule: dict[str, Any]) -> list[str]:
             continue
         source = atom.get("source")
         if isinstance(source, dict):
-            for key in ("text", "quote", "span"):
+            for key in ("text", "quote", "excerpt", "span"):
                 value = source.get(key)
                 if isinstance(value, str) and value.strip():
                     texts.append(value.strip())
@@ -3587,6 +3587,109 @@ def find_tax_status_component_local_input_issues(content: str) -> list[str]:
                 "output. Encode/import the upstream status source or defer the "
                 "affected output."
             )
+
+    return issues
+
+
+_MODIFIER_PARAMETER_SOURCE_PATTERN = re.compile(
+    r"\b("
+    r"substitut(?:e|es|ed|ing)|"
+    r"higher\s+amount|"
+    r"increas(?:e|es|ed|ing)|"
+    r"decreas(?:e|es|ed|ing)|"
+    r"replac(?:e|es|ed|ing)|"
+    r"in\s+lieu\s+of|"
+    r"reduc(?:e|es|ed|ing)\s+by|"
+    r"capp(?:ed|ing)\s+at"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+_NUMERIC_DERIVED_OUTPUT_NAME_PATTERN = re.compile(
+    r"(?:amount|deduction|credit|limit|threshold|income|tax|benefit|allowance|rate)",
+    flags=re.IGNORECASE,
+)
+_NUMERIC_DERIVED_DTYPES = {
+    "decimal",
+    "integer",
+    "money",
+    "number",
+    "rate",
+}
+
+
+def find_unused_modifier_parameter_issues(content: str) -> list[str]:
+    """Reject monetary formulas that ignore source-stated modifier parameters."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    module = payload.get("module")
+    if isinstance(module, dict) and str(module.get("status") or "").strip() in {
+        "deferred",
+        "entity_not_supported",
+    }:
+        return []
+
+    modifier_parameters: list[str] = []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        source_context = "\n".join(
+            [
+                *_source_field_texts(rule.get("source")),
+                *_rule_proof_source_texts(rule),
+            ]
+        )
+        if _MODIFIER_PARAMETER_SOURCE_PATTERN.search(source_context):
+            modifier_parameters.append(name)
+
+    if not modifier_parameters:
+        return []
+
+    numeric_derived_formulas: dict[str, str] = {}
+    for name, kind, formula, _source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype in {"bool", "boolean", "judgment"}:
+            continue
+        unit = str(rule.get("unit") or "").strip()
+        if (
+            dtype in _NUMERIC_DERIVED_DTYPES
+            or unit
+            or _NUMERIC_DERIVED_OUTPUT_NAME_PATTERN.search(name)
+        ):
+            numeric_derived_formulas[name] = formula
+
+    if not numeric_derived_formulas:
+        return []
+
+    issues: list[str] = []
+    for parameter_name in sorted(set(modifier_parameters)):
+        if any(
+            parameter_name in _formula_local_identifiers(formula)
+            for formula in numeric_derived_formulas.values()
+        ):
+            continue
+        derived_names = ", ".join(
+            f"`{name}`" for name in sorted(numeric_derived_formulas)
+        )
+        issues.append(
+            "Source-stated modifier parameter is not used by any numeric "
+            f"derived output: `{parameter_name}` appears to encode a "
+            f"substitution/modification amount, but {derived_names} ignores it. "
+            "Use the modifier in the affected formula or defer the affected "
+            "output until the upstream branching condition is encoded."
+        )
 
     return issues
 
@@ -9888,6 +9991,7 @@ class ValidatorPipeline:
         issues.extend(find_source_condition_coverage_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_tax_status_component_local_input_issues(content))
+        issues.extend(find_unused_modifier_parameter_issues(content))
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_formula_date_literal_issues(content))

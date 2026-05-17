@@ -3128,6 +3128,11 @@ RuleSpec requirements:
   `individual_is_not_married_and_is_not_surviving_spouse`.
   Those are derived legal classifications; import their source-backed RuleSpec
   outputs or defer the affected output until those upstream definitions exist.
+- If the source states a substitution, higher amount, increase, cap, or other
+  modifier amount, do not define the modifier as an unused scalar while
+  computing the affected numeric output without it. Use the modifier in the
+  affected formula, or defer that affected output until the upstream branch
+  condition can be encoded/imported.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write

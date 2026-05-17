@@ -1,7 +1,7 @@
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
-__version__ = "0.2.68"
+__version__ = "0.2.69"
 
 from .constants import (
     DEFAULT_CLI_MODEL,

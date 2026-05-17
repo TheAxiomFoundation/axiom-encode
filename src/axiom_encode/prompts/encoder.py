@@ -537,6 +537,11 @@ Hard requirements:
   `individual_is_not_married_and_is_not_surviving_spouse`.
   Those are derived legal classifications; import their source-backed RuleSpec
   outputs or defer the affected output until those upstream definitions exist.
+- If the source states a substitution, higher amount, increase, cap, or other
+  modifier amount, do not define the modifier as an unused scalar while
+  computing the affected numeric output without it. Use the modifier in the
+  affected formula, or defer that affected output until the upstream branch
+  condition can be encoded/imported.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.

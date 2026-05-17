@@ -64,6 +64,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_test_input_assignment_issues,
     find_ungrounded_numeric_issues,
     find_unused_import_issues,
+    find_unused_modifier_parameter_issues,
     find_upstream_placement_issues,
     find_versioned_derived_formula_issues,
     find_zero_branch_test_coverage_issues,
@@ -7935,6 +7936,154 @@ rules:
 """
 
     assert find_tax_status_component_local_input_issues(content) == []
+
+
+def test_unused_modifier_parameter_rejects_ignored_substitution_amount():
+    content = """format: rulespec/v1
+rules:
+  - name: regular_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "additional amount of $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 600
+  - name: unmarried_not_surviving_spouse_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "applied by substituting $750 for $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 750
+  - name: additional_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          regular_additional_amount
+"""
+
+    issues = find_unused_modifier_parameter_issues(content)
+
+    assert any(
+        "`unmarried_not_surviving_spouse_additional_amount`" in issue
+        for issue in issues
+    )
+
+
+def test_unused_modifier_parameter_allows_substitution_amount_use():
+    content = """format: rulespec/v1
+rules:
+  - name: regular_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 600
+  - name: unmarried_not_surviving_spouse_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "applied by substituting $750 for $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 750
+  - name: additional_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if special_branch: unmarried_not_surviving_spouse_additional_amount else: regular_additional_amount
+"""
+
+    assert find_unused_modifier_parameter_issues(content) == []
+
+
+def test_unused_modifier_parameter_allows_no_numeric_derived_output():
+    content = """format: rulespec/v1
+rules:
+  - name: unmarried_not_surviving_spouse_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "applied by substituting $750 for $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 750
+  - name: blind_under_subsection
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: visual_acuity <= 0.1
+"""
+
+    assert find_unused_modifier_parameter_issues(content) == []
+
+
+def test_unused_modifier_parameter_ignores_judgment_names_with_amount_word():
+    content = """format: rulespec/v1
+rules:
+  - name: unmarried_not_surviving_spouse_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "applied by substituting $750 for $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 750
+  - name: taxpayer_aged_additional_amount_entitlement
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxpayer_has_attained_age_65_before_close_of_taxable_year
+"""
+
+    assert find_unused_modifier_parameter_issues(content) == []
 
 
 def test_filing_status_local_input_rejects_numeric_test_assignment():
