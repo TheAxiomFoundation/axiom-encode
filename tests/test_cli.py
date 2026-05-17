@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
@@ -29,6 +30,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _repair_mixed_scalar_output_tests,
+    _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
     _sha256_file,
     _sign_applied_encoding_manifest,
@@ -88,6 +90,40 @@ TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
 def _signed_manifest_payload(payload: dict) -> dict:
     _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_KEY)
     return payload
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _init_test_git_repo(repo: Path) -> None:
+    repo.mkdir(parents=True)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test User")
+
+
+def _write_test_encoder_version(repo: Path, version: str) -> None:
+    package_init = repo / "src/axiom_encode/__init__.py"
+    package_init.parent.mkdir(parents=True, exist_ok=True)
+    package_init.write_text(f'__version__ = "{version}"\n')
+    (repo / "pyproject.toml").write_text(
+        f'[project]\nname = "axiom-encode"\nversion = "{version}"\n'
+    )
+    (repo / "uv.lock").write_text(
+        f'[[package]]\nname = "axiom-encode"\nversion = "{version}"\n'
+    )
+
+
+def _write_test_encoder_source(repo: Path, content: str) -> None:
+    prompt = repo / "src/axiom_encode/prompts/encoder.py"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text(f'PROMPT = "{content}"\n')
 
 
 # =========================================================================
@@ -2879,6 +2915,13 @@ class TestCmdEncode:
                     "dirty_tracked": False,
                 },
             ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                },
+            ),
         ):
             applied = _apply_generated_encoding_result(
                 result,
@@ -2903,6 +2946,8 @@ class TestCmdEncode:
             "root": "/repo/axiom-encode",
             "commit": "abc123",
             "dirty_tracked": False,
+            "version": AXIOM_ENCODE_TEST_VERSION,
+            "version_commit": "version123",
         }
         assert payload["signature"]["algorithm"] == "hmac-sha256"
         assert payload["applied_files"] == [
@@ -3018,6 +3063,40 @@ class TestCmdEncode:
             )
 
         assert not (policy_repo / "statutes/26/25B.yaml").exists()
+
+    def test_apply_version_provenance_allows_changes_in_version_bump_commit(
+        self, tmp_path
+    ):
+        repo = tmp_path / "axiom-encode"
+        _init_test_git_repo(repo)
+        _write_test_encoder_version(repo, "0.2.68")
+        _write_test_encoder_source(repo, "old guard")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "Initial encoder version")
+
+        _write_test_encoder_version(repo, AXIOM_ENCODE_TEST_VERSION)
+        _write_test_encoder_source(repo, "new guard")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "Bump encoder version")
+
+        provenance = _require_axiom_encode_version_provenance(repo)
+
+        assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
+        assert len(provenance["version_commit"]) == 40
+
+    def test_apply_version_provenance_rejects_code_after_version_bump(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        _init_test_git_repo(repo)
+        _write_test_encoder_version(repo, AXIOM_ENCODE_TEST_VERSION)
+        _write_test_encoder_source(repo, "versioned guard")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "Bump encoder version")
+        _write_test_encoder_source(repo, "unversioned guard")
+        _git(repo, "add", "src/axiom_encode/prompts/encoder.py")
+        _git(repo, "commit", "-m", "Change encoder without version")
+
+        with pytest.raises(RuntimeError, match="encoder-affecting files changed"):
+            _require_axiom_encode_version_provenance(repo)
 
     def test_apply_generated_encoding_requires_signing_key(self, tmp_path):
         output_root = tmp_path / "out"
@@ -3575,7 +3654,7 @@ rules:
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_derived_output_tests"] == [
             "auto_output_exemption_phaseout_applicable_percentage",
-            "auto_output_section_151_exemption_deduction"
+            "auto_output_section_151_exemption_deduction",
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
@@ -6132,7 +6211,10 @@ rules:
             "      us:statutes/26/151#input.individual_is_dependent_of_taxpayer: true"
             in updated
         )
-        assert "us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer" not in updated
+        assert (
+            "us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer"
+            not in updated
+        )
 
     def test_apply_overlay_validation_repairs_dependent_proof_import_hashes(
         self, tmp_path

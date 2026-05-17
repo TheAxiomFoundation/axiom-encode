@@ -5578,6 +5578,160 @@ def _git_repo_provenance(path: Path) -> dict[str, object] | None:
     }
 
 
+_AXIOM_ENCODE_VERSION_FILES = (
+    "pyproject.toml",
+    "src/axiom_encode/__init__.py",
+)
+_AXIOM_ENCODE_VERSIONED_PREFIXES = ("src/axiom_encode/",)
+_AXIOM_ENCODE_VERSIONED_FILES = {
+    "pyproject.toml",
+    "uv.lock",
+}
+
+
+def _require_axiom_encode_version_provenance(
+    repo_root: Path,
+) -> dict[str, str]:
+    """Require encoder-affecting code changes to be behind a version bump."""
+    repo = Path(repo_root)
+    current_versions = _axiom_encode_versions_at_ref(repo, "HEAD")
+    pyproject_version = current_versions.get("pyproject")
+    package_version = current_versions.get("package")
+    if not pyproject_version or not package_version:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: axiom-encode version metadata is "
+            "incomplete; pyproject.toml and src/axiom_encode/__init__.py must "
+            "both declare the encoder version."
+        )
+    if pyproject_version != package_version or pyproject_version != __version__:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: axiom-encode version metadata is "
+            f"inconsistent (pyproject={pyproject_version}, "
+            f"package={package_version}, runtime={__version__})."
+        )
+
+    version_commit = _latest_axiom_encode_version_commit(repo)
+    if not version_commit:
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: no committed axiom-encode version "
+            "bump was found; bump the encoder version before using --apply."
+        )
+
+    changed_since_version = _git_name_only(
+        repo,
+        "diff",
+        "--name-only",
+        "--diff-filter=ACMRT",
+        f"{version_commit}..HEAD",
+    )
+    unversioned_encoder_changes = [
+        path for path in changed_since_version if _is_axiom_encode_versioned_path(path)
+    ]
+    if unversioned_encoder_changes:
+        display = ", ".join(f"`{path}`" for path in unversioned_encoder_changes[:8])
+        if len(unversioned_encoder_changes) > 8:
+            display += f", and {len(unversioned_encoder_changes) - 8} more"
+        raise RuntimeError(
+            "Cannot apply generated RuleSpec: encoder-affecting files changed "
+            "after the latest axiom-encode version bump "
+            f"({version_commit[:12]}): {display}. Bump the encoder version "
+            "and commit that bump before using --apply."
+        )
+
+    return {
+        "version": pyproject_version,
+        "version_commit": version_commit,
+    }
+
+
+def _latest_axiom_encode_version_commit(repo: Path) -> str | None:
+    commits = _git_name_only(
+        repo,
+        "log",
+        "--format=%H",
+        "--",
+        *_AXIOM_ENCODE_VERSION_FILES,
+    )
+    for commit in commits:
+        current = _axiom_encode_versions_at_ref(repo, commit)
+        if not current.get("pyproject") or not current.get("package"):
+            continue
+        parent = _git_first_parent(repo, commit)
+        if parent is None:
+            return commit
+        previous = _axiom_encode_versions_at_ref(repo, parent)
+        if current != previous:
+            return commit
+    return None
+
+
+def _git_first_parent(repo: Path, commit: str) -> str | None:
+    try:
+        line = subprocess.run(
+            ["git", "-C", str(repo), "rev-list", "--parents", "-n", "1", commit],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    parts = line.split()
+    return parts[1] if len(parts) > 1 else None
+
+
+def _axiom_encode_versions_at_ref(repo: Path, ref: str) -> dict[str, str | None]:
+    return {
+        "pyproject": _extract_pyproject_version(
+            _git_show_text(repo, ref, "pyproject.toml") or ""
+        ),
+        "package": _extract_package_init_version(
+            _git_show_text(repo, ref, "src/axiom_encode/__init__.py") or ""
+        ),
+    }
+
+
+def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _git_name_only(repo: Path, *args: str) -> list[str]:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        stderr = getattr(exc, "stderr", "") or ""
+        raise RuntimeError(stderr.strip() or "git provenance command failed") from exc
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _extract_pyproject_version(content: str) -> str | None:
+    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', content)
+    return match.group(1) if match else None
+
+
+def _extract_package_init_version(content: str) -> str | None:
+    match = re.search(r'(?m)^__version__\s*=\s*"([^"]+)"\s*$', content)
+    return match.group(1) if match else None
+
+
+def _is_axiom_encode_versioned_path(path: str) -> bool:
+    return path in _AXIOM_ENCODE_VERSIONED_FILES or path.startswith(
+        _AXIOM_ENCODE_VERSIONED_PREFIXES
+    )
+
+
 def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
     provenance = _git_repo_provenance(_axiom_encode_repo_root())
     if provenance is None or not provenance.get("commit"):
@@ -5590,6 +5744,10 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
             "Cannot apply generated RuleSpec from a dirty axiom-encode checkout; "
             "commit or discard encoder changes before using --apply."
         )
+    version_provenance = _require_axiom_encode_version_provenance(
+        Path(str(provenance["root"]))
+    )
+    provenance.update(version_provenance)
     return provenance
 
 
@@ -5836,9 +5994,7 @@ def cmd_encode(args):
                     if not repaired_refs:
                         break
                     repaired_input_refs.extend(repaired_refs)
-                    outcome["auto_repaired_import_output_inputs"] = (
-                        repaired_input_refs
-                    )
+                    outcome["auto_repaired_import_output_inputs"] = repaired_input_refs
                     print(
                         "  apply=auto_repaired_import_output_inputs:"
                         + ",".join(repaired_refs)
@@ -5856,9 +6012,7 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
                 if repaired_input_refs:
-                    outcome["auto_repaired_import_output_inputs"] = (
-                        repaired_input_refs
-                    )
+                    outcome["auto_repaired_import_output_inputs"] = repaired_input_refs
             if not can_apply:
                 repaired_input_cases: list[str] = []
                 while not can_apply:
@@ -6894,8 +7048,12 @@ def _same_repo_imported_rulespec_paths(
             if prefix != jurisdiction:
                 continue
             target = target.strip().strip("/")
-        relative = Path(target if target.endswith((".yaml", ".yml")) else f"{target}.yaml")
-        if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        relative = Path(
+            target if target.endswith((".yaml", ".yml")) else f"{target}.yaml"
+        )
+        if relative.is_absolute() or any(
+            part in {"", ".", ".."} for part in relative.parts
+        ):
             continue
         imported_paths.add(relative)
     return imported_paths
@@ -7056,8 +7214,7 @@ def _repair_dependent_proof_import_hashes(
         except (OSError, ValueError):
             continue
         target_base = (
-            f"{jurisdiction}:"
-            f"{_relative_rulespec_import_target(relative_dependent)}"
+            f"{jurisdiction}:{_relative_rulespec_import_target(relative_dependent)}"
         )
         repaired, repair_count = _repair_proof_import_hashes(
             content,
