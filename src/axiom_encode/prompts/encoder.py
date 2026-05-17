@@ -415,6 +415,8 @@ Hard requirements:
   `taxable_year_is_in_temporary_effective_window`, not
   `taxable_year_begins_after_2024_and_before_2029` or
   `taxable_year_begins_after_december_31_2021`.
+  Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`, or any
+  four-digit year in a runtime date-window fact name.
   This overrides preservation of existing local input names: if a copied
   formula uses a date-valued fact name, rename that fact consistently to a
   semantic date-window predicate in formulas and tests.

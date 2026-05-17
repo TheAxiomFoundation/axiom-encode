@@ -417,6 +417,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Existing executable output names are public API contracts" in prompt
     assert "applicable_amount_in_effect_under_section_<section>" in prompt
     assert "Do not put the date or year value in the fact name" in prompt
+    assert "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
     assert "overrides preservation of existing local input names" in prompt
     assert "Never introduce an import cycle" in prompt
     assert "For IRC section 151 repairs" not in prompt
@@ -547,6 +548,7 @@ rules:
     assert "filing status is a derived legal classification" in prompt
     assert "`us:statutes/26/999#input.taxable_year_begins_after_2024`" in prompt
     assert "date/year-valued temporal fact" in prompt
+    assert "`post_YYYY`, `pre_YYYY`, or any four-digit year" in prompt
     assert "Existing valid local input contract:" in prompt
     assert "`us:statutes/26/999#input.existing_fact`" in prompt
     assert "Cycle-prone context imports:" in prompt
@@ -3599,6 +3601,10 @@ class TestEvalPrompt:
         assert "Do not put the date or year value in the fact name" in prompt
         assert "taxable_year_begins_after_termination_date" in prompt
         assert "`taxable_year_begins_after_2024_and_before_2029` or" in prompt
+        assert (
+            "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`"
+            in prompt
+        )
         assert "overrides preservation of existing local input names" in prompt
         assert (
             "Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables"
