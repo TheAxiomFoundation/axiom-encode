@@ -5809,6 +5809,7 @@ rules:
     us:statutes/26/7703#relation.living_apart_child_of_tax_unit:
     - us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
       us:statutes/26/151#input.is_taxpayer: false
+      us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer: true
   output:
     us:statutes/26/7703#taxpayer_not_considered_married_when_living_apart: holds
 """
@@ -5857,9 +5858,10 @@ rules:
         assert issues == []
         updated = supplemental[Path("statutes/26/7703.test.yaml")]
         assert (
-            "      us:statutes/26/151#input.individual_is_dependent_of_taxpayer: false"
+            "      us:statutes/26/151#input.individual_is_dependent_of_taxpayer: true"
             in updated
         )
+        assert "us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer" not in updated
 
     def test_apply_overlay_validation_repairs_dependent_proof_import_hashes(
         self, tmp_path

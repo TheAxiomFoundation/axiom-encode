@@ -6954,7 +6954,8 @@ def _insert_input_default_in_relation_rows(
         return lines
     input_base = input_ref.split("#input.", 1)[0]
 
-    insertions: list[tuple[int, str]] = []
+    insertions: dict[int, list[str]] = {}
+    remove_indices: set[int] = set()
     for input_start, input_end in _find_yaml_input_blocks(lines):
         index = input_start + 1
         while index < input_end:
@@ -6974,16 +6975,107 @@ def _insert_input_default_in_relation_rows(
                 item_end += 1
             item_text = "".join(lines[index:item_end])
             if input_ref not in item_text and f"{input_base}#input." in item_text:
+                carried_value, obsolete_line_indices = (
+                    _similar_relation_row_input_value(
+                        lines=lines,
+                        start=index,
+                        end=item_end,
+                        input_base=input_base,
+                        input_ref=input_ref,
+                    )
+                )
+                if carried_value is not None:
+                    rendered = carried_value
+                    remove_indices.update(obsolete_line_indices)
+                else:
+                    rendered = rendered_value
                 indent = " " * (item_indent + 2)
                 newline = "\n" if lines[index].endswith("\n") else ""
-                insertions.append(
-                    (index + 1, f"{indent}{input_ref}: {rendered_value}{newline}")
+                insertions.setdefault(index + 1, []).append(
+                    f"{indent}{input_ref}: {rendered}{newline}"
                 )
             index = item_end
 
-    for insert_at, line in sorted(insertions, reverse=True):
-        lines.insert(insert_at, line)
-    return lines
+    if not insertions and not remove_indices:
+        return lines
+
+    updated: list[str] = []
+    for index, line in enumerate(lines):
+        updated.extend(insertions.get(index, []))
+        if index not in remove_indices:
+            updated.append(line)
+    updated.extend(insertions.get(len(lines), []))
+    return updated
+
+
+def _similar_relation_row_input_value(
+    *,
+    lines: list[str],
+    start: int,
+    end: int,
+    input_base: str,
+    input_ref: str,
+) -> tuple[str | None, set[int]]:
+    missing_name = input_ref.split("#input.", 1)[1]
+    best_score = 0.0
+    best_value: str | None = None
+    best_indices: set[int] = set()
+    tied = False
+    pattern = re.compile(
+        rf"^\s*(?P<ref>{re.escape(input_base)}#input\.(?P<name>[A-Za-z0-9_]+))\s*:\s*(?P<value>[^#\n]+)"
+    )
+    for index in range(start + 1, end):
+        match = pattern.match(lines[index])
+        if not match:
+            continue
+        candidate_name = match.group("name")
+        score = _input_name_similarity(missing_name, candidate_name)
+        if score < 0.5:
+            continue
+        if score == best_score:
+            tied = True
+            continue
+        if score > best_score:
+            best_score = score
+            best_value = match.group("value").strip()
+            best_indices = {index}
+            tied = False
+    if tied or best_value is None:
+        return None, set()
+    return best_value, best_indices
+
+
+_INPUT_NAME_STOPWORDS = {
+    "a",
+    "an",
+    "for",
+    "individual",
+    "is",
+    "of",
+    "person",
+    "section",
+    "the",
+    "under",
+}
+
+
+def _input_name_similarity(left: str, right: str) -> float:
+    left_tokens = _input_name_tokens(left)
+    right_tokens = _input_name_tokens(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap = left_tokens & right_tokens
+    if len(overlap) < 2:
+        return 0.0
+    return len(overlap) / len(left_tokens | right_tokens)
+
+
+def _input_name_tokens(name: str) -> set[str]:
+    return {
+        token
+        for token in re.split(r"[^a-z0-9]+", name.lower())
+        if token and not token.isdigit() and token not in _INPUT_NAME_STOPWORDS
+    }
 
 
 def _find_yaml_input_blocks(lines: list[str]) -> list[tuple[int, int]]:
