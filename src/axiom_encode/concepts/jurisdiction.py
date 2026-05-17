@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from axiom_encode.repo_routing import canonical_rulespec_repo_name
+
 
 def jurisdiction_prefix(repo_path: Path) -> str:
-    name = repo_path.name
+    name = canonical_rulespec_repo_name(repo_path) or repo_path.name
     if name.startswith("rulespec-"):
         return name.removeprefix("rulespec-")
     if name.startswith("rules-"):

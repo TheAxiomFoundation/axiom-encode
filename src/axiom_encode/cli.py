@@ -88,7 +88,7 @@ from .oracles.policyengine.ecps_tax import (
 )
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
-from .repo_routing import find_policy_repo_root
+from .repo_routing import canonical_rulespec_repo_name, find_policy_repo_root
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -7107,7 +7107,10 @@ def _validate_generated_encoding_in_policy_overlay(
             except OSError:
                 shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
 
-        overlay_repo = overlay_parent / policy_repo_path.name
+        overlay_repo_name = (
+            canonical_rulespec_repo_name(policy_repo_path) or policy_repo_path.name
+        )
+        overlay_repo = overlay_parent / overlay_repo_name
         shutil.copytree(policy_repo_path, overlay_repo)
         overlay_target = overlay_repo / relative_output
         overlay_target.parent.mkdir(parents=True, exist_ok=True)

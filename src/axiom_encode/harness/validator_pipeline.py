@@ -8213,6 +8213,22 @@ def _rulespec_repo_alias_parent(policy_repo_path: Path) -> Path | None:
     return alias_parent
 
 
+def _canonical_rulespec_compile_path(
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> Path:
+    """Return a compile path under the canonical repo alias when needed."""
+    alias_parent = _rulespec_repo_alias_parent(policy_repo_path)
+    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
+    if alias_parent is None or canonical_name is None:
+        return rules_file
+    try:
+        relative = rules_file.resolve().relative_to(policy_repo_path.resolve())
+    except ValueError:
+        return rules_file
+    return alias_parent / canonical_name / relative
+
+
 def _extract_source_relation_target_values(
     target_file: Path,
 ) -> tuple[dict[str, Any], set[str], str | None]:
@@ -9055,12 +9071,16 @@ class ValidatorPipeline:
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
         """Compile RuleSpec YAML to an Axiom rules engine artifact JSON file."""
         binary = self._axiom_rules_binary()
+        compile_file = _canonical_rulespec_compile_path(
+            rules_file,
+            self.policy_repo_path,
+        )
         result = subprocess.run(
             [
                 str(binary),
                 "compile",
                 "--program",
-                str(rules_file),
+                str(compile_file),
                 "--output",
                 str(output_path),
             ],
