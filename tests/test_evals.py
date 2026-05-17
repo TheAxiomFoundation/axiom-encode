@@ -30,6 +30,7 @@ from axiom_encode.harness.evals import (
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
     _run_codex_prompt_eval,
+    _select_cross_section_context_files,
     _source_identifier_to_relative_rulespec_path,
     _wait_for_codex_process,
     evaluate_artifact,
@@ -5216,6 +5217,67 @@ class TestRepoAugmentedContext:
         assert (
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
+
+    def test_prepare_eval_workspace_adds_cross_section_list_and_parent_fallback_context(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        rules_root = repo_root / "rulespec-us" / "statutes" / "26"
+
+        section_911_child = rules_root / "911" / "a.yaml"
+        section_911_child.parent.mkdir(parents=True)
+        section_911_child.write_text("format: rulespec/v1\nrules: []\n")
+        section_931 = rules_root / "931.yaml"
+        section_931.write_text("format: rulespec/v1\nrules: []\n")
+        section_933 = rules_root / "933.yaml"
+        section_933.write_text("format: rulespec/v1\nrules: []\n")
+        source_text = (
+            "Modified adjusted gross income means adjusted gross income "
+            "increased by any amount excluded from gross income under "
+            "sections 911, 931, or 933."
+        )
+
+        selected = _select_cross_section_context_files(
+            "26 USC 151",
+            source_text,
+            repo_root / "rulespec-us",
+        )
+
+        assert section_911_child in selected
+        assert section_931 in selected
+        assert section_933 in selected
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 151",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=source_text,
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert (
+            copied_sources[str(section_911_child)]["kind"]
+            == "implementation_precedent"
+        )
+        assert (
+            copied_sources[str(section_911_child)]["import_path"]
+            == "us:statutes/26/911/a"
+        )
+        assert copied_sources[str(section_931)]["import_path"] == "us:statutes/26/931"
+        assert copied_sources[str(section_933)]["import_path"] == "us:statutes/26/933"
 
     def test_prepare_eval_workspace_adds_child_fragment_context(self, tmp_path):
         repo_root = tmp_path / "repos"

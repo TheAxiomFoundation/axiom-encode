@@ -1845,28 +1845,78 @@ def _select_cross_section_context_files(
     target_rel = citation_to_relative_rulespec_path(parts)
     selected: list[Path] = []
     seen: set[Path] = set()
+    for cited_parts, _start, _end in _iter_cited_usc_sections(source_text):
+        if cited_parts.section == parts.section:
+            continue
+        cited_parts = CitationParts(
+            parts.title, cited_parts.section, cited_parts.fragments
+        )
+        candidate_rel = citation_to_relative_rulespec_path(cited_parts)
+        if candidate_rel == target_rel:
+            continue
+        for candidate in _cited_context_candidates(policy_root, candidate_rel):
+            resolved = candidate.resolve()
+            if resolved not in seen:
+                selected.append(candidate)
+                seen.add(resolved)
+    return selected
+
+
+def _iter_cited_usc_sections(
+    source_text: str,
+) -> Iterator[tuple[CitationParts, int, int]]:
+    """Yield USC section citations, including list tails like `sections 911, 931, or 933`."""
     for match in re.finditer(
-        r"\bsection\s+"
+        r"\bsections?\s+"
         r"(?P<section>[0-9][A-Za-z0-9.-]*)"
         r"(?P<fragments>(?:\([A-Za-z0-9]+\))*)",
         source_text,
         flags=re.IGNORECASE,
     ):
-        section = match.group("section").rstrip(".")
-        if section == parts.section:
+        if _citation_match_points_to_other_act(source_text, match.end()):
             continue
-        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
-        candidate_rel = citation_to_relative_rulespec_path(
-            CitationParts(parts.title, section, fragments)
-        )
-        if candidate_rel == target_rel:
-            continue
-        candidate = policy_root / candidate_rel
-        resolved = candidate.resolve()
-        if candidate.exists() and resolved not in seen:
-            selected.append(candidate)
-            seen.add(resolved)
-    return selected
+        yield _citation_parts_from_match(match), match.start(), match.end()
+        position = match.end()
+        while True:
+            tail = re.match(
+                r"\s*(?:,\s*(?:(?:and|or)\b)?|\band\b|\bor\b)\s*"
+                r"(?:sections?\s+)?"
+                r"(?P<section>[0-9][A-Za-z0-9.-]*)"
+                r"(?P<fragments>(?:\([A-Za-z0-9]+\))*)",
+                source_text[position:],
+                flags=re.IGNORECASE,
+            )
+            if tail is None:
+                break
+            tail_start = position + tail.start()
+            tail_end = position + tail.end()
+            if _citation_match_points_to_other_act(source_text, tail_end):
+                break
+            yield _citation_parts_from_match(tail), tail_start, tail_end
+            position = tail_end
+
+
+def _citation_parts_from_match(match: re.Match[str]) -> CitationParts:
+    section = match.group("section").rstrip(".")
+    fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
+    return CitationParts("", section, fragments)
+
+
+def _cited_context_candidates(policy_root: Path, candidate_rel: Path) -> list[Path]:
+    """Return an exact cited RuleSpec file or child fragments when only a section exists."""
+    candidate = policy_root / candidate_rel
+    if candidate.exists():
+        return [candidate]
+    child_root = policy_root / candidate_rel.with_suffix("")
+    if not child_root.is_dir():
+        return []
+    candidates = [
+        path
+        for path in child_root.rglob("*.yaml")
+        if not path.name.endswith(".test.yaml")
+    ]
+    candidates.sort(key=lambda path: (len(path.relative_to(child_root).parts), str(path)))
+    return candidates[:8]
 
 
 def _select_child_fragment_context_files(
@@ -3637,22 +3687,13 @@ def _missing_cited_statute_targets(
     }
     missing: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for match in re.finditer(
-        r"\bsection\s+"
-        r"(?P<section>[0-9][A-Za-z0-9.-]*)"
-        r"(?P<fragments>(?:\([A-Za-z0-9]+\))*)",
-        source_text,
-        flags=re.IGNORECASE,
-    ):
-        if _citation_match_points_to_other_act(source_text, match.end()):
-            continue
-        section = match.group("section").rstrip(".")
+    for cited_parts, _start, _end in _iter_cited_usc_sections(source_text):
+        section = cited_parts.section
         if section == parts.section:
             continue
-        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
-        cited_parts = CitationParts(parts.title, section, fragments)
+        target_parts = CitationParts(parts.title, section, cited_parts.fragments)
         target = _relative_rulespec_path_to_import_target(
-            citation_to_relative_rulespec_path(cited_parts).with_suffix(""),
+            citation_to_relative_rulespec_path(target_parts).with_suffix(""),
             prefix="us",
         )
         normalized = _normalize_prompt_import_target(target)
@@ -3664,7 +3705,9 @@ def _missing_cited_statute_targets(
         if normalized in seen:
             continue
         seen.add(normalized)
-        label = "section " + section + "".join(f"({fragment})" for fragment in fragments)
+        label = "section " + section + "".join(
+            f"({fragment})" for fragment in cited_parts.fragments
+        )
         missing.append((label, target))
     return missing
 
@@ -3774,14 +3817,33 @@ def _source_text_cites_statute(
     ):
         return True
     if citation.fragments:
-        return bool(
-            re.search(
-                rf"\b{citation_pattern}(?:\b|\s|\)|,|;|\.)",
-                source_text,
-                flags=re.IGNORECASE,
-            )
-        )
+        if re.search(
+            rf"\b{citation_pattern}(?:\b|\s|\)|,|;|\.)",
+            source_text,
+            flags=re.IGNORECASE,
+        ):
+            return True
+    for cited_parts, _start, _end in _iter_cited_usc_sections(source_text):
+        if _cited_parts_cover_import(cited_parts, citation):
+            return True
     return False
+
+
+def _cited_parts_cover_import(
+    cited_parts: CitationParts,
+    citation: _StatuteCitation,
+) -> bool:
+    """Return whether a source citation covers a copied import target."""
+    if cited_parts.section != citation.section:
+        return False
+    if cited_parts.fragments == citation.fragments:
+        return True
+    if not cited_parts.fragments or not citation.fragments:
+        return True
+    return (
+        citation.fragments[: len(cited_parts.fragments)] == cited_parts.fragments
+        or cited_parts.fragments[: len(citation.fragments)] == citation.fragments
+    )
 
 
 def _preferred_exports_for_cited_reference(
@@ -3863,6 +3925,11 @@ def _source_text_citation_window(
             flags=re.IGNORECASE,
         )
     if match is None:
+        for cited_parts, start, end in _iter_cited_usc_sections(source_text):
+            if _cited_parts_cover_import(cited_parts, citation):
+                start = max(0, start - 120)
+                end = min(len(source_text), end + 80)
+                return source_text[start:end]
         return ""
     start = max(0, match.start() - 120)
     end = min(len(source_text), match.end() + 80)
