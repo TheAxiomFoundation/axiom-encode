@@ -4077,6 +4077,9 @@ rules:
             in prompt
         )
         assert "Import each listed child exception output" in prompt
+        assert "This overrides the usual small-test-count preference" in prompt
+        assert "one blocking companion test" in prompt
+        assert "for each listed child exception output" in prompt
 
     def test_build_eval_prompt_forces_partial_extent_child_parent_defer(
         self, tmp_path

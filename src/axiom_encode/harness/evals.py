@@ -3543,6 +3543,11 @@ Parent exception-list child fragments detected:
   files already export executable exception outputs ({refs}). Import each listed child exception output and negate it in the affected parent definition or
   composition. Do not leave the parent definition as only positive conditions,
   and do not replace the child exceptions with local `*_exception` inputs.
+- This overrides the usual small-test-count preference. Include one positive
+  companion case with no listed exception active and one blocking companion test
+  for each listed child exception output, changing only that imported child
+  module's underlying facts from the positive case and expecting the affected
+  parent Judgment to be `not_holds`.
 """
 
 
