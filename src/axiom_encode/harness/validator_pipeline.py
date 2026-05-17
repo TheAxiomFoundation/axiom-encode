@@ -6632,6 +6632,7 @@ def find_exception_test_coverage_issues(
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
+    imported_symbol_bases = _imported_symbol_bases_by_name(content)
     issues: list[str] = []
     for rule in rules:
         if not isinstance(rule, dict):
@@ -6662,6 +6663,7 @@ def find_exception_test_coverage_issues(
                 test_cases,
                 rule_name=rule_name,
                 exception_input=exception_input,
+                exception_import_base=imported_symbol_bases.get(exception_input),
             ):
                 continue
             issues.append(
@@ -6959,6 +6961,7 @@ def _has_exception_blocking_test(
     *,
     rule_name: str,
     exception_input: str,
+    exception_import_base: str | None = None,
 ) -> bool:
     for test_case in test_cases:
         if not isinstance(test_case, dict):
@@ -6967,11 +6970,19 @@ def _has_exception_blocking_test(
         outputs = test_case.get("output")
         if not inputs or not isinstance(outputs, dict):
             continue
-        if not any(
+        has_direct_exception_toggle = any(
             _test_assignment_targets_exception(key, exception_input)
             and _is_truthy_fact_value(value)
             for key, value in inputs
-        ):
+        )
+        has_imported_exception_inputs = bool(
+            exception_import_base
+            and any(
+                _test_assignment_in_import_base(key, exception_import_base)
+                for key, _ in inputs
+            )
+        )
+        if not has_direct_exception_toggle and not has_imported_exception_inputs:
             continue
         if not any(
             _test_reference_fragment(key) == rule_name
@@ -6983,6 +6994,7 @@ def _has_exception_blocking_test(
             test_cases,
             rule_name=rule_name,
             exception_input=exception_input,
+            exception_import_base=exception_import_base,
             negative_inputs=inputs,
         ):
             return True
@@ -6994,12 +7006,14 @@ def _has_exception_positive_companion_test(
     *,
     rule_name: str,
     exception_input: str,
+    exception_import_base: str | None,
     negative_inputs: list[tuple[Any, Any]],
 ) -> bool:
     """Return true when a positive case proves the exception flips the outcome."""
     expected_inputs = _normalized_test_inputs(
         negative_inputs,
         exclude_input=exception_input,
+        exclude_import_base=exception_import_base,
     )
     for test_case in test_cases:
         if not isinstance(test_case, dict):
@@ -7008,11 +7022,19 @@ def _has_exception_positive_companion_test(
         outputs = test_case.get("output")
         if not inputs or not isinstance(outputs, dict):
             continue
-        if not any(
+        has_direct_exception_toggle = any(
             _test_assignment_targets_exception(key, exception_input)
             and not _is_truthy_fact_value(value)
             for key, value in inputs
-        ):
+        )
+        has_imported_exception_inputs = bool(
+            exception_import_base
+            and any(
+                _test_assignment_in_import_base(key, exception_import_base)
+                for key, _ in inputs
+            )
+        )
+        if not has_direct_exception_toggle and not has_imported_exception_inputs:
             continue
         if not any(
             _test_reference_fragment(key) == rule_name
@@ -7021,7 +7043,11 @@ def _has_exception_positive_companion_test(
         ):
             continue
         if (
-            _normalized_test_inputs(inputs, exclude_input=exception_input)
+            _normalized_test_inputs(
+                inputs,
+                exclude_input=exception_input,
+                exclude_import_base=exception_import_base,
+            )
             == expected_inputs
         ):
             return True
@@ -7032,11 +7058,16 @@ def _normalized_test_inputs(
     inputs: list[tuple[Any, Any]],
     *,
     exclude_input: str,
+    exclude_import_base: str | None = None,
 ) -> dict[str, str]:
     normalized: dict[str, str] = {}
     for key, value in inputs:
         fragment = _test_reference_fragment(key)
         if _test_assignment_targets_exception(key, exclude_input):
+            continue
+        if exclude_import_base and _test_assignment_in_import_base(
+            key, exclude_import_base
+        ):
             continue
         normalized[fragment] = _normalized_test_value(value)
     return normalized
@@ -7070,6 +7101,36 @@ def _iter_test_assignment_items(value: Any) -> list[tuple[Any, Any]]:
 def _test_assignment_targets_exception(key: Any, exception_input: str) -> bool:
     fragment = _test_reference_fragment(key)
     return fragment in {f"input.{exception_input}", exception_input}
+
+
+def _test_assignment_in_import_base(key: Any, import_base: str) -> bool:
+    key_text = str(key).strip()
+    if "#" not in key_text:
+        return False
+    key_base = _normalize_rulespec_import_path_static(key_text.split("#", 1)[0])
+    normalized_base = _normalize_rulespec_import_path_static(import_base)
+    return key_base == normalized_base
+
+
+def _imported_symbol_bases_by_name(content: str) -> dict[str, str]:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return {}
+    mapping: dict[str, str] = {}
+    for item in imports:
+        if not isinstance(item, str) or "#" not in item:
+            continue
+        base, symbol = item.split("#", 1)
+        symbol = symbol.strip()
+        if symbol:
+            mapping[symbol] = base.strip()
+    return mapping
 
 
 def _normalized_test_value(value: Any) -> str:

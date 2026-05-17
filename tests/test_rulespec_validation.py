@@ -4513,6 +4513,65 @@ rules:
     assert find_exception_test_coverage_issues(content, test_cases) == []
 
 
+def test_exception_test_coverage_accepts_imported_exception_underlying_inputs():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies
+module:
+  summary: |-
+    Such term shall not include any amount paid or incurred on any of the following:
+rules:
+  - name: interest_is_qualified_passenger_vehicle_loan_interest
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: |-
+          interest_paid_on_qualifying_indebtedness
+          and not fleet_sales_loan_exception_applies
+"""
+    test_cases = [
+        {
+            "name": "positive_path",
+            "tables": {
+                "Payment": [
+                    {
+                        "us:statutes/26/163/h/4/B#input.interest_paid_on_qualifying_indebtedness": True,
+                        "us:statutes/26/163/h/4/B/ii/I#input.amount_paid_or_incurred_on_loan": True,
+                        "us:statutes/26/163/h/4/B/ii/I#input.loan_finances_fleet_sales": False,
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/163/h/4/B#interest_is_qualified_passenger_vehicle_loan_interest": [
+                    "holds"
+                ]
+            },
+        },
+        {
+            "name": "fleet_sales_exception",
+            "tables": {
+                "Payment": [
+                    {
+                        "us:statutes/26/163/h/4/B#input.interest_paid_on_qualifying_indebtedness": True,
+                        "us:statutes/26/163/h/4/B/ii/I#input.amount_paid_or_incurred_on_loan": True,
+                        "us:statutes/26/163/h/4/B/ii/I#input.loan_finances_fleet_sales": True,
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/163/h/4/B#interest_is_qualified_passenger_vehicle_loan_interest": [
+                    "not_holds"
+                ]
+            },
+        },
+    ]
+
+    assert find_exception_test_coverage_issues(content, test_cases) == []
+
+
 def test_cross_reference_exception_placeholder_requires_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2014" / "a.yaml"
