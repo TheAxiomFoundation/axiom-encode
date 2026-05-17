@@ -4456,6 +4456,106 @@ rules:
     )
 
 
+def test_parent_exception_list_ignores_empty_wrapper_modules(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "163" / "h" / "4.yaml"
+    child_file = (
+        repo
+        / "statutes"
+        / "26"
+        / "163"
+        / "h"
+        / "4"
+        / "B"
+        / "ii"
+        / "I.yaml"
+    )
+    child_file.parent.mkdir(parents=True)
+    child_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: fleet_sales_loan_exception_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: loan_finances_fleet_sales
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  status: deferred
+  summary: |-
+    Special rules include the following exception list:
+rules: []
+"""
+    )
+
+    assert (
+        find_missing_child_exception_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_parent_exception_list_does_not_treat_carveout_definition_as_exception(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "163" / "h" / "4.yaml"
+    child_file = repo / "statutes" / "26" / "163" / "h" / "4" / "D.yaml"
+    child_file.parent.mkdir(parents=True)
+    child_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: asset_is_applicable_passenger_vehicle
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+    versions:
+      - effective_from: '2025-01-01'
+        formula: vehicle_final_assembly_occurred_within_united_states
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Special rules include the following exception list:
+rules:
+  - name: vehicle_interest_rule_applies
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: taxpayer_has_vehicle_interest
+"""
+    )
+
+    assert (
+        find_missing_child_exception_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_exception_test_coverage_accepts_imported_judgment_table_inputs():
     content = """format: rulespec/v1
 imports:

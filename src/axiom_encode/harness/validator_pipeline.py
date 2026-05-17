@@ -6764,11 +6764,14 @@ def find_missing_child_exception_import_issues(
     if not child_exports:
         return []
 
+    formula_identifiers = _rulespec_content_formula_identifiers(content)
+    if not formula_identifiers:
+        return []
+
     imports = {
         _normalize_rulespec_import_path_static(import_path)
         for import_path in _extract_import_paths_from_content(content)
     }
-    formula_identifiers = _rulespec_content_formula_identifiers(content)
     missing_refs: list[str] = []
     prefix = _rulespec_repo_prefix(policy_repo_path)
     for child_target, export in child_exports:
@@ -6824,7 +6827,7 @@ def _rulespec_file_exception_exports(rules_file: Path) -> list[str]:
         name = str(rule.get("name") or "").strip()
         if not name or name not in terminal_exports:
             continue
-        if _is_exception_identifier(name) or _rule_has_exception_proof(rule):
+        if _is_exception_identifier(name):
             exports.append(name)
     return exports
 

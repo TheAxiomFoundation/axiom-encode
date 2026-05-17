@@ -4173,7 +4173,7 @@ def _context_file_exception_exports(source_path: str) -> list[str]:
         name = str(rule.get("name") or "").strip()
         if not name or name not in terminal_exports:
             continue
-        if _is_exception_like_export_name(name) or _rule_has_exception_proof(rule):
+        if _is_exception_like_export_name(name):
             exports.append(name)
     return exports
 
