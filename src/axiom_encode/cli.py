@@ -5665,17 +5665,21 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_test_cases = (
-                    _try_repair_generated_derived_output_tests_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
+                repaired_derived_cases: list[str] = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_derived_output_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_test_cases:
+                    if not repaired_test_cases:
+                        break
+                    repaired_derived_cases.extend(repaired_test_cases)
                     outcome["auto_repaired_derived_output_tests"] = (
-                        repaired_test_cases
+                        repaired_derived_cases
                     )
                     print(
                         "  apply=auto_repaired_derived_output_tests:"
@@ -5693,6 +5697,10 @@ def cmd_encode(args):
                         )
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_derived_cases:
+                    outcome["auto_repaired_derived_output_tests"] = (
+                        repaired_derived_cases
+                    )
             if not can_apply:
                 repaired_input_cases: list[str] = []
                 while not can_apply:

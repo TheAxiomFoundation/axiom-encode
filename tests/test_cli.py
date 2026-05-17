@@ -3487,6 +3487,14 @@ rules:
               exemption_amount
           else:
               0
+  - name: exemption_phaseout_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
 """
         )
         test_file = output_file.with_name("151.test.yaml")
@@ -3516,6 +3524,16 @@ rules:
                         [
                             "statutes/26/151.yaml: ci: "
                             "Derived rule missing companion output coverage: "
+                            "`us:statutes/26/151#exemption_phaseout_applicable_percentage` "
+                            "is not asserted by the companion `.test.yaml` file."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/26/151.yaml: ci: "
+                            "Derived rule missing companion output coverage: "
                             "`us:statutes/26/151#section_151_exemption_deduction` "
                             "is not asserted by the companion `.test.yaml` file."
                         ],
@@ -3537,16 +3555,26 @@ rules:
         output = capsys.readouterr().out
         assert (
             "apply=auto_repaired_derived_output_tests:"
+            "auto_output_exemption_phaseout_applicable_percentage"
+        ) in output
+        assert (
+            "apply=auto_repaired_derived_output_tests:"
             "auto_output_section_151_exemption_deduction"
         ) in output
-        assert mock_overlay.call_count == 2
+        assert mock_overlay.call_count == 3
         mock_apply.assert_called_once()
         test_content = test_file.read_text()
+        assert "auto_output_exemption_phaseout_applicable_percentage" in test_content
         assert "auto_output_section_151_exemption_deduction" in test_content
+        assert (
+            "us:statutes/26/151#exemption_phaseout_applicable_percentage: 0"
+            in test_content
+        )
         assert "us:statutes/26/151#section_151_exemption_deduction: 0" in test_content
         assert "us:statutes/26/151#input.taxpayer_is_individual: false" in test_content
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_derived_output_tests"] == [
+            "auto_output_exemption_phaseout_applicable_percentage",
             "auto_output_section_151_exemption_deduction"
         ]
         assert run.outcome["overlay_validation_success"] is True
