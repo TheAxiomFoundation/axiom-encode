@@ -500,6 +500,30 @@ rules:
         mode="repo-augmented",
         extra_context_paths=[],
     )
+    cyclic_context = policy_repo / "statutes/26/7703.yaml"
+    cyclic_context.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/999#existing_amount
+rules:
+  - name: upstream_married_rule
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: existing_amount > 0
+"""
+    )
+    workspace.context_files.append(
+        EvalContextFile(
+            source_path=str(cyclic_context),
+            workspace_path="context/statutes/26/7703.yaml",
+            import_path="us:statutes/26/7703",
+            kind="citation_context",
+        )
+    )
 
     prompt = _build_eval_prompt(
         "26 USC 999",
@@ -525,6 +549,8 @@ rules:
     assert "date/year-valued temporal fact" in prompt
     assert "Existing valid local input contract:" in prompt
     assert "`us:statutes/26/999#input.existing_fact`" in prompt
+    assert "Cycle-prone context imports:" in prompt
+    assert "`us:statutes/26/7703` already imports `us:statutes/26/999`" in prompt
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):

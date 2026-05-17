@@ -2615,6 +2615,12 @@ import or re-export that exact canonical concept instead of duplicating it local
                 target_ref_prefix=target_ref_prefix,
             )
         )
+        cycle_prone_context_import_section = (
+            _format_cycle_prone_context_import_guidance(
+                context_files,
+                target_ref_prefix=target_ref_prefix,
+            )
+        )
         existing_target_contract_section = _format_existing_target_contract_guidance(
             context_files
         )
@@ -2636,6 +2642,7 @@ Context files are precedent and dependency context, not independent legal author
 {branch_child_naming_section}
 {cited_context_imports_section}
 {partial_extent_child_schema_section}
+{cycle_prone_context_import_section}
 Import and context rules:
 - Use the listed import target rather than the `./context/...` inspection path.
 - do not wrap import targets in quotes.
@@ -3335,6 +3342,33 @@ Preserve these copied target factual input names unless `./source.txt` proves th
 """.format(lines="\n".join(valid_lines))
 
 
+def _format_cycle_prone_context_import_guidance(
+    context_files: list[EvalContextFile],
+    *,
+    target_ref_prefix: str | None,
+) -> str:
+    """Return context imports that would cycle back into the current target."""
+    if not target_ref_prefix:
+        return ""
+    blocked: list[str] = []
+    for item in context_files:
+        if item.kind == "existing_target":
+            continue
+        if _context_file_imports_target(item.source_path, target_ref_prefix):
+            blocked.append(
+                f"- `{item.import_path}` already imports `{target_ref_prefix}`; "
+                "do not import it from this target"
+            )
+    if not blocked:
+        return ""
+    return """
+Cycle-prone context imports:
+These copied context files already depend on the current target. Importing them from this target would create a RuleSpec import cycle:
+{lines}
+Use only source-stated local predicates, existing non-cyclic imports, or an explicit missing-upstream/dependency status instead.
+""".format(lines="\n".join(blocked))
+
+
 def _format_partial_extent_child_schema_limit_guidance(
     source_text: str,
     context_files: list[EvalContextFile],
@@ -4019,6 +4053,24 @@ def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
         if fragment and "." not in fragment:
             symbols.add(fragment)
     return symbols
+
+
+def _context_file_imports_target(source_path: str, target_ref_prefix: str) -> bool:
+    try:
+        payload = yaml.safe_load(Path(source_path).read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return False
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return False
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return False
+    target_prefix = f"{target_ref_prefix}#"
+    return any(
+        isinstance(item, str)
+        and (item == target_ref_prefix or item.startswith(target_prefix))
+        for item in imports
+    )
 
 
 def _invalid_local_input_reason(identifier: str) -> str:
