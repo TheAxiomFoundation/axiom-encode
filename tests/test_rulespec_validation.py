@@ -4253,6 +4253,50 @@ rules:
     assert find_test_input_assignment_issues(content, test_cases) == []
 
 
+def test_test_input_assignment_ignores_imported_fragment_even_if_bad_placeholder_assigned():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+imports:
+  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
+rules:
+  - name: modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          adjusted_gross_income
+          + amount_excluded_from_gross_income_under_section_931
+"""
+    test_cases = [
+        {
+            "name": "bad_placeholder_present",
+            "input": {
+                "us:statutes/26/151#input.adjusted_gross_income": 100000,
+                "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931": 0,
+            },
+            "output": {
+                "us:statutes/26/151#modified_adjusted_gross_income": 100000,
+            },
+        },
+        {
+            "name": "no_import_placeholder",
+            "input": {
+                "us:statutes/26/151#input.adjusted_gross_income": 100000,
+            },
+            "output": {
+                "us:statutes/26/151#modified_adjusted_gross_income": 100000,
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
 def test_aggregate_exception_predicate_rejects_compressed_exception_list():
     content = """format: rulespec/v1
 module:

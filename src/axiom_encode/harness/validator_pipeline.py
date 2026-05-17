@@ -5596,6 +5596,19 @@ def _rulespec_import_export_names(
     return names
 
 
+def _rulespec_import_fragment_names(imports: Any) -> set[str]:
+    if not isinstance(imports, list):
+        return set()
+    names: set[str] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        fragment = raw_import.rsplit("#", 1)[1].strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", fragment):
+            names.add(fragment)
+    return names
+
+
 def _rulespec_local_input_slots(
     payload: dict[str, Any],
     *,
@@ -6369,6 +6382,7 @@ def find_test_input_assignment_issues(
         return []
 
     defined_symbols = _defined_rulespec_symbols(rules)
+    imported_symbols = _rulespec_import_fragment_names(payload.get("imports"))
     symbol_inputs: dict[str, set[str]] = {}
     symbol_dependencies: dict[str, set[str]] = {}
     for rule in rules:
@@ -6394,7 +6408,9 @@ def find_test_input_assignment_issues(
             if not isinstance(formula, str):
                 continue
             formula_identifiers.update(_formula_local_identifiers(formula))
-        symbol_inputs[rule_name] = formula_identifiers - defined_symbols
+        symbol_inputs[rule_name] = (
+            formula_identifiers - defined_symbols - imported_symbols
+        )
         symbol_dependencies[rule_name] = formula_identifiers & defined_symbols
 
     if not symbol_inputs:

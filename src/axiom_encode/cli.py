@@ -5096,6 +5096,10 @@ def _imported_output_names(rules_file: Path) -> set[str]:
         payload = yaml.safe_load(rules_file.read_text()) or {}
     except (OSError, ValueError, yaml.YAMLError):
         return set()
+    return _imported_output_names_from_payload(payload)
+
+
+def _imported_output_names_from_payload(payload: object) -> set[str]:
     imports = payload.get("imports") if isinstance(payload, dict) else None
     if not isinstance(imports, list):
         return set()
@@ -5192,6 +5196,7 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
+    defined_symbols.update(_imported_output_names_from_payload(payload))
     dsl_symbols = {
         "abs",
         "and",
@@ -6212,13 +6217,16 @@ def _fill_missing_test_input_assignments(
     if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
         return []
 
+    imported_outputs = _imported_output_names_from_payload(rules_payload)
     repairs_by_case: dict[str, set[str]] = {}
     for issue in issues:
         parsed = _parse_test_input_assignment_issue(str(issue))
         if parsed is None:
             return []
         case_name, missing_inputs = parsed
-        repairs_by_case.setdefault(case_name, set()).update(missing_inputs)
+        repairs_by_case.setdefault(case_name, set()).update(
+            missing_inputs - imported_outputs
+        )
     if not repairs_by_case:
         return []
 

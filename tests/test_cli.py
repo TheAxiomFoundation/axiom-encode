@@ -4573,6 +4573,27 @@ rules:
         assert "count_where" not in inputs
         assert inputs == {"child_is_eligible"}
 
+    def test_local_factual_input_names_ignore_imported_output_fragments(self):
+        content = """format: rulespec/v1
+imports:
+  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
+rules:
+  - name: modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          adjusted_gross_income
+          + amount_excluded_from_gross_income_under_section_931
+"""
+
+        inputs = _local_factual_input_names_from_rules_content(content)
+
+        assert inputs == {"adjusted_gross_income"}
+
     def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"
