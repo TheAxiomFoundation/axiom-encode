@@ -43,6 +43,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_nonnegative_amount_reduction_issues,
     find_partial_extent_zeroing_issues,
     find_proof_import_hash_consistency_issues,
+    find_proof_import_reference_issues,
     find_relation_aggregate_syntax_issues,
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
@@ -478,6 +479,41 @@ rules:
         "Unused import `us:statutes/26/163/a#interest_deduction`: imported "
         "symbol `interest_deduction` is not referenced by any formula or proof "
         "import."
+    ]
+
+
+def test_proof_imports_must_be_referenced_by_rule_formula():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/151#section_151_exemption_deduction
+rules:
+  - name: section_931_disallowed_deductions_excluding_section_151
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/151#section_151_exemption_deduction
+              output: section_151_exemption_deduction
+              hash: sha256:abc
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          min(deductions_before_denial, allocable_deductions)
+"""
+
+    issues = find_proof_import_reference_issues(content)
+
+    assert issues == [
+        "Proof import not referenced: "
+        "`section_931_disallowed_deductions_excluding_section_151` proof imports "
+        "`section_151_exemption_deduction`, but the rule formula does not "
+        "reference that imported symbol."
     ]
 
 

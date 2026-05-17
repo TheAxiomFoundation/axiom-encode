@@ -6002,6 +6002,48 @@ def find_unused_import_issues(content: str) -> list[str]:
     return []
 
 
+def find_proof_import_reference_issues(content: str) -> list[str]:
+    """Reject proof import atoms whose imported symbol is absent from the formula."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return []
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return []
+
+        issues: list[str] = []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+            formula_text = "\n".join(_rulespec_rule_formula_texts(rule))
+            proof = _rule_proof_payload(rule)
+            atoms = proof.get("atoms") if isinstance(proof, dict) else None
+            if not isinstance(atoms, list):
+                continue
+            for atom in atoms:
+                if not isinstance(atom, dict):
+                    continue
+                import_payload = atom.get("import")
+                if not isinstance(import_payload, dict):
+                    continue
+                symbol = str(import_payload.get("output") or "").strip()
+                if not symbol:
+                    target = str(import_payload.get("target") or "").strip()
+                    if "#" in target:
+                        symbol = target.rsplit("#", 1)[1].strip()
+                if not symbol or _formula_references_symbol(formula_text, symbol):
+                    continue
+                issues.append(
+                    "Proof import not referenced: "
+                    f"`{rule_name}` proof imports `{symbol}`, but the rule "
+                    "formula does not reference that imported symbol."
+                )
+        return issues
+    return []
+
+
 def find_import_shape_issues(content: str) -> list[str]:
     """Reject non-string top-level RuleSpec imports."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
@@ -6048,17 +6090,23 @@ def _rulespec_formula_texts(payload: dict[str, Any]) -> list[str]:
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        versions = rule.get("versions")
-        if not isinstance(versions, list):
+        formulas.extend(_rulespec_rule_formula_texts(rule))
+    return formulas
+
+
+def _rulespec_rule_formula_texts(rule: dict[str, Any]) -> list[str]:
+    formulas: list[str] = []
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return formulas
+    for version in versions:
+        if not isinstance(version, dict):
             continue
-        for version in versions:
-            if not isinstance(version, dict):
-                continue
-            formula = version.get("formula")
-            if isinstance(formula, str):
-                formulas.append(formula)
-            elif isinstance(formula, (int, float)) and not isinstance(formula, bool):
-                formulas.append(str(formula))
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            formulas.append(formula)
+        elif isinstance(formula, (int, float)) and not isinstance(formula, bool):
+            formulas.append(str(formula))
     return formulas
 
 
@@ -9407,6 +9455,7 @@ class ValidatorPipeline:
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(find_import_shape_issues(content))
         issues.extend(find_unused_import_issues(content))
+        issues.extend(find_proof_import_reference_issues(content))
         issues.extend(
             find_proof_import_hash_consistency_issues(
                 content,

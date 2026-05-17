@@ -2968,6 +2968,10 @@ RuleSpec requirements:
   not import an unrelated output from that file as a stand-in; encode the proper
   upstream source slice first, split the unresolved branch, or emit a deferred
   status when the requested file cannot compute faithfully without it.
+- Every proof import must correspond to a symbol actually used by that rule's
+  formula. Do not add an import atom merely because the source text mentions an
+  exception or cross-reference that the formula excludes, subtracts around, or
+  otherwise handles without the imported output.
 - A cited context file with `module.status: entity_not_supported`,
   `module.status: deferred`, or `rules: []` is not an executable dependency.
   Do not preserve, rename, or recreate a local cross-reference input for that
