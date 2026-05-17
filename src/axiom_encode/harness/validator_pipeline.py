@@ -4527,6 +4527,64 @@ def find_temporal_value_fact_name_issues(content: str) -> list[str]:
     return issues
 
 
+_DEFINED_TERM_HEADING_PATTERN = re.compile(
+    r"\([a-z0-9]+\)\s+Definition of\s+(?P<term>[A-Za-z][A-Za-z\s-]*?)(?:\s+\(|\s+For\b|$)"
+)
+
+
+def find_helper_only_definition_issues(content: str) -> list[str]:
+    """Reject definition slices that expose helpers but not the defined term."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+
+    summary = str(module.get("summary") or "")
+    if not summary:
+        return []
+
+    rules = payload.get("rules")
+    has_rules = isinstance(rules, list) and any(isinstance(rule, dict) for rule in rules)
+    if not has_rules:
+        return []
+
+    issues: list[str] = []
+    if re.search(r"\bfinal\b.{0,120}\bnot encoded\b", summary, flags=re.IGNORECASE):
+        issues.append(
+            "Definition provision is helper-only: module summary says the final "
+            "defined status is not encoded while executable helper rules are "
+            "present. Either encode the final source-defined term or mark the "
+            "module deferred with no executable rules."
+        )
+
+    rule_names = _rulespec_rule_names(payload)
+    for match in _DEFINED_TERM_HEADING_PATTERN.finditer(summary):
+        term = " ".join(match.group("term").split()).lower()
+        if not term:
+            continue
+        term_slug = re.sub(r"[^a-z0-9]+", "_", term).strip("_")
+        if not term_slug:
+            continue
+        allowed_names = {
+            term_slug,
+            f"taxpayer_is_{term_slug}",
+            f"individual_is_{term_slug}",
+        }
+        if rule_names & allowed_names:
+            continue
+        issues.append(
+            "Definition provision missing final defined term: "
+            f"`Definition of {term}` must expose `{term_slug}` as the final "
+            "source-backed output, not only helper, limitation, or prerequisite "
+            "predicates."
+        )
+
+    return issues
+
+
 def find_judgment_conditional_formula_issues(content: str) -> list[str]:
     """Flag Judgment formulas that branch between judgment expressions."""
     payload = _rulespec_payload(content)
@@ -9735,6 +9793,7 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
         issues.extend(find_tax_filing_status_surviving_spouse_issues(content))
         issues.extend(find_formula_date_literal_issues(content))

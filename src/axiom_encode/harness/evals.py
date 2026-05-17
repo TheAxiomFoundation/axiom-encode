@@ -2910,6 +2910,13 @@ RuleSpec requirements:
   item child files, make the principal output name semantic to that branch
   (for example `care_responsibility_exemption_applies`), not only the shared
   parent consequence like `person_exempt_from_paragraph_1_work_requirements`.
+- If a source provision is headed "Definition of X", a successful executable
+  artifact must expose the final source-backed output `x` (normalized to the
+  local naming style, such as `surviving_spouse` or `head_of_household`). Helper,
+  limitation, and prerequisite predicates may support that output, but they do
+  not replace it. If X cannot be computed faithfully because upstream legal
+  definitions are missing, mark the module deferred with no executable rules
+  rather than applying a helper-only definition.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
   `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated

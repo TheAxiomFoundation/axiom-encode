@@ -36,6 +36,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_exception_test_coverage_issues,
     find_formula_absolute_reference_issues,
     find_formula_date_literal_issues,
+    find_helper_only_definition_issues,
     find_import_shape_issues,
     find_judgment_conditional_formula_issues,
     find_missing_child_exception_import_issues,
@@ -8161,6 +8162,75 @@ rules:
 """
 
     assert find_temporal_value_fact_name_issues(content) == []
+
+
+def test_helper_only_definition_rejects_missing_final_defined_term():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (a) Definition of surviving spouse (1) In general For purposes of section 1,
+    the term "surviving spouse" means a taxpayer whose spouse died.
+rules:
+  - name: surviving_spouse_limitations_satisfied
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: not taxpayer_remarried_before_close_of_taxable_year
+"""
+
+    issues = find_helper_only_definition_issues(content)
+
+    assert any(
+        "Definition provision missing final defined term" in issue for issue in issues
+    )
+    assert any("surviving_spouse" in issue for issue in issues)
+
+
+def test_helper_only_definition_allows_final_defined_term():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Definition of head of household (1) In general For purposes of this
+    subtitle, an individual shall be considered a head of household if conditions
+    are met.
+rules:
+  - name: head_of_household
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_requirements_satisfied
+"""
+
+    assert find_helper_only_definition_issues(content) == []
+
+
+def test_helper_only_definition_rejects_final_not_encoded_note_with_rules():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Definition of head of household (1) In general.
+    The final head-of-household status surface is not encoded here because
+    an upstream source is unavailable.
+rules:
+  - name: head_household_status_prerequisites_satisfied
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: not taxpayer_is_nonresident_alien
+"""
+
+    issues = find_helper_only_definition_issues(content)
+
+    assert any("helper-only" in issue for issue in issues)
 
 
 def test_judgment_conditional_formula_rejects_if_else_returning_judgments():
