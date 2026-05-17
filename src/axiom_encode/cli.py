@@ -7033,8 +7033,7 @@ def _remove_invalid_dependent_test_inputs(
         invalid_refs: set[str] = set()
         for validator_result in validation.results.values():
             error = validator_result.error or ""
-            for match in _INVALID_INPUT_REF_RE.finditer(error):
-                input_ref = match.group("input")
+            for input_ref in _invalid_input_refs_from_issues([error]):
                 if input_ref.startswith(f"{target_ref}#input."):
                     invalid_refs.add(input_ref)
         if not invalid_refs:
