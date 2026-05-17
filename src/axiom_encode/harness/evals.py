@@ -59,7 +59,9 @@ from .validator_pipeline import (
     extract_numbers_from_text,
     extract_numeric_grounding_source_text,
     extract_numeric_occurrences_from_text,
+    find_deferred_output_issues,
     find_ungrounded_numeric_issues,
+    find_unused_modifier_parameter_issues,
     numeric_value_is_grounded,
 )
 
@@ -2687,6 +2689,9 @@ import or re-export that exact canonical concept instead of duplicating it local
         existing_target_invalid_input_section = (
             _format_existing_target_invalid_input_guidance(context_files)
         )
+        existing_target_validation_section = (
+            _format_existing_target_validation_guidance(context_files)
+        )
         existing_target_valid_input_section = (
             _format_existing_target_valid_input_guidance(context_files)
         )
@@ -2698,6 +2703,7 @@ Context files are precedent and dependency context, not independent legal author
 {resolved_guidance}
 {existing_target_contract_section}
 {existing_target_invalid_input_section}
+{existing_target_validation_section}
 {existing_target_valid_input_section}
 {branch_child_naming_section}
 {cited_context_imports_section}
@@ -3432,8 +3438,11 @@ def _format_existing_target_contract_guidance(
     if not contract_lines:
         return ""
     return """
-Existing target executable output contract:
-The copied current target exports these executable names. Preserve each name and surface unless `./source.txt` proves that exact output legally wrong:
+Existing target executable surfaces:
+The copied current target exports these executable names for inspection. They
+are not compatibility contracts. Preserve a name only when it remains the
+cleanest source-faithful surface under current validation; otherwise rename,
+rebuild, drop, or defer it:
 {lines}
 """.format(lines="\n".join(contract_lines))
 
@@ -3461,6 +3470,43 @@ The copied current target uses these local factual input names, but current Rule
 """.format(lines="\n".join(invalid_lines))
 
 
+def _format_existing_target_validation_guidance(
+    context_files: list[EvalContextFile],
+) -> str:
+    """Return current validation failures for copied target files."""
+    issue_lines: list[str] = []
+    for item in context_files:
+        if item.kind != "existing_target":
+            continue
+        issues = _context_file_current_validation_issues(item.source_path)
+        for issue in issues:
+            issue_lines.append(f"- `{item.import_path}`: {issue}")
+    if not issue_lines:
+        return ""
+    return """
+Copied existing target fails current RuleSpec validation:
+The copied current target is stale under the current encoder invariants. Do not
+preserve the failing shape. Repair the generated target so these validation
+issues are gone; for deferred executable surfaces, record exact provenance under
+`module.deferred_outputs[]` with absolute `output`, `blocked_by`, and
+`source_values` targets as applicable:
+{lines}
+""".format(lines="\n".join(issue_lines))
+
+
+def _context_file_current_validation_issues(source_path: str) -> list[str]:
+    """Run lightweight current-generation validators against a copied file."""
+    try:
+        content = Path(source_path).read_text()
+    except OSError:
+        return []
+
+    issues: list[str] = []
+    issues.extend(find_deferred_output_issues(content))
+    issues.extend(find_unused_modifier_parameter_issues(content))
+    return issues
+
+
 def _format_existing_target_valid_input_guidance(
     context_files: list[EvalContextFile],
 ) -> str:
@@ -3485,8 +3531,10 @@ def _format_existing_target_valid_input_guidance(
     if not valid_lines:
         return ""
     return """
-Existing valid local input contract:
-Preserve these copied target factual input names unless `./source.txt` proves that exact fact no longer belongs in the target. Do not replace them with synonyms:
+Existing target local factual inputs:
+These copied target factual input names are not rejected by the current prompt
+preflight. Reuse one only when it remains a clean source-stated fact for the new
+encoding; otherwise replace it with the source-faithful surface:
 {lines}
 """.format(lines="\n".join(valid_lines))
 

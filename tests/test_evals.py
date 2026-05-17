@@ -476,7 +476,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     )
 
 
-def test_build_eval_prompt_lists_existing_target_output_contract(tmp_path):
+def test_build_eval_prompt_lists_existing_target_surfaces(tmp_path):
     policy_repo = tmp_path / "rulespec-us"
     target = policy_repo / "statutes/26/999.yaml"
     target.parent.mkdir(parents=True)
@@ -575,7 +575,8 @@ rules:
         runner_backend="openai",
     )
 
-    assert "Existing target executable output contract:" in prompt
+    assert "Existing target executable surfaces:" in prompt
+    assert "not compatibility contracts" in prompt
     assert "`us:statutes/26/999#existing_amount`" in prompt
     assert "entity=TaxUnit" in prompt
     assert "effective_from=2026-01-01" in prompt
@@ -593,10 +594,64 @@ rules:
     )
     assert "encoded cross-reference placeholder" in prompt
     assert "us:statutes/26/68/b" in prompt
-    assert "Existing valid local input contract:" in prompt
+    assert "Existing target local factual inputs:" in prompt
     assert "`us:statutes/26/999#input.existing_fact`" in prompt
     assert "Cycle-prone context imports:" in prompt
     assert "`us:statutes/26/7703` already imports `us:statutes/26/999`" in prompt
+
+
+def test_build_eval_prompt_lists_existing_target_validation_failures(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    target = policy_repo / "statutes/26/63/f.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: unmarried_not_surviving_spouse_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "applied by substituting $750 for $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 750
+"""
+    )
+    workspace = prepare_eval_workspace(
+        citation="26 USC 63(f)",
+        runner=parse_runner_spec("openai:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="The additional amount is $600. Substitute $750 for $600.",
+        axiom_rules_path=policy_repo,
+        mode="repo-augmented",
+        extra_context_paths=[],
+    )
+
+    prompt = _build_eval_prompt(
+        "26 USC 63(f)",
+        "repo-augmented",
+        workspace,
+        workspace.context_files,
+        target_file_name="f.yaml",
+        target_ref_prefix="us:statutes/26/63/f",
+        include_tests=True,
+        runner_backend="openai",
+    )
+
+    assert "Copied existing target fails current RuleSpec validation:" in prompt
+    assert "`us:statutes/26/63/f`" in prompt
+    assert "unmarried_not_surviving_spouse_additional_amount" in prompt
+    assert "`module.deferred_outputs[].source_values`" in prompt
+    assert "preserve the failing shape" in prompt
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
