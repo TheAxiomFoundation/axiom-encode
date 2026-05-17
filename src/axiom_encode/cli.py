@@ -6048,6 +6048,42 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_proof_imports: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_unreferenced_proof_imports_for_apply(
+                            result,
+                            output_root=args.output,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_proof_imports.extend(repaired_refs)
+                    outcome["auto_repaired_unreferenced_proof_imports"] = (
+                        repaired_proof_imports
+                    )
+                    print(
+                        "  apply=auto_repaired_unreferenced_proof_imports:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_proof_imports:
+                    outcome["auto_repaired_unreferenced_proof_imports"] = (
+                        repaired_proof_imports
+                    )
+            if not can_apply:
                 repaired_derived_cases: list[str] = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -6083,42 +6119,6 @@ def cmd_encode(args):
                 if repaired_derived_cases:
                     outcome["auto_repaired_derived_output_tests"] = (
                         repaired_derived_cases
-                    )
-            if not can_apply:
-                repaired_proof_imports: list[str] = []
-                while not can_apply:
-                    repaired_refs = (
-                        _try_repair_generated_unreferenced_proof_imports_for_apply(
-                            result,
-                            output_root=args.output,
-                            issues=apply_issues,
-                        )
-                    )
-                    if not repaired_refs:
-                        break
-                    repaired_proof_imports.extend(repaired_refs)
-                    outcome["auto_repaired_unreferenced_proof_imports"] = (
-                        repaired_proof_imports
-                    )
-                    print(
-                        "  apply=auto_repaired_unreferenced_proof_imports:"
-                        + ",".join(repaired_refs)
-                    )
-                    can_apply, apply_issues, supplemental_files = (
-                        _validate_generated_encoding_in_policy_overlay(
-                            result,
-                            output_root=args.output,
-                            policy_repo_path=policy_repo_path,
-                            axiom_rules_path=axiom_rules_path,
-                            validate_dependents=not bool(
-                                getattr(args, "apply_target_only", False)
-                            ),
-                        )
-                    )
-                    outcome["overlay_validation_success"] = bool(can_apply)
-                if repaired_proof_imports:
-                    outcome["auto_repaired_unreferenced_proof_imports"] = (
-                        repaired_proof_imports
                     )
             if not can_apply:
                 repaired_input_refs: list[str] = []

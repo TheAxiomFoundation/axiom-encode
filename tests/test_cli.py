@@ -3867,8 +3867,19 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           count_where(spouse_of_taxpayer_for_subsection_f, spouse_aged_person_entitlement) > 0
+  - name: spouse_aged_additional_amount_person_entitlement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          spouse_has_attained_age_65_before_close_of_taxable_year
 """
         )
+        test_file = output_file.with_name("f.test.yaml")
+        test_file.write_text("[]\n")
         result.output_file = str(output_file)
         applied_file = args.policy_repo_path / "statutes/26/63/f.yaml"
 
@@ -3885,6 +3896,16 @@ rules:
                             "proof imports `exemption_individual_eligible`, but "
                             "the rule formula does not reference that imported "
                             "symbol."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/26/63/f.yaml: ci: Derived rule missing "
+                            "companion output coverage: "
+                            "`us:statutes/26/63/f#spouse_aged_additional_amount_person_entitlement` "
+                            "is not asserted by the companion `.test.yaml` file."
                         ],
                         {},
                     ),
@@ -3906,13 +3927,24 @@ rules:
             "spouse_aged_additional_amount_entitlement:exemption_individual_eligible"
         )
         assert f"apply=auto_repaired_unreferenced_proof_imports:{repaired}" in output
-        assert mock_overlay.call_count == 2
+        assert (
+            "apply=auto_repaired_derived_output_tests:"
+            "auto_output_spouse_aged_additional_amount_person_entitlement"
+        ) in output
+        assert mock_overlay.call_count == 3
         mock_apply.assert_called_once()
         content = yaml.safe_load(output_file.read_text())
         atoms = content["rules"][0]["metadata"]["proof"]["atoms"]
         assert all(atom.get("kind") != "import" for atom in atoms)
+        assert (
+            "auto_output_spouse_aged_additional_amount_person_entitlement"
+            in test_file.read_text()
+        )
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_unreferenced_proof_imports"] == [repaired]
+        assert run.outcome["auto_repaired_derived_output_tests"] == [
+            "auto_output_spouse_aged_additional_amount_person_entitlement"
+        ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
