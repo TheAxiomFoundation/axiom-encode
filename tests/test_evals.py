@@ -460,6 +460,63 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     )
 
 
+def test_build_eval_prompt_lists_existing_target_output_contract(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    target = policy_repo / "statutes/26/999.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: existing_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          existing_fact
+  - name: existing_table
+    kind: parameter
+    dtype: Money
+    unit: USD
+    indexed_by: household_size
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 100
+"""
+    )
+    workspace = prepare_eval_workspace(
+        citation="26 USC 999",
+        runner=parse_runner_spec("openai:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="The amount is allowed.",
+        axiom_rules_path=policy_repo,
+        mode="repo-augmented",
+        extra_context_paths=[],
+    )
+
+    prompt = _build_eval_prompt(
+        "26 USC 999",
+        "repo-augmented",
+        workspace,
+        workspace.context_files,
+        target_file_name="999.yaml",
+        target_ref_prefix="us:statutes/26/999",
+        include_tests=True,
+        runner_backend="openai",
+    )
+
+    assert "Existing target executable output contract:" in prompt
+    assert "`us:statutes/26/999#existing_amount`" in prompt
+    assert "entity=TaxUnit" in prompt
+    assert "effective_from=2026-01-01" in prompt
+    assert "`us:statutes/26/999#existing_table`" in prompt
+    assert "indexed_by=household_size" in prompt
+
+
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):
     output_file = tmp_path / "runner" / "source" / "tn-snap.yaml"
     llm_response = """=== FILE: tn-snap.yaml ===

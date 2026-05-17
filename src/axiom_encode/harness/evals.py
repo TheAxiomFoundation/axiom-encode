@@ -2615,12 +2615,16 @@ import or re-export that exact canonical concept instead of duplicating it local
                 target_ref_prefix=target_ref_prefix,
             )
         )
+        existing_target_contract_section = _format_existing_target_contract_guidance(
+            context_files
+        )
         context_section = f"""
 Context mode: `{mode}`.
 Context files are precedent and dependency context, not independent legal authority for new values:
 {listings}
 {inline_context}
 {resolved_guidance}
+{existing_target_contract_section}
 {branch_child_naming_section}
 {cited_context_imports_section}
 {partial_extent_child_schema_section}
@@ -3238,6 +3242,43 @@ def _format_context_file_listing(
     )
 
 
+def _format_existing_target_contract_guidance(
+    context_files: list[EvalContextFile],
+) -> str:
+    """Return explicit public-surface contracts for copied target files."""
+    contract_lines: list[str] = []
+    for item in context_files:
+        if item.kind != "existing_target":
+            continue
+        surfaces = _context_file_executable_surfaces(item.source_path)
+        for name, surface in surfaces.items():
+            details = [
+                f"kind={surface.get('kind') or ''}",
+                f"entity={surface.get('entity') or ''}",
+                f"dtype={surface.get('dtype') or ''}",
+                f"period={surface.get('period') or ''}",
+            ]
+            unit = surface.get("unit")
+            if unit:
+                details.append(f"unit={unit}")
+            indexed_by = surface.get("indexed_by") or ()
+            if indexed_by:
+                details.append(f"indexed_by={','.join(indexed_by)}")
+            effective_dates = surface.get("effective_dates") or ()
+            if effective_dates:
+                details.append(f"effective_from={','.join(effective_dates)}")
+            contract_lines.append(
+                f"- `{item.import_path}#{name}` ({'; '.join(details)})"
+            )
+    if not contract_lines:
+        return ""
+    return """
+Existing target executable output contract:
+The copied current target exports these executable names. Preserve each name and surface unless `./source.txt` proves that exact output legally wrong:
+{lines}
+""".format(lines="\n".join(contract_lines))
+
+
 def _format_partial_extent_child_schema_limit_guidance(
     source_text: str,
     context_files: list[EvalContextFile],
@@ -3782,6 +3823,56 @@ def _context_file_exports(source_path: str) -> list[str]:
         if name:
             exports.append(name)
     return exports
+
+
+def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, object]]:
+    """Extract public executable surfaces from a copied context RuleSpec file."""
+    try:
+        payload = yaml.safe_load(Path(source_path).read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return {}
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+    surfaces: dict[str, dict[str, object]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind not in {"parameter", "derived", "data_relation"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        versions = rule.get("versions")
+        effective_dates: list[str] = []
+        if isinstance(versions, list):
+            for version in versions:
+                if isinstance(version, dict) and "effective_from" in version:
+                    effective_dates.append(
+                        str(version.get("effective_from") or "").strip()
+                    )
+        surfaces[name] = {
+            "kind": kind,
+            "entity": str(rule.get("entity") or "").strip(),
+            "dtype": str(rule.get("dtype") or "").strip(),
+            "period": str(rule.get("period") or "").strip(),
+            "unit": str(rule.get("unit") or "").strip(),
+            "indexed_by": _context_surface_sequence(rule.get("indexed_by")),
+            "effective_dates": tuple(effective_dates),
+        }
+    return surfaces
+
+
+def _context_surface_sequence(value: object) -> tuple[str, ...]:
+    if isinstance(value, list):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    if value is None:
+        return ()
+    text = str(value).strip()
+    return (text,) if text else ()
 
 
 _CONTEXT_FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
