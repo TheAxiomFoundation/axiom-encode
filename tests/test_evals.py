@@ -4010,6 +4010,74 @@ rules:
             in prompt
         )
 
+    def test_build_eval_prompt_requires_child_exception_imports_for_parent_list(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_file = (
+            policy_repo_root
+            / "statutes"
+            / "26"
+            / "163"
+            / "h"
+            / "4"
+            / "B"
+            / "ii"
+            / "I.yaml"
+        )
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Such term shall not include a loan to finance fleet sales.
+rules:
+  - name: fleet_sales_loan_exception_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+    versions:
+      - effective_from: '2025-01-01'
+        formula: loan_finances_fleet_sales
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 163(h)(4)(B)",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "The term qualified passenger vehicle loan interest means "
+                "interest paid on qualifying indebtedness. Such term shall not "
+                "include any amount paid or incurred on any of the following:"
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 163(h)(4)(B)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="B.yaml",
+            target_ref_prefix="us:statutes/26/163/h/4/B",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Parent exception-list child fragments detected" in prompt
+        assert (
+            "`us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies`"
+            in prompt
+        )
+        assert "Import each listed child exception output" in prompt
+
     def test_build_eval_prompt_forces_partial_extent_child_parent_defer(
         self, tmp_path
     ):

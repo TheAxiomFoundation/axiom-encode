@@ -38,6 +38,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_formula_date_literal_issues,
     find_import_shape_issues,
     find_judgment_conditional_formula_issues,
+    find_missing_child_exception_import_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
     find_nonnegative_amount_reduction_issues,
@@ -4322,6 +4323,194 @@ rules:
     assert (
         "section_2015_b_d_2_g_r_and_2012_m_4_do_not_preclude_eligibility" in issues[0]
     )
+
+
+def test_parent_exception_list_requires_child_exception_imports(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B.yaml"
+    child_file = (
+        repo
+        / "statutes"
+        / "26"
+        / "163"
+        / "h"
+        / "4"
+        / "B"
+        / "ii"
+        / "I.yaml"
+    )
+    child_file.parent.mkdir(parents=True)
+    child_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: Such term shall not include a loan to finance fleet sales.
+rules:
+  - name: fleet_sales_loan_exception_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+    versions:
+      - effective_from: '2025-01-01'
+        formula: loan_finances_fleet_sales
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The term qualified passenger vehicle loan interest means interest paid on qualifying indebtedness.
+    Such term shall not include any amount paid or incurred on any of the following:
+rules:
+  - name: interest_is_qualified_passenger_vehicle_loan_interest
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: interest_paid_on_qualifying_indebtedness
+"""
+    )
+
+    issues = find_missing_child_exception_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Parent exception-list child import missing" in issues[0]
+    assert "us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies" in issues[0]
+
+
+def test_parent_exception_list_allows_child_exception_imports(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B.yaml"
+    child_file = (
+        repo
+        / "statutes"
+        / "26"
+        / "163"
+        / "h"
+        / "4"
+        / "B"
+        / "ii"
+        / "I.yaml"
+    )
+    child_file.parent.mkdir(parents=True)
+    child_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: Such term shall not include a loan to finance fleet sales.
+rules:
+  - name: fleet_sales_loan_exception_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+    versions:
+      - effective_from: '2025-01-01'
+        formula: loan_finances_fleet_sales
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies
+module:
+  summary: |-
+    The term qualified passenger vehicle loan interest means interest paid on qualifying indebtedness.
+    Such term shall not include any amount paid or incurred on any of the following:
+rules:
+  - name: interest_is_qualified_passenger_vehicle_loan_interest
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: |-
+          interest_paid_on_qualifying_indebtedness
+          and not fleet_sales_loan_exception_applies
+"""
+    )
+
+    assert (
+        find_missing_child_exception_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_exception_test_coverage_accepts_imported_judgment_table_inputs():
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies
+module:
+  summary: |-
+    Such term shall not include any amount paid or incurred on any of the following:
+rules:
+  - name: interest_is_qualified_passenger_vehicle_loan_interest
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: |-
+          interest_paid_on_qualifying_indebtedness
+          and not fleet_sales_loan_exception_applies
+"""
+    test_cases = [
+        {
+            "name": "positive_path",
+            "tables": {
+                "Payment": [
+                    {
+                        "us:statutes/26/163/h/4/B#input.interest_paid_on_qualifying_indebtedness": True,
+                        "us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies": "not_holds",
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/163/h/4/B#interest_is_qualified_passenger_vehicle_loan_interest": [
+                    "holds"
+                ]
+            },
+        },
+        {
+            "name": "fleet_sales_exception",
+            "tables": {
+                "Payment": [
+                    {
+                        "us:statutes/26/163/h/4/B#input.interest_paid_on_qualifying_indebtedness": True,
+                        "us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies": "holds",
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/163/h/4/B#interest_is_qualified_passenger_vehicle_loan_interest": [
+                    "not_holds"
+                ]
+            },
+        },
+    ]
+
+    assert find_exception_test_coverage_issues(content, test_cases) == []
 
 
 def test_cross_reference_exception_placeholder_requires_import(tmp_path):

@@ -6606,7 +6606,9 @@ def find_exception_test_coverage_issues(
         content
     ) or _extract_source_verification_text(content)
     if not source_text or not re.search(
-        r"\b(?:except|unless|notwithstanding)\b",
+        r"\b(?:except|unless|notwithstanding)\b"
+        r"|\bshall\s+not\s+include\b"
+        r"|\bnot\s+(?:be\s+)?treated\b",
         source_text,
         flags=re.IGNORECASE,
     ):
@@ -6729,6 +6731,185 @@ def find_aggregate_exception_predicate_issues(content: str) -> list[str]:
     return issues
 
 
+def find_missing_child_exception_import_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Require parent exception-list slices to import existing child exceptions."""
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not source_text or not _source_text_opens_exception_list(source_text):
+        return []
+
+    child_root = rules_file.with_suffix("")
+    if not child_root.is_dir():
+        return []
+
+    child_exports: list[tuple[str, str]] = []
+    for child_file in sorted(child_root.rglob("*.yaml")):
+        if child_file.name.endswith(".test.yaml"):
+            continue
+        for export in _rulespec_file_exception_exports(child_file):
+            with contextlib.suppress(ValueError):
+                child_rel = child_file.resolve().relative_to(
+                    policy_repo_path.resolve()
+                )
+                child_target = child_rel.with_suffix("").as_posix()
+                child_exports.append((child_target, export))
+    if not child_exports:
+        return []
+
+    imports = {
+        _normalize_rulespec_import_path_static(import_path)
+        for import_path in _extract_import_paths_from_content(content)
+    }
+    formula_identifiers = _rulespec_content_formula_identifiers(content)
+    missing_refs: list[str] = []
+    prefix = _rulespec_repo_prefix(policy_repo_path)
+    for child_target, export in child_exports:
+        if _imports_cover_path_static(imports, child_target) and (
+            export in formula_identifiers
+        ):
+            continue
+        missing_refs.append(f"{prefix}:{child_target}#{export}")
+
+    if not missing_refs:
+        return []
+    visible = ", ".join(f"`{ref}`" for ref in missing_refs[:8])
+    if len(missing_refs) > 8:
+        visible += ", ..."
+    return [
+        "Parent exception-list child import missing: "
+        "source text opens an exception/exclusion list, but the parent formula "
+        f"does not import and use existing child exception outputs {visible}. "
+        "Import each child exception output and negate it in the affected "
+        "definition instead of leaving only the positive definition conditions."
+    ]
+
+
+def _source_text_opens_exception_list(source_text: str) -> bool:
+    normalized = " ".join(source_text.split())
+    return bool(
+        re.search(
+            r"\b(?:exceptions?|exclusions?)\b[^.:\n]{0,180}\b(?:following|below)\b\s*:?"
+            r"|\b(?:such\s+term\s+)?shall\s+not\s+include\b[^.:\n]{0,220}\b(?:following|below)\b\s*:?"
+            r"|\bnot\s+(?:be\s+)?treated\b[^.:\n]{0,220}\b(?:unless|following|below)\b\s*:?",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _rulespec_file_exception_exports(rules_file: Path) -> list[str]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    terminal_exports = set(_rulespec_file_terminal_exports(payload))
+    exports: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name or name not in terminal_exports:
+            continue
+        if _is_exception_identifier(name) or _rule_has_exception_proof(rule):
+            exports.append(name)
+    return exports
+
+
+def _rulespec_file_terminal_exports(payload: dict[Any, Any]) -> list[str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    exports: list[str] = []
+    formulas: list[tuple[str, str]] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+        }:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        exports.append(name)
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                formulas.append((name, str(formula)))
+            elif isinstance(formula, str) and formula.strip():
+                formulas.append((name, formula))
+    if not exports:
+        return []
+    export_names = set(exports)
+    referenced: set[str] = set()
+    for owner, formula in formulas:
+        referenced.update(
+            identifier
+            for identifier in _formula_local_identifiers(formula)
+            if identifier in export_names and identifier != owner
+        )
+    terminal = [name for name in exports if name not in referenced]
+    return terminal or exports
+
+
+def _rule_has_exception_proof(rule: dict[str, Any]) -> bool:
+    try:
+        atoms = rule["metadata"]["proof"]["atoms"]
+    except (KeyError, TypeError):
+        return False
+    if not isinstance(atoms, list):
+        return False
+    return any(
+        isinstance(atom, dict)
+        and str(atom.get("kind") or "").strip().lower() in {"exception", "exclusion"}
+        for atom in atoms
+    )
+
+
+def _rulespec_content_formula_identifiers(content: str) -> set[str]:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    identifiers: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, str):
+                identifiers.update(_formula_local_identifiers(formula))
+    return identifiers
+
+
 def _is_aggregate_exception_identifier(identifier: str) -> bool:
     normalized = identifier.lower()
     if "_and_" not in normalized:
@@ -6782,14 +6963,14 @@ def _has_exception_blocking_test(
     for test_case in test_cases:
         if not isinstance(test_case, dict):
             continue
-        inputs = test_case.get("input")
+        inputs = _test_case_input_assignments(test_case)
         outputs = test_case.get("output")
-        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+        if not inputs or not isinstance(outputs, dict):
             continue
         if not any(
-            _test_reference_fragment(key) == f"input.{exception_input}"
+            _test_assignment_targets_exception(key, exception_input)
             and _is_truthy_fact_value(value)
-            for key, value in inputs.items()
+            for key, value in inputs
         ):
             continue
         if not any(
@@ -6813,7 +6994,7 @@ def _has_exception_positive_companion_test(
     *,
     rule_name: str,
     exception_input: str,
-    negative_inputs: dict[Any, Any],
+    negative_inputs: list[tuple[Any, Any]],
 ) -> bool:
     """Return true when a positive case proves the exception flips the outcome."""
     expected_inputs = _normalized_test_inputs(
@@ -6823,19 +7004,19 @@ def _has_exception_positive_companion_test(
     for test_case in test_cases:
         if not isinstance(test_case, dict):
             continue
-        inputs = test_case.get("input")
+        inputs = _test_case_input_assignments(test_case)
         outputs = test_case.get("output")
-        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+        if not inputs or not isinstance(outputs, dict):
             continue
         if not any(
-            _test_reference_fragment(key) == f"input.{exception_input}"
+            _test_assignment_targets_exception(key, exception_input)
             and not _is_truthy_fact_value(value)
-            for key, value in inputs.items()
+            for key, value in inputs
         ):
             continue
         if not any(
             _test_reference_fragment(key) == rule_name
-            and str(value).strip().lower().replace("-", "_") == "holds"
+            and _is_positive_judgment_value(value)
             for key, value in outputs.items()
         ):
             continue
@@ -6848,18 +7029,47 @@ def _has_exception_positive_companion_test(
 
 
 def _normalized_test_inputs(
-    inputs: dict[Any, Any],
+    inputs: list[tuple[Any, Any]],
     *,
     exclude_input: str,
 ) -> dict[str, str]:
     normalized: dict[str, str] = {}
-    excluded_fragment = f"input.{exclude_input}"
-    for key, value in inputs.items():
+    for key, value in inputs:
         fragment = _test_reference_fragment(key)
-        if fragment == excluded_fragment:
+        if _test_assignment_targets_exception(key, exclude_input):
             continue
         normalized[fragment] = _normalized_test_value(value)
     return normalized
+
+
+def _test_case_input_assignments(test_case: dict[Any, Any]) -> list[tuple[Any, Any]]:
+    assignments: list[tuple[Any, Any]] = []
+    inputs = test_case.get("input")
+    if isinstance(inputs, dict):
+        assignments.extend(_iter_test_assignment_items(inputs))
+    tables = test_case.get("tables")
+    if isinstance(tables, dict):
+        assignments.extend(_iter_test_assignment_items(tables))
+    return assignments
+
+
+def _iter_test_assignment_items(value: Any) -> list[tuple[Any, Any]]:
+    assignments: list[tuple[Any, Any]] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if isinstance(item, (dict, list)):
+                assignments.extend(_iter_test_assignment_items(item))
+            else:
+                assignments.append((key, item))
+    elif isinstance(value, list):
+        for item in value:
+            assignments.extend(_iter_test_assignment_items(item))
+    return assignments
+
+
+def _test_assignment_targets_exception(key: Any, exception_input: str) -> bool:
+    fragment = _test_reference_fragment(key)
+    return fragment in {f"input.{exception_input}", exception_input}
 
 
 def _normalized_test_value(value: Any) -> str:
@@ -6879,12 +7089,22 @@ def _test_reference_fragment(key: Any) -> str:
 
 
 def _is_truthy_fact_value(value: Any) -> bool:
+    if isinstance(value, list):
+        return any(_is_truthy_fact_value(item) for item in value)
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"true", "holds", "yes", "1"}
 
 
+def _is_positive_judgment_value(value: Any) -> bool:
+    if isinstance(value, list):
+        return any(_is_positive_judgment_value(item) for item in value)
+    return str(value).strip().lower().replace("-", "_") == "holds"
+
+
 def _is_negative_judgment_value(value: Any) -> bool:
+    if isinstance(value, list):
+        return any(_is_negative_judgment_value(item) for item in value)
     if isinstance(value, bool):
         return not value
     return str(value).strip().lower() in {"not_holds", "false", "no", "0"}
@@ -9488,6 +9708,13 @@ class ValidatorPipeline:
         )
         issues.extend(
             find_missing_same_section_subsection_import_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
+        issues.extend(
+            find_missing_child_exception_import_issues(
                 content,
                 rules_file=rules_file,
                 policy_repo_path=self.policy_repo_path,

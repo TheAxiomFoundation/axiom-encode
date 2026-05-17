@@ -2668,6 +2668,11 @@ import or re-export that exact canonical concept instead of duplicating it local
                 target_ref_prefix=target_ref_prefix,
             )
         )
+        child_exception_import_section = _format_child_exception_import_guidance(
+            source_text,
+            context_files,
+            target_ref_prefix=target_ref_prefix,
+        )
         cycle_prone_context_import_section = (
             _format_cycle_prone_context_import_guidance(
                 context_files,
@@ -2696,6 +2701,7 @@ Context files are precedent and dependency context, not independent legal author
 {cited_context_imports_section}
 {unavailable_cited_context_section}
 {partial_extent_child_schema_section}
+{child_exception_import_section}
 {cycle_prone_context_import_section}
 Import and context rules:
 - Use the listed import target rather than the `./context/...` inspection path.
@@ -3506,6 +3512,40 @@ Target-specific schema limit:
 """
 
 
+def _format_child_exception_import_guidance(
+    source_text: str,
+    context_files: list[EvalContextFile],
+    *,
+    target_ref_prefix: str | None,
+) -> str:
+    """Require parent exception-list slices to compose existing child exceptions."""
+    if not target_ref_prefix:
+        return ""
+    if not _source_text_opens_exception_list(source_text):
+        return ""
+
+    child_prefix = f"{target_ref_prefix.rstrip('/')}/"
+    child_exception_refs: list[str] = []
+    for item in context_files:
+        if not item.import_path.startswith(child_prefix):
+            continue
+        for export in _context_file_exception_exports(item.source_path):
+            child_exception_refs.append(f"{item.import_path}#{export}")
+    if not child_exception_refs:
+        return ""
+
+    refs = ", ".join(f"`{ref}`" for ref in child_exception_refs[:8])
+    if len(child_exception_refs) > 8:
+        refs += ", ..."
+    return f"""
+Parent exception-list child fragments detected:
+- `./source.txt` opens an exception or exclusion list, and copied child-fragment
+  files already export executable exception outputs ({refs}). Import each listed child exception output and negate it in the affected parent definition or
+  composition. Do not leave the parent definition as only positive conditions,
+  and do not replace the child exceptions with local `*_exception` inputs.
+"""
+
+
 def _format_branch_child_naming_guidance(
     context_files: list[EvalContextFile],
     *,
@@ -4092,6 +4132,76 @@ def _context_file_unavailable_reason(
     if rules == [] or not exports:
         return "no executable exports"
     return None
+
+
+def _source_text_opens_exception_list(source_text: str) -> bool:
+    """Return true when source text introduces a following exception list."""
+    normalized = " ".join(source_text.split())
+    return bool(
+        re.search(
+            r"\b(?:exceptions?|exclusions?)\b[^.:\n]{0,180}\b(?:following|below)\b\s*:?"
+            r"|\b(?:such\s+term\s+)?shall\s+not\s+include\b[^.:\n]{0,220}\b(?:following|below)\b\s*:?"
+            r"|\bnot\s+(?:be\s+)?treated\b[^.:\n]{0,220}\b(?:unless|following|below)\b\s*:?",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _context_file_exception_exports(source_path: str) -> list[str]:
+    """Return terminal exports from a copied child file that encode exceptions."""
+    try:
+        payload = yaml.safe_load(Path(source_path).read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    terminal_exports = set(_context_file_terminal_exports(source_path))
+    exports: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name or name not in terminal_exports:
+            continue
+        if _is_exception_like_export_name(name) or _rule_has_exception_proof(rule):
+            exports.append(name)
+    return exports
+
+
+def _is_exception_like_export_name(name: str) -> bool:
+    normalized = name.lower()
+    return any(
+        token in normalized
+        for token in (
+            "exception",
+            "except",
+            "exclusion",
+            "excluded",
+            "disqualified",
+            "disqualifying",
+            "carve_out",
+            "not_treated",
+        )
+    )
+
+
+def _rule_has_exception_proof(rule: dict[str, object]) -> bool:
+    try:
+        atoms = rule["metadata"]["proof"]["atoms"]  # type: ignore[index]
+    except (KeyError, TypeError):
+        return False
+    if not isinstance(atoms, list):
+        return False
+    return any(
+        isinstance(atom, dict)
+        and str(atom.get("kind") or "").strip().lower() in {"exception", "exclusion"}
+        for atom in atoms
+    )
 
 
 def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, object]]:
