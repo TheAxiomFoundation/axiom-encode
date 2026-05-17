@@ -2658,6 +2658,9 @@ import or re-export that exact canonical concept instead of duplicating it local
             source_text,
             context_files,
         )
+        unavailable_cited_context_section = (
+            _format_unavailable_cited_context_guidance(source_text, context_files)
+        )
         partial_extent_child_schema_section = (
             _format_partial_extent_child_schema_limit_guidance(
                 source_text,
@@ -2691,6 +2694,7 @@ Context files are precedent and dependency context, not independent legal author
 {existing_target_valid_input_section}
 {branch_child_naming_section}
 {cited_context_imports_section}
+{unavailable_cited_context_section}
 {partial_extent_child_schema_section}
 {cycle_prone_context_import_section}
 Import and context rules:
@@ -3609,6 +3613,45 @@ for an already copied RuleSpec context target.
 """
 
 
+def _format_unavailable_cited_context_guidance(
+    source_text: str,
+    context_files: list[EvalContextFile],
+) -> str:
+    """Warn when a cited context file is present but unavailable as an executable dependency."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for item in context_files:
+        citation = _import_target_to_statute_citation(item.import_path)
+        if citation is None or not _source_text_cites_statute(source_text, citation):
+            continue
+        exports = _context_file_exports(item.source_path)
+        reason = _context_file_unavailable_reason(item.source_path, exports)
+        if reason is None:
+            continue
+        if item.import_path in seen:
+            continue
+        seen.add(item.import_path)
+        suffix = _citation_example_suffix(item.import_path)
+        lines.append(
+            f"- Source cites `{citation.label}`; copied context target "
+            f"`{item.import_path}` has {reason}. For this cited target, do not "
+            f"create local `_under_section_{suffix}`, `section_{suffix}_...`, "
+            f"`*_provided_in_section_{suffix}`, or similar cross-reference "
+            "facts."
+        )
+    if not lines:
+        return ""
+    return f"""
+Unavailable cited RuleSpec context detected:
+{chr(10).join(lines)}
+These copied targets are present but not executable dependencies. If an output
+would depend on one of them, omit or defer only the affected executable surface
+and keep encoding independent rules from this source. Do not synthesize local
+facts to stand in for unavailable cited definitions, exceptions, exclusions, or
+computed amounts.
+"""
+
+
 def _format_missing_cited_source_guidance(
     citation: str,
     source_text: str,
@@ -4022,6 +4065,29 @@ def _context_file_exports(source_path: str) -> list[str]:
         if name:
             exports.append(name)
     return exports
+
+
+def _context_file_unavailable_reason(
+    source_path: str,
+    exports: list[str],
+) -> str | None:
+    """Return a prompt-friendly reason when a context file cannot be imported."""
+    try:
+        payload = yaml.safe_load(Path(source_path).read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return "no readable RuleSpec payload"
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return "no RuleSpec payload"
+    module = payload.get("module")
+    status = ""
+    if isinstance(module, dict):
+        status = str(module.get("status") or "").strip()
+    if status in {"deferred", "entity_not_supported"}:
+        return f"`module.status: {status}` and no executable exports"
+    rules = payload.get("rules")
+    if rules == [] or not exports:
+        return "no executable exports"
+    return None
 
 
 def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, object]]:
