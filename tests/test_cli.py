@@ -5780,6 +5780,94 @@ rules:
             == 2
         )
 
+    def test_apply_overlay_validation_repairs_dependent_proof_import_hashes(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        dependent = policy_repo / "statutes/26/63.yaml"
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text(
+            """format: rulespec/v1
+rules:
+  - name: section_151_exemption_deduction
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          0
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/151
+rules:
+  - name: deductions_referred_to_in_subsection_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/151#section_151_exemption_deduction
+              output: section_151_exemption_deduction
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          section_151_exemption_deduction
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                content = Path(path).read_text()
+                if "hash: sha256:old" in content:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Proof import hash mismatch: "
+                                    "`deductions_referred_to_in_subsection_b` "
+                                    "proof atom 0 imports "
+                                    "`us:statutes/26/151#section_151_exemption_deduction` "
+                                    "with `hash: sha256:old`."
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        updated = supplemental[Path("statutes/26/63.yaml")]
+        assert "hash: sha256:old" not in updated
+        assert f"hash: sha256:{_sha256_file(generated)}" in updated
+
     def test_apply_overlay_validation_rejects_generated_filing_status_input(
         self, tmp_path
     ):

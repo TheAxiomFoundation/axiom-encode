@@ -6379,13 +6379,19 @@ def _validate_generated_encoding_in_policy_overlay(
             if dependents
             else pipeline
         )
+        supplemental_files: dict[Path, str] = {}
+        changed_proof_hash_files = _repair_dependent_proof_import_hashes(
+            overlay_repo=overlay_repo,
+            dependents=dependents,
+        )
+        for path in changed_proof_hash_files:
+            supplemental_files[path.relative_to(overlay_repo)] = path.read_text()
         validations = _validate_overlay_files(
             pipeline,
             dependent_pipeline=dependent_pipeline,
             overlay_target=overlay_target,
             dependents=dependents,
         )
-        supplemental_files: dict[Path, str] = {}
         for _ in range(10):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
@@ -6589,6 +6595,37 @@ def _validate_overlay_files(
                 )
             )
     return validations
+
+
+def _repair_dependent_proof_import_hashes(
+    *,
+    overlay_repo: Path,
+    dependents: list[Path],
+) -> list[Path]:
+    """Refresh proof import hashes in overlay dependents after target replacement."""
+    changed: list[Path] = []
+    jurisdiction = _repo_jurisdiction_prefix(overlay_repo)
+    for dependent in dependents:
+        try:
+            relative_dependent = dependent.relative_to(overlay_repo)
+            content = dependent.read_text()
+        except (OSError, ValueError):
+            continue
+        target_base = (
+            f"{jurisdiction}:"
+            f"{_relative_rulespec_import_target(relative_dependent)}"
+        )
+        repaired, repair_count = _repair_proof_import_hashes(
+            content,
+            target_base=target_base,
+            rules_file=dependent,
+            repo_path=overlay_repo,
+        )
+        if repair_count <= 0 or repaired == content:
+            continue
+        dependent.write_text(repaired)
+        changed.append(dependent)
+    return changed
 
 
 _MISSING_INPUT_RE = re.compile(
