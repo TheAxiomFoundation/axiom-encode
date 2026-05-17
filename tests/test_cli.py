@@ -4040,6 +4040,32 @@ rules:
         assert target.exists()
         assert sibling.exists()
 
+    def test_overlay_validation_preserves_imported_ancestor_target(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        ancestor = repo / "statutes/26/163/h/4/C.yaml"
+        ancestor_test = repo / "statutes/26/163/h/4/C.test.yaml"
+        target = repo / "statutes/26/163/h/4/C/ii/I.yaml"
+        for path in (ancestor, ancestor_test, target):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        ancestor.write_text("format: rulespec/v1\nrules: []\n")
+        ancestor_test.write_text("[]\n")
+        target.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n"
+            "  - us:statutes/26/163/h/4/C#interest_taken_into_account_after_dollar_limit\n"
+            "rules: []\n"
+        )
+
+        suppressed = _suppress_rulespec_ancestor_targets_for_subsection_overlay(
+            repo,
+            Path("statutes/26/163/h/4/C/ii/I.yaml"),
+        )
+
+        assert Path("statutes/26/163/h/4/C.yaml") not in suppressed
+        assert Path("statutes/26/163/h/4/C.test.yaml") not in suppressed
+        assert ancestor.exists()
+        assert ancestor_test.exists()
+
     def test_encode_apply_allows_overlay_to_rescue_failed_standalone_validation(
         self, capsys, tmp_path
     ):

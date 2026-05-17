@@ -6846,7 +6846,13 @@ def _suppress_rulespec_ancestor_targets_for_subsection_overlay(
 ) -> list[Path]:
     """Remove ancestor RuleSpec files from a temporary subsection overlay."""
     suppressed: list[Path] = []
+    preserved_imports = _same_repo_imported_rulespec_paths(
+        overlay_repo / relative_output,
+        policy_repo_path=overlay_repo,
+    )
     for relative_path in _rulespec_ancestor_target_paths(relative_output):
+        if relative_path in preserved_imports:
+            continue
         for candidate in (
             overlay_repo / relative_path,
             _rulespec_test_path(overlay_repo / relative_path),
@@ -6856,6 +6862,43 @@ def _suppress_rulespec_ancestor_targets_for_subsection_overlay(
             candidate.unlink()
             suppressed.append(candidate.relative_to(overlay_repo))
     return suppressed
+
+
+def _same_repo_imported_rulespec_paths(
+    rules_file: Path,
+    *,
+    policy_repo_path: Path,
+) -> set[Path]:
+    """Return same-repo RuleSpec import file paths used by a generated target."""
+    try:
+        payload = yaml.safe_load(rules_file.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return set()
+
+    jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)
+    imported_paths: set[Path] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        target = raw_import.strip().strip('"').strip("'").split("#", 1)[0].strip()
+        target = target.strip("/")
+        if not target:
+            continue
+        if ":" in target:
+            prefix, target = target.split(":", 1)
+            if prefix != jurisdiction:
+                continue
+            target = target.strip().strip("/")
+        relative = Path(target if target.endswith((".yaml", ".yml")) else f"{target}.yaml")
+        if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+            continue
+        imported_paths.add(relative)
+    return imported_paths
 
 
 def _rulespec_ancestor_target_paths(relative_output: Path) -> list[Path]:
