@@ -3450,6 +3450,108 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_auto_repairs_missing_derived_output_coverage(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "151.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: exemption_individual_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tin_included_on_return_claiming_exemption and is_taxpayer
+  - name: section_151_exemption_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if taxpayer_is_individual:
+              exemption_amount
+          else:
+              0
+"""
+        )
+        test_file = output_file.with_name("151.test.yaml")
+        test_file.write_text(
+            """- name: taxpayer_exemption_eligible
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
+    us:statutes/26/151#input.is_taxpayer: true
+  output:
+    us:statutes/26/151#exemption_individual_eligible: holds
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/151.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/151.yaml: ci: "
+                            "Derived rule missing companion output coverage: "
+                            "`us:statutes/26/151#section_151_exemption_deduction` "
+                            "is not asserted by the companion `.test.yaml` file."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_derived_output_tests:"
+            "auto_output_section_151_exemption_deduction"
+        ) in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert "auto_output_section_151_exemption_deduction" in test_content
+        assert "us:statutes/26/151#section_151_exemption_deduction: 0" in test_content
+        assert "us:statutes/26/151#input.taxpayer_is_individual: false" in test_content
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_derived_output_tests"] == [
+            "auto_output_section_151_exemption_deduction"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_repairs_zero_branch_after_input_assignments(
         self, capsys, tmp_path
     ):

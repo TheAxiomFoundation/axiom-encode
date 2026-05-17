@@ -4923,6 +4923,125 @@ def _append_generic_zero_branch_tests_if_missing(
     return repaired
 
 
+def _append_generated_derived_output_tests_if_missing(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    """Append deterministic companion cases for local derived outputs."""
+    if not issues or not test_file.exists() or not rules_file.exists():
+        return []
+    output_targets = _missing_derived_output_targets_from_issues(issues)
+    if not output_targets:
+        return []
+
+    try:
+        rules_content = rules_file.read_text()
+        rules_payload = yaml.safe_load(rules_content) or {}
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
+        return []
+
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    derived_rules_by_target = {
+        f"{target_base}#{rule_name}": rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("kind") or "").strip().lower() == "derived"
+        and (rule_name := str(rule.get("name") or "").strip())
+    }
+    existing_outputs = _rulespec_test_output_keys(test_file)
+    factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
+    input_defaults = {
+        f"{target_base}#input.{input_name}": _default_generated_test_input_value(
+            input_name,
+            rules_payload=rules_payload,
+        )
+        for input_name in sorted(factual_inputs)
+    }
+
+    repaired: list[str] = []
+    existing_case_names = {
+        str(test_case.get("name") or "").strip()
+        for test_case in test_payload
+        if isinstance(test_case, dict)
+    }
+    for target in output_targets:
+        if target in existing_outputs:
+            continue
+        rule = derived_rules_by_target.get(target)
+        if rule is None:
+            continue
+        output_name = target.rsplit("#", 1)[-1]
+        case_name = f"auto_output_{_safe_test_name(output_name)}"
+        if case_name in existing_case_names:
+            continue
+        test_payload.append(
+            {
+                "name": case_name,
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": dict(input_defaults),
+                "output": {
+                    target: _default_generated_test_output_value(rule),
+                },
+            }
+        )
+        existing_case_names.add(case_name)
+        repaired.append(case_name)
+
+    if not repaired:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _missing_derived_output_targets_from_issues(issues: list[str]) -> list[str]:
+    targets: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        match = re.search(
+            r"Derived rule missing companion output coverage:\s*`(?P<target>[^`]+)`",
+            str(issue),
+        )
+        if not match:
+            continue
+        target = match["target"].strip()
+        if not target or target in seen:
+            continue
+        seen.add(target)
+        targets.append(target)
+    return targets
+
+
+def _default_generated_test_output_value(rule: dict[str, object]) -> object:
+    dtype = str(rule.get("dtype") or "").strip().lower()
+    if dtype == "judgment":
+        return "not_holds"
+    if dtype in {"boolean", "bool"}:
+        return False
+    if dtype in {"list", "array"}:
+        return []
+    return 0
+
+
 def _zero_branch_output_names_from_issues(issues: list[str]) -> list[str]:
     output_names: list[str] = []
     seen: set[str] = set()
@@ -5546,6 +5665,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_test_cases = (
+                    _try_repair_generated_derived_output_tests_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_test_cases:
+                    outcome["auto_repaired_derived_output_tests"] = (
+                        repaired_test_cases
+                    )
+                    print(
+                        "  apply=auto_repaired_derived_output_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_input_cases: list[str] = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -5779,6 +5927,44 @@ def _try_repair_generated_exception_tests_for_apply(
         repo_path=policy_repo_path,
         relative_output=relative_output,
         issues=issues,
+    )
+
+
+def _try_repair_generated_derived_output_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Append deterministic coverage tests for unasserted local derived outputs."""
+    if not _only_pending_missing_derived_output_coverage_issues(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _append_generated_derived_output_tests_if_missing(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
+def _only_pending_missing_derived_output_coverage_issues(
+    issues: list[str],
+) -> bool:
+    return bool(issues) and all(
+        "Derived rule missing companion output coverage:" in str(issue)
+        for issue in issues
     )
 
 
