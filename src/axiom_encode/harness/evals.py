@@ -3104,13 +3104,15 @@ RuleSpec requirements:
 - The shared US tax filing-status output remains a structural enum: 0 single,
   1 joint return, 2 married filing separately, 3 head of household, and
   4 surviving spouse / qualifying widow(er). Never encode US tax filing status
-  as string literals such as `"married_filing_jointly"` or as separate boolean
-  facts such as `married_filing_jointly`, `head_of_household`, or
-  `surviving_spouse`. Use the imported numeric filing-status output in formulas,
-  e.g. `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`. If the
-  source groups surviving spouse with joint return, every branch or match that
-  handles status 1 must also handle status 4 in that same branch with the same
-  result.
+  as string literals such as `"married_filing_jointly"` or as unbacked local
+  boolean facts such as `married_filing_jointly`, `head_of_household`, or
+  `surviving_spouse`. If a source provision itself defines a legal status or
+  return category, encode that source-backed output at its absolute RuleSpec
+  path and import it downstream. If a shared numeric filing-status output is
+  available, import it and use the structural enum in formulas, e.g.
+  `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`. If the source
+  groups surviving spouse with joint return, every branch or match that handles
+  status 1 must also handle status 4 in that same branch with the same result.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write

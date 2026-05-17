@@ -515,9 +515,12 @@ Hard requirements:
   spouse with joint return, every filing-status branch or match that handles
   status 1 must also handle status 4 in that same branch.
 - Never encode US tax filing status as string literals such as
-  `"married_filing_jointly"` or as separate boolean facts such as
-  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`. Use the
-  imported numeric filing-status output in formulas, e.g.
+  `"married_filing_jointly"` or as unbacked local boolean facts such as
+  `married_filing_jointly`, `head_of_household`, or `surviving_spouse`. If a
+  source provision itself defines a legal status or return category, encode that
+  source-backed output at its absolute RuleSpec path and import it downstream.
+  If a shared numeric filing-status output is available, import it and use the
+  structural enum in formulas, e.g.
   `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
