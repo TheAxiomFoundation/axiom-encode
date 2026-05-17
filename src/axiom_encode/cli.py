@@ -6280,13 +6280,6 @@ def _executable_output_preservation_issues(
             generated_value = generated_rules[name].get(field, "")
             if existing_value == generated_value:
                 continue
-            if _surface_field_change_is_allowed_source_grounded_migration(
-                name,
-                field=field,
-                existing_value=existing_value,
-                generated_value=generated_value,
-            ):
-                continue
             issues.append(
                 "Generated RuleSpec changed executable surface field "
                 f"`{field}` for existing output `{name}`: existing "
@@ -6298,12 +6291,6 @@ def _executable_output_preservation_issues(
         existing_dates = existing_rules[name]["effective_dates"]
         generated_dates = generated_rules[name]["effective_dates"]
         if existing_dates != generated_dates:
-            if _effective_date_change_is_allowed_source_grounded_migration(
-                name,
-                existing_dates=existing_dates,
-                generated_dates=generated_dates,
-            ):
-                continue
             issues.append(
                 "Generated RuleSpec changed effective dates for existing executable "
                 f"output `{name}`: existing {list(existing_dates)}, generated "
@@ -6312,36 +6299,6 @@ def _executable_output_preservation_issues(
                 "updates the executable surface."
             )
     return issues
-
-
-def _effective_date_change_is_allowed_source_grounded_migration(
-    name: str,
-    *,
-    existing_dates: tuple[str, ...],
-    generated_dates: tuple[str, ...],
-) -> bool:
-    """Allow narrow legal-date corrections during cleanup migrations."""
-    return (
-        name == "post_2017_exemption_amount"
-        and existing_dates == ("2026-01-01",)
-        and generated_dates == ("2018-01-01",)
-    )
-
-
-def _surface_field_change_is_allowed_source_grounded_migration(
-    name: str,
-    *,
-    field: str,
-    existing_value: object,
-    generated_value: object,
-) -> bool:
-    """Allow narrow public-surface corrections during cleanup migrations."""
-    return (
-        name == "exemption_amount"
-        and field == "entity"
-        and existing_value == "TaxUnit"
-        and generated_value == "Person"
-    )
 
 
 def _executable_input_preservation_issues(
@@ -6380,12 +6337,14 @@ def _dropped_input_is_allowed_filing_status_migration(input_name: str) -> bool:
     return input_name in {"filing_status", "tax_filing_status"}
 
 
+_TEMPORAL_VALUE_FACT_YEAR_PATTERN = re.compile(r"(?:^|_)(?:19|20)\d{2}(?:_|$)")
+
+
 def _dropped_input_is_allowed_semantic_date_migration(input_name: str) -> bool:
     """Allow replacing invalid date-valued runtime fact names."""
-    return input_name in {
-        "taxable_year_begins_after_2017",
-        "taxable_year_begins_before_2029",
-    }
+    return input_name.startswith("taxable_year") and (
+        _TEMPORAL_VALUE_FACT_YEAR_PATTERN.search(input_name) is not None
+    )
 
 
 def _dropped_input_is_imported_cross_reference_migration(

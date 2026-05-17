@@ -68,19 +68,17 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
         corpus_citation_path="us/statute/26/63",
     )
 
-    assert "dependent_basic_standard_deduction_statutory_limit" in ENCODER_PROMPT
-    assert "dependent_standard_deduction_limit" in ENCODER_PROMPT
     assert "round the" in ENCODER_PROMPT
     assert "increase before adding it to the base amount" in ENCODER_PROMPT
     assert "17300, not 17325" in ENCODER_PROMPT
     assert "Axiom formulas have no date literal type" in ENCODER_PROMPT
+    assert "overrides preservation of existing local input names" in ENCODER_PROMPT
     assert "module.summary` or the rule's proof excerpt" in ENCODER_PROMPT
-    assert "dependent_basic_standard_deduction_statutory_limit" in prompt
-    assert "dependent_standard_deduction_limit" in prompt
     assert "round the" in prompt
     assert "increase before adding it to the base amount" in prompt
     assert "17300, not 17325" in prompt
     assert "Axiom formulas have no date literal type" in prompt
+    assert "overrides preservation of existing local input names" in prompt
     assert "module.summary` or the rule's proof excerpt" in prompt
 
 

@@ -2967,6 +2967,9 @@ RuleSpec requirements:
   `taxable_year_is_in_temporary_effective_window`, not
   `taxable_year_begins_after_2024_and_before_2029` or
   `taxable_year_begins_after_december_31_2021`.
+  This overrides preservation of existing local input names: if a copied
+  formula uses a date-valued fact name, rename that fact consistently to a
+  semantic date-window predicate in formulas and tests.
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
