@@ -70,3 +70,110 @@ def test_canonical_compile_path_exposes_temp_checkout_file_under_origin_name(tmp
     assert "rulespec-us" in compile_path.parts
     assert "rulespec-us-clean.abcd" not in str(compile_path)
     assert compile_path.resolve() == rules_file.resolve()
+
+
+def test_compiled_program_maps_alias_temp_prefix_to_canonical_legal_id(tmp_path):
+    checkout = tmp_path / "rulespec-us-clean.abcd"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=checkout,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+    payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "blind_under_subsection_f",
+                    "id": ("us-clean.abcd:statutes/26/63/f#blind_under_subsection_f"),
+                }
+            ],
+            "parameters": [],
+        }
+    }
+
+    derived, _parameters = pipeline._rulespec_program_maps(payload)
+    legal_ids = pipeline._rulespec_legal_ids_by_friendly_output_name(payload)
+
+    assert "us:statutes/26/63/f#blind_under_subsection_f" in derived
+    assert "us-clean.abcd:statutes/26/63/f#blind_under_subsection_f" in derived
+    assert "blind_under_subsection_f" not in derived
+    assert legal_ids == {
+        "blind_under_subsection_f": ["us:statutes/26/63/f#blind_under_subsection_f"]
+    }
+
+
+def test_dataset_rewrites_canonical_same_repo_refs_to_engine_temp_prefix(tmp_path):
+    checkout = tmp_path / "rulespec-us-clean.abcd"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    rules_file = checkout / "statutes" / "26" / "63" / "f.yaml"
+    imported_file = checkout / "statutes" / "26" / "151.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: spouse_of_taxpayer_for_subsection_f
+    kind: data_relation
+    data_relation:
+      predicate: us:concepts/tax#spouse_of_taxpayer_for_subsection_f
+      arity: 2
+      arguments:
+        - name: spouse
+          type: Person
+        - name: tax_unit
+          type: TaxUnit
+  - name: taxpayer_blind_additional_amount_entitlement
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxpayer_is_blind_at_close_of_taxable_year
+"""
+    )
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: exemption_individual_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tin_included_on_return_claiming_exemption
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=checkout,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    dataset = pipeline._build_rulespec_dataset(
+        {
+            "us:statutes/26/63/f#relation.spouse_of_taxpayer_for_subsection_f": [
+                {
+                    "id": "spouse",
+                    "us:statutes/26/151#input.tin_included_on_return_claiming_exemption": True,
+                }
+            ],
+            "us:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year": True,
+        },
+        period={"start": "2026-01-01", "end": "2026-12-31"},
+        query_entity="TaxUnit",
+        query_entity_id="case-1",
+        require_legal_input_keys=True,
+    )
+
+    assert dataset["relations"][0]["name"] == (
+        "us-clean.abcd:statutes/26/63/f#relation.spouse_of_taxpayer_for_subsection_f"
+    )
+    assert dataset["inputs"][0]["name"] == (
+        "us-clean.abcd:statutes/26/151#input.tin_included_on_return_claiming_exemption"
+    )
+    assert dataset["inputs"][1]["name"] == (
+        "us-clean.abcd:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year"
+    )

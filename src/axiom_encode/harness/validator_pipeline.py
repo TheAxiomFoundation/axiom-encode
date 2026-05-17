@@ -8453,6 +8453,39 @@ def _rulespec_public_item_key(item: Any) -> str:
     return str(item.get("name") or "").strip()
 
 
+def _canonical_rulespec_item_id_alias(
+    item_id: str,
+    *,
+    policy_repo_path: Path,
+) -> str | None:
+    if ":" not in item_id:
+        return None
+    local_prefix = policy_repo_path.name.removeprefix("rulespec-")
+    canonical_prefix = jurisdiction_prefix(policy_repo_path)
+    if not local_prefix or local_prefix == canonical_prefix:
+        return None
+    if not item_id.startswith(f"{local_prefix}:"):
+        return None
+    return f"{canonical_prefix}:{item_id.split(':', 1)[1]}"
+
+
+def _rulespec_public_item_keys(
+    item: Any,
+    *,
+    policy_repo_path: Path,
+) -> set[str]:
+    key = _rulespec_public_item_key(item)
+    if not key:
+        return set()
+    keys = {key}
+    if alias := _canonical_rulespec_item_id_alias(
+        key,
+        policy_repo_path=policy_repo_path,
+    ):
+        keys.add(alias)
+    return keys
+
+
 def _rulespec_item_friendly_name_and_legal_id(item: Any) -> tuple[str, str] | None:
     if not isinstance(item, dict):
         return None
@@ -8763,6 +8796,24 @@ def _rulespec_runtime_name_for_test_input_key(
         )
 
     return input_key
+
+
+def _rulespec_engine_request_name_for_test_key(
+    test_key: str,
+    runtime_name: str,
+    *,
+    require_legal_input_keys: bool,
+    policy_repo_path: Path,
+) -> str:
+    if not require_legal_input_keys or not _RULESPEC_ABSOLUTE_REFERENCE.match(test_key):
+        return runtime_name
+    local_prefix = policy_repo_path.name.removeprefix("rulespec-")
+    canonical_prefix = jurisdiction_prefix(policy_repo_path)
+    if local_prefix and local_prefix != canonical_prefix:
+        canonical_head = f"{canonical_prefix}:"
+        if test_key.startswith(canonical_head):
+            return f"{local_prefix}:{test_key.split(':', 1)[1]}"
+    return test_key
 
 
 class ValidatorPipeline:
@@ -9370,11 +9421,11 @@ class ValidatorPipeline:
                     allow_relations=True,
                     allow_outputs=False,
                 )
-                relation_request_name = (
-                    input_key
-                    if _RULESPEC_ABSOLUTE_REFERENCE.match(input_key)
-                    and require_legal_input_keys
-                    else relation_name
+                relation_request_name = _rulespec_engine_request_name_for_test_key(
+                    input_key,
+                    relation_name,
+                    require_legal_input_keys=require_legal_input_keys,
+                    policy_repo_path=self.policy_repo_path,
                 )
                 related_entity = self._related_entity_from_relation(relation_name)
                 for item_index, item in enumerate(value, 1):
@@ -9413,11 +9464,11 @@ class ValidatorPipeline:
                             allow_outputs=True,
                         )
                         child_input_key = str(child_name)
-                        child_request_name = (
-                            child_input_key
-                            if _RULESPEC_ABSOLUTE_REFERENCE.match(child_input_key)
-                            and require_legal_input_keys
-                            else child_input_name
+                        child_request_name = _rulespec_engine_request_name_for_test_key(
+                            child_input_key,
+                            child_input_name,
+                            require_legal_input_keys=require_legal_input_keys,
+                            policy_repo_path=self.policy_repo_path,
                         )
                         inputs.append(
                             {
@@ -9444,11 +9495,11 @@ class ValidatorPipeline:
                 allow_relations=False,
                 allow_outputs=True,
             )
-            input_request_name = (
-                input_key
-                if _RULESPEC_ABSOLUTE_REFERENCE.match(input_key)
-                and require_legal_input_keys
-                else input_name
+            input_request_name = _rulespec_engine_request_name_for_test_key(
+                input_key,
+                input_name,
+                require_legal_input_keys=require_legal_input_keys,
+                policy_repo_path=self.policy_repo_path,
             )
             inputs.append(
                 {
@@ -9532,16 +9583,20 @@ class ValidatorPipeline:
         )
         if not isinstance(program, dict):
             program = {}
-        derived = {
-            _rulespec_public_item_key(item): item
-            for item in program.get("derived", [])
-            if _rulespec_public_item_key(item)
-        }
-        parameters = {
-            _rulespec_public_item_key(item): item
-            for item in program.get("parameters", [])
-            if _rulespec_public_item_key(item)
-        }
+        derived: dict[str, Any] = {}
+        for item in program.get("derived", []):
+            for key in _rulespec_public_item_keys(
+                item,
+                policy_repo_path=self.policy_repo_path,
+            ):
+                derived[key] = item
+        parameters: dict[str, Any] = {}
+        for item in program.get("parameters", []):
+            for key in _rulespec_public_item_keys(
+                item,
+                policy_repo_path=self.policy_repo_path,
+            ):
+                parameters[key] = item
         return derived, parameters
 
     def _rulespec_legal_ids_by_friendly_output_name(
@@ -9563,6 +9618,13 @@ class ValidatorPipeline:
                 if pair is None:
                     continue
                 name, item_id = pair
+                item_id = (
+                    _canonical_rulespec_item_id_alias(
+                        item_id,
+                        policy_repo_path=self.policy_repo_path,
+                    )
+                    or item_id
+                )
                 legal_ids_by_name.setdefault(name, set()).add(item_id)
         return {name: sorted(item_ids) for name, item_ids in legal_ids_by_name.items()}
 
@@ -9987,8 +10049,18 @@ class ValidatorPipeline:
                         runtime_key = local_key
                 output_runtime_keys[output_key] = runtime_key
                 if runtime_key in parameter_by_key:
+                    runtime_key = (
+                        _rulespec_public_item_key(parameter_by_key[runtime_key])
+                        or runtime_key
+                    )
+                    output_runtime_keys[output_key] = runtime_key
                     parameter_outputs.append(runtime_key)
                 elif runtime_key in derived_by_key:
+                    runtime_key = (
+                        _rulespec_public_item_key(derived_by_key[runtime_key])
+                        or runtime_key
+                    )
+                    output_runtime_keys[output_key] = runtime_key
                     derived_outputs.append(runtime_key)
                 else:
                     if _RULESPEC_ABSOLUTE_REFERENCE.match(output_key):
