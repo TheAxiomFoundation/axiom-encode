@@ -7178,6 +7178,31 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
+            target_validation = next(
+                (
+                    validation
+                    for validated_file, validation in validations
+                    if validated_file == overlay_target
+                ),
+                None,
+            )
+            target_test_path = _rulespec_test_path(overlay_target)
+            if target_validation is not None and _complete_missing_imported_test_inputs(
+                rules_file=overlay_target,
+                test_file=target_test_path,
+                repo_path=overlay_repo,
+                validation=target_validation,
+            ):
+                supplemental_files[target_test_path.relative_to(overlay_repo)] = (
+                    target_test_path.read_text()
+                )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             removed_invalid_inputs = _remove_invalid_dependent_test_inputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,

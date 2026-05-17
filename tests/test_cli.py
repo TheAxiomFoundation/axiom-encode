@@ -6437,6 +6437,96 @@ rules:
             not in updated
         )
 
+    def test_apply_overlay_validation_fills_target_imported_relation_row_inputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = (
+            output_root / "codex-test-model" / "statutes" / "26" / "63" / "f.yaml"
+        )
+        generated_test = generated.with_name("f.test.yaml")
+        imported = policy_repo / "statutes/26/151.yaml"
+        generated.parent.mkdir(parents=True)
+        imported.parent.mkdir(parents=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: exemption_individual_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          tin_included_on_return_claiming_exemption
+          and is_dependent_under_section_152_of_taxpayer
+"""
+        )
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/151#exemption_individual_eligible
+rules: []
+"""
+        )
+        generated_test.write_text(
+            """- name: spouse_entitlements_require_section_151_exemption
+  input:
+    us:statutes/26/63/f#relation.spouse_of_taxpayer_for_subsection_f:
+    - us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
+      us:statutes/26/151#input.is_spouse_of_taxpayer: true
+  output:
+    us:statutes/26/63/f#spouse_aged_additional_amount_entitlement: holds
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                test_content = Path(path).with_name("f.test.yaml").read_text()
+                if (
+                    "us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer"
+                    not in test_content
+                ):
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                validator_name="ci",
+                                error=(
+                                    "Test case "
+                                    "`spouse_entitlements_require_section_151_exemption` "
+                                    "execution failed: missing input "
+                                    "`is_dependent_under_section_152_of_taxpayer`"
+                                ),
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                validate_dependents=False,
+            )
+
+        assert ok is True
+        assert issues == []
+        updated = supplemental[Path("statutes/26/63/f.test.yaml")]
+        assert (
+            "      us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer: false"
+            in updated
+        )
+
     def test_apply_overlay_validation_repairs_dependent_proof_import_hashes(
         self, tmp_path
     ):
