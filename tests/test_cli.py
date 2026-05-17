@@ -3580,6 +3580,100 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_removes_local_import_output_input_placeholders(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "151.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
+rules:
+  - name: senior_deduction_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: adjusted_gross_income + amount_excluded_from_gross_income_under_section_931
+"""
+        )
+        test_file = output_file.with_name("151.test.yaml")
+        test_file.write_text(
+            """- name: modified_agi_without_possession_income
+  input:
+    us:statutes/26/151#input.adjusted_gross_income: 100
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/931#input.bona_fide_resident_of_specified_possession_during_entire_taxable_year: false
+  output:
+    us:statutes/26/151#senior_deduction_modified_adjusted_gross_income: 100
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/151.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/151.yaml: ci: Test case "
+                            "`modified_agi_without_possession_income` execution "
+                            "failed: dataset input "
+                            "`us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931` "
+                            "must use an absolute legal RuleSpec reference that "
+                            "resolves to an input slot, derived rule, or parameter "
+                            "in the compiled program"
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_import_output_inputs:"
+            "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931"
+        ) in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_content = test_file.read_text()
+        assert (
+            "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931"
+            not in test_content
+        )
+        assert (
+            "us:statutes/26/931#input.bona_fide_resident_of_specified_possession_during_entire_taxable_year"
+            in test_content
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_import_output_inputs"] == [
+            "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_repairs_zero_branch_after_input_assignments(
         self, capsys, tmp_path
     ):

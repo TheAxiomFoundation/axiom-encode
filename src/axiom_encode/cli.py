@@ -5042,6 +5042,104 @@ def _default_generated_test_output_value(rule: dict[str, object]) -> object:
     return 0
 
 
+def _remove_generated_import_output_input_placeholders(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    if not rules_file.exists() or not test_file.exists():
+        return []
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    imported_outputs = _imported_output_names(rules_file)
+    if not imported_outputs:
+        return []
+    invalid_refs = _invalid_input_refs_from_issues(issues)
+    removable_refs = {
+        ref
+        for ref in invalid_refs
+        if ref.startswith(f"{target_base}#input.")
+        and ref.split("#input.", 1)[1] in imported_outputs
+    }
+    if not removable_refs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if _remove_mapping_keys_recursive(inputs, removable_refs):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(removable_refs)
+
+
+def _imported_output_names(rules_file: Path) -> set[str]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return set()
+    imports = payload.get("imports") if isinstance(payload, dict) else None
+    if not isinstance(imports, list):
+        return set()
+    names: set[str] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        fragment = raw_import.rsplit("#", 1)[1].strip()
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", fragment):
+            names.add(fragment)
+    return names
+
+
+def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
+    refs: set[str] = set()
+    patterns = (
+        r"dataset input `(?P<input>[^`]+)` must use an absolute legal RuleSpec reference",
+        r"input `(?P<input>[^`]+)` does not resolve to an input slot",
+    )
+    for issue in issues:
+        text = str(issue)
+        for pattern in patterns:
+            for match in re.finditer(pattern, text):
+                refs.add(match.group("input").strip())
+    return refs
+
+
+def _remove_mapping_keys_recursive(value: object, keys: set[str]) -> bool:
+    changed = False
+    if isinstance(value, dict):
+        for key in list(value.keys()):
+            if str(key) in keys:
+                del value[key]
+                changed = True
+                continue
+            if _remove_mapping_keys_recursive(value[key], keys):
+                changed = True
+    elif isinstance(value, list):
+        for item in value:
+            if _remove_mapping_keys_recursive(item, keys):
+                changed = True
+    return changed
+
+
 def _zero_branch_output_names_from_issues(issues: list[str]) -> list[str]:
     output_names: list[str] = []
     seen: set[str] = set()
@@ -5702,6 +5800,43 @@ def cmd_encode(args):
                         repaired_derived_cases
                     )
             if not can_apply:
+                repaired_input_refs: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_import_output_inputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_input_refs.extend(repaired_refs)
+                    outcome["auto_repaired_import_output_inputs"] = (
+                        repaired_input_refs
+                    )
+                    print(
+                        "  apply=auto_repaired_import_output_inputs:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_input_refs:
+                    outcome["auto_repaired_import_output_inputs"] = (
+                        repaired_input_refs
+                    )
+            if not can_apply:
                 repaired_input_cases: list[str] = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -5973,6 +6108,35 @@ def _only_pending_missing_derived_output_coverage_issues(
     return bool(issues) and all(
         "Derived rule missing companion output coverage:" in str(issue)
         for issue in issues
+    )
+
+
+def _try_repair_generated_import_output_inputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove local input placeholders for imported computed outputs."""
+    if not issues:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _remove_generated_import_output_input_placeholders(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
     )
 
 
