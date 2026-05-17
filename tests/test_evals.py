@@ -478,6 +478,8 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           existing_fact
+          and filing_status == 1
+          and taxable_year_begins_after_2024
   - name: existing_table
     kind: parameter
     dtype: Money
@@ -516,6 +518,11 @@ rules:
     assert "effective_from=2026-01-01" in prompt
     assert "`us:statutes/26/999#existing_table`" in prompt
     assert "indexed_by=household_size" in prompt
+    assert "Invalid copied local input names:" in prompt
+    assert "`us:statutes/26/999#input.filing_status`" in prompt
+    assert "filing status is a derived legal classification" in prompt
+    assert "`us:statutes/26/999#input.taxable_year_begins_after_2024`" in prompt
+    assert "date/year-valued temporal fact" in prompt
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):

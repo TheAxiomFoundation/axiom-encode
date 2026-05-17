@@ -2618,6 +2618,9 @@ import or re-export that exact canonical concept instead of duplicating it local
         existing_target_contract_section = _format_existing_target_contract_guidance(
             context_files
         )
+        existing_target_invalid_input_section = (
+            _format_existing_target_invalid_input_guidance(context_files)
+        )
         context_section = f"""
 Context mode: `{mode}`.
 Context files are precedent and dependency context, not independent legal authority for new values:
@@ -2625,6 +2628,7 @@ Context files are precedent and dependency context, not independent legal author
 {inline_context}
 {resolved_guidance}
 {existing_target_contract_section}
+{existing_target_invalid_input_section}
 {branch_child_naming_section}
 {cited_context_imports_section}
 {partial_extent_child_schema_section}
@@ -3282,6 +3286,26 @@ The copied current target exports these executable names. Preserve each name and
 """.format(lines="\n".join(contract_lines))
 
 
+def _format_existing_target_invalid_input_guidance(
+    context_files: list[EvalContextFile],
+) -> str:
+    """Return copied target input names that current invariants must reject."""
+    invalid_lines: list[str] = []
+    for item in context_files:
+        if item.kind != "existing_target":
+            continue
+        invalid_inputs = _context_file_invalid_local_inputs(item.source_path)
+        for name, reason in invalid_inputs.items():
+            invalid_lines.append(f"- `{item.import_path}#input.{name}`: {reason}")
+    if not invalid_lines:
+        return ""
+    return """
+Invalid copied local input names:
+The copied current target uses these local factual input names, but current RuleSpec invariants reject them. Do not preserve these exact names in formulas or tests:
+{lines}
+""".format(lines="\n".join(invalid_lines))
+
+
 def _format_partial_extent_child_schema_limit_guidance(
     source_text: str,
     context_files: list[EvalContextFile],
@@ -3879,6 +3903,9 @@ def _context_surface_sequence(value: object) -> tuple[str, ...]:
 
 
 _CONTEXT_FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_CONTEXT_TEMPORAL_VALUE_FACT_YEAR_PATTERN = re.compile(
+    r"(?:^|_)(?:19|20)\d{2}(?:_|$)"
+)
 _CONTEXT_FORMULA_BUILTINS = {
     "and",
     "ceil",
@@ -3893,6 +3920,87 @@ _CONTEXT_FORMULA_BUILTINS = {
     "or",
     "true",
 }
+
+
+def _context_file_invalid_local_inputs(source_path: str) -> dict[str, str]:
+    """Return local input names in copied context that current rules reject."""
+    try:
+        payload = yaml.safe_load(Path(source_path).read_text())
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return {}
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+
+    defined = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    imported = _context_file_imported_symbols(payload)
+    invalid: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+                formula_text = str(formula)
+            elif isinstance(formula, str):
+                formula_text = formula
+            else:
+                continue
+            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula_text):
+                if (
+                    identifier in defined
+                    or identifier in imported
+                    or identifier in _CONTEXT_FORMULA_BUILTINS
+                ):
+                    continue
+                reason = _invalid_local_input_reason(identifier)
+                if reason:
+                    invalid[identifier] = reason
+    return dict(sorted(invalid.items()))
+
+
+def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return set()
+    symbols: set[str] = set()
+    for item in imports:
+        if not isinstance(item, str) or "#" not in item:
+            continue
+        fragment = item.rsplit("#", 1)[1].strip()
+        if fragment and "." not in fragment:
+            symbols.add(fragment)
+    return symbols
+
+
+def _invalid_local_input_reason(identifier: str) -> str:
+    if identifier in {"filing_status", "tax_filing_status"}:
+        return (
+            "filing status is a derived legal classification; import an "
+            "upstream filing-status output when available, or use source-stated "
+            "non-status predicates such as whether a joint or separate return "
+            "was actually made"
+        )
+    if identifier.startswith("taxable_year") and (
+        _CONTEXT_TEMPORAL_VALUE_FACT_YEAR_PATTERN.search(identifier) is not None
+    ):
+        return (
+            "date/year-valued temporal fact; rename consistently to a semantic "
+            "date-window predicate such as "
+            "`taxable_year_begins_after_termination_date`"
+        )
+    return ""
 
 
 def _context_file_terminal_exports(source_path: str) -> list[str]:
