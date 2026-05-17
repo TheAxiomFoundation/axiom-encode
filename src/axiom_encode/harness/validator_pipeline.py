@@ -10042,6 +10042,7 @@ class ValidatorPipeline:
             r"|deduction_provided_in"
             r"|credit_allowed_under"
             r"|credits_allowable_under"
+            r"|in_effect_under"
             r"|to_which"
             r")_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
             r"(?P<tail>(?:_[A-Za-z0-9]+)*)",

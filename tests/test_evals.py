@@ -2509,6 +2509,7 @@ class TestEvalPrompt:
         assert "must use the numeric `filing_status` enum input directly" not in prompt
         assert "Importing an adjacent upstream output only as proof" in prompt
         assert "does not satisfy the dependency" in prompt
+        assert "is not an executable dependency" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
         self, tmp_path

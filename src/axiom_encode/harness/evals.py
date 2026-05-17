@@ -2907,6 +2907,14 @@ RuleSpec requirements:
   not import an unrelated output from that file as a stand-in; encode the proper
   upstream source slice first, split the unresolved branch, or emit a deferred
   status when the requested file cannot compute faithfully without it.
+- A cited context file with `module.status: entity_not_supported`,
+  `module.status: deferred`, or `rules: []` is not an executable dependency.
+  Do not preserve, rename, or recreate a local cross-reference input for that
+  cited source. If the current provision cannot compute faithfully without that
+  cited source, defer the affected executable surface; if a source-grounded
+  overriding rule makes the cited branch unreachable for the encoded effective
+  period, encode only that overriding branch and leave the unresolved branch out
+  of executable formulas.
 - Never introduce an import cycle. If a cited source already imports the current
   target module, do not import that source back into the same module; keep a
   source-named boundary predicate for that cyclic condition until the sources

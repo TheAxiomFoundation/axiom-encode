@@ -5239,6 +5239,58 @@ rules:
     assert "statutes/26/170/p" in issues[0]
 
 
+def test_encoded_cross_reference_placeholder_rejects_in_effect_under_section_input_when_source_exists(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "151.yaml"
+    imported_file = repo / "statutes" / "26" / "68" / "b.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: applicable_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 100000
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The exemption amount is reduced when adjusted gross income exceeds the
+    applicable amount in effect under section 68(b).
+rules:
+  - name: exemption_phaseout_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, adjusted_gross_income - applicable_amount_in_effect_under_section_68_b)
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_encoded_cross_reference_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "Encoded cross-reference placeholder" in issues[0]
+    assert "applicable_amount_in_effect_under_section_68_b" in issues[0]
+    assert "statutes/26/68/b" in issues[0]
+
+
 def test_encoded_cross_reference_placeholder_allows_under_section_when_unencoded(
     tmp_path,
 ):

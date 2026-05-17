@@ -4623,6 +4623,70 @@ rules:
 
         assert issues == []
 
+    def test_executable_input_preservation_allows_removed_cross_reference_branch(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+        versions:
+          - effective_from: '2026-01-01'
+            formula: |-
+              applicable_amount_in_effect_under_section_68_b
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: exemption_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          0
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert issues == []
+
+    def test_executable_input_preservation_rejects_cross_reference_placeholder_rename(
+        self,
+    ):
+        existing = """format: rulespec/v1
+rules:
+  - name: exemption_individual_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: is_dependent_under_section_152_of_taxpayer
+"""
+        generated = """format: rulespec/v1
+rules:
+  - name: exemption_individual_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: dependent_of_taxpayer_under_section_152
+"""
+
+        issues = _executable_input_preservation_issues(existing, generated)
+
+        assert len(issues) == 1
+        assert "dropped existing factual input slots" in issues[0]
+        assert "`is_dependent_under_section_152_of_taxpayer`" in issues[0]
+
     def test_executable_input_preservation_allows_provided_in_section_import_migration(
         self,
     ):

@@ -6320,6 +6320,10 @@ def _executable_input_preservation_issues(
             input_name,
             generated_imports=generated_imports,
         )
+        and not _dropped_input_is_allowed_cross_reference_cleanup(
+            input_name,
+            generated_inputs=generated_inputs,
+        )
     )
     if not missing:
         return []
@@ -6373,6 +6377,21 @@ def _dropped_input_is_imported_cross_reference_migration(
         if import_fragments[: len(fragments)] == fragments:
             return True
     return False
+
+
+def _dropped_input_is_allowed_cross_reference_cleanup(
+    input_name: str,
+    *,
+    generated_inputs: set[str],
+) -> bool:
+    """Allow removing a legacy cross-reference placeholder, not renaming it."""
+    target = _legal_cross_reference_input_target(input_name)
+    if target is None:
+        return False
+    return all(
+        _legal_cross_reference_input_target(generated_input) != target
+        for generated_input in generated_inputs
+    )
 
 
 def _legal_cross_reference_input_target(
