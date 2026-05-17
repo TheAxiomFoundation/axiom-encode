@@ -481,6 +481,7 @@ rules:
           existing_fact
           and filing_status == 1
           and taxable_year_begins_after_2024
+          and applicable_amount_in_effect_under_section_68_b > 0
   - name: existing_table
     kind: parameter
     dtype: Money
@@ -517,11 +518,34 @@ rules:
         formula: existing_amount > 0
 """
     )
+    section_68_context = policy_repo / "statutes/26/68/b.yaml"
+    section_68_context.parent.mkdir(parents=True)
+    section_68_context.write_text(
+        """format: rulespec/v1
+rules:
+  - name: section_68_applied_after_other_itemized_deduction_limitations
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+"""
+    )
     workspace.context_files.append(
         EvalContextFile(
             source_path=str(cyclic_context),
             workspace_path="context/statutes/26/7703.yaml",
             import_path="us:statutes/26/7703",
+            kind="citation_context",
+        )
+    )
+    workspace.context_files.append(
+        EvalContextFile(
+            source_path=str(section_68_context),
+            workspace_path="context/statutes/26/68/b.yaml",
+            import_path="us:statutes/26/68/b",
             kind="citation_context",
         )
     )
@@ -549,6 +573,12 @@ rules:
     assert "`us:statutes/26/999#input.taxable_year_begins_after_2024`" in prompt
     assert "date/year-valued temporal fact" in prompt
     assert "`post_YYYY`, `pre_YYYY`, or any four-digit year" in prompt
+    assert (
+        "`us:statutes/26/999#input.applicable_amount_in_effect_under_section_68_b`"
+        in prompt
+    )
+    assert "encoded cross-reference placeholder" in prompt
+    assert "us:statutes/26/68/b" in prompt
     assert "Existing valid local input contract:" in prompt
     assert "`us:statutes/26/999#input.existing_fact`" in prompt
     assert "Cycle-prone context imports:" in prompt
@@ -2477,6 +2507,8 @@ class TestEvalPrompt:
         assert "Do not create local `#input.filing_status` facts" in prompt
         assert "Hard requirement for IRC section 151(d)" not in prompt
         assert "must use the numeric `filing_status` enum input directly" not in prompt
+        assert "Importing an adjacent upstream output only as proof" in prompt
+        assert "does not satisfy the dependency" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
         self, tmp_path

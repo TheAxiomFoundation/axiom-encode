@@ -2898,6 +2898,15 @@ RuleSpec requirements:
   `module.status: entity_not_supported` with `rules: []` instead of inventing a
   local cross-reference fact. If that section is present in repo context, import
   it and use its exported output instead.
+- An import only resolves a cross-reference when the imported file exports the
+  actual referenced legal concept, amount, status, test, or definition needed by
+  the formula. Importing an adjacent upstream output only as proof, while the
+  formula still depends on a local `_under_section_...` or
+  `_in_effect_under_section_...` fact, does not satisfy the dependency. If the
+  listed context file for a cited source does not export the needed concept, do
+  not import an unrelated output from that file as a stand-in; encode the proper
+  upstream source slice first, split the unresolved branch, or emit a deferred
+  status when the requested file cannot compute faithfully without it.
 - Never introduce an import cycle. If a cited source already imports the current
   target module, do not import that source back into the same module; keep a
   source-named boundary predicate for that cyclic condition until the sources
@@ -3307,7 +3316,10 @@ def _format_existing_target_invalid_input_guidance(
     for item in context_files:
         if item.kind != "existing_target":
             continue
-        invalid_inputs = _context_file_invalid_local_inputs(item.source_path)
+        invalid_inputs = _context_file_invalid_local_inputs(
+            item.source_path,
+            context_files=context_files,
+        )
         for name, reason in invalid_inputs.items():
             invalid_lines.append(f"- `{item.import_path}#input.{name}`: {reason}")
     if not invalid_lines:
@@ -3327,7 +3339,12 @@ def _format_existing_target_valid_input_guidance(
     for item in context_files:
         if item.kind != "existing_target":
             continue
-        invalid_inputs = set(_context_file_invalid_local_inputs(item.source_path))
+        invalid_inputs = set(
+            _context_file_invalid_local_inputs(
+                item.source_path,
+                context_files=context_files,
+            )
+        )
         valid_inputs = sorted(
             name
             for name in _context_file_local_inputs(item.source_path)
@@ -3987,14 +4004,103 @@ _CONTEXT_FORMULA_BUILTINS = {
 }
 
 
-def _context_file_invalid_local_inputs(source_path: str) -> dict[str, str]:
+def _context_file_invalid_local_inputs(
+    source_path: str,
+    *,
+    context_files: list[EvalContextFile] | None = None,
+) -> dict[str, str]:
     """Return local input names in copied context that current rules reject."""
     invalid: dict[str, str] = {}
     for identifier in _context_file_local_inputs(source_path):
         reason = _invalid_local_input_reason(identifier)
+        if not reason:
+            reason = _encoded_cross_reference_local_input_reason(
+                identifier,
+                source_path=source_path,
+                context_files=context_files or [],
+            )
         if reason:
             invalid[identifier] = reason
     return dict(sorted(invalid.items()))
+
+
+_CONTEXT_SEMANTIC_SECTION_INPUT = re.compile(
+    r"(?:^|_)(?:"
+    r"under"
+    r"|provided_in"
+    r"|provided_by"
+    r"|allowed_under"
+    r"|allowable_under"
+    r"|allowed_by"
+    r"|allowable_by"
+    r"|excluded_under"
+    r"|excludable_under"
+    r"|deduction_under"
+    r"|credit_allowed_under"
+    r")_section_(?P<section>[0-9][A-Za-z0-9.-]*)"
+    r"(?P<tail>(?:_[A-Za-z0-9]+)*)"
+)
+
+
+def _encoded_cross_reference_local_input_reason(
+    identifier: str,
+    *,
+    source_path: str,
+    context_files: list[EvalContextFile],
+) -> str:
+    """Return a reason when a copied input shadows available cited context."""
+    target = _context_cross_reference_input_target(identifier, source_path)
+    if not target:
+        return ""
+    for item in context_files:
+        if item.kind.endswith("_test_context") or item.kind == "existing_target":
+            continue
+        available = _normalize_prompt_import_target(item.import_path)
+        if _prompt_import_covers(available, target):
+            return (
+                "encoded cross-reference placeholder; a context file for "
+                f"`{item.import_path}` is available, so do not preserve this "
+                "local input unless the generated file imports an actual "
+                "exported output for that same referenced legal concept"
+            )
+    return ""
+
+
+def _context_cross_reference_input_target(
+    identifier: str,
+    source_path: str,
+) -> str | None:
+    """Infer a repo-relative cited target from a copied local input name."""
+    match = _CONTEXT_SEMANTIC_SECTION_INPUT.search(identifier)
+    if not match:
+        return None
+    title = _context_file_title(source_path)
+    if not title:
+        return None
+    fragments: list[str] = []
+    for fragment in (match.group("tail") or "").split("_"):
+        if not fragment:
+            continue
+        if _context_cross_reference_path_fragment(fragment):
+            fragments.append(fragment)
+            continue
+        break
+    return "/".join(["statutes", title, match.group("section"), *fragments])
+
+
+def _context_file_title(source_path: str) -> str | None:
+    parts = Path(source_path).parts
+    for index, part in enumerate(parts):
+        if part == "statutes" and index + 1 < len(parts):
+            return parts[index + 1]
+    return None
+
+
+def _context_cross_reference_path_fragment(fragment: str) -> bool:
+    return bool(
+        re.fullmatch(r"\d+[A-Za-z]?|[A-Za-z]|[ivxlcdm]+", fragment)
+        and fragment.lower() not in {"and"}
+    )
 
 
 def _context_file_local_inputs(source_path: str) -> set[str]:

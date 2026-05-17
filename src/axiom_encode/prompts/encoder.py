@@ -200,6 +200,15 @@ Hard requirements:
   `module.status: entity_not_supported` with `rules: []` instead of inventing a
   local cross-reference fact. If that section is present in repo context, import
   it and use its exported output instead.
+- An import only resolves a cross-reference when the imported file exports the
+  actual referenced legal concept, amount, status, test, or definition needed by
+  the formula. Importing an adjacent upstream output only as proof, while the
+  formula still depends on a local `_under_section_...` or
+  `_in_effect_under_section_...` fact, does not satisfy the dependency. If the
+  listed context file for a cited source does not export the needed concept, do
+  not import an unrelated output from that file as a stand-in; encode the proper
+  upstream source slice first, split the unresolved branch, or emit a deferred
+  status when the requested file cannot compute faithfully without it.
 - Never introduce an import cycle. If a cited source already imports the current
   target module, do not import that source back into the same module; keep a
   source-named boundary predicate for that cyclic condition until the sources
