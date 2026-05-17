@@ -380,6 +380,60 @@ rules:
     ]
 
 
+def test_missing_derived_companion_output_uses_origin_repo_prefix_for_temp_checkout(
+    tmp_path,
+):
+    policy_repo = tmp_path / "rulespec-us-clean.abcd"
+    rules_file = policy_repo / "statutes" / "26" / "63" / "f.yaml"
+    rules_file.parent.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=policy_repo, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+        ],
+        cwd=policy_repo,
+        check=True,
+        capture_output=True,
+    )
+    content = """format: rulespec/v1
+rules:
+  - name: blind_under_subsection_f
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 63(f)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxpayer_is_blind
+"""
+    cases = [
+        {
+            "name": "empty",
+            "period": "2026",
+            "input": {},
+            "output": {},
+        }
+    ]
+
+    issues = find_missing_derived_companion_output_issues(
+        content,
+        cases,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == [
+        "Derived rule missing companion output coverage: "
+        "`us:statutes/26/63/f#blind_under_subsection_f` "
+        "is not asserted by the companion `.test.yaml` file."
+    ]
+
+
 def test_test_input_assignment_scopes_inputs_to_asserted_outputs():
     content = """format: rulespec/v1
 module:

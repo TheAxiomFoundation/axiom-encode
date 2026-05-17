@@ -2734,7 +2734,7 @@ def _rulespec_repo_root(rules_file: Path) -> Path | None:
 
 
 def _rulespec_repo_prefix(repo_root: Path) -> str:
-    return repo_root.name.removeprefix("rulespec-")
+    return jurisdiction_prefix(repo_root)
 
 
 def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
