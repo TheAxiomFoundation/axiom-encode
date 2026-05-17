@@ -6602,6 +6602,7 @@ def _factual_input_appears_numeric(
 
 def _factual_input_name_looks_boolean(input_name: str) -> bool:
     normalized = input_name.lower()
+    tokens = set(normalized.split("_"))
     boolean_prefixes = (
         "any_",
         "all_",
@@ -6618,6 +6619,11 @@ def _factual_input_name_looks_boolean(input_name: str) -> bool:
         "do_",
         "did_",
     )
+    boolean_tokens = {
+        prefix.strip("_")
+        for prefix in boolean_prefixes
+        if prefix not in {"any_", "all_"}
+    }
     boolean_suffixes = (
         "_applies",
         "_applicable",
@@ -6633,8 +6639,10 @@ def _factual_input_name_looks_boolean(input_name: str) -> bool:
         "_true",
         "_false",
     )
-    return normalized.startswith(boolean_prefixes) or normalized.endswith(
-        boolean_suffixes
+    return (
+        normalized.startswith(boolean_prefixes)
+        or normalized.endswith(boolean_suffixes)
+        or bool(tokens.intersection(boolean_tokens))
     )
 
 

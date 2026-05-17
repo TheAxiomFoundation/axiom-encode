@@ -4006,6 +4006,32 @@ rules:
 
         assert value is False
 
+    def test_generated_test_input_defaults_treat_embedded_has_fact_as_boolean(self):
+        rules_payload = {
+            "rules": [
+                {
+                    "name": "taxpayer_aged_additional_amount_entitlement",
+                    "kind": "derived",
+                    "dtype": "Judgment",
+                    "versions": [
+                        {
+                            "formula": (
+                                "taxpayer_has_attained_age_65_before_close_of_"
+                                "taxable_year"
+                            )
+                        }
+                    ],
+                }
+            ]
+        }
+
+        value = _default_generated_test_input_value(
+            "taxpayer_has_attained_age_65_before_close_of_taxable_year",
+            rules_payload=rules_payload,
+        )
+
+        assert value is False
+
     def test_generated_test_input_defaults_treat_condition_wages_fact_as_boolean(
         self,
     ):
