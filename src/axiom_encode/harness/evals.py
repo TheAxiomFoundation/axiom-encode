@@ -2916,7 +2916,9 @@ RuleSpec requirements:
   limitation, and prerequisite predicates may support that output, but they do
   not replace it. If X cannot be computed faithfully because upstream legal
   definitions are missing, mark the module deferred with no executable rules
-  rather than applying a helper-only definition.
+  rather than applying a helper-only definition. This overrides the usual
+  mixed-provision instruction to keep independent helpers: a `Definition of X`
+  artifact without executable X is misleading and must be cleanly deferred.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
   `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
