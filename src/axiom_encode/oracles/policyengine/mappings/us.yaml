@@ -2616,6 +2616,17 @@ mappings:
     comparison: money
     rationale: Same IRS maximum investment income threshold for EITC eligibility.
 
+  - legal_id: us:statutes/26/32/c/2#earned_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: filer_adjusted_earnings
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 32(c)(2) tax-unit earned income after the section 164(f) self-employment-tax adjustment; PolicyEngine's person-level `earned_income` is a pre-adjustment input and is not the comparable target.
+
   - legal_id: us:statutes/26/32#eitc_phase_in_rates
     country: us
     program: tax

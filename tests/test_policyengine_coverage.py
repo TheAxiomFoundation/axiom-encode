@@ -174,6 +174,30 @@ rules:
     )
 
 
+def test_policyengine_coverage_maps_section_32_earned_income_to_adjusted_earnings(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/32/c/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages + net_earnings_from_self_employment_after_164_f
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    item = items_by_id["us:statutes/26/32/c/2#earned_income"]
+    assert item["status"] == "comparable"
+    assert item["policyengine_variable"] == "filer_adjusted_earnings"
+
+
 def test_policyengine_coverage_treats_ssa_policy_parameters_as_tax(tmp_path):
     _write_rulespec_file(
         tmp_path
