@@ -3492,9 +3492,11 @@ def _format_existing_target_validation_guidance(
 Copied existing target fails current RuleSpec validation:
 The copied current target is stale under the current encoder invariants. Do not
 preserve the failing shape. Repair the generated target so these validation
-issues are gone; for deferred executable surfaces, record exact provenance under
-`module.deferred_outputs[]` with absolute `output`, `blocked_by`, and
-`source_values` targets as applicable:
+issues are gone. If a copied import no longer resolves in the clean repo
+context, remove that import and defer the affected executable surface instead of
+preserving a dirty-tree dependency. For deferred executable surfaces, record
+exact provenance under `module.deferred_outputs[]` with absolute `output`,
+`blocked_by`, and `source_values` targets as applicable:
 {lines}
 """.format(lines="\n".join(issue_lines))
 
@@ -3509,7 +3511,71 @@ def _context_file_current_validation_issues(source_path: str) -> list[str]:
     issues: list[str] = []
     issues.extend(find_deferred_output_issues(content))
     issues.extend(find_unused_modifier_parameter_issues(content))
+    issues.extend(_context_file_unresolved_import_issues(source_path, content))
     return issues
+
+
+def _context_file_unresolved_import_issues(source_path: str, content: str) -> list[str]:
+    """Return imports from copied files that do not resolve in the clean repo."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return []
+        imports = payload.get("imports")
+        if not isinstance(imports, list):
+            return []
+
+        policy_repo_root = _rulespec_repo_root_for_context_path(Path(source_path))
+        issues: list[str] = []
+        for raw_item in imports:
+            if not isinstance(raw_item, str):
+                continue
+            reference = raw_item.strip().strip("\"'")
+            import_path, separator, symbol = reference.partition("#")
+            import_path = import_path.strip()
+            symbol = symbol.strip()
+            if not import_path:
+                continue
+
+            target_file = _first_existing_context_import_file(
+                import_path, policy_repo_root
+            )
+            if target_file is None:
+                issues.append(
+                    f"Import `{reference}` does not resolve to a RuleSpec file "
+                    "in the clean repo context."
+                )
+                continue
+            if separator and symbol:
+                exports = set(_context_file_exports(str(target_file)))
+                if symbol not in exports:
+                    issues.append(
+                        f"Import `{reference}` resolves to `{target_file}` but "
+                        f"that file does not export `{symbol}`."
+                    )
+        return issues
+    return []
+
+
+def _first_existing_context_import_file(
+    import_path: str,
+    policy_repo_root: Path,
+) -> Path | None:
+    """Resolve one copied context import to the first visible RuleSpec file."""
+    for candidate in _candidate_import_rule_files(import_path, policy_repo_root):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _rulespec_repo_root_for_context_path(path: Path) -> Path:
+    """Infer the nearest `rulespec-*` checkout root containing a context file."""
+    resolved = path.resolve()
+    start = resolved if resolved.is_dir() else resolved.parent
+    for parent in (start, *start.parents):
+        if parent.name.startswith("rulespec-"):
+            return parent
+    return start
 
 
 def _format_existing_target_valid_input_guidance(

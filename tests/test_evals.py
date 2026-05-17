@@ -18,6 +18,7 @@ from axiom_encode.harness.evals import (
     EvalResult,
     EvalSuiteCase,
     EvalSuiteManifest,
+    EvalWorkspace,
     GroundingMetric,
     _build_eval_prompt,
     _clean_generated_file_content,
@@ -5892,6 +5893,75 @@ class TestRepoAugmentedContext:
         assert (
             eval_root / "statutes" / "26" / "152" / "c.yaml"
         ).read_text() == "format: rulespec/v1\nrules: []\n"
+
+    def test_build_eval_prompt_flags_existing_target_unresolved_import(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        rulespec_us = repo_root / "rulespec-us"
+        target = rulespec_us / "statutes" / "26" / "63" / "f.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n"
+            "  - us:statutes/26/151#exemption_individual_eligible\n"
+            "rules:\n"
+            "  - name: spouse_aged_additional_amount_person_entitlement\n"
+            "    kind: derived\n"
+            "    entity: Person\n"
+            "    dtype: Judgment\n"
+            "    period: Year\n"
+            "    versions:\n"
+            "      - effective_from: '2018-01-01'\n"
+            "        formula: |-\n"
+            "          spouse_age_before_close_of_taxable_year >= 65\n"
+            "          and exemption_individual_eligible\n"
+        )
+
+        section_151 = rulespec_us / "statutes" / "26" / "151.yaml"
+        section_151.parent.mkdir(parents=True, exist_ok=True)
+        section_151.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: taxpayer_exemption_allowed\n"
+            "    kind: derived\n"
+            "    entity: TaxUnit\n"
+            "    dtype: Judgment\n"
+            "    period: Year\n"
+        )
+
+        workspace_root = tmp_path / "workspace"
+        workspace_root.mkdir()
+        source_text = workspace_root / "source.txt"
+        source_text.write_text(
+            "The taxpayer shall be entitled to an additional amount for the "
+            "spouse if an additional exemption is allowable under section 151(b)."
+        )
+        workspace = EvalWorkspace(
+            root=workspace_root,
+            source_text_file=source_text,
+            manifest_file=workspace_root / "manifest.json",
+        )
+        context_files = [
+            EvalContextFile(
+                source_path=str(target),
+                workspace_path="context/statutes/26/63/f.yaml",
+                import_path="us:statutes/26/63/f",
+                kind="existing_target",
+            )
+        ]
+
+        prompt = _build_eval_prompt(
+            "26 USC 63(f)",
+            "repo-augmented",
+            workspace,
+            context_files,
+            target_file_name="f.yaml",
+            target_ref_prefix="us:statutes/26/63/f",
+        )
+
+        assert "Copied existing target fails current RuleSpec validation" in prompt
+        assert "us:statutes/26/151#exemption_individual_eligible" in prompt
+        assert "does not export `exemption_individual_eligible`" in prompt
+        assert "defer the affected executable surface" in prompt
 
     def test_repo_augmented_context_resolves_statute_prefixed_dependencies(
         self, tmp_path
