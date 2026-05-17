@@ -3124,6 +3124,8 @@ RuleSpec requirements:
   status 1 must also handle status 4 in that same branch with the same result.
 - Do not replace filing-status components with local status inputs such as
   `taxpayer_is_surviving_spouse`, `surviving_spouse`, or `head_of_household`.
+  This also prohibits compound status predicates such as
+  `individual_is_not_married_and_is_not_surviving_spouse`.
   Those are derived legal classifications; import their source-backed RuleSpec
   outputs or defer the affected output until those upstream definitions exist.
 - Supported relation aggregators are `len(relation)`,

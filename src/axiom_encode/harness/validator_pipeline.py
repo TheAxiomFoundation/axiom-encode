@@ -3543,6 +3543,21 @@ _US_TAX_STATUS_COMPONENT_NAMES = {
     "taxpayer_is_head_of_household",
     "individual_is_head_of_household",
 }
+_US_TAX_STATUS_COMPONENT_FRAGMENT_PATTERN = re.compile(
+    r"(?:^|_)("
+    r"surviving_spouse|"
+    r"head_of_household|"
+    r"qualifying_widow(?:er)?|"
+    r"married_filing|"
+    r"filing_jointly|"
+    r"filing_separately|"
+    r"joint_return|"
+    r"not_married|"
+    r"unmarried|"
+    r"is_married"
+    r")(?:_|$)",
+    flags=re.IGNORECASE,
+)
 
 
 def find_tax_status_component_local_input_issues(content: str) -> list[str]:
@@ -3556,9 +3571,13 @@ def find_tax_status_component_local_input_issues(content: str) -> list[str]:
 
     issues: list[str] = []
     for name, _kind, formula in _rulespec_rule_formulas(payload):
-        for identifier in sorted(
-            _formula_local_identifiers(formula) & _US_TAX_STATUS_COMPONENT_NAMES
-        ):
+        protected_identifiers = {
+            identifier
+            for identifier in _formula_local_identifiers(formula)
+            if identifier in _US_TAX_STATUS_COMPONENT_NAMES
+            or _US_TAX_STATUS_COMPONENT_FRAGMENT_PATTERN.search(identifier)
+        }
+        for identifier in sorted(protected_identifiers):
             if identifier in available_symbols:
                 continue
             issues.append(

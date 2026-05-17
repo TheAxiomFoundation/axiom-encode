@@ -533,6 +533,8 @@ Hard requirements:
   `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`.
 - Do not replace filing-status components with local status inputs such as
   `taxpayer_is_surviving_spouse`, `surviving_spouse`, or `head_of_household`.
+  This also prohibits compound status predicates such as
+  `individual_is_not_married_and_is_not_surviving_spouse`.
   Those are derived legal classifications; import their source-backed RuleSpec
   outputs or defer the affected output until those upstream definitions exist.
 - Every substantive numeric occurrence in `./source.txt` must be represented by

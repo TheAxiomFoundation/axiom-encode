@@ -7692,6 +7692,28 @@ rules:
     )
 
 
+def test_tax_status_component_local_input_rejects_compound_status_fact():
+    content = """format: rulespec/v1
+rules:
+  - name: applicable_aged_or_blind_additional_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_is_not_married_and_is_not_surviving_spouse: higher_amount else: regular_amount
+"""
+
+    issues = find_tax_status_component_local_input_issues(content)
+
+    assert any(
+        "individual_is_not_married_and_is_not_surviving_spouse" in issue
+        for issue in issues
+    )
+
+
 def test_tax_status_component_local_input_allows_imported_surviving_spouse():
     content = """format: rulespec/v1
 imports:
