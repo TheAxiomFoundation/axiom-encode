@@ -4136,6 +4136,55 @@ rules:
         assert "`rules: []`" in prompt
         assert "`*_before_exemption`" in prompt
 
+    def test_build_eval_prompt_does_not_defer_taxable_income_for_incidental_extent(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_file = policy_repo_root / "statutes" / "26" / "63" / "c.yaml"
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_standard_deduction
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 63",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Taxable income means gross income minus deductions. Unless an "
+                "individual elects to itemize deductions, taxable income means "
+                "adjusted gross income minus the standard deduction. The taxpayer "
+                "and spouse consent to assessment of any deficiency to the extent "
+                "attributable to such change of election."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 63",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="63.yaml",
+            target_ref_prefix="us:statutes/26/63",
+            include_tests=True,
+        )
+
+        assert "Target-specific schema limit" not in prompt
+        assert "Taxpayer elections such as electing to itemize deductions" in prompt
+        assert "Outputs named `taxable_income`" in prompt
+
     def test_build_eval_prompt_recommends_final_deduction_imports(
         self, tmp_path
     ):

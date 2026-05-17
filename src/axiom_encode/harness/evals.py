@@ -2995,6 +2995,8 @@ RuleSpec requirements:
   relation instead of replacing the import with a local cross-reference amount.
   Do not replace a specific upstream output with a broad local input for all
   amounts described by that upstream source.
+- If an upstream output is already executable, do not replace it with a local
+  placeholder fact or compatibility alias.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
 - Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
 - If the requested source text includes a limitation, cap, exception, or
@@ -3082,6 +3084,12 @@ RuleSpec requirements:
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
 - Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
+- Taxpayer elections such as electing to itemize deductions are legitimate
+  election-state inputs to the legal computation. Do not mark a taxable-income
+  rule unsupported merely because the taxpayer could optimize that election
+  outside the core RuleSpec runtime; encode the statutory branches keyed by the
+  election fact, and let oracle/comparison harnesses run multiple scenarios when
+  they need optimization.
 - If that reduction has rounding alternatives, every branch must be floored: use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`, never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
 - US tax filing status is a derived legal classification, not a downstream
   boundary fact. Do not create local `#input.filing_status` facts in a rule or
@@ -3484,7 +3492,7 @@ def _format_partial_extent_child_schema_limit_guidance(
     """Return target-specific guidance for unsupported partial child rewiring."""
     if not target_ref_prefix:
         return ""
-    if not re.search(r"\bto\s+the\s+extent\b", source_text, flags=re.IGNORECASE):
+    if not _source_has_partial_extent_child_rewiring_limit(source_text):
         return ""
     child_prefix = f"{target_ref_prefix.rstrip('/')}/"
     child_terminal_refs: list[str] = []
@@ -3510,6 +3518,21 @@ Target-specific schema limit:
   `*_before_exemption` executable output or an adjusted local wage/base helper
   for this parent.
 """
+
+
+def _source_has_partial_extent_child_rewiring_limit(source_text: str) -> bool:
+    """Return true for partial exemptions that cannot be rewired through children."""
+    normalized = " ".join(source_text.split())
+    for match in re.finditer(r"\bto\s+the\s+extent\b", normalized, re.IGNORECASE):
+        window = normalized[max(0, match.start() - 180) : match.end() + 180]
+        if re.search(
+            r"\b(?:exempt|exemption|excluded|exclusion|not\s+subject|"
+            r"subject\s+exclusively|taxes?\s+imposed)\b",
+            window,
+            re.IGNORECASE,
+        ):
+            return True
+    return False
 
 
 def _format_child_exception_import_guidance(

@@ -239,6 +239,8 @@ Hard requirements:
   a formula needs a local true/false fact, reference a descriptive bare fact
   name in the formula and put that fact in tests as
   `<jurisdiction>:<repo-path>#input.<fact>`.
+- If an upstream output is already executable, do not replace it with a local
+  placeholder fact or compatibility alias.
 - If the requested source text includes a limitation, cap, exception, or
   cross-referenced subparagraph that changes the final exported amount, the
   final exported amount must apply that limitation. If a copied sibling/context
@@ -454,6 +456,12 @@ Hard requirements:
   be negative. Wrap the final selected branch at zero, including both sides of
   conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`,
   not `if condition: branch_a else: branch_b`.
+- Taxpayer elections such as electing to itemize deductions are legitimate
+  election-state inputs to the legal computation. Do not mark a taxable-income
+  rule unsupported merely because the taxpayer could optimize that election
+  outside the core RuleSpec runtime; encode the statutory branches keyed by the
+  election fact, and let oracle/comparison harnesses run multiple scenarios when
+  they need optimization.
 - If that reduction has rounding alternatives, every branch must be floored:
   use `if round_up: max(0, maximum - ceil(reduction)) else: max(0, floor(maximum - reduction))`,
   never `if round_up: maximum - ceil(reduction) else: floor(maximum - reduction)`.
