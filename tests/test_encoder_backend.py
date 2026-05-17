@@ -79,6 +79,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "does not satisfy the dependency" in ENCODER_PROMPT
     assert "is not an executable dependency" in ENCODER_PROMPT
     assert "Never drop the jurisdiction prefix" in ENCODER_PROMPT
+    assert "listed under invalid copied local inputs" in ENCODER_PROMPT
+    assert "do not preserve, rename, or recreate" in ENCODER_PROMPT
     assert "round the" in prompt
     assert "increase before adding it to the base amount" in prompt
     assert "17300, not 17325" in prompt
@@ -90,6 +92,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "does not satisfy the dependency" in prompt
     assert "is not an executable dependency" in prompt
     assert "Never drop the jurisdiction prefix" in prompt
+    assert "listed under invalid copied local inputs" in prompt
+    assert "do not preserve, rename, or recreate" in prompt
 
 
 class TestClaudeCodeBackend:

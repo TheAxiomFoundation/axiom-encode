@@ -2511,6 +2511,8 @@ class TestEvalPrompt:
         assert "does not satisfy the dependency" in prompt
         assert "is not an executable dependency" in prompt
         assert "Never drop the jurisdiction prefix" in prompt
+        assert "listed under invalid copied local inputs" in prompt
+        assert "do not preserve, rename, or recreate" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
         self, tmp_path

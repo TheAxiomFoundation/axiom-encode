@@ -96,8 +96,9 @@ Hard requirements:
 - Preserve the existing factual input surface used by copied executable
   formulas and companion tests. Do not replace established local inputs such as
   `long_term_capital_gains` or `qualified_dividend_income` with newly invented
-  upstream-sounding input names unless the task is an explicit source-grounded
-  migration that also updates downstream tests, imports, and oracle mappings.
+  upstream-sounding input names unless the name is listed as an invalid copied
+  input or the task is an explicit source-grounded migration that also updates
+  downstream tests, imports, and oracle mappings.
 - If a copied child-fragment file encodes a limitation, branch, amount, or
   predicate needed by the requested parent provision, import the child output
   and compose it. Do not copy the child formula or its factual inputs into the
@@ -392,14 +393,16 @@ Hard requirements:
   existing output from `dtype: Money` to `dtype: Judgment` just because the
   name sounds like an allowance/applicability decision.
 - Preserve existing factual input slots referenced by copied formulas and
-  companion tests. Do not swap a working local input surface for new friendly
-  names or upstream abstractions unless the generated bundle performs a full,
-  source-grounded surface migration.
-- For cross-reference boundary facts that remain local because the cited
-  source is not imported yet, keep the legal pointer in the identifier. For
-  example, preserve `applicable_amount_in_effect_under_section_<section>` unless
-  an actual import replaces it. Do not shorten it to a
-  generic name like `applicable_amount_in_effect`.
+  companion tests, except names listed under invalid copied local inputs. Do
+  not swap a working local input surface for new friendly names or upstream
+  abstractions unless the generated bundle performs a full, source-grounded
+  surface migration.
+- For cross-reference boundary facts that remain local because the cited source
+  is not present in context at all, keep the legal pointer in the identifier.
+  If context for the cited source is present but unsupported, deferred, empty,
+  or missing the needed export, do not preserve, rename, or recreate the local
+  cross-reference fact; import a real export, defer the affected executable
+  surface, or encode a source-grounded overriding branch that avoids it.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
 - When source text uses amendment markup like `[old] new`, treat the bracketed
