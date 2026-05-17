@@ -201,7 +201,12 @@ Hard requirements:
   `module.status: deferred` or `module.status: entity_not_supported` with
   `rules: []`. In a mixed provision, omit or defer only the affected executable
   surface and still encode independent source-backed outputs that do not require
-  the unavailable dependency. If a source-grounded overriding rule makes the
+  the unavailable dependency. For each omitted/deferred executable output in a
+  mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
+  targets for `output` and every `blocked_by` dependency, a plain-language
+  `reason`, and `source_values` entries for any source-stated local parameters
+  retained only for that deferred output. Do not create tests for deferred
+  outputs. If a source-grounded overriding rule makes the
   unavailable branch zero or unreachable for the encoded effective period,
   encode that overriding branch instead of deferring the whole module. If that
   section is present in repo context, import it and use its exported output
@@ -541,8 +546,11 @@ Hard requirements:
   modifier amount, do not define the modifier as an unused scalar while
   computing the affected numeric output without it. Use the modifier in the
   affected formula, or defer that affected output until the upstream branch
-  condition can be encoded/imported. Do not solve this by deleting the affected
-  numeric output while leaving the modifier parameter stranded.
+  condition can be encoded/imported. If you defer the affected output, list the
+  deferred output under `module.deferred_outputs[]` and list the absolute target
+  for the retained modifier parameter under that record's `source_values`.
+  Do not solve this by deleting the affected numeric output while leaving the
+  modifier parameter stranded.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.

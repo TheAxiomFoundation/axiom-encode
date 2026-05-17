@@ -2971,7 +2971,12 @@ RuleSpec requirements:
   `module.status: deferred` or `module.status: entity_not_supported` with
   `rules: []`. In a mixed provision, omit or defer only the affected executable
   surface and still encode independent source-backed outputs that do not require
-  the unavailable dependency. If a source-grounded overriding rule makes the
+  the unavailable dependency. For each omitted/deferred executable output in a
+  mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
+  targets for `output` and every `blocked_by` dependency, a plain-language
+  `reason`, and `source_values` entries for any source-stated local parameters
+  retained only for that deferred output. Do not create tests for deferred
+  outputs. If a source-grounded overriding rule makes the
   unavailable branch zero or unreachable for the encoded effective period,
   encode that overriding branch instead of deferring the whole module. If that
   section is present in repo context, import it and use its exported output
@@ -3134,8 +3139,11 @@ RuleSpec requirements:
   modifier amount, do not define the modifier as an unused scalar while
   computing the affected numeric output without it. Use the modifier in the
   affected formula, or defer that affected output until the upstream branch
-  condition can be encoded/imported. Do not solve this by deleting the affected
-  numeric output while leaving the modifier parameter stranded.
+  condition can be encoded/imported. If you defer the affected output, list the
+  deferred output under `module.deferred_outputs[]` and list the absolute target
+  for the retained modifier parameter under that record's `source_values`.
+  Do not solve this by deleting the affected numeric output while leaving the
+  modifier parameter stranded.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
@@ -3782,11 +3790,14 @@ dependencies. Do not create local facts such as
 `*_under_section_{example_suffix}`, or `*_provided_in_section_{example_suffix}`.
 If an executable output would depend on any missing target above, emit
 `module.status: deferred` or `module.status: entity_not_supported` for that
-surface, preserve the source text in `module.summary`, and leave any tests for
-that deferred surface empty. Do not use top-level `module.status` merely because
-some other branch in the same source has a missing citation. If an independent
-output can be encoded using available imports or source-grounded local facts,
-encode it and omit or defer only the blocked surface. If a copied child output
+surface, or add a `module.deferred_outputs[]` record for that output when the
+module has independent executable rules. Preserve the source text in
+`module.summary`, use absolute `output` and `blocked_by` targets in deferred
+records, and leave any tests for that deferred surface empty. Do not use
+top-level `module.status` merely because some other branch in the same source
+has a missing citation. If an independent output can be encoded using available
+imports or source-grounded local facts, encode it and omit or defer only the
+blocked surface. If a copied child output
 already covers the subsection containing the missing citation, import that child
 output instead of treating the child's internal missing citation as a blocker for
 the parent composition. Encode the upstream cited source first, then retry the

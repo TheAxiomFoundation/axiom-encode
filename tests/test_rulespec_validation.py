@@ -31,6 +31,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_child_fragment_reencoding_issues,
     find_copied_cross_reference_source_issues,
     find_current_year_final_amount_table_issues,
+    find_deferred_output_issues,
     find_deprecated_source_url_issues,
     find_empty_rules_module_issues,
     find_exception_test_coverage_issues,
@@ -8030,6 +8031,101 @@ rules:
     assert any(
         "has no affected numeric derived output" in issue
         and "`unmarried_not_surviving_spouse_additional_amount`" in issue
+        for issue in issues
+    )
+
+
+def test_unused_modifier_parameter_allows_explicit_deferred_output():
+    content = """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/26/63/f#additional_standard_deduction_amount_under_subsection_f
+      reason: Requires upstream surviving-spouse status before selecting the substituted amount.
+      blocked_by:
+        - us:statutes/26/2/a#surviving_spouse
+      source_values:
+        - us:statutes/26/63/f#unmarried_not_surviving_spouse_additional_amount
+rules:
+  - name: unmarried_not_surviving_spouse_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "applied by substituting $750 for $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 750
+  - name: blind_under_subsection
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: visual_acuity <= 0.1
+"""
+
+    assert find_deferred_output_issues(content) == []
+    assert find_unused_modifier_parameter_issues(content) == []
+
+
+def test_unused_modifier_parameter_rejects_unlinked_deferred_output():
+    content = """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:statutes/26/63/f#additional_standard_deduction_amount_under_subsection_f
+      reason: Requires upstream surviving-spouse status before selecting the substituted amount.
+      blocked_by:
+        - us:statutes/26/2/a#surviving_spouse
+rules:
+  - name: unmarried_not_surviving_spouse_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              excerpt: "applied by substituting $750 for $600"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 750
+"""
+
+    issues = find_unused_modifier_parameter_issues(content)
+
+    assert any("module.deferred_outputs[].source_values" in issue for issue in issues)
+
+
+def test_deferred_output_rejects_bare_output_and_blocker():
+    content = """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: additional_standard_deduction_amount_under_subsection_f
+      reason: Missing upstream status.
+      blocked_by:
+        - surviving_spouse
+      source_values:
+        - unmarried_not_surviving_spouse_additional_amount
+rules: []
+"""
+
+    issues = find_deferred_output_issues(content)
+
+    assert any("must use an absolute RuleSpec output" in issue for issue in issues)
+    assert any(
+        "blocked_by" in issue and "absolute RuleSpec target" in issue
+        for issue in issues
+    )
+    assert any(
+        "source_values" in issue and "absolute RuleSpec target" in issue
         for issue in issues
     )
 

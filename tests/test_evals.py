@@ -432,6 +432,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Do not assert raw `kind: parameter` rules directly" in prompt
     assert "assert derived outputs that consume the parameters" in prompt
     assert "modifier parameter stranded" in prompt
+    assert "module.deferred_outputs[]" in prompt
+    assert "source_values" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
     assert "never assign prohibited derived" in prompt
@@ -439,7 +441,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         "classifications such as any imported or local `#input.filing_status`" in prompt
     )
     assert "omit that assertion or encode the" in prompt
-    assert "upstream filing-status sources first" in prompt
+    assert "upstream filing-status" in prompt
+    assert "sources first" in prompt
     assert "#relation.<name>` input value must be a YAML list of row mappings" in prompt
     assert "member_of_household: [- true]" in prompt
     assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
@@ -2642,6 +2645,8 @@ class TestEvalPrompt:
         assert (
             "In a mixed provision, omit or defer only the affected executable" in prompt
         )
+        assert "module.deferred_outputs[]" in prompt
+        assert "Do not create tests for deferred" in prompt
         assert (
             "only when no executable rule in the requested source can be represented"
             in prompt
@@ -3273,6 +3278,8 @@ class TestEvalPrompt:
         )
         assert "leave any tests" in prompt
         assert "deferred surface empty" in prompt
+        assert "module.deferred_outputs[]" in prompt
+        assert "absolute `output` and `blocked_by` targets" in prompt
         assert "copied child output" in prompt
         assert "parent composition" in prompt
 
@@ -3313,7 +3320,8 @@ class TestEvalPrompt:
             "emit `module.status: deferred` or `module.status: entity_not_supported`"
             in prompt
         )
-        assert "omit or defer only the blocked surface" in prompt
+        assert "omit or defer only the" in prompt
+        assert "blocked surface" in prompt
 
     def test_build_eval_prompt_for_proration_tests_prefers_exact_division(
         self, tmp_path

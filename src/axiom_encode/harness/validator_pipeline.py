@@ -3615,6 +3615,97 @@ _NUMERIC_DERIVED_DTYPES = {
 }
 
 
+def find_deferred_output_issues(content: str) -> list[str]:
+    """Validate explicit non-executable deferred output provenance."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict) or "deferred_outputs" not in module:
+        return []
+
+    deferred_outputs = module.get("deferred_outputs")
+    if not isinstance(deferred_outputs, list):
+        return ["`module.deferred_outputs` must be a list of deferred output records."]
+
+    issues: list[str] = []
+    for index, record in enumerate(deferred_outputs):
+        label = f"module.deferred_outputs[{index}]"
+        if not isinstance(record, dict):
+            issues.append(f"{label} must be a mapping.")
+            continue
+
+        output = str(record.get("output") or "").strip()
+        output_ref = _parse_rulespec_target(output) if output else None
+        if output_ref is None or output_ref.symbol is None:
+            issues.append(
+                f"{label}.output must use an absolute RuleSpec output target "
+                "such as `us:statutes/26/63/f#additional_amount`."
+            )
+
+        reason = str(record.get("reason") or "").strip()
+        if not reason:
+            issues.append(f"{label}.reason is required.")
+
+        blocked_by = record.get("blocked_by")
+        if not isinstance(blocked_by, list) or not blocked_by:
+            issues.append(
+                f"{label}.blocked_by must list the absolute RuleSpec targets "
+                "that prevent executable lowering."
+            )
+            continue
+        for blocker in blocked_by:
+            blocker_text = str(blocker or "").strip()
+            blocker_ref = _parse_rulespec_target(blocker_text) if blocker_text else None
+            if blocker_ref is None or blocker_ref.symbol is None:
+                issues.append(
+                    f"{label}.blocked_by entry `{blocker_text}` must be an "
+                    "absolute RuleSpec target with a rule fragment."
+                )
+
+        source_values = record.get("source_values")
+        if source_values is not None:
+            if not isinstance(source_values, list) or not source_values:
+                issues.append(
+                    f"{label}.source_values must list absolute RuleSpec targets "
+                    "for source-stated values retained for the deferred output."
+                )
+                continue
+            for value in source_values:
+                value_text = str(value or "").strip()
+                value_ref = _parse_rulespec_target(value_text) if value_text else None
+                if value_ref is None or value_ref.symbol is None:
+                    issues.append(
+                        f"{label}.source_values entry `{value_text}` must be an "
+                        "absolute RuleSpec target with a rule fragment."
+                    )
+
+    return issues
+
+
+def _deferred_output_source_value_symbols(payload: dict[str, Any]) -> set[str]:
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return set()
+    deferred_outputs = module.get("deferred_outputs")
+    if not isinstance(deferred_outputs, list):
+        return set()
+
+    symbols: set[str] = set()
+    for record in deferred_outputs:
+        if not isinstance(record, dict):
+            continue
+        source_values = record.get("source_values")
+        if not isinstance(source_values, list):
+            continue
+        for value in source_values:
+            value_text = str(value or "").strip()
+            value_ref = _parse_rulespec_target(value_text) if value_text else None
+            if value_ref is not None and value_ref.symbol is not None:
+                symbols.add(value_ref.symbol)
+    return symbols
+
+
 def find_unused_modifier_parameter_issues(content: str) -> list[str]:
     """Reject monetary formulas that ignore source-stated modifier parameters."""
     payload = _rulespec_payload(content)
@@ -3651,6 +3742,7 @@ def find_unused_modifier_parameter_issues(content: str) -> list[str]:
     if not modifier_parameters:
         return []
 
+    deferred_source_value_symbols = _deferred_output_source_value_symbols(payload)
     numeric_derived_formulas: dict[str, str] = {}
     for name, kind, formula, _source, rule in _rulespec_rule_formula_rule_records(
         payload
@@ -3671,13 +3763,17 @@ def find_unused_modifier_parameter_issues(content: str) -> list[str]:
     issues: list[str] = []
     if not numeric_derived_formulas:
         for parameter_name in sorted(set(modifier_parameters)):
+            if parameter_name in deferred_source_value_symbols:
+                continue
             issues.append(
                 "Source-stated modifier parameter has no affected numeric "
                 f"derived output: `{parameter_name}` appears to encode a "
                 "substitution/modification amount, but the module has no "
                 "numeric derived output that can apply it. Encode the affected "
                 "numeric output using the modifier, or defer that affected "
-                "output until the upstream branching condition is encoded."
+                "output and list this source value under "
+                "`module.deferred_outputs[].source_values` until the upstream "
+                "branching condition is encoded."
             )
         return issues
 
@@ -3687,6 +3783,8 @@ def find_unused_modifier_parameter_issues(content: str) -> list[str]:
             for formula in numeric_derived_formulas.values()
         ):
             continue
+        if parameter_name in deferred_source_value_symbols:
+            continue
         derived_names = ", ".join(
             f"`{name}`" for name in sorted(numeric_derived_formulas)
         )
@@ -3695,7 +3793,8 @@ def find_unused_modifier_parameter_issues(content: str) -> list[str]:
             f"derived output: `{parameter_name}` appears to encode a "
             f"substitution/modification amount, but {derived_names} ignores it. "
             "Use the modifier in the affected formula or defer the affected "
-            "output until the upstream branching condition is encoded."
+            "output until the upstream branching condition is encoded and list "
+            "this source value under `module.deferred_outputs[].source_values`."
         )
 
     return issues
@@ -10000,6 +10099,7 @@ class ValidatorPipeline:
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
+        issues.extend(find_deferred_output_issues(content))
         issues.extend(find_tax_status_component_local_input_issues(content))
         issues.extend(find_unused_modifier_parameter_issues(content))
         issues.extend(find_tax_filing_status_enum_representation_issues(content))
