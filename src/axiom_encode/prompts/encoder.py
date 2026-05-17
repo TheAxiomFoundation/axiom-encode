@@ -129,6 +129,10 @@ Hard requirements:
 - If copied context listings include exported symbols as `import_target#name`,
   use those exact references in `imports:` and proof atoms when composing from
   context.
+- Never drop the jurisdiction prefix from copied context imports. If context
+  lists `us:statutes/26/24/h#some_output`, the top-level import and any proof
+  import target must use exactly `us:statutes/26/24/h#some_output`, not
+  `statutes/26/24/h#some_output`.
 - In formulas, reference imported exports by their bare local rule name after
   adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
 - Do not create standalone small-number parameters just to restate prose such
@@ -553,6 +557,8 @@ Hard requirements:
      map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
      required upstream context is missing, emit a typed missing-upstream/dependency
      request instead.
+     Never drop the jurisdiction prefix from copied context imports: use
+     `us:statutes/...#symbol`, not `statutes/...#symbol`.
 
 Minimal shape:
 

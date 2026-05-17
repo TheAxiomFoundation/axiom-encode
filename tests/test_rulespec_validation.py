@@ -498,6 +498,21 @@ rules: []
     assert "scalar string" in issues[0]
 
 
+def test_import_shape_rejects_unprefixed_targets():
+    content = """format: rulespec/v1
+imports:
+  - statutes/26/24/h#ctc_refundable_maximum_under_subsection_h
+rules: []
+"""
+
+    issues = find_import_shape_issues(content)
+
+    assert len(issues) == 1
+    assert "Import target invalid" in issues[0]
+    assert "imports[0]" in issues[0]
+    assert "absolute RuleSpec targets" in issues[0]
+
+
 def _mock_corpus_source_text(monkeypatch, text: str) -> None:
     monkeypatch.setattr(
         "axiom_encode.harness.validator_pipeline._fetch_corpus_source_text",

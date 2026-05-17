@@ -6020,6 +6020,15 @@ def find_import_shape_issues(content: str) -> list[str]:
         issues: list[str] = []
         for index, raw_item in enumerate(imports):
             if isinstance(raw_item, str):
+                import_item = raw_item.strip().strip("\"'")
+                import_base = import_item.split("#", 1)[0].strip()
+                if import_base and ":" not in import_base:
+                    issues.append(
+                        "Import target invalid: "
+                        f"`imports[{index}]` uses `{raw_item}`. Imports must use "
+                        "absolute RuleSpec targets like "
+                        "`us:statutes/26/45A/a#base_year_1993_indian_employment_costs`."
+                    )
                 continue
             issues.append(
                 "Import shape invalid: "

@@ -2653,6 +2653,10 @@ Import and context rules:
 - If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
+- Never drop the jurisdiction prefix from copied context imports. If context
+  lists `us:statutes/26/24/h#some_output`, the top-level import and any proof
+  import target must use exactly `us:statutes/26/24/h#some_output`, not
+  `statutes/26/24/h#some_output`.
 - In formulas, reference imported exports by their bare local rule name after adding an `imports:` entry; never write an absolute `us:...#rule_name` reference inside a formula.
 - If a copied current target file already has executable `parameter`, `derived`, or `data_relation` rules, do not replace it with `module.status: deferred`, `module.status: entity_not_supported`, or `rules: []`. Preserve the executable scope and make the smallest source-faithful repair.
 - If a copied current target file is present, treat it as the baseline to repair. Preserve existing rule names, imports, companion-test output keys, and public formulas unless `./source.txt` proves a specific rule legally wrong. Do not rewrite the whole file or rename established outputs just to improve style.
@@ -3132,6 +3136,8 @@ RuleSpec requirements:
      map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
      required upstream context is missing, emit a typed missing-upstream/dependency
      request instead.
+     Never drop the jurisdiction prefix from copied context imports: use
+     `us:statutes/...#symbol`, not `statutes/...#symbol`.
 {target_hint}
 Additional encoding guidance:
 {additional_guidance}
