@@ -9832,6 +9832,12 @@ class ValidatorPipeline:
                     import_base,
                     identifier,
                     rulespec_file=rulespec_file,
+                ) or self._imports_cover_relation_field_placeholder(
+                    import_items,
+                    import_base,
+                    identifier,
+                    formula=formula,
+                    rulespec_file=rulespec_file,
                 ):
                     continue
                 key = (str(block["name"]), identifier)
@@ -9905,6 +9911,12 @@ class ValidatorPipeline:
                     import_base,
                     identifier,
                     rulespec_file=rulespec_file,
+                ) or self._imports_cover_relation_field_placeholder(
+                    import_items,
+                    import_base,
+                    identifier,
+                    formula=formula,
+                    rulespec_file=rulespec_file,
                 ):
                     continue
                 key = (str(block["name"]), identifier)
@@ -9975,6 +9987,59 @@ class ValidatorPipeline:
                 if identifier in self._extract_defined_symbols(import_file.read_text()):
                     return True
         return False
+
+    def _imports_cover_relation_field_placeholder(
+        self,
+        import_items: list[str],
+        expected_path: str,
+        identifier: str,
+        *,
+        formula: str,
+        rulespec_file: Path,
+    ) -> bool:
+        """Return whether a section-looking relation only exposes imported fields."""
+        matches = list(
+            re.finditer(rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])", formula)
+        )
+        if not matches:
+            return False
+
+        expected = expected_path.strip("/")
+        imported_fields: set[str] = set()
+        for import_item in import_items:
+            normalized = self._normalize_rulespec_import_path(import_item)
+            if not self._imports_cover_path({normalized}, expected):
+                continue
+
+            fragment = self._import_item_fragment(import_item)
+            if fragment:
+                imported_fields.add(fragment)
+
+            import_file = _resolve_rulespec_import_file_static(
+                import_item,
+                rules_file=rulespec_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+            if import_file is None:
+                continue
+            with contextlib.suppress(OSError):
+                imported_fields.update(self._extract_defined_symbols(import_file.read_text()))
+
+        if not imported_fields:
+            return False
+
+        covered_any = False
+        for match in matches:
+            field_match = re.match(
+                r"\.(?P<field>[A-Za-z_][A-Za-z0-9_]*)",
+                formula[match.end() :],
+            )
+            if not field_match:
+                return False
+            if field_match.group("field") not in imported_fields:
+                return False
+            covered_any = True
+        return covered_any
 
     def _import_item_fragment(self, import_item: str) -> str | None:
         """Return the imported symbol fragment for an import item, if any."""

@@ -5183,6 +5183,65 @@ rules:
     assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
 
 
+def test_cross_reference_placeholder_allows_relation_field_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "151.yaml"
+    imported_file = repo / "statutes" / "26" / "911" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: section_911_amount_excluded_from_gross_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: foreign_earned_income_exclusion
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/911/a#section_911_amount_excluded_from_gross_income
+module:
+  summary: |-
+    Modified adjusted gross income means adjusted gross income increased by any
+    amount excluded from gross income under section 911, except as otherwise
+    provided.
+rules:
+  - name: section_911_excluded_individual_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: section_911_excluded_individual_of_tax_unit
+      arity: 2
+      arguments:
+        - TaxUnit
+        - Person
+  - name: senior_deduction_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          adjusted_gross_income
+          + sum(section_911_excluded_individual_of_tax_unit.section_911_amount_excluded_from_gross_income)
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_cross_reference_exception_placeholders(rules_file) == []
+    assert pipeline._check_encoded_cross_reference_placeholders(rules_file) == []
+
+
 def test_encoded_cross_reference_placeholder_rejects_under_section_input_when_source_exists(
     tmp_path,
 ):
