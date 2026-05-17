@@ -2625,6 +2625,8 @@ class TestEvalPrompt:
         )
         assert "`module.status: entity_not_supported`" in prompt
         assert "`module.status: deferred`" in prompt
+        assert "In a mixed provision, omit or defer only the affected executable" in prompt
+        assert "only when no executable rule in the requested source can be represented" in prompt
         assert "leave the companion `.test.yaml` empty" in prompt
         assert "assertions against deferred symbols" in prompt
 

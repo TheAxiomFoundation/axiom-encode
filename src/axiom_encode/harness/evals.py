@@ -2895,10 +2895,16 @@ RuleSpec requirements:
   not available as RuleSpec. If the citation appears in definition,
   same-meaning, treated-as, rules-similar, exception, exclusion, `unless`,
   `notwithstanding`, shall-not-apply, or not-treated-as logic and the cited
-  source is unavailable, emit `module.status: deferred` or
-  `module.status: entity_not_supported` with `rules: []` instead of inventing a
-  local cross-reference fact. If that section is present in repo context, import
-  it and use its exported output instead.
+  source is unavailable, do not invent a local cross-reference fact. If the
+  dependency is essential to the only requested executable concept, emit
+  `module.status: deferred` or `module.status: entity_not_supported` with
+  `rules: []`. In a mixed provision, omit or defer only the affected executable
+  surface and still encode independent source-backed outputs that do not require
+  the unavailable dependency. If a source-grounded overriding rule makes the
+  unavailable branch zero or unreachable for the encoded effective period,
+  encode that overriding branch instead of deferring the whole module. If that
+  section is present in repo context, import it and use its exported output
+  instead.
 - An import only resolves a cross-reference when the imported file exports the
   actual referenced legal concept, amount, status, test, or definition needed by
   the formula. Importing an adjacent upstream output only as proof, while the
@@ -2932,11 +2938,13 @@ RuleSpec requirements:
   final exported amount must apply that limitation. If a copied sibling/context
   file already encodes the limitation, import it and compose with it instead of
   duplicating or ignoring it.
-- If the copied target file is already executable, do not replace it with
-  `module.status: deferred` merely because upstream cross-references are not
-  fully encoded yet. Preserve the executable public surface and improve the
-  source-faithful formulas/tests; only defer an already executable target when
-  the existing executable surface is legally impossible to preserve.
+- If the copied target file is already executable, do not let its old surface
+  force local placeholders or compatibility names. Rebuild, drop, or defer
+  individual outputs as needed. Prefer retaining or replacing source-backed
+  independent outputs that can be encoded without unresolved dependencies; use
+  top-level `module.status: deferred` or `module.status: entity_not_supported`
+  only when no executable rule in the requested source can be represented
+  faithfully.
 - If the requested source itself defines a legal status or test through
   relationship, age, abode/residence, support, filing, income, or tie-breaker
   conditions, encode those conditions as executable predicates with boundary
