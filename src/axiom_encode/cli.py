@@ -5126,6 +5126,75 @@ def _remove_invalid_test_input_refs(
     return sorted(invalid_refs)
 
 
+_UNREFERENCED_PROOF_IMPORT_RE = re.compile(
+    r"Proof import not referenced:\s*`(?P<rule>[^`]+)`\s+"
+    r"proof imports\s+`(?P<symbol>[^`]+)`"
+)
+
+
+def _remove_unreferenced_proof_import_atoms(
+    *,
+    rules_file: Path,
+    issues: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    stale_pairs: set[tuple[str, str]] = set()
+    for issue in issues:
+        for match in _UNREFERENCED_PROOF_IMPORT_RE.finditer(str(issue)):
+            stale_pairs.add((match["rule"].strip(), match["symbol"].strip()))
+    if not stale_pairs:
+        return []
+
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    removed: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not rule_name:
+            continue
+        metadata = rule.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        proof = metadata.get("proof")
+        if not isinstance(proof, dict):
+            continue
+        atoms = proof.get("atoms")
+        if not isinstance(atoms, list):
+            continue
+
+        kept_atoms: list[object] = []
+        for atom in atoms:
+            if (
+                isinstance(atom, dict)
+                and str(atom.get("kind") or "").strip() == "import"
+                and isinstance(atom.get("import"), dict)
+            ):
+                imported_symbol = str(atom["import"].get("output") or "").strip()
+                pair = (rule_name, imported_symbol)
+                if pair in stale_pairs:
+                    removed.append(f"{rule_name}:{imported_symbol}")
+                    continue
+            kept_atoms.append(atom)
+        if len(kept_atoms) != len(atoms):
+            proof["atoms"] = kept_atoms
+
+    if not removed:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    return sorted(removed)
+
+
 def _imported_output_names(rules_file: Path) -> set[str]:
     try:
         payload = yaml.safe_load(rules_file.read_text()) or {}
@@ -6016,6 +6085,42 @@ def cmd_encode(args):
                         repaired_derived_cases
                     )
             if not can_apply:
+                repaired_proof_imports: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_unreferenced_proof_imports_for_apply(
+                            result,
+                            output_root=args.output,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_proof_imports.extend(repaired_refs)
+                    outcome["auto_repaired_unreferenced_proof_imports"] = (
+                        repaired_proof_imports
+                    )
+                    print(
+                        "  apply=auto_repaired_unreferenced_proof_imports:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_proof_imports:
+                    outcome["auto_repaired_unreferenced_proof_imports"] = (
+                        repaired_proof_imports
+                    )
+            if not can_apply:
                 repaired_input_refs: list[str] = []
                 while not can_apply:
                     repaired_refs = (
@@ -6382,6 +6487,28 @@ def _try_repair_generated_import_output_inputs_for_apply(
         test_file=test_file,
         repo_path=policy_repo_path,
         relative_output=relative_output,
+        issues=issues,
+    )
+
+
+def _try_repair_generated_unreferenced_proof_imports_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove proof-import atoms that validator proved are stale."""
+    if not issues:
+        return []
+
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _remove_unreferenced_proof_import_atoms(
+        rules_file=rules_file,
         issues=issues,
     )
 
