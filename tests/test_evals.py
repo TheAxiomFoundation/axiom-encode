@@ -429,9 +429,13 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
     assert "Do not assert raw `kind: parameter` rules directly" in prompt
-    assert "assert derived outputs that consume the parameters instead" in prompt
+    assert "assert derived outputs that consume the parameters" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
+    assert "never assign prohibited derived" in prompt
+    assert "classifications such as any imported or local `#input.filing_status`" in prompt
+    assert "omit that assertion or encode the" in prompt
+    assert "upstream filing-status sources first" in prompt
     assert "#relation.<name>` input value must be a YAML list of row mappings" in prompt
     assert "member_of_household: [- true]" in prompt
     assert "Proof inventory: every proof atom uses only an allowed `kind`" in prompt
