@@ -82,6 +82,10 @@ Hard requirements:
   and public formulas unless `./source.txt` proves a specific rule legally
   wrong. Do not rewrite the whole file or rename established outputs just to
   improve style.
+- Existing executable output names are public API contracts. If a copied output
+  is source-backed but its name is less clear than a new alternative, keep the
+  existing name and improve the formula/proof/description around it. Do not
+  replace it with a clearer synonym.
 - For every retained executable output in an existing copied target file,
   preserve its public executable surface: local `name`, `kind`, `entity`,
   `dtype`, `period`, `unit`, `indexed_by`, and every existing

@@ -414,6 +414,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "period: Day" in prompt
     assert "never use bare `YYYY-MM-DD` shorthand" in prompt
     assert "Do not preserve existing `#input.filing_status`" in prompt
+    assert "Existing executable output names are public API contracts" in prompt
     assert "applicable_amount_in_effect_under_section_<section>" in prompt
     assert "Do not put the date or year value in the fact name" in prompt
     assert "Never introduce an import cycle" in prompt
