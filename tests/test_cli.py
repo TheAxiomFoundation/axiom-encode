@@ -6320,6 +6320,92 @@ rules: []
         )
         assert "us:statutes/26/63#input.adjusted_gross_income" in updated
 
+    def test_apply_overlay_validation_removes_transitive_import_output_placeholders(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        dependent = policy_repo / "statutes/26/63.yaml"
+        dependent_test = dependent.with_name("63.test.yaml")
+        transitive = policy_repo / "statutes/26/224.yaml"
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        transitive.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
+rules: []
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/151
+  - us:statutes/26/224
+rules: []
+"""
+        )
+        dependent_test.write_text(
+            """- name: nonitemizer
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 100000
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
+  output:
+    us:statutes/26/63#taxable_income: 80000
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                content = Path(path).with_name("63.test.yaml").read_text()
+                if (
+                    "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
+                    in content
+                ):
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                validator_name="ci",
+                                error=(
+                                    "Test case `nonitemizer` execution failed: "
+                                    "dataset input "
+                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931` "
+                                    "must use an absolute legal RuleSpec reference "
+                                    "that resolves to an input slot, derived rule, "
+                                    "or parameter in the compiled program"
+                                ),
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        updated = supplemental[Path("statutes/26/63.test.yaml")]
+        assert (
+            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
+            not in updated
+        )
+        assert "us:statutes/26/63#input.adjusted_gross_income" in updated
+
     def test_apply_overlay_validation_rejects_generated_filing_status_input(
         self, tmp_path
     ):

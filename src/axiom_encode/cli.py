@@ -5109,6 +5109,24 @@ def _imported_output_names(rules_file: Path) -> set[str]:
     return names
 
 
+def _input_ref_is_import_output_placeholder(
+    input_ref: str,
+    *,
+    repo_path: Path,
+) -> bool:
+    if "#input." not in input_ref:
+        return False
+    import_base, input_name = input_ref.split("#input.", 1)
+    import_base = import_base.strip()
+    input_name = input_name.strip()
+    if not import_base or not input_name:
+        return False
+    import_file = _import_base_to_repo_file(import_base, repo_path=repo_path)
+    if import_file is None or not import_file.exists():
+        return False
+    return input_name in _imported_output_names(import_file)
+
+
 def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
     refs: set[str] = set()
     patterns = (
@@ -7034,7 +7052,12 @@ def _remove_invalid_dependent_test_inputs(
         for validator_result in validation.results.values():
             error = validator_result.error or ""
             for input_ref in _invalid_input_refs_from_issues([error]):
-                if input_ref.startswith(f"{target_ref}#input."):
+                if input_ref.startswith(
+                    f"{target_ref}#input."
+                ) or _input_ref_is_import_output_placeholder(
+                    input_ref,
+                    repo_path=overlay_repo,
+                ):
                     invalid_refs.add(input_ref)
         if not invalid_refs:
             continue
