@@ -523,12 +523,10 @@ Hard requirements:
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
-     defaults. If a test asserts an indexed `parameter` table output directly,
-     the test must assign every `indexed_by` key as `#input.<key>`; otherwise
-     assert the derived lookup output instead of the raw table. In ordinary
-     end-to-end tests, do not output raw indexed parameter tables at all. If a
-     local amount formula has a branch returning 0, include a companion case that
-     asserts that local output is 0.
+     defaults. Do not assert raw `kind: parameter` rules directly in companion
+     test `output:` blocks; assert derived outputs that consume the parameters
+     instead. If a local amount formula has a branch returning 0, include a
+     companion case that asserts that local output is 0.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived

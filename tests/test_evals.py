@@ -428,8 +428,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
-    assert "If a test asserts an indexed `parameter` table output directly" in prompt
-    assert "do not output raw indexed parameter tables at all" in prompt
+    assert "Do not assert raw `kind: parameter` rules directly" in prompt
+    assert "assert derived outputs that consume the parameters instead" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
     assert "#relation.<name>` input value must be a YAML list of row mappings" in prompt
