@@ -3610,7 +3610,7 @@ def _match_fragment_has_named_arm(fragment: str) -> bool:
 
 
 def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
-    """Reject nonnumeric `#input.filing_status` test assignments."""
+    """Reject `#input.filing_status` test assignments."""
     if not isinstance(test_cases, list):
         return []
 
@@ -3622,16 +3622,17 @@ def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
         inputs = test_case.get("input")
         if not isinstance(inputs, dict):
             continue
-        for key, value in inputs.items():
-            if _test_reference_fragment(key) != "input.filing_status":
+        for key in inputs:
+            if _test_reference_fragment(key) not in {
+                "input.filing_status",
+                "input.tax_filing_status",
+            }:
                 continue
-            if isinstance(value, bool) or value not in {0, 1, 2, 3, 4}:
-                issues.append(
-                    "Filing status test input must use numeric enum: "
-                    f"`{test_name}` assigns `{key}: {value}`. Use 0 single, "
-                    "1 joint return, 2 married filing separately, 3 head of "
-                    "household, or 4 surviving spouse / qualifying widow(er)."
-                )
+            issues.append(
+                "Filing status is a derived legal classification, not a factual "
+                f"input: test case `{test_name}` assigns filing status via "
+                f"`{key}`. Set the upstream filing-status leaf facts instead."
+            )
     return issues
 
 

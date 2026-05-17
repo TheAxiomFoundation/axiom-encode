@@ -3205,9 +3205,11 @@ RuleSpec requirements:
      inputs and relations needed by that imported output, including false facts.
      This does not override no-input guardrails: never assign prohibited derived
      classifications such as any imported or local `#input.filing_status` or
-     `#input.tax_filing_status`. If an imported output cannot be exercised
-     without those prohibited test inputs, omit that assertion or encode the
-     upstream filing-status sources first.
+     `#input.tax_filing_status`. This prohibition is absolute even when the
+     value is a numeric enum and even when the key belongs to an imported
+     module. If an imported output cannot be exercised without those prohibited
+     test inputs, omit that assertion or encode the upstream filing-status
+     sources first.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
      textual claim support is either direct corpus source support or a claim ID

@@ -7709,11 +7709,12 @@ def test_filing_status_test_input_rejects_string_value():
     issues = find_tax_filing_status_test_input_issues(test_cases)
 
     assert any(
-        "Filing status test input must use numeric enum" in issue for issue in issues
+        "Filing status is a derived legal classification" in issue
+        for issue in issues
     )
 
 
-def test_filing_status_test_input_allows_numeric_value():
+def test_filing_status_test_input_rejects_numeric_value():
     test_cases = [
         {
             "name": "joint_status_code",
@@ -7724,7 +7725,31 @@ def test_filing_status_test_input_allows_numeric_value():
         }
     ]
 
-    assert find_tax_filing_status_test_input_issues(test_cases) == []
+    issues = find_tax_filing_status_test_input_issues(test_cases)
+
+    assert any(
+        "Filing status is a derived legal classification" in issue
+        for issue in issues
+    )
+
+
+def test_filing_status_test_input_rejects_tax_filing_status_alias():
+    test_cases = [
+        {
+            "name": "joint_status_code",
+            "input": {
+                "us:policies/irs/rev-proc-2025-32/standard-deduction#input.tax_filing_status": 1
+            },
+            "output": {},
+        }
+    ]
+
+    issues = find_tax_filing_status_test_input_issues(test_cases)
+
+    assert any(
+        "Filing status is a derived legal classification" in issue
+        for issue in issues
+    )
 
 
 def test_filing_status_branch_allows_surviving_spouse_code():
