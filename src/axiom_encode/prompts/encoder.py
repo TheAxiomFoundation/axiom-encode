@@ -72,33 +72,19 @@ Hard requirements:
   formula must reference the imported child output by name rather than copying
   the child literal, even when the parent source excerpt includes the child
   subsection text.
-- If an existing copied target file already has executable `parameter`,
-  `derived`, or `data_relation` rules, do not replace it with
-  `module.status: deferred`, `module.status: entity_not_supported`, or
-  `rules: []`. Preserve the executable scope and make the smallest
-  source-faithful repair.
-- If an existing copied target file is present, treat it as the baseline to
-  repair. Preserve existing rule names, imports, companion-test output keys,
-  and public formulas unless `./source.txt` proves a specific rule legally
-  wrong. Do not rewrite the whole file or rename established outputs just to
-  improve style.
-- Existing executable output names are public API contracts. If a copied output
-  is source-backed but its name is less clear than a new alternative, keep the
-  existing name and improve the formula/proof/description around it. Do not
-  replace it with a clearer synonym.
-- For every retained executable output in an existing copied target file,
-  preserve its public executable surface: local `name`, `kind`, `entity`,
-  `dtype`, `period`, `unit`, `indexed_by`, and every existing
-  `versions[].effective_from`. Do not change `Employer` to `Business`,
-  `TaxUnit` to another entity, or alter period/unit/indexing just to match a
-  preferred modeling style. Changing an existing `dtype: Money` output to
-  `dtype: Judgment`, or vice versa, is a forbidden public-surface migration.
-- Preserve the existing factual input surface used by copied executable
-  formulas and companion tests. Do not replace established local inputs such as
-  `long_term_capital_gains` or `qualified_dividend_income` with newly invented
-  upstream-sounding input names unless the name is listed as an invalid copied
-  input or the task is an explicit source-grounded migration that also updates
-  downstream tests, imports, and oracle mappings.
+- Treat any existing copied target file as context, not as a backward
+  compatibility contract. You may drop, rename, rebuild, or defer existing
+  executable rules, tests, imports, and local factual inputs when the source
+  text, schema, canonical imports, or validation guardrails require a cleaner
+  encoding.
+- Do not preserve legacy executable surfaces merely because downstream tests or
+  oracle mappings used them. Source-faithful RuleSpec with canonical legal
+  pointers is more important than compatibility with old local names.
+- Never preserve, rename, or recreate a legacy local input if it conflicts with
+  the current no-placeholder, no-bare-friendly-name, filing-status, temporal,
+  import, or source-grounding rules. If an existing output cannot be represented
+  faithfully without such a local input, defer that executable surface or leave
+  it out of executable formulas.
 - If a copied child-fragment file encodes a limitation, branch, amount, or
   predicate needed by the requested parent provision, import the child output
   and compose it. Do not copy the child formula or its factual inputs into the
@@ -380,23 +366,13 @@ Hard requirements:
 - Do not copy the body of a cited cross-reference provision into this module's
   `summary` or re-encode that cited provision locally. Keep this module scoped
   to the requested citation and import the cited provision instead.
-- If context files import the target file or reference target outputs, preserve
-  the target file's public output names unless the source text proves the old
-  interface was legally wrong or the name violates the no-citation/path-suffix
-  rule. Do not rename an exported value just because a clearer friendly name is
-  possible.
-- For existing executable outputs in a copied target file, preserve the whole
-  public executable surface for each retained output: local `name`, `kind`,
-  `entity`, `dtype`, `period`, `unit`, `indexed_by`, and
-  `versions[].effective_from`. Do not change the entity or period to a
-  preferred modeling style when the existing file compiles. Never change an
-  existing output from `dtype: Money` to `dtype: Judgment` just because the
-  name sounds like an allowance/applicability decision.
-- Preserve existing factual input slots referenced by copied formulas and
-  companion tests, except names listed under invalid copied local inputs. Do
-  not swap a working local input surface for new friendly names or upstream
-  abstractions unless the generated bundle performs a full, source-grounded
-  surface migration.
+- If context files import the target file or reference target outputs, use that
+  as a signal to repair the dependency graph, not as a requirement to preserve
+  old names. Keep an old output only when it remains the cleanest
+  source-faithful RuleSpec surface.
+- Do not preserve existing factual input slots referenced by copied formulas or
+  companion tests when a cleaner source-faithful encoding removes them. This is
+  especially important for names listed under invalid copied local inputs.
 - For cross-reference boundary facts that remain local because the cited source
   is not present in context at all, keep the legal pointer in the identifier.
   If context for the cited source is present but unsupported, deferred, empty,

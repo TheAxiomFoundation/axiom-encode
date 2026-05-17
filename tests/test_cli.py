@@ -24,8 +24,6 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
-    _executable_input_preservation_issues,
-    _executable_output_preservation_issues,
     _find_rulespec_dependents,
     _has_zero_output_test,
     _insert_false_input_default,
@@ -4322,210 +4320,6 @@ rules:
 
         assert _source_relation_preservation_issues(existing, generated) == []
 
-    def test_executable_output_preservation_rejects_renamed_existing_output(self):
-        existing = """format: rulespec/v1
-rules:
-  - name: employer_oasdi_excise_tax_rate
-    kind: parameter
-    versions:
-      - effective_from: '1990-01-01'
-        formula: '0.062'
-  - name: employer_oasdi_excise_tax
-    kind: derived
-    versions:
-      - effective_from: '1990-01-01'
-        formula: wages * employer_oasdi_excise_tax_rate
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: old_age_survivors_disability_insurance_employer_tax_rate
-    kind: parameter
-    versions:
-      - effective_from: '1990-01-01'
-        formula: '0.062'
-  - name: old_age_survivors_disability_insurance_employer_tax
-    kind: derived
-    versions:
-      - effective_from: '1990-01-01'
-        formula: wages * old_age_survivors_disability_insurance_employer_tax_rate
-"""
-
-        issues = _executable_output_preservation_issues(existing, generated)
-
-        assert len(issues) == 1
-        assert "dropped or renamed existing executable outputs" in issues[0]
-        assert "`employer_oasdi_excise_tax`" in issues[0]
-        assert "`employer_oasdi_excise_tax_rate`" in issues[0]
-
-    def test_executable_output_preservation_rejects_effective_date_drift(self):
-        existing = """format: rulespec/v1
-rules:
-  - name: hospital_insurance_wage_tax_rate
-    kind: parameter
-    versions:
-      - effective_from: '1986-01-01'
-        formula: '0.0145'
-  - name: hospital_insurance_wage_tax
-    kind: derived
-    versions:
-      - effective_from: '1986-01-01'
-        formula: wages * hospital_insurance_wage_tax_rate
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: hospital_insurance_wage_tax_rate
-    kind: parameter
-    versions:
-      - effective_from: '1990-01-01'
-        formula: '0.0145'
-  - name: hospital_insurance_wage_tax
-    kind: derived
-    versions:
-      - effective_from: '1990-01-01'
-        formula: wages * hospital_insurance_wage_tax_rate
-"""
-
-        issues = _executable_output_preservation_issues(existing, generated)
-
-        assert len(issues) == 2
-        assert all("changed effective dates" in issue for issue in issues)
-        joined = "\n".join(issues)
-        assert "`hospital_insurance_wage_tax_rate`" in joined
-        assert "`hospital_insurance_wage_tax`" in joined
-        assert "1986-01-01" in joined
-        assert "1990-01-01" in joined
-
-    def test_executable_output_preservation_rejects_hardcoded_date_fix(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: temporary_exemption_amount
-    kind: parameter
-    versions:
-      - effective_from: '2026-01-01'
-        formula: '0'
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: temporary_exemption_amount
-    kind: parameter
-    versions:
-      - effective_from: '2018-01-01'
-        formula: '0'
-"""
-
-        issues = _executable_output_preservation_issues(existing, generated)
-
-        assert len(issues) == 1
-        assert "changed effective dates" in issues[0]
-
-    def test_executable_output_preservation_rejects_surface_field_drift(self):
-        existing = """format: rulespec/v1
-rules:
-  - name: indian_employment_credit
-    kind: derived
-    entity: Employer
-    dtype: Money
-    period: Year
-    unit: USD
-    versions:
-      - effective_from: '1994-01-01'
-        formula: indian_employment_credit_excess_costs * indian_employment_credit_rate
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: indian_employment_credit
-    kind: derived
-    entity: Business
-    dtype: Money
-    period: Year
-    unit: USD
-    versions:
-      - effective_from: '1994-01-01'
-        formula: indian_employment_credit_excess_costs * indian_employment_credit_rate
-"""
-
-        issues = _executable_output_preservation_issues(existing, generated)
-
-        assert len(issues) == 1
-        assert "changed executable surface field `entity`" in issues[0]
-        assert "`indian_employment_credit`" in issues[0]
-        assert "'Employer'" in issues[0]
-        assert "'Business'" in issues[0]
-
-    def test_executable_output_preservation_rejects_hardcoded_entity_migration(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: deduction_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    unit: USD
-    versions:
-      - effective_from: '2026-01-01'
-        formula: deduction_amount_base
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: deduction_amount
-    kind: derived
-    entity: Person
-    dtype: Money
-    period: Year
-    unit: USD
-    versions:
-      - effective_from: '2026-01-01'
-        formula: deduction_amount_base
-"""
-
-        issues = _executable_output_preservation_issues(existing, generated)
-
-        assert len(issues) == 1
-        assert "changed executable surface field `entity`" in issues[0]
-
-    def test_executable_input_preservation_rejects_dropped_input_slots(self):
-        existing = """format: rulespec/v1
-rules:
-  - name: net_capital_gain
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          max(0, long_term_capital_gains) - max(0, -short_term_capital_gains)
-          + qualified_dividend_income
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: net_capital_gain
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          max(
-              0,
-              net_capital_gain_determined_without_paragraph_11
-              - net_capital_gain_taken_into_account_as_investment_income
-          ) + qualified_dividend_income
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert len(issues) == 1
-        assert "dropped existing factual input slots" in issues[0]
-        assert "`long_term_capital_gains`" in issues[0]
-        assert "`short_term_capital_gains`" in issues[0]
-        assert "`qualified_dividend_income`" not in issues[0]
-
     def test_local_factual_input_names_ignore_relation_aggregator_functions(self):
         content = """format: rulespec/v1
 rules:
@@ -4554,266 +4348,6 @@ rules:
         assert "len" not in inputs
         assert "count_where" not in inputs
         assert inputs == {"child_is_eligible"}
-
-    def test_executable_input_preservation_allows_cross_reference_import_migration(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: net_capital_loss
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          max(0, capital_losses - sum_allowed_under_section_1211)
-"""
-        generated = """format: rulespec/v1
-imports:
-  - us:statutes/26/1211#other_taxpayer_capital_losses_allowed
-rules:
-  - name: net_capital_loss
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          max(0, capital_losses - other_taxpayer_capital_losses_allowed)
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert issues == []
-
-    def test_executable_input_preservation_allows_in_effect_under_import_migration(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: exemption_phaseout_applicable_percentage
-    kind: derived
-    entity: TaxUnit
-    dtype: Rate
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          max(0, adjusted_gross_income - applicable_amount_in_effect_under_section_68_b)
-"""
-        generated = """format: rulespec/v1
-imports:
-  - us:statutes/26/68/b#applicable_amount
-rules:
-  - name: exemption_phaseout_applicable_percentage
-    kind: derived
-    entity: TaxUnit
-    dtype: Rate
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          max(0, adjusted_gross_income - applicable_amount)
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert issues == []
-
-    def test_executable_input_preservation_allows_removed_cross_reference_branch(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: exemption_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-        versions:
-          - effective_from: '2026-01-01'
-            formula: |-
-              applicable_amount_in_effect_under_section_68_b
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: exemption_amount
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          0
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert issues == []
-
-    def test_executable_input_preservation_rejects_cross_reference_placeholder_rename(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: exemption_individual_eligible
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: is_dependent_under_section_152_of_taxpayer
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: exemption_individual_eligible
-    kind: derived
-    entity: Person
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: dependent_of_taxpayer_under_section_152
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert len(issues) == 1
-        assert "dropped existing factual input slots" in issues[0]
-        assert "`is_dependent_under_section_152_of_taxpayer`" in issues[0]
-
-    def test_executable_input_preservation_allows_provided_in_section_import_migration(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: deductions_referred_to_in_subsection_b
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          standard_deduction
-          + deduction_provided_in_section_170_p
-"""
-        generated = """format: rulespec/v1
-imports:
-  - us:statutes/26/170/p#qualified_charitable_contribution_deduction
-rules:
-  - name: deductions_referred_to_in_subsection_b
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          standard_deduction
-          + qualified_charitable_contribution_deduction
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert issues == []
-
-    def test_executable_input_preservation_allows_filing_status_cleanup(self):
-        existing = """format: rulespec/v1
-rules:
-  - name: senior_deduction_phaseout_threshold
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: if filing_status == 1: joint_threshold else: other_threshold
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: senior_deduction_phaseout_threshold
-    kind: derived
-    entity: TaxUnit
-    dtype: Money
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: if joint_return_made_by_taxpayer_and_spouse: joint_threshold else: other_threshold
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert issues == []
-
-    def test_executable_input_preservation_allows_semantic_date_cleanup(self):
-        existing = """format: rulespec/v1
-rules:
-  - name: senior_deduction_eligible
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          taxable_year_begins_after_2024
-          and taxable_year_begins_before_2030
-"""
-        generated = """format: rulespec/v1
-rules:
-  - name: senior_deduction_eligible
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: |-
-          taxable_year_begins_after_exemption_amount_reduction_effective_date
-          and taxable_year_begins_before_senior_deduction_termination_date
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert issues == []
-
-    def test_executable_input_preservation_allows_within_section_import_migration(
-        self,
-    ):
-        existing = """format: rulespec/v1
-rules:
-  - name: senior_deduction_eligible
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: taxpayer_is_married_individual_within_section_7703
-"""
-        generated = """format: rulespec/v1
-imports:
-  - us:statutes/26/7703#taxpayer_considered_married_after_living_apart_rule
-rules:
-  - name: senior_deduction_eligible
-    kind: derived
-    entity: TaxUnit
-    dtype: Judgment
-    period: Year
-    versions:
-      - effective_from: '2026-01-01'
-        formula: taxpayer_considered_married_after_living_apart_rule
-"""
-
-        issues = _executable_input_preservation_issues(existing, generated)
-
-        assert issues == []
 
     def test_complete_missing_imported_test_inputs_adds_import_defaults(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
@@ -5010,7 +4544,7 @@ rules:
         assert issues[0].startswith("regulations/18-nycrr/387/12/f/3/v/c.yaml: ")
         assert "dropped existing source_relation" in issues[0]
 
-    def test_apply_overlay_validation_rejects_deferred_replacement_of_executable_file(
+    def test_apply_overlay_validation_allows_deferred_replacement_of_executable_file(
         self, tmp_path
     ):
         output_root = tmp_path / "out"
@@ -5041,18 +4575,25 @@ rules: []
         )
         result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
 
-        ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
-            result,
-            output_root=output_root,
-            policy_repo_path=policy_repo,
-            axiom_rules_path=tmp_path / "axiom-rules-engine",
-        )
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
 
-        assert ok is False
+            def validate(self, _path, *, skip_reviewers):
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
         assert supplemental == {}
-        assert len(issues) == 1
-        assert issues[0].startswith("regulations/7-cfr/273/10.yaml: ")
-        assert "cannot replace existing executable rules" in issues[0]
 
     def test_apply_overlay_validation_requires_policy_proofs(self, tmp_path):
         output_root = tmp_path / "out"

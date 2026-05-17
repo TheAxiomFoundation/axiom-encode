@@ -414,8 +414,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "period: Day" in prompt
     assert "never use bare `YYYY-MM-DD` shorthand" in prompt
     assert "Do not preserve existing `#input.filing_status`" in prompt
-    assert "Existing executable output names are public API contracts" in prompt
-    assert "applicable_amount_in_effect_under_section_<section>" in prompt
+    assert "Existing executable output names are public API contracts" not in prompt
+    assert "applicable_amount_in_effect_under_section_<section>" not in prompt
     assert "Do not put the date or year value in the fact name" in prompt
     assert "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
     assert "overrides preservation of existing local input names" in prompt
@@ -5122,13 +5122,10 @@ class TestRepoAugmentedContext:
             runner_backend="openai",
         )
 
-        assert "preserve its public executable surface" in prompt
-        assert "local `name`, `kind`, `entity`, `dtype`, `period`, `unit`" in prompt
-        assert "`versions[].effective_from`" in prompt
-        assert "Changing an existing `dtype: Money` output to `dtype: Judgment`" in prompt
-        assert "Do not change `Employer` to `Business`" in prompt
-        assert "Preserve the existing factual input surface" in prompt
-        assert "`long_term_capital_gains`" in prompt
+        assert "copied current target files as context" in prompt
+        assert "not as backward compatibility contracts" in prompt
+        assert "Source-faithful RuleSpec with canonical legal pointers" in prompt
+        assert "Never preserve, rename, or recreate a legacy local input" in prompt
 
     def test_prepare_eval_workspace_adds_same_section_subsection_context(
         self, tmp_path
