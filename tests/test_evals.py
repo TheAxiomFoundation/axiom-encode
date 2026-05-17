@@ -523,6 +523,8 @@ rules:
     assert "filing status is a derived legal classification" in prompt
     assert "`us:statutes/26/999#input.taxable_year_begins_after_2024`" in prompt
     assert "date/year-valued temporal fact" in prompt
+    assert "Existing valid local input contract:" in prompt
+    assert "`us:statutes/26/999#input.existing_fact`" in prompt
 
 
 def test_materialize_eval_artifact_writes_rulespec_bundle(tmp_path):

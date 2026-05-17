@@ -2621,6 +2621,9 @@ import or re-export that exact canonical concept instead of duplicating it local
         existing_target_invalid_input_section = (
             _format_existing_target_invalid_input_guidance(context_files)
         )
+        existing_target_valid_input_section = (
+            _format_existing_target_valid_input_guidance(context_files)
+        )
         context_section = f"""
 Context mode: `{mode}`.
 Context files are precedent and dependency context, not independent legal authority for new values:
@@ -2629,6 +2632,7 @@ Context files are precedent and dependency context, not independent legal author
 {resolved_guidance}
 {existing_target_contract_section}
 {existing_target_invalid_input_section}
+{existing_target_valid_input_section}
 {branch_child_naming_section}
 {cited_context_imports_section}
 {partial_extent_child_schema_section}
@@ -3306,6 +3310,31 @@ The copied current target uses these local factual input names, but current Rule
 """.format(lines="\n".join(invalid_lines))
 
 
+def _format_existing_target_valid_input_guidance(
+    context_files: list[EvalContextFile],
+) -> str:
+    """Return copied target factual input names that should be preserved."""
+    valid_lines: list[str] = []
+    for item in context_files:
+        if item.kind != "existing_target":
+            continue
+        invalid_inputs = set(_context_file_invalid_local_inputs(item.source_path))
+        valid_inputs = sorted(
+            name
+            for name in _context_file_local_inputs(item.source_path)
+            if name not in invalid_inputs
+        )
+        for name in valid_inputs:
+            valid_lines.append(f"- `{item.import_path}#input.{name}`")
+    if not valid_lines:
+        return ""
+    return """
+Existing valid local input contract:
+Preserve these copied target factual input names unless `./source.txt` proves that exact fact no longer belongs in the target. Do not replace them with synonyms:
+{lines}
+""".format(lines="\n".join(valid_lines))
+
+
 def _format_partial_extent_child_schema_limit_guidance(
     source_text: str,
     context_files: list[EvalContextFile],
@@ -3924,15 +3953,25 @@ _CONTEXT_FORMULA_BUILTINS = {
 
 def _context_file_invalid_local_inputs(source_path: str) -> dict[str, str]:
     """Return local input names in copied context that current rules reject."""
+    invalid: dict[str, str] = {}
+    for identifier in _context_file_local_inputs(source_path):
+        reason = _invalid_local_input_reason(identifier)
+        if reason:
+            invalid[identifier] = reason
+    return dict(sorted(invalid.items()))
+
+
+def _context_file_local_inputs(source_path: str) -> set[str]:
+    """Return local factual input identifiers used by copied context formulas."""
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
     except (OSError, yaml.YAMLError, TypeError, ValueError):
-        return {}
+        return set()
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-        return {}
+        return set()
     rules = payload.get("rules")
     if not isinstance(rules, list):
-        return {}
+        return set()
 
     defined = {
         str(rule.get("name") or "").strip()
@@ -3940,7 +3979,7 @@ def _context_file_invalid_local_inputs(source_path: str) -> dict[str, str]:
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
     imported = _context_file_imported_symbols(payload)
-    invalid: dict[str, str] = {}
+    inputs: set[str] = set()
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -3964,10 +4003,8 @@ def _context_file_invalid_local_inputs(source_path: str) -> dict[str, str]:
                     or identifier in _CONTEXT_FORMULA_BUILTINS
                 ):
                     continue
-                reason = _invalid_local_input_reason(identifier)
-                if reason:
-                    invalid[identifier] = reason
-    return dict(sorted(invalid.items()))
+                inputs.add(identifier)
+    return inputs
 
 
 def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
