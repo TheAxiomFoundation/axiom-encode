@@ -24,6 +24,7 @@ import yaml
 
 from axiom_encode.codex_cli import resolve_codex_cli
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL
+from axiom_encode.repo_routing import canonical_rulespec_repo_name
 from axiom_encode.statute import (
     CitationParts,
     citation_to_citation_path,
@@ -1974,9 +1975,9 @@ def _context_import_target(source_path: Path, relative_target: Path) -> str:
 
 def _rulespec_repo_import_prefix(source_path: Path) -> str | None:
     """Infer the absolute RuleSpec import prefix from a `rulespec-*` repo path."""
-    for parent in (source_path, *source_path.parents):
-        if parent.name.startswith("rulespec-") and len(parent.name) > len("rules-"):
-            return parent.name.removeprefix("rulespec-")
+    repo_name = canonical_rulespec_repo_name(source_path)
+    if repo_name and len(repo_name) > len("rulespec-"):
+        return repo_name.removeprefix("rulespec-")
     return None
 
 

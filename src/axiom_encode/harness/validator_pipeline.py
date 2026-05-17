@@ -56,7 +56,10 @@ from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineOracleCoverage,
     load_policyengine_registry,
 )
-from axiom_encode.repo_routing import find_policy_repo_root
+from axiom_encode.repo_routing import (
+    canonical_rulespec_repo_name,
+    find_policy_repo_root,
+)
 
 from .dependency_stubs import (
     has_corpus_provision_for_import_target,
@@ -8152,7 +8155,10 @@ def _candidate_rulespec_repo_roots(
         if candidate is None:
             return
         expanded = candidate.expanduser()
-        if expanded.name == repo_name:
+        if (
+            expanded.name == repo_name
+            or canonical_rulespec_repo_name(expanded) == repo_name
+        ):
             candidates.append(expanded)
         else:
             candidates.append(expanded / repo_name)
@@ -8182,6 +8188,29 @@ def _candidate_rulespec_repo_roots(
         seen.add(resolved)
         unique.append(candidate)
     return unique
+
+
+def _rulespec_repo_alias_parent(policy_repo_path: Path) -> Path | None:
+    """Expose a temp checkout under its canonical `rulespec-*` repo name."""
+    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
+    if not canonical_name or policy_repo_path.name == canonical_name:
+        return None
+
+    resolved_repo = policy_repo_path.resolve()
+    digest = hashlib.sha256(str(resolved_repo).encode()).hexdigest()[:16]
+    alias_parent = Path(tempfile.gettempdir()) / "axiom-rulespec-repo-aliases" / digest
+    alias_parent.mkdir(parents=True, exist_ok=True)
+    alias = alias_parent / canonical_name
+    if alias.exists() or alias.is_symlink():
+        with contextlib.suppress(OSError, RuntimeError):
+            if alias.resolve() == resolved_repo:
+                return alias_parent
+        if alias.is_symlink() or alias.is_file():
+            alias.unlink()
+        else:
+            shutil.rmtree(alias)
+    alias.symlink_to(resolved_repo, target_is_directory=True)
+    return alias_parent
 
 
 def _extract_source_relation_target_values(
@@ -8777,6 +8806,9 @@ class ValidatorPipeline:
         """Build an env that can resolve canonical RuleSpec repo imports."""
         env = self._pythonpath_env()
         roots = [self.policy_repo_path, self.policy_repo_path.parent]
+        alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
+        if alias_parent is not None:
+            roots.insert(0, alias_parent)
         existing_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
         if existing_roots:
             roots.extend(
