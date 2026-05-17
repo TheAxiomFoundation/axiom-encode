@@ -5091,6 +5091,41 @@ def _remove_generated_import_output_input_placeholders(
     return sorted(removable_refs)
 
 
+def _remove_invalid_test_input_refs(
+    *,
+    test_file: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    invalid_refs = {
+        ref for ref in _invalid_input_refs_from_issues(issues) if "#input." in ref
+    }
+    if not invalid_refs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if _remove_mapping_keys_recursive(inputs, invalid_refs):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(invalid_refs)
+
+
 def _imported_output_names(rules_file: Path) -> set[str]:
     try:
         payload = yaml.safe_load(rules_file.read_text()) or {}
@@ -6014,6 +6049,40 @@ def cmd_encode(args):
                 if repaired_input_refs:
                     outcome["auto_repaired_import_output_inputs"] = repaired_input_refs
             if not can_apply:
+                repaired_invalid_input_refs: list[str] = []
+                while not can_apply:
+                    repaired_refs = _try_repair_generated_invalid_test_inputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_invalid_input_refs.extend(repaired_refs)
+                    outcome["auto_repaired_invalid_test_inputs"] = (
+                        repaired_invalid_input_refs
+                    )
+                    print(
+                        "  apply=auto_repaired_invalid_test_inputs:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_invalid_input_refs:
+                    outcome["auto_repaired_invalid_test_inputs"] = (
+                        repaired_invalid_input_refs
+                    )
+            if not can_apply:
                 repaired_input_cases: list[str] = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -6315,6 +6384,26 @@ def _try_repair_generated_import_output_inputs_for_apply(
         relative_output=relative_output,
         issues=issues,
     )
+
+
+def _try_repair_generated_invalid_test_inputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove generated-test input refs that validator proved are invalid."""
+    if not issues:
+        return []
+
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _remove_invalid_test_input_refs(test_file=test_file, issues=issues)
 
 
 def _try_repair_generated_test_input_assignments_for_apply(
