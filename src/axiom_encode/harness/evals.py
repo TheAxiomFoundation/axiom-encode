@@ -3756,10 +3756,16 @@ dependencies. Do not create local facts such as
 `section_{example_suffix}...`, `transaction_to_which_section_{example_suffix}_applies`,
 `*_under_section_{example_suffix}`, or `*_provided_in_section_{example_suffix}`.
 If an executable output would depend on any missing target above, emit
-`module.status: deferred` or `module.status: entity_not_supported` with
-`rules: []`, preserve the source text in `module.summary`, and leave the
-companion `.test.yaml` empty. Encode the upstream cited source first, then retry
-this provision.
+`module.status: deferred` or `module.status: entity_not_supported` for that
+surface, preserve the source text in `module.summary`, and leave any tests for
+that deferred surface empty. Do not use top-level `module.status` merely because
+some other branch in the same source has a missing citation. If an independent
+output can be encoded using available imports or source-grounded local facts,
+encode it and omit or defer only the blocked surface. If a copied child output
+already covers the subsection containing the missing citation, import that child
+output instead of treating the child's internal missing citation as a blocker for
+the parent composition. Encode the upstream cited source first, then retry the
+blocked surface.
 """
 
 

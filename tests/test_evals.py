@@ -3254,7 +3254,10 @@ class TestEvalPrompt:
         assert "Do not create local facts such as" in prompt
         assert "`section_381_a...`" in prompt
         assert "emit `module.status: deferred` or `module.status: entity_not_supported`" in prompt
-        assert "leave the companion `.test.yaml` empty" in prompt
+        assert "leave any tests" in prompt
+        assert "deferred surface empty" in prompt
+        assert "copied child output" in prompt
+        assert "parent composition" in prompt
 
     def test_build_eval_prompt_for_missing_definition_dependency_requires_defer(
         self, tmp_path
@@ -3290,6 +3293,7 @@ class TestEvalPrompt:
         assert "same-meaning" in prompt
         assert "treated-as" in prompt
         assert "emit `module.status: deferred` or `module.status: entity_not_supported`" in prompt
+        assert "omit or defer only the blocked surface" in prompt
 
     def test_build_eval_prompt_for_proration_tests_prefers_exact_division(
         self, tmp_path
@@ -4162,9 +4166,10 @@ rules:
             source_text=(
                 "Taxable income means gross income minus deductions. Unless an "
                 "individual elects to itemize deductions, taxable income means "
-                "adjusted gross income minus the standard deduction. The taxpayer "
-                "and spouse consent to assessment of any deficiency to the extent "
-                "attributable to such change of election."
+                "adjusted gross income minus the standard deduction. Marital "
+                "status is determined in accordance with section 7703. The "
+                "taxpayer and spouse consent to assessment of any deficiency to "
+                "the extent attributable to such change of election."
             ),
             axiom_rules_path=policy_repo_root,
             mode="repo-augmented",
