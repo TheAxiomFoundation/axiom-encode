@@ -6413,6 +6413,23 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
+            removed_invalid_inputs = _remove_invalid_dependent_test_inputs(
+                overlay_repo=overlay_repo,
+                relative_output=relative_output,
+                validations=validations,
+            )
+            if removed_invalid_inputs:
+                for path in removed_invalid_inputs:
+                    supplemental_files[path.relative_to(overlay_repo)] = (
+                        path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             changed_tests = _complete_missing_dependent_test_inputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,
@@ -6631,6 +6648,72 @@ def _repair_dependent_proof_import_hashes(
 _MISSING_INPUT_RE = re.compile(
     r"Test case `(?P<case>[^`]+)` execution failed: missing input `(?P<input>[^`]+)`"
 )
+
+_INVALID_INPUT_REF_RE = re.compile(
+    r"input `(?P<input>[^`]+)` does not resolve to an input slot"
+)
+
+
+def _remove_invalid_dependent_test_inputs(
+    *,
+    overlay_repo: Path,
+    relative_output: Path,
+    validations: list[tuple[Path, object]],
+) -> list[Path]:
+    """Remove obsolete generated-target input refs from dependent tests."""
+    target_ref = (
+        f"{_repo_jurisdiction_prefix(overlay_repo)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    changed: list[Path] = []
+    for validated_file, validation in validations:
+        if validated_file == overlay_repo / relative_output:
+            continue
+        test_path = _rulespec_test_path(validated_file)
+        if not test_path.exists():
+            continue
+        invalid_refs: set[str] = set()
+        for validator_result in validation.results.values():
+            error = validator_result.error or ""
+            for match in _INVALID_INPUT_REF_RE.finditer(error):
+                input_ref = match.group("input")
+                if input_ref.startswith(f"{target_ref}#input."):
+                    invalid_refs.add(input_ref)
+        if not invalid_refs:
+            continue
+        content = test_path.read_text()
+        updated = _remove_input_refs_from_test_cases(content, invalid_refs)
+        if updated == content:
+            continue
+        test_path.write_text(updated)
+        changed.append(test_path)
+    return changed
+
+
+def _remove_input_refs_from_test_cases(content: str, input_refs: set[str]) -> str:
+    lines = content.splitlines(keepends=True)
+    blocks = _find_yaml_input_blocks(lines)
+    if not blocks:
+        return content
+
+    remove_indices: set[int] = set()
+    for start, end in blocks:
+        for index in range(start + 1, end):
+            line = lines[index]
+            for input_ref in input_refs:
+                if re.match(rf"^\s*{re.escape(input_ref)}\s*:", line):
+                    remove_indices.add(index)
+                    break
+                if re.match(rf"^\s*\?\s*{re.escape(input_ref)}\s*$", line):
+                    remove_indices.add(index)
+                    if index + 1 < end and re.match(r"^\s*:\s*", lines[index + 1]):
+                        remove_indices.add(index + 1)
+                    break
+    if not remove_indices:
+        return content
+    return "".join(
+        line for index, line in enumerate(lines) if index not in remove_indices
+    )
 
 
 def _complete_missing_dependent_test_inputs(

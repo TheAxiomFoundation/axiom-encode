@@ -5868,6 +5868,72 @@ rules:
         assert "hash: sha256:old" not in updated
         assert f"hash: sha256:{_sha256_file(generated)}" in updated
 
+    def test_apply_overlay_validation_removes_obsolete_dependent_test_inputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        dependent = policy_repo / "statutes/26/63.yaml"
+        dependent_test = dependent.with_name("63.test.yaml")
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        dependent.write_text(
+            "format: rulespec/v1\nimports:\n  - us:statutes/26/151\nrules: []\n"
+        )
+        dependent_test.write_text(
+            """- name: old_151_input
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 100000
+    us:statutes/26/151#input.taxable_year_begins_after_2017: true
+  output:
+    us:statutes/26/63#taxable_income: 80000
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                content = Path(path).with_name("63.test.yaml").read_text()
+                if "us:statutes/26/151#input.taxable_year_begins_after_2017" in content:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                validator_name="ci",
+                                error=(
+                                    "Test case `old_151_input` input invalid: "
+                                    "input "
+                                    "`us:statutes/26/151#input.taxable_year_begins_after_2017` "
+                                    "does not resolve to an input slot in "
+                                    "statutes/26/151.yaml."
+                                ),
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        updated = supplemental[Path("statutes/26/63.test.yaml")]
+        assert "us:statutes/26/151#input.taxable_year_begins_after_2017" not in updated
+        assert "us:statutes/26/63#input.adjusted_gross_income" in updated
+
     def test_apply_overlay_validation_rejects_generated_filing_status_input(
         self, tmp_path
     ):
