@@ -2721,6 +2721,11 @@ Import and context rules:
 - If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
+- Copied context listings include local input slots as `import_target#input.name`.
+  When assigning inputs for an imported file, use only the input slots listed
+  for that imported file or listed for another imported dependency that is
+  actually needed by the compiled import graph. Never copy a `#input` key from
+  a sibling context test merely because that sibling imports the same file.
 - Never drop the jurisdiction prefix from copied context imports. If context
   lists `us:statutes/26/24/h#some_output`, the top-level import and any proof
   import target must use exactly `us:statutes/26/24/h#some_output`, not
@@ -4193,21 +4198,31 @@ def _context_file_hash(source_path: str) -> str | None:
 def _context_file_export_detail(item: EvalContextFile) -> str:
     """Return a compact list of exported symbols for a context RuleSpec file."""
     exports = _context_file_exports(item.source_path)
-    if not exports:
+    local_inputs = sorted(_context_file_local_inputs(item.source_path))
+    if not exports and not local_inputs:
         return ""
-    references = ", ".join(f"`{item.import_path}#{name}`" for name in exports[:8])
-    if len(exports) > 8:
-        references += ", ..."
+    details: list[str] = []
+    if exports:
+        references = ", ".join(f"`{item.import_path}#{name}`" for name in exports[:8])
+        if len(exports) > 8:
+            references += ", ..."
+        details.append(f"exports {references}")
     terminal_exports = _context_file_terminal_exports(item.source_path)
-    terminal_detail = ""
     if terminal_exports:
         terminal_references = ", ".join(
             f"`{item.import_path}#{name}`" for name in terminal_exports[:5]
         )
         if len(terminal_exports) > 5:
             terminal_references += ", ..."
-        terminal_detail = f"; terminal exports {terminal_references}"
-    return f"; exports {references}{terminal_detail}"
+        details.append(f"terminal exports {terminal_references}")
+    if local_inputs:
+        input_references = ", ".join(
+            f"`{item.import_path}#input.{name}`" for name in local_inputs[:8]
+        )
+        if len(local_inputs) > 8:
+            input_references += ", ..."
+        details.append(f"local input slots {input_references}")
+    return "; " + "; ".join(details)
 
 
 def _context_file_exports(source_path: str) -> list[str]:

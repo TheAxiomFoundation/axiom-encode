@@ -582,6 +582,10 @@ rules:
     assert "effective_from=2026-01-01" in prompt
     assert "`us:statutes/26/999#existing_table`" in prompt
     assert "indexed_by=household_size" in prompt
+    assert "local input slots" in prompt
+    assert "`us:statutes/26/999#input.existing_fact`" in prompt
+    assert "Never copy a `#input` key from" in prompt
+    assert "sibling context test" in prompt
     assert "Invalid copied local input names:" in prompt
     assert "`us:statutes/26/999#input.filing_status`" in prompt
     assert "filing status is a derived legal classification" in prompt
