@@ -6942,7 +6942,48 @@ def _insert_input_default_in_test_cases(
         indent = match.group("indent") + "  "
         newline = "\n" if lines[start].endswith("\n") else ""
         lines.insert(start + 1, f"{indent}{input_ref}: {rendered}{newline}")
+    lines = _insert_input_default_in_relation_rows(lines, input_ref, rendered)
     return "".join(lines)
+
+
+def _insert_input_default_in_relation_rows(
+    lines: list[str], input_ref: str, rendered_value: str
+) -> list[str]:
+    """Insert an input default into relation entity rows using the same module."""
+    if "#input." not in input_ref:
+        return lines
+    input_base = input_ref.split("#input.", 1)[0]
+
+    insertions: list[tuple[int, str]] = []
+    for input_start, input_end in _find_yaml_input_blocks(lines):
+        index = input_start + 1
+        while index < input_end:
+            match = re.match(r"^(?P<indent>\s*)-\s+", lines[index])
+            if not match:
+                index += 1
+                continue
+            item_indent = len(match.group("indent"))
+            item_end = index + 1
+            while item_end < input_end:
+                candidate = lines[item_end]
+                if (
+                    candidate.strip()
+                    and len(candidate) - len(candidate.lstrip(" ")) <= item_indent
+                ):
+                    break
+                item_end += 1
+            item_text = "".join(lines[index:item_end])
+            if input_ref not in item_text and f"{input_base}#input." in item_text:
+                indent = " " * (item_indent + 2)
+                newline = "\n" if lines[index].endswith("\n") else ""
+                insertions.append(
+                    (index + 1, f"{indent}{input_ref}: {rendered_value}{newline}")
+                )
+            index = item_end
+
+    for insert_at, line in sorted(insertions, reverse=True):
+        lines.insert(insert_at, line)
+    return lines
 
 
 def _find_yaml_input_blocks(lines: list[str]) -> list[tuple[int, int]]:

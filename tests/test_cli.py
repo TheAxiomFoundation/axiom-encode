@@ -5780,6 +5780,87 @@ rules:
             == 2
         )
 
+    def test_apply_overlay_validation_fills_relation_row_inputs_from_baseline(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        generated_test = generated.with_name("151.test.yaml")
+        dependent = policy_repo / "statutes/26/7703.yaml"
+        dependent_test = dependent.with_name("7703.test.yaml")
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated_test.write_text(
+            """- name: baseline
+  input:
+    us:statutes/26/151#input.individual_is_dependent_of_taxpayer: false
+  output:
+    us:statutes/26/151#exemption_individual_eligible: holds
+"""
+        )
+        dependent.write_text(
+            "format: rulespec/v1\nimports:\n  - us:statutes/26/151\nrules: []\n"
+        )
+        dependent_test.write_text(
+            """- name: relation_case
+  input:
+    us:statutes/26/7703#relation.living_apart_child_of_tax_unit:
+    - us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
+      us:statutes/26/151#input.is_taxpayer: false
+  output:
+    us:statutes/26/7703#taxpayer_not_considered_married_when_living_apart: holds
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                test_content = Path(path).with_name("7703.test.yaml").read_text()
+                relation_block = test_content.split(
+                    "us:statutes/26/7703#relation.living_apart_child_of_tax_unit:",
+                    1,
+                )[1]
+                if (
+                    "us:statutes/26/151#input.individual_is_dependent_of_taxpayer"
+                    not in relation_block
+                ):
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `relation_case` execution failed: "
+                                    "missing input `individual_is_dependent_of_taxpayer`"
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        updated = supplemental[Path("statutes/26/7703.test.yaml")]
+        assert (
+            "      us:statutes/26/151#input.individual_is_dependent_of_taxpayer: false"
+            in updated
+        )
+
     def test_apply_overlay_validation_repairs_dependent_proof_import_hashes(
         self, tmp_path
     ):
