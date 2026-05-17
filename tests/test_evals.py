@@ -431,10 +431,13 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Test input inventory: for every local factual identifier" in prompt
     assert "Do not assert raw `kind: parameter` rules directly" in prompt
     assert "assert derived outputs that consume the parameters" in prompt
+    assert "modifier parameter stranded" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
     assert "never assign prohibited derived" in prompt
-    assert "classifications such as any imported or local `#input.filing_status`" in prompt
+    assert (
+        "classifications such as any imported or local `#input.filing_status`" in prompt
+    )
     assert "omit that assertion or encode the" in prompt
     assert "upstream filing-status sources first" in prompt
     assert "#relation.<name>` input value must be a YAML list of row mappings" in prompt
@@ -451,7 +454,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         in prompt
     )
     assert "Do not use Python-only functions such as `round(...)`" in prompt
-    assert "Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact" in prompt
+    assert (
+        "Use `sum(relation.amount_fact)` only when `amount_fact` is a raw scalar fact"
+        in prompt
+    )
     assert "Do not use `sum(relation.local_output)`" in prompt
     assert "Do not write `amount + if condition: extra else: 0`" in prompt
     assert "Do not emit more than one `versions:` entry for `kind: derived`" in prompt
@@ -2504,7 +2510,10 @@ class TestEvalPrompt:
         assert "For IRC section 22" not in prompt
         assert "dependent_of_tax_unit" in prompt
         assert "only the exception input changes" in prompt
-        assert "Do not replace a specific upstream output with a broad local input" in prompt
+        assert (
+            "Do not replace a specific upstream output with a broad local input"
+            in prompt
+        )
         assert "only one entity type" in prompt
         assert "Do not assert relation-child outputs" in prompt
         assert "Do not use bare year periods like `2024`" in prompt
@@ -2630,8 +2639,13 @@ class TestEvalPrompt:
         )
         assert "`module.status: entity_not_supported`" in prompt
         assert "`module.status: deferred`" in prompt
-        assert "In a mixed provision, omit or defer only the affected executable" in prompt
-        assert "only when no executable rule in the requested source can be represented" in prompt
+        assert (
+            "In a mixed provision, omit or defer only the affected executable" in prompt
+        )
+        assert (
+            "only when no executable rule in the requested source can be represented"
+            in prompt
+        )
         assert "leave the companion `.test.yaml` empty" in prompt
         assert "assertions against deferred symbols" in prompt
 
@@ -3253,7 +3267,10 @@ class TestEvalPrompt:
         assert "`us:statutes/26/381/a`" in prompt
         assert "Do not create local facts such as" in prompt
         assert "`section_381_a...`" in prompt
-        assert "emit `module.status: deferred` or `module.status: entity_not_supported`" in prompt
+        assert (
+            "emit `module.status: deferred` or `module.status: entity_not_supported`"
+            in prompt
+        )
         assert "leave any tests" in prompt
         assert "deferred surface empty" in prompt
         assert "copied child output" in prompt
@@ -3292,7 +3309,10 @@ class TestEvalPrompt:
         assert "`us:statutes/26/52`" in prompt
         assert "same-meaning" in prompt
         assert "treated-as" in prompt
-        assert "emit `module.status: deferred` or `module.status: entity_not_supported`" in prompt
+        assert (
+            "emit `module.status: deferred` or `module.status: entity_not_supported`"
+            in prompt
+        )
         assert "omit or defer only the blocked surface" in prompt
 
     def test_build_eval_prompt_for_proration_tests_prefers_exact_division(
@@ -3649,8 +3669,7 @@ class TestEvalPrompt:
         assert "taxable_year_begins_after_termination_date" in prompt
         assert "`taxable_year_begins_after_2024_and_before_2029` or" in prompt
         assert (
-            "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`"
-            in prompt
+            "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
         )
         assert "overrides preservation of existing local input names" in prompt
         assert (
@@ -3905,9 +3924,7 @@ rules:
         assert "`to the extent`" in prompt
         assert "all-or-nothing zeroing" in prompt
 
-    def test_build_eval_prompt_highlights_cited_context_import_exports(
-        self, tmp_path
-    ):
+    def test_build_eval_prompt_highlights_cited_context_import_exports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         cited_file = policy_repo_root / "statutes" / "26" / "1211.yaml"
         cited_file.parent.mkdir(parents=True, exist_ok=True)
@@ -3950,15 +3967,10 @@ rules:
 
         assert "Mandatory cited RuleSpec imports detected from source text" in prompt
         assert "Source cites `1211`" in prompt
-        assert (
-            "`us:statutes/26/1211#other_taxpayer_capital_losses_allowed`"
-            in prompt
-        )
+        assert "`us:statutes/26/1211#other_taxpayer_capital_losses_allowed`" in prompt
         assert "Do not keep a local `_under_section_...`" in prompt
 
-    def test_build_eval_prompt_highlights_terminal_child_exports(
-        self, tmp_path
-    ):
+    def test_build_eval_prompt_highlights_terminal_child_exports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         child_file = policy_repo_root / "statutes" / "26" / "3101" / "b" / "2.yaml"
         child_file.parent.mkdir(parents=True, exist_ok=True)
@@ -4085,9 +4097,7 @@ rules:
         assert "one blocking companion test" in prompt
         assert "for each listed child exception output" in prompt
 
-    def test_build_eval_prompt_forces_partial_extent_child_parent_defer(
-        self, tmp_path
-    ):
+    def test_build_eval_prompt_forces_partial_extent_child_parent_defer(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         child_file = policy_repo_root / "statutes" / "26" / "3101" / "a.yaml"
         child_file.parent.mkdir(parents=True, exist_ok=True)
@@ -4190,9 +4200,7 @@ rules:
         assert "Taxpayer elections such as electing to itemize deductions" in prompt
         assert "Outputs named `taxable_income`" in prompt
 
-    def test_build_eval_prompt_recommends_final_deduction_imports(
-        self, tmp_path
-    ):
+    def test_build_eval_prompt_recommends_final_deduction_imports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         cited_file = policy_repo_root / "statutes" / "26" / "170" / "p.yaml"
         cited_file.parent.mkdir(parents=True, exist_ok=True)
@@ -4239,10 +4247,7 @@ rules:
         )
 
         assert "For the cited deduction/exemption/credit reference" in prompt
-        assert (
-            "`us:statutes/26/170/p#nonitemizer_charitable_deduction`"
-            in prompt
-        )
+        assert "`us:statutes/26/170/p#nonitemizer_charitable_deduction`" in prompt
         assert "`*_provided_in_section_*`" in prompt
 
     def test_build_eval_prompt_discourages_fabricated_same_instrument_imports(
@@ -5211,13 +5216,10 @@ class TestRepoAugmentedContext:
         assert copied_sources[str(target)]["kind"] == "existing_target"
         assert copied_sources[str(target)]["import_path"] == "us:statutes/26/3111/a"
         assert (
-            copied_sources[str(target_test)]["kind"]
-            == "existing_target_test_context"
+            copied_sources[str(target_test)]["kind"] == "existing_target_test_context"
         )
 
-    def test_build_eval_prompt_preserves_existing_executable_surface(
-        self, tmp_path
-    ):
+    def test_build_eval_prompt_preserves_existing_executable_surface(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "rulespec-us"
         policy_repo_root.mkdir(parents=True)
@@ -5394,8 +5396,7 @@ class TestRepoAugmentedContext:
             item["source_path"]: item for item in manifest["context_files"]
         }
         assert (
-            copied_sources[str(section_911_child)]["kind"]
-            == "implementation_precedent"
+            copied_sources[str(section_911_child)]["kind"] == "implementation_precedent"
         )
         assert (
             copied_sources[str(section_911_child)]["import_path"]
@@ -5411,10 +5412,7 @@ class TestRepoAugmentedContext:
         section_152 = policy_repo_root / "statutes" / "26" / "152.yaml"
         section_152.parent.mkdir(parents=True)
         section_152.write_text(
-            "format: rulespec/v1\n"
-            "module:\n"
-            "  status: entity_not_supported\n"
-            "rules: []\n"
+            "format: rulespec/v1\nmodule:\n  status: entity_not_supported\nrules: []\n"
         )
 
         workspace = prepare_eval_workspace(
@@ -5439,7 +5437,9 @@ class TestRepoAugmentedContext:
         )
 
         assert "Unavailable cited RuleSpec context detected" in prompt
-        assert "`us:statutes/26/152` has `module.status: entity_not_supported`" in prompt
+        assert (
+            "`us:statutes/26/152` has `module.status: entity_not_supported`" in prompt
+        )
         assert "do not create local `_under_section_152`" in prompt
         assert "omit or defer only the affected executable surface" in prompt
 

@@ -3515,9 +3515,7 @@ def find_tax_filing_status_local_input_issues(
         for test_case in test_cases:
             if not isinstance(test_case, dict):
                 continue
-            test_name = (
-                str(test_case.get("name") or "<unnamed>").strip() or "<unnamed>"
-            )
+            test_name = str(test_case.get("name") or "<unnamed>").strip() or "<unnamed>"
             inputs = test_case.get("input")
             if not isinstance(inputs, dict):
                 continue
@@ -3670,10 +3668,19 @@ def find_unused_modifier_parameter_issues(content: str) -> list[str]:
         ):
             numeric_derived_formulas[name] = formula
 
-    if not numeric_derived_formulas:
-        return []
-
     issues: list[str] = []
+    if not numeric_derived_formulas:
+        for parameter_name in sorted(set(modifier_parameters)):
+            issues.append(
+                "Source-stated modifier parameter has no affected numeric "
+                f"derived output: `{parameter_name}` appears to encode a "
+                "substitution/modification amount, but the module has no "
+                "numeric derived output that can apply it. Encode the affected "
+                "numeric output using the modifier, or defer that affected "
+                "output until the upstream branching condition is encoded."
+            )
+        return issues
+
     for parameter_name in sorted(set(modifier_parameters)):
         if any(
             parameter_name in _formula_local_identifiers(formula)
@@ -4706,7 +4713,9 @@ def find_helper_only_definition_issues(content: str) -> list[str]:
         return []
 
     rules = payload.get("rules")
-    has_rules = isinstance(rules, list) and any(isinstance(rule, dict) for rule in rules)
+    has_rules = isinstance(rules, list) and any(
+        isinstance(rule, dict) for rule in rules
+    )
     if not has_rules:
         return []
 
@@ -6992,9 +7001,7 @@ def find_missing_child_exception_import_issues(
             continue
         for export in _rulespec_file_exception_exports(child_file):
             with contextlib.suppress(ValueError):
-                child_rel = child_file.resolve().relative_to(
-                    policy_repo_path.resolve()
-                )
+                child_rel = child_file.resolve().relative_to(policy_repo_path.resolve())
                 child_target = child_rel.with_suffix("").as_posix()
                 child_exports.append((child_target, export))
     if not child_exports:
@@ -9924,7 +9931,10 @@ class ValidatorPipeline:
                     runtime_key
                 )
                 if actual_output is None:
-                    if runtime_key in derived_outputs or runtime_key in parameter_outputs:
+                    if (
+                        runtime_key in derived_outputs
+                        or runtime_key in parameter_outputs
+                    ):
                         issues.append(
                             f"Test case `{case_name}` output `{output_key}` missing "
                             "from execution response."
@@ -10564,7 +10574,9 @@ class ValidatorPipeline:
     ) -> bool:
         """Return whether a section-looking relation only exposes imported fields."""
         matches = list(
-            re.finditer(rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])", formula)
+            re.finditer(
+                rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])", formula
+            )
         )
         if not matches:
             return False
@@ -10588,7 +10600,9 @@ class ValidatorPipeline:
             if import_file is None:
                 continue
             with contextlib.suppress(OSError):
-                imported_fields.update(self._extract_defined_symbols(import_file.read_text()))
+                imported_fields.update(
+                    self._extract_defined_symbols(import_file.read_text())
+                )
 
         if not imported_fields:
             return False
@@ -10700,7 +10714,9 @@ class ValidatorPipeline:
                 continue
             break
         section = match.group("section")
-        target_title = _title_qualified_reference_for_section(section, source_text) or title
+        target_title = (
+            _title_qualified_reference_for_section(section, source_text) or title
+        )
         return "/".join(["statutes", target_title, section, *fragments])
 
     def _semantic_section_placeholder_import_base(
@@ -10751,13 +10767,18 @@ class ValidatorPipeline:
                 continue
             break
         citation = section + "".join(f"({fragment})" for fragment in fragments)
-        if not re.search(
-            rf"\bsection\s+{re.escape(section)}(?:\b|\s|\()",
-            source_text,
-            flags=re.IGNORECASE,
-        ) and citation.lower() not in source_text.lower():
+        if (
+            not re.search(
+                rf"\bsection\s+{re.escape(section)}(?:\b|\s|\()",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+            and citation.lower() not in source_text.lower()
+        ):
             return None
-        target_title = _title_qualified_reference_for_section(section, source_text) or title
+        target_title = (
+            _title_qualified_reference_for_section(section, source_text) or title
+        )
         return "/".join(["statutes", target_title, section, *fragments])
 
     def _is_cross_reference_path_fragment(self, fragment: str) -> bool:
@@ -13378,7 +13399,11 @@ print("BENCHMARK:" + json.dumps(result))
     ) -> bool:
         if relation_name.endswith("member_of_tax_unit"):
             return True
-        if relation_name.endswith("member_of_household") and pe_var and "snap" in pe_var:
+        if (
+            relation_name.endswith("member_of_household")
+            and pe_var
+            and "snap" in pe_var
+        ):
             return True
         return False
 

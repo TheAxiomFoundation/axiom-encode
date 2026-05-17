@@ -541,7 +541,8 @@ Hard requirements:
   modifier amount, do not define the modifier as an unused scalar while
   computing the affected numeric output without it. Use the modifier in the
   affected formula, or defer that affected output until the upstream branch
-  condition can be encoded/imported.
+  condition can be encoded/imported. Do not solve this by deleting the affected
+  numeric output while leaving the modifier parameter stranded.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
   limit.

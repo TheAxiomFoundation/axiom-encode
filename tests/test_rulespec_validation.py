@@ -4372,17 +4372,7 @@ rules:
 def test_parent_exception_list_requires_child_exception_imports(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B.yaml"
-    child_file = (
-        repo
-        / "statutes"
-        / "26"
-        / "163"
-        / "h"
-        / "4"
-        / "B"
-        / "ii"
-        / "I.yaml"
-    )
+    child_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B" / "ii" / "I.yaml"
     child_file.parent.mkdir(parents=True)
     child_file.write_text(
         """format: rulespec/v1
@@ -4430,23 +4420,15 @@ rules:
 
     assert len(issues) == 1
     assert "Parent exception-list child import missing" in issues[0]
-    assert "us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies" in issues[0]
+    assert (
+        "us:statutes/26/163/h/4/B/ii/I#fleet_sales_loan_exception_applies" in issues[0]
+    )
 
 
 def test_parent_exception_list_allows_child_exception_imports(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B.yaml"
-    child_file = (
-        repo
-        / "statutes"
-        / "26"
-        / "163"
-        / "h"
-        / "4"
-        / "B"
-        / "ii"
-        / "I.yaml"
-    )
+    child_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B" / "ii" / "I.yaml"
     child_file.parent.mkdir(parents=True)
     child_file.write_text(
         """format: rulespec/v1
@@ -4503,17 +4485,7 @@ rules:
 def test_parent_exception_list_ignores_empty_wrapper_modules(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "163" / "h" / "4.yaml"
-    child_file = (
-        repo
-        / "statutes"
-        / "26"
-        / "163"
-        / "h"
-        / "4"
-        / "B"
-        / "ii"
-        / "I.yaml"
-    )
+    child_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B" / "ii" / "I.yaml"
     child_file.parent.mkdir(parents=True)
     child_file.write_text(
         """format: rulespec/v1
@@ -8026,7 +7998,7 @@ rules:
     assert find_unused_modifier_parameter_issues(content) == []
 
 
-def test_unused_modifier_parameter_allows_no_numeric_derived_output():
+def test_unused_modifier_parameter_rejects_no_affected_numeric_output():
     content = """format: rulespec/v1
 rules:
   - name: unmarried_not_surviving_spouse_additional_amount
@@ -8053,7 +8025,13 @@ rules:
         formula: visual_acuity <= 0.1
 """
 
-    assert find_unused_modifier_parameter_issues(content) == []
+    issues = find_unused_modifier_parameter_issues(content)
+
+    assert any(
+        "has no affected numeric derived output" in issue
+        and "`unmarried_not_surviving_spouse_additional_amount`" in issue
+        for issue in issues
+    )
 
 
 def test_unused_modifier_parameter_ignores_judgment_names_with_amount_word():
@@ -8081,6 +8059,14 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: taxpayer_has_attained_age_65_before_close_of_taxable_year
+  - name: additional_standard_deduction_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: unmarried_not_surviving_spouse_additional_amount
 """
 
     assert find_unused_modifier_parameter_issues(content) == []
@@ -8108,9 +8094,7 @@ rules:
 
     issues = find_tax_filing_status_local_input_issues(content, test_cases)
 
-    assert any(
-        "assigns filing status as a local input" in issue for issue in issues
-    )
+    assert any("assigns filing status as a local input" in issue for issue in issues)
 
 
 def test_filing_status_test_input_rejects_string_value():
@@ -8127,8 +8111,7 @@ def test_filing_status_test_input_rejects_string_value():
     issues = find_tax_filing_status_test_input_issues(test_cases)
 
     assert any(
-        "Filing status is a derived legal classification" in issue
-        for issue in issues
+        "Filing status is a derived legal classification" in issue for issue in issues
     )
 
 
@@ -8146,8 +8129,7 @@ def test_filing_status_test_input_rejects_numeric_value():
     issues = find_tax_filing_status_test_input_issues(test_cases)
 
     assert any(
-        "Filing status is a derived legal classification" in issue
-        for issue in issues
+        "Filing status is a derived legal classification" in issue for issue in issues
     )
 
 
@@ -8165,8 +8147,7 @@ def test_filing_status_test_input_rejects_tax_filing_status_alias():
     issues = find_tax_filing_status_test_input_issues(test_cases)
 
     assert any(
-        "Filing status is a derived legal classification" in issue
-        for issue in issues
+        "Filing status is a derived legal classification" in issue for issue in issues
     )
 
 
@@ -8558,7 +8539,9 @@ rules:
 
     issues = find_temporal_value_fact_name_issues(content)
 
-    assert any("Temporal fact name embeds legal date value" in issue for issue in issues)
+    assert any(
+        "Temporal fact name embeds legal date value" in issue for issue in issues
+    )
     assert any(
         "taxable_year_begins_after_termination_date" in issue for issue in issues
     )

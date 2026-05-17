@@ -1915,7 +1915,9 @@ def _cited_context_candidates(policy_root: Path, candidate_rel: Path) -> list[Pa
         for path in child_root.rglob("*.yaml")
         if not path.name.endswith(".test.yaml")
     ]
-    candidates.sort(key=lambda path: (len(path.relative_to(child_root).parts), str(path)))
+    candidates.sort(
+        key=lambda path: (len(path.relative_to(child_root).parts), str(path))
+    )
     return candidates[:8]
 
 
@@ -2658,8 +2660,8 @@ import or re-export that exact canonical concept instead of duplicating it local
             source_text,
             context_files,
         )
-        unavailable_cited_context_section = (
-            _format_unavailable_cited_context_guidance(source_text, context_files)
+        unavailable_cited_context_section = _format_unavailable_cited_context_guidance(
+            source_text, context_files
         )
         partial_extent_child_schema_section = (
             _format_partial_extent_child_schema_limit_guidance(
@@ -3132,7 +3134,8 @@ RuleSpec requirements:
   modifier amount, do not define the modifier as an unused scalar while
   computing the affected numeric output without it. Use the modifier in the
   affected formula, or defer that affected output until the upstream branch
-  condition can be encoded/imported.
+  condition can be encoded/imported. Do not solve this by deleting the affected
+  numeric output while leaving the modifier parameter stranded.
 - Supported relation aggregators are `len(relation)`,
   `count_where(relation, predicate_fact)`, `sum(relation.amount_fact)`, and
   `sum_where(relation, amount_fact_or_derived, predicate_fact)`. Do not write
@@ -3670,9 +3673,7 @@ def _format_cited_context_import_guidance(
         exports = _context_file_exports(item.source_path)
         if not exports:
             continue
-        references = ", ".join(
-            f"`{item.import_path}#{name}`" for name in exports[:8]
-        )
+        references = ", ".join(f"`{item.import_path}#{name}`" for name in exports[:8])
         if len(exports) > 8:
             references += ", ..."
         preferred_exports = _preferred_exports_for_cited_reference(
@@ -3850,8 +3851,10 @@ def _missing_cited_statute_targets(
         if normalized in seen:
             continue
         seen.add(normalized)
-        label = "section " + section + "".join(
-            f"({fragment})" for fragment in cited_parts.fragments
+        label = (
+            "section "
+            + section
+            + "".join(f"({fragment})" for fragment in cited_parts.fragments)
         )
         missing.append((label, target))
     return missing
@@ -4313,9 +4316,7 @@ def _context_surface_sequence(value: object) -> tuple[str, ...]:
 
 
 _CONTEXT_FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
-_CONTEXT_TEMPORAL_VALUE_FACT_YEAR_PATTERN = re.compile(
-    r"(?:^|_)(?:19|20)\d{2}(?:_|$)"
-)
+_CONTEXT_TEMPORAL_VALUE_FACT_YEAR_PATTERN = re.compile(r"(?:^|_)(?:19|20)\d{2}(?:_|$)")
 _CONTEXT_FORMULA_BUILTINS = {
     "and",
     "ceil",
@@ -4638,9 +4639,8 @@ def _expand_context_files(
             continue
         seen.add(resolved)
         expanded.append((source_path, kind))
-        if (
-            source_path.suffix in {".yaml", ".yml"}
-            and not source_path.name.endswith(".test.yaml")
+        if source_path.suffix in {".yaml", ".yml"} and not source_path.name.endswith(
+            ".test.yaml"
         ):
             test_path = _rulespec_test_path(source_path)
             resolved_test = test_path.resolve()
