@@ -3638,6 +3638,47 @@ rules:
     )
 
 
+def test_proof_import_hash_consistency_accepts_generated_same_target_local_hash(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    repo_file = repo / "statutes/26/22.yaml"
+    generated_file = tmp_path / "generated/openai/statutes/26/22.yaml"
+    repo_file.parent.mkdir(parents=True)
+    generated_file.parent.mkdir(parents=True)
+    repo_file.write_text("format: rulespec/v1\nrules: []\n")
+    content = """format: rulespec/v1
+rules:
+  - name: section_22_aged_individual
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/22#section_22_age_threshold
+              output: section_22_age_threshold
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: age >= section_22_age_threshold
+"""
+    generated_file.write_text(content)
+
+    assert (
+        find_proof_import_hash_consistency_issues(
+            content,
+            rules_file=generated_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_proof_import_hash_consistency_accepts_external_file_hash(tmp_path):
     repo = tmp_path / "rulespec-us"
     current_file = repo / "statutes/26/22.yaml"
@@ -6863,6 +6904,169 @@ def test_rulespec_ci_allows_scalar_parameters_with_entity_outputs(
     )
 
     assert issues == []
+
+
+def test_rulespec_ci_allows_absolute_outputs_for_generated_local_names(
+    tmp_path, monkeypatch
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    compiled_payload = {
+        "program": {
+            "derived": [
+                {
+                    "name": "blind_under_subsection_f",
+                    "entity": "Person",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "aged_or_blind_additional_amount",
+                    "versions": [
+                        {
+                            "effective_from": "2026-01-01",
+                            "values": {
+                                "0": {
+                                    "kind": "integer",
+                                    "value": "600",
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    cases = [
+        {
+            "name": "absolute_outputs_on_generated_artifact",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {},
+            "output": {
+                "us:statutes/26/63/f#aged_or_blind_additional_amount": 600,
+                "us:statutes/26/63/f#blind_under_subsection_f": "holds",
+            },
+        }
+    ]
+
+    monkeypatch.setattr(
+        pipeline,
+        "_axiom_rules_binary",
+        lambda: tmp_path / "missing-rules-engine",
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_rulespec_derived_test_case",
+        lambda **_kwargs: (
+            {
+                "blind_under_subsection_f": {
+                    "kind": "judgment",
+                    "outcome": "holds",
+                }
+            },
+            [],
+        ),
+    )
+
+    issues = pipeline._run_rulespec_test_cases(
+        rules_file=tmp_path / "generated/statutes/26/63/f.yaml",
+        compiled_path=tmp_path / "compiled.json",
+        compiled_payload=compiled_payload,
+        cases=cases,
+    )
+
+    assert issues == []
+
+
+def test_rulespec_dataset_uses_local_input_names_for_generated_artifacts(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes/26/63/f.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: blind_under_subsection_f
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: central_visual_acuity_in_better_eye_with_correcting_lenses <= 0.1
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+
+    dataset = pipeline._build_rulespec_dataset(
+        {
+            "us:statutes/26/63/f#input.central_visual_acuity_in_better_eye_with_correcting_lenses": 0.1
+        },
+        period={
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        query_entity="Person",
+        query_entity_id="person-1",
+        require_legal_input_keys=False,
+    )
+
+    assert dataset["inputs"][0]["name"] == (
+        "central_visual_acuity_in_better_eye_with_correcting_lenses"
+    )
+
+
+def test_rulespec_dataset_preserves_legal_input_names_for_repo_artifacts(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes/26/63/f.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: blind_under_subsection_f
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: central_visual_acuity_in_better_eye_with_correcting_lenses <= 0.1
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+
+    input_key = (
+        "us:statutes/26/63/f#input."
+        "central_visual_acuity_in_better_eye_with_correcting_lenses"
+    )
+    dataset = pipeline._build_rulespec_dataset(
+        {input_key: 0.1},
+        period={
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        query_entity="Person",
+        query_entity_id="person-1",
+        require_legal_input_keys=True,
+    )
+
+    assert dataset["inputs"][0]["name"] == input_key
 
 
 def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):

@@ -4937,6 +4937,7 @@ def find_proof_import_hash_consistency_issues(
             expected_hash = (
                 "sha256:local"
                 if target_file.resolve() == current_file
+                or _rulespec_file_matches_target_ref(current_file, target_ref)
                 else f"sha256:{_file_sha256(target_file)}"
             )
             if hash_value == expected_hash:
@@ -4959,6 +4960,23 @@ def _rule_proof_payload(rule: dict[str, Any]) -> dict[str, Any] | None:
 
 def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _rulespec_file_matches_target_ref(
+    rules_file: Path,
+    target_ref: "_RuleSpecTargetRef",
+) -> bool:
+    """Return whether a file path carries the canonical target path suffix.
+
+    Generated candidates are often validated outside a `rulespec-*` checkout,
+    for example under `/tmp/.../statutes/26/63/f.yaml`. A proof import pointing
+    to `us:statutes/26/63/f#symbol` is still a same-file import in that context.
+    """
+    path_parts = Path(rules_file).resolve().parts
+    target_parts = target_ref.relative_path.parts
+    if len(path_parts) < len(target_parts):
+        return False
+    return path_parts[-len(target_parts) :] == target_parts
 
 
 def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
@@ -9094,6 +9112,7 @@ class ValidatorPipeline:
                 relation_request_name = (
                     input_key
                     if _RULESPEC_ABSOLUTE_REFERENCE.match(input_key)
+                    and require_legal_input_keys
                     else relation_name
                 )
                 related_entity = self._related_entity_from_relation(relation_name)
@@ -9136,6 +9155,7 @@ class ValidatorPipeline:
                         child_request_name = (
                             child_input_key
                             if _RULESPEC_ABSOLUTE_REFERENCE.match(child_input_key)
+                            and require_legal_input_keys
                             else child_input_name
                         )
                         inputs.append(
@@ -9166,6 +9186,7 @@ class ValidatorPipeline:
             input_request_name = (
                 input_key
                 if _RULESPEC_ABSOLUTE_REFERENCE.match(input_key)
+                and require_legal_input_keys
                 else input_name
             )
             inputs.append(
@@ -9689,12 +9710,25 @@ class ValidatorPipeline:
 
             derived_outputs: list[str] = []
             parameter_outputs: list[str] = []
+            output_runtime_keys: dict[str, str] = {}
             for output_name in output_map:
                 output_key = str(output_name)
-                if output_key in parameter_by_key:
-                    parameter_outputs.append(output_key)
-                elif output_key in derived_by_key:
-                    derived_outputs.append(output_key)
+                runtime_key = output_key
+                if (
+                    _RULESPEC_ABSOLUTE_REFERENCE.match(output_key)
+                    and output_key not in parameter_by_key
+                    and output_key not in derived_by_key
+                ):
+                    local_key = _rulespec_runtime_name_from_absolute_test_reference(
+                        output_key
+                    )
+                    if local_key in parameter_by_key or local_key in derived_by_key:
+                        runtime_key = local_key
+                output_runtime_keys[output_key] = runtime_key
+                if runtime_key in parameter_by_key:
+                    parameter_outputs.append(runtime_key)
+                elif runtime_key in derived_by_key:
+                    derived_outputs.append(runtime_key)
                 else:
                     if _RULESPEC_ABSOLUTE_REFERENCE.match(output_key):
                         resolution_issue = _rulespec_absolute_test_reference_issue(
@@ -9782,9 +9816,12 @@ class ValidatorPipeline:
 
             for output_name, expected_value in output_map.items():
                 output_key = str(output_name)
-                actual_output = actual_outputs.get(output_key)
+                runtime_key = output_runtime_keys.get(output_key, output_key)
+                actual_output = actual_outputs.get(output_key) or actual_outputs.get(
+                    runtime_key
+                )
                 if actual_output is None:
-                    if output_key in derived_outputs or output_key in parameter_outputs:
+                    if runtime_key in derived_outputs or runtime_key in parameter_outputs:
                         issues.append(
                             f"Test case `{case_name}` output `{output_key}` missing "
                             "from execution response."
