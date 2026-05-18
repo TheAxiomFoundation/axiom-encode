@@ -65,7 +65,9 @@ from .harness.evals import (
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
     ValidatorPipeline,
+    find_proof_import_reference_issues,
     find_tax_filing_status_local_input_issues,
+    find_tax_status_component_local_input_issues,
     find_unused_import_issues,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
@@ -729,6 +731,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_proof_reference_parser = subparsers.add_parser(
+        "repair-unreferenced-proof-imports",
+        help="Apply signed deterministic repairs for stale proof import atoms",
+    )
+    repair_proof_reference_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_proof_reference_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_proof_reference_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_imported_test_inputs_parser = subparsers.add_parser(
         "repair-imported-test-inputs",
         help="Apply signed deterministic repairs for missing imported test inputs",
@@ -785,6 +809,28 @@ def main():
         help="Rules repository root used for manifest signing",
     )
     repair_tax_filing_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_tax_status_component_parser = subparsers.add_parser(
+        "repair-tax-status-components",
+        help="Apply signed deterministic repairs for local tax status component facts",
+    )
+    repair_tax_status_component_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_tax_status_component_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_tax_status_component_parser.add_argument(
         "--axiom-rules-engine-path",
         dest="axiom_rules_path",
         metavar="AXIOM_RULES_ENGINE_PATH",
@@ -1384,12 +1430,16 @@ def main():
         cmd_repair_unused_imports(args)
     elif args.command == "repair-proof-import-hashes":
         cmd_repair_proof_import_hashes(args)
+    elif args.command == "repair-unreferenced-proof-imports":
+        cmd_repair_unreferenced_proof_imports(args)
     elif args.command == "repair-imported-test-inputs":
         cmd_repair_imported_test_inputs(args)
     elif args.command == "repair-oracle-parameter-tests":
         cmd_repair_oracle_parameter_tests(args)
     elif args.command == "repair-tax-filing-status-branches":
         cmd_repair_tax_filing_status_branches(args)
+    elif args.command == "repair-tax-status-components":
+        cmd_repair_tax_status_components(args)
     elif args.command == "repair-missing-source-proofs":
         cmd_repair_missing_source_proofs(args)
     elif args.command == "encode":
@@ -3665,6 +3715,95 @@ def cmd_repair_proof_import_hashes(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_unreferenced_proof_imports(args):
+    """Apply signed deterministic repairs for stale proof import atoms."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    issues = find_proof_import_reference_issues(original_content)
+    if not issues:
+        print("No unreferenced proof import repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    removed_refs = _remove_unreferenced_proof_import_atoms(
+        rules_file=rules_file,
+        issues=issues,
+    )
+    if not removed_refs:
+        print("No unreferenced proof import repairs found.")
+        return
+
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        rules_file.write_text(original_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original RuleSpec file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="proof-import-reference-v1",
+            tool="axiom-encode repair-unreferenced-proof-imports",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(
+        "Applied unreferenced proof import repair to "
+        f"{relative_output}: {', '.join(removed_refs)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
 def cmd_repair_imported_test_inputs(args):
     """Apply signed deterministic repairs for missing imported test inputs."""
     repo_path = Path(args.repo).resolve()
@@ -3948,6 +4087,115 @@ def cmd_repair_tax_filing_status_branches(args):
     print(f"manifest={manifest_path}")
 
 
+def cmd_repair_tax_status_components(args):
+    """Apply signed deterministic repairs for local US tax status component facts."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text() if test_file.exists() else None
+    repaired_content, repaired_components = _repair_tax_status_component_local_inputs(
+        original_content
+    )
+    repaired_test_content, removed_test_refs = _remove_tax_status_component_test_inputs(
+        original_test_content,
+        repaired_components=repaired_components,
+    )
+    if repaired_content == original_content and not removed_test_refs:
+        print("No tax status component repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    rules_file.write_text(repaired_content)
+    if (
+        repaired_test_content is not None
+        and repaired_test_content != original_test_content
+    ):
+        test_file.write_text(repaired_test_content)
+
+    validation = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+        require_policy_proofs=True,
+    ).validate(rules_file, skip_reviewers=True)
+    if not validation.all_passed:
+        rules_file.write_text(original_content)
+        if original_test_content is not None:
+            test_file.write_text(original_test_content)
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        print("Repair failed validation; restored original RuleSpec file.")
+        for issue in issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="tax-status-component-v1",
+            tool="axiom-encode repair-tax-status-components",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        applied_files = [rules_file]
+        if (
+            repaired_test_content is not None
+            and repaired_test_content != original_test_content
+        ):
+            applied_files.append(test_file)
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    repairs = [
+        f"{identifier}->{expression}"
+        for identifier, expression in sorted(repaired_components.items())
+    ]
+    repairs.extend(removed_test_refs)
+    print(
+        "Applied tax status component repair to "
+        f"{relative_output}: {', '.join(repairs)}"
+    )
+    print(f"manifest={manifest_path}")
+
+
 def cmd_repair_missing_source_proofs(args):
     """Apply signed deterministic repairs for missing source proof atoms."""
     repo_path = Path(args.repo).resolve()
@@ -4123,6 +4371,122 @@ def _repair_tax_filing_status_match_block(
             repairs.append("other_case")
 
     return repaired, repairs
+
+
+_TAX_STATUS_COMPONENT_ISSUE_RE = re.compile(
+    r"Tax filing-status component is a derived legal classification, "
+    r"not a local factual input: `(?P<rule>[^`]+)` references "
+    r"`(?P<identifier>[^`]+)`"
+)
+
+
+def _repair_tax_status_component_local_inputs(
+    content: str,
+) -> tuple[str, dict[str, str]]:
+    """Replace local filing-status component facts with enum predicates."""
+    issues = find_tax_status_component_local_input_issues(content)
+    if not issues:
+        return content, {}
+
+    replacements: dict[str, str] = {}
+    for issue in issues:
+        match = _TAX_STATUS_COMPONENT_ISSUE_RE.search(str(issue))
+        if not match:
+            continue
+        identifier = match["identifier"].strip()
+        expression = _tax_status_component_expression(identifier)
+        if expression:
+            replacements[identifier] = expression
+    if not replacements:
+        return content, {}
+
+    repaired = content
+    applied: dict[str, str] = {}
+    for identifier, expression in sorted(replacements.items()):
+        updated = _replace_tax_status_component_identifier(
+            repaired,
+            identifier=identifier,
+            expression=expression,
+        )
+        if updated != repaired:
+            repaired = updated
+            applied[identifier] = expression
+    return repaired, applied
+
+
+def _tax_status_component_expression(identifier: str) -> str | None:
+    normalized = identifier.lower()
+    if (
+        "unmarried" in normalized or "not_married" in normalized
+    ) and "surviving_spouse" in normalized:
+        return "filing_status == 0 or filing_status == 3"
+    if "head_of_household" in normalized:
+        return "filing_status == 3"
+    if "surviving_spouse" in normalized or "qualifying_widow" in normalized:
+        if (
+            "joint" in normalized
+            or "filing_jointly" in normalized
+            or "married_filing_jointly" in normalized
+        ):
+            return "filing_status == 1 or filing_status == 4"
+        return "filing_status == 4"
+    if "married_filing_separately" in normalized or "filing_separately" in normalized:
+        return "filing_status == 2"
+    if (
+        "married_filing_jointly" in normalized
+        or "filing_jointly" in normalized
+        or "joint_return" in normalized
+    ):
+        return "filing_status == 1"
+    if "is_married" in normalized:
+        return "filing_status == 1 or filing_status == 2"
+    return None
+
+
+def _replace_tax_status_component_identifier(
+    content: str, *, identifier: str, expression: str
+) -> str:
+    token = re.escape(identifier)
+    repaired = re.sub(rf"\bif\s+{token}\s*:", f"if {expression}:", content)
+    repaired = re.sub(rf"\bnot\s+{token}\b", f"not ({expression})", repaired)
+    return re.sub(rf"\b{token}\b", f"({expression})", repaired)
+
+
+def _remove_tax_status_component_test_inputs(
+    test_content: str | None,
+    *,
+    repaired_components: dict[str, str],
+) -> tuple[str | None, list[str]]:
+    if test_content is None or not repaired_components:
+        return test_content, []
+    try:
+        test_payload = yaml.safe_load(test_content) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return test_content, []
+    if not isinstance(test_payload, list):
+        return test_content, []
+
+    input_suffixes = {
+        f"#input.{identifier}" for identifier in repaired_components.keys()
+    }
+    removed: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        for key in list(inputs.keys()):
+            key_string = str(key)
+            if any(key_string.endswith(suffix) for suffix in input_suffixes):
+                removed.append(key_string)
+                del inputs[key]
+
+    if not removed:
+        return test_content, []
+    return yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False), sorted(
+        set(removed)
+    )
 
 
 def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
@@ -5180,7 +5544,12 @@ def _remove_unreferenced_proof_import_atoms(
                 and str(atom.get("kind") or "").strip() == "import"
                 and isinstance(atom.get("import"), dict)
             ):
-                imported_symbol = str(atom["import"].get("output") or "").strip()
+                import_payload = atom["import"]
+                imported_symbol = str(import_payload.get("output") or "").strip()
+                if not imported_symbol:
+                    target = str(import_payload.get("target") or "").strip()
+                    if "#" in target:
+                        imported_symbol = target.rsplit("#", 1)[1].strip()
                 pair = (rule_name, imported_symbol)
                 if pair in stale_pairs:
                     removed.append(f"{rule_name}:{imported_symbol}")
@@ -5191,8 +5560,18 @@ def _remove_unreferenced_proof_import_atoms(
 
     if not removed:
         return []
+    repaired_content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    pruned_imports = _unused_import_items(repaired_content)
+    imports = payload.get("imports")
+    if pruned_imports and isinstance(imports, list):
+        pruned_set = set(pruned_imports)
+        payload["imports"] = [
+            item
+            for item in imports
+            if not (isinstance(item, str) and item.strip() in pruned_set)
+        ]
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
-    return sorted(removed)
+    return sorted([*removed, *[f"unused_import:{item}" for item in pruned_imports]])
 
 
 def _imported_output_names(rules_file: Path) -> set[str]:

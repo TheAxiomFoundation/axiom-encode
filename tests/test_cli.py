@@ -58,6 +58,8 @@ from axiom_encode.cli import (
     cmd_repair_oracle_parameter_tests,
     cmd_repair_proof_import_hashes,
     cmd_repair_tax_filing_status_branches,
+    cmd_repair_tax_status_components,
+    cmd_repair_unreferenced_proof_imports,
     cmd_runs,
     cmd_session_end,
     cmd_session_show,
@@ -3937,7 +3939,10 @@ rules:
         repaired = (
             "spouse_aged_additional_amount_entitlement:exemption_individual_eligible"
         )
-        assert f"apply=auto_repaired_unreferenced_proof_imports:{repaired}" in output
+        pruned_import = "unused_import:us:statutes/26/151#exemption_individual_eligible"
+        assert (
+            f"apply=auto_repaired_unreferenced_proof_imports:{repaired},{pruned_import}"
+        ) in output
         assert (
             "apply=auto_repaired_derived_output_tests:"
             "auto_output_spouse_aged_additional_amount_person_entitlement"
@@ -3945,6 +3950,7 @@ rules:
         assert mock_overlay.call_count == 3
         mock_apply.assert_called_once()
         content = yaml.safe_load(output_file.read_text())
+        assert content.get("imports") == []
         atoms = content["rules"][0]["metadata"]["proof"]["atoms"]
         assert all(atom.get("kind") != "import" for atom in atoms)
         assert (
@@ -3952,7 +3958,10 @@ rules:
             in test_file.read_text()
         )
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
-        assert run.outcome["auto_repaired_unreferenced_proof_imports"] == [repaired]
+        assert run.outcome["auto_repaired_unreferenced_proof_imports"] == [
+            repaired,
+            pruned_import,
+        ]
         assert run.outcome["auto_repaired_derived_output_tests"] == [
             "auto_output_spouse_aged_additional_amount_person_entitlement"
         ]
@@ -5681,6 +5690,165 @@ rules:
 
         assert target.read_text() == original_content
         assert test_file.read_text() == original_test_content
+
+    def test_repair_tax_status_components_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "policies/irs/rev-proc-2025-32/standard-deduction.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: additional_standard_deduction_for_aged_or_blind
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_is_unmarried_and_not_surviving_spouse: higher_amount else: regular_amount
+"""
+        )
+        test_file = target.with_name("standard-deduction.test.yaml")
+        test_file.write_text(
+            """- name: head_of_household
+  input:
+    us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status: 3
+    us:policies/irs/rev-proc-2025-32/standard-deduction#input.individual_is_unmarried_and_not_surviving_spouse: true
+  output:
+    us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_for_aged_or_blind: 2050
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("policies/irs/rev-proc-2025-32/standard-deduction.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                assert "individual_is_unmarried" not in target.read_text()
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_tax_status_components(args)
+
+        content = target.read_text()
+        assert "individual_is_unmarried_and_not_surviving_spouse" not in content
+        assert "filing_status == 0 or filing_status == 3" in content
+        test_content = test_file.read_text()
+        assert (
+            "input.individual_is_unmarried_and_not_surviving_spouse" not in test_content
+        )
+        manifest = (
+            policy_repo
+            / ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/standard-deduction.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert payload["model"] == "tax-status-component-v1"
+        assert payload["tool"] == "axiom-encode repair-tax-status-components"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "policies/irs/rev-proc-2025-32/standard-deduction.yaml",
+            "policies/irs/rev-proc-2025-32/standard-deduction.test.yaml",
+        ]
+
+    def test_repair_unreferenced_proof_imports_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/1402/a.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401#self_employment_oasdi_tax_rate
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: paragraph_12_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/1402
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1401#self_employment_oasdi_tax_rate
+              hash: sha256:abc123
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          net_earnings_before_paragraph_12_adjustment * paragraph_12_deduction_rate
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/1402/a.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_unreferenced_proof_imports(args)
+
+        content = target.read_text()
+        assert "us:statutes/26/1401#self_employment_oasdi_tax_rate" not in content
+        payload = yaml.safe_load(content)
+        atoms = payload["rules"][0]["metadata"]["proof"]["atoms"]
+        assert all(atom.get("kind") != "import" for atom in atoms)
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/1402/a.json"
+        manifest_payload = json.loads(manifest.read_text())
+        assert manifest_payload["backend"] == "deterministic"
+        assert manifest_payload["model"] == "proof-import-reference-v1"
+        assert (
+            manifest_payload["tool"] == "axiom-encode repair-unreferenced-proof-imports"
+        )
+        assert [
+            applied_file["path"] for applied_file in manifest_payload["applied_files"]
+        ] == ["statutes/26/1402/a.yaml"]
 
     def test_repair_missing_source_proofs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
