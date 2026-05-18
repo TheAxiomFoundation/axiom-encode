@@ -57,6 +57,7 @@ from axiom_encode.cli import (
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
     cmd_repair_proof_import_hashes,
+    cmd_repair_section_172_c_capacity,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
     cmd_repair_unreferenced_proof_imports,
@@ -5855,6 +5856,242 @@ rules:
         assert [
             applied_file["path"] for applied_file in manifest_payload["applied_files"]
         ] == ["statutes/26/1402/a.yaml"]
+
+    def test_repair_section_172_c_capacity_writes_signed_manifests(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target_1212 = policy_repo / "statutes/26/1212/a/1.yaml"
+        test_1212 = policy_repo / "statutes/26/1212/a/1.test.yaml"
+        target_1222 = policy_repo / "statutes/26/1222.yaml"
+        test_1222 = policy_repo / "statutes/26/1222.test.yaml"
+        target_1212.parent.mkdir(parents=True)
+        target_1222.parent.mkdir(parents=True, exist_ok=True)
+        target_1212.write_text(
+            """format: rulespec/v1
+rules:
+  - name: corporation_capital_loss_carryback_to_taxable_year
+    kind: derived
+    entity: Corporation
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          min(
+              net_capital_loss_not_attributable_to_foreign_expropriation_capital_loss,
+              capital_loss_carryback_amount_that_does_not_increase_or_produce_net_operating_loss_under_section_172_c
+          )
+"""
+        )
+        test_1212.write_text(
+            """- name: carryback_case
+  input:
+    ? us:statutes/26/1212/a/1#input.capital_loss_carryback_amount_that_does_not_increase_or_produce_net_operating_loss_under_section_172_c
+    : 8000
+  output:
+    us:statutes/26/1212/a/1#corporation_capital_loss_carryback_to_taxable_year: 8000
+"""
+        )
+        target_1222.write_text(
+            """format: rulespec/v1
+rules:
+  - name: short_term_capital_loss
+    kind: derived
+    entity: Corporation
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1212/a/1#corporation_capital_loss_carryback_to_taxable_year
+              output: corporation_capital_loss_carryback_to_taxable_year
+              hash: sha256:stale
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          corporation_capital_loss_carryback_to_taxable_year
+"""
+        )
+        test_1222.write_text(
+            """- name: dependent_case
+  input:
+    ? us:statutes/26/1212/a/1#input.capital_loss_carryback_amount_that_does_not_increase_or_produce_net_operating_loss_under_section_172_c
+    : 3000
+  output:
+    us:statutes/26/1222#short_term_capital_loss: 3000
+"""
+        )
+        subprocess.run(
+            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
+        )
+        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Axiom Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "baseline",
+            ],
+            cwd=policy_repo,
+            check=True,
+            stdout=subprocess.PIPE,
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+        companion_failures = MagicMock(return_value=[])
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                assert path in {
+                    policy_repo / "statutes/26/172/c.yaml",
+                    target_1212,
+                    target_1222,
+                }
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                companion_failures,
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_172_c_capacity(args)
+
+        assert [call.args[0] for call in companion_failures.call_args_list] == [
+            policy_repo / "statutes/26/172/c.test.yaml",
+            test_1212,
+            test_1222,
+        ]
+        assert (policy_repo / "statutes/26/172/c.yaml").exists()
+        assert (
+            "us:statutes/26/172/c#deduction_capacity_before_net_operating_loss"
+            in target_1212.read_text()
+        )
+        assert (
+            "capital_loss_carryback_amount_that_does_not_increase_or_produce"
+            not in target_1212.read_text()
+        )
+        assert "us:statutes/26/172/c#input.gross_income: 8000" in test_1212.read_text()
+        assert "us:statutes/26/172/c#input.gross_income: 3000" in test_1222.read_text()
+        assert f"hash: sha256:{_sha256_file(target_1212)}" in target_1222.read_text()
+        for manifest in (
+            policy_repo / ".axiom/encoding-manifests/statutes/26/172/c.json",
+            policy_repo / ".axiom/encoding-manifests/statutes/26/1212/a/1.json",
+            policy_repo / ".axiom/encoding-manifests/statutes/26/1222.json",
+        ):
+            payload = json.loads(manifest.read_text())
+            assert payload["model"] == "section-172-c-capacity-v1"
+            assert payload["tool"] == "axiom-encode repair-section-172-c-capacity"
+            applied_paths = [
+                applied_file["path"] for applied_file in payload["applied_files"]
+            ]
+            assert (
+                applied_paths
+                == {
+                    policy_repo / ".axiom/encoding-manifests/statutes/26/172/c.json": [
+                        "statutes/26/172/c.yaml",
+                        "statutes/26/172/c.test.yaml",
+                    ],
+                    policy_repo
+                    / ".axiom/encoding-manifests/statutes/26/1212/a/1.json": [
+                        "statutes/26/1212/a/1.yaml",
+                        "statutes/26/1212/a/1.test.yaml",
+                    ],
+                    policy_repo / ".axiom/encoding-manifests/statutes/26/1222.json": [
+                        "statutes/26/1222.yaml",
+                        "statutes/26/1222.test.yaml",
+                    ],
+                }[manifest]
+            )
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            assert (
+                guard_generated_change_issues(
+                    policy_repo,
+                    changed_files=[
+                        "statutes/26/172/c.yaml",
+                        "statutes/26/172/c.test.yaml",
+                        "statutes/26/1212/a/1.yaml",
+                        "statutes/26/1212/a/1.test.yaml",
+                        "statutes/26/1222.yaml",
+                        "statutes/26/1222.test.yaml",
+                        ".axiom/encoding-manifests/statutes/26/172/c.json",
+                        ".axiom/encoding-manifests/statutes/26/1212/a/1.json",
+                        ".axiom/encoding-manifests/statutes/26/1222.json",
+                    ],
+                )
+                == []
+            )
+
+    def test_repair_section_172_c_capacity_refuses_dirty_targets(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target_1212 = policy_repo / "statutes/26/1212/a/1.yaml"
+        target_1212.parent.mkdir(parents=True)
+        target_1212.write_text("format: rulespec/v1\nrules: []\n")
+        subprocess.run(
+            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
+        )
+        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Axiom Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "baseline",
+            ],
+            cwd=policy_repo,
+            check=True,
+            stdout=subprocess.PIPE,
+        )
+        target_1212.write_text("format: rulespec/v1\nrules:\n  - manual\n")
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", side_effect=AssertionError),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(RuntimeError, match="Refusing to sign over pre-existing"),
+        ):
+            cmd_repair_section_172_c_capacity(args)
+
+        assert not (policy_repo / "statutes/26/172").exists()
 
     def test_repair_missing_source_proofs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
