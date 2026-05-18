@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -3615,6 +3615,44 @@ def _applied_manifest_missing_file(
     return True
 
 
+def _applied_manifest_has_model(
+    repo_path: Path,
+    relative_output: Path,
+    *,
+    model: str,
+) -> bool:
+    manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+    if not manifest_path.exists():
+        return False
+    with contextlib.suppress(json.JSONDecodeError, OSError, ValueError):
+        payload = json.loads(manifest_path.read_text())
+        return payload.get("model") == model
+    return False
+
+
+def _applied_manifest_paths_for_files(
+    repo_path: Path,
+    *,
+    relative_files: set[str],
+) -> set[str]:
+    manifest_paths: set[str] = set()
+    if not relative_files:
+        return manifest_paths
+    for relative_manifest_path in _all_applied_encoding_manifest_paths(repo_path):
+        manifest_path = repo_path / relative_manifest_path
+        with contextlib.suppress(json.JSONDecodeError, OSError, ValueError):
+            payload = json.loads(manifest_path.read_text())
+            applied_files = payload.get("applied_files")
+            if not isinstance(applied_files, list):
+                continue
+            if any(
+                isinstance(item, dict) and item.get("path") in relative_files
+                for item in applied_files
+            ):
+                manifest_paths.add(relative_manifest_path)
+    return manifest_paths
+
+
 def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     unused_imports = _unused_import_items(content)
     if not unused_imports:
@@ -3697,7 +3735,12 @@ def cmd_repair_proof_import_hashes(args):
         rules_file=rules_file,
         repo_path=repo_path,
     )
-    if repaired_content == original_content:
+    refresh_only = repaired_content == original_content
+    if refresh_only and not _applied_manifest_has_model(
+        repo_path,
+        relative_output,
+        model="proof-import-hash-v1",
+    ):
         print("No proof hash repairs found.")
         return
 
@@ -3715,18 +3758,41 @@ def cmd_repair_proof_import_hashes(args):
         require_policy_proofs=False,
     ).validate(rules_file, skip_reviewers=True)
     if not validation.all_passed:
-        if _complete_missing_imported_test_inputs(
-            rules_file=rules_file,
-            test_file=test_file,
-            repo_path=repo_path,
-            validation=validation,
-        ):
+        for _ in range(20):
+            issues = [
+                result.error for result in validation.results.values() if result.error
+            ]
+            removed_refs = _remove_invalid_import_output_test_input_refs(
+                test_file=test_file,
+                repo_path=repo_path,
+                issues=issues,
+            )
+            repaired_exclusion_refs = (
+                _repair_stale_exclusion_dependency_test_input_refs(
+                    test_file=test_file,
+                    issues=issues,
+                )
+            )
+            completed_missing_inputs = _complete_missing_imported_test_inputs(
+                rules_file=rules_file,
+                test_file=test_file,
+                repo_path=repo_path,
+                validation=validation,
+            )
+            if (
+                not removed_refs
+                and not repaired_exclusion_refs
+                and not completed_missing_inputs
+            ):
+                break
             validation = ValidatorPipeline(
                 policy_repo_path=repo_path,
                 axiom_rules_path=axiom_rules_path,
                 enable_oracles=False,
                 require_policy_proofs=False,
             ).validate(rules_file, skip_reviewers=True)
+            if validation.all_passed:
+                break
     if not validation.all_passed:
         issues = [
             result.error for result in validation.results.values() if result.error
@@ -3775,7 +3841,10 @@ def cmd_repair_proof_import_hashes(args):
             axiom_encode_git=axiom_encode_git,
         )
 
-    print(f"Applied proof hash repair to {relative_output}: {repair_count}")
+    if refresh_only:
+        print(f"Refreshed proof hash repair manifest for {relative_output}")
+    else:
+        print(f"Applied proof hash repair to {relative_output}: {repair_count}")
     print(f"manifest={manifest_path}")
 
 
@@ -3902,17 +3971,37 @@ def cmd_repair_imported_test_inputs(args):
         enable_oracles=False,
         require_policy_proofs=False,
     )
-    validation = pipeline.validate(rules_file, skip_reviewers=True)
-    if validation.all_passed:
-        print("No imported test input repairs found.")
-        return
+    repaired = False
+    for _ in range(20):
+        validation = pipeline.validate(rules_file, skip_reviewers=True)
+        if validation.all_passed:
+            break
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        removed_refs = _remove_invalid_import_output_test_input_refs(
+            test_file=test_file,
+            repo_path=repo_path,
+            issues=issues,
+        )
+        repaired_exclusion_refs = _repair_stale_exclusion_dependency_test_input_refs(
+            test_file=test_file,
+            issues=issues,
+        )
+        completed_missing_inputs = _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            validation=validation,
+        )
+        if (
+            not removed_refs
+            and not repaired_exclusion_refs
+            and not completed_missing_inputs
+        ):
+            break
+        repaired = True
 
-    repaired = _complete_missing_imported_test_inputs(
-        rules_file=rules_file,
-        test_file=test_file,
-        repo_path=repo_path,
-        validation=validation,
-    )
     if not repaired:
         print("No imported test input repairs found.")
         return
@@ -4079,6 +4168,8 @@ def cmd_repair_section_172_c_capacity(args):
 def _ensure_no_unmanifested_preexisting_rulespec_changes(
     repo_path: Path,
     manifest_groups: list[tuple[Path, list[Path]]],
+    *,
+    allow_unmanifested_paths: set[Path] | None = None,
 ) -> None:
     """Refuse to sign over target files already dirty outside encoder manifests."""
     try:
@@ -4090,10 +4181,16 @@ def _ensure_no_unmanifested_preexisting_rulespec_changes(
 
     dirty_targets: set[str] = set()
     relevant_manifest_paths: set[str] = set()
+    allowed_relative_paths = {
+        path.relative_to(repo_path).as_posix()
+        for path in (allow_unmanifested_paths or set())
+    }
     for relative_output, files in manifest_groups:
         group_dirty = False
         for path in files:
             relative_path = path.relative_to(repo_path).as_posix()
+            if relative_path in allowed_relative_paths:
+                continue
             if relative_path in changed:
                 dirty_targets.add(relative_path)
                 group_dirty = True
@@ -4104,10 +4201,13 @@ def _ensure_no_unmanifested_preexisting_rulespec_changes(
     if not dirty_targets:
         return
 
+    relevant_manifest_paths.update(
+        _applied_manifest_paths_for_files(repo_path, relative_files=dirty_targets)
+    )
     issues = guard_generated_change_issues(
         repo_path,
         roots=tuple(sorted(RULESPEC_SOURCE_ROOTS)),
-        changed_files=sorted(dirty_targets | (changed & relevant_manifest_paths)),
+        changed_files=sorted(dirty_targets | relevant_manifest_paths),
     )
     if not issues:
         return
@@ -4115,6 +4215,46 @@ def _ensure_no_unmanifested_preexisting_rulespec_changes(
         "Refusing to sign over pre-existing RuleSpec target changes:\n"
         + "\n".join(f"- {issue}" for issue in issues)
     )
+
+
+def _ensure_generated_dependency_files_safe(
+    repo_path: Path,
+    *,
+    generated_files: dict[Path, str],
+) -> None:
+    """Refuse to replace non-generated dependency files with templates."""
+    if not generated_files:
+        return
+
+    manifest_paths = _all_applied_encoding_manifest_paths(repo_path)
+    manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
+        repo_path, manifest_paths
+    )
+    current_hashes: dict[str, set[str]] = {}
+    if not manifest_issues:
+        current_hashes = manifest_entries
+
+    issues: list[str] = []
+    for path, generated_content in generated_files.items():
+        if not path.exists():
+            continue
+        current_content = path.read_text()
+        if current_content == generated_content:
+            continue
+        relative_path = path.relative_to(repo_path).as_posix()
+        current_hash = _sha256_file(path)
+        if current_hash in current_hashes.get(relative_path, set()):
+            continue
+        issues.append(
+            f"{relative_path} already exists with content that does not match "
+            "the deterministic dependency template or a signed apply manifest"
+        )
+
+    if issues:
+        raise RuntimeError(
+            "Refusing to overwrite existing RuleSpec dependency files:\n"
+            + "\n".join(f"- {issue}" for issue in issues)
+        )
 
 
 def _write_section_172_c_capacity_files(
@@ -6263,6 +6403,11 @@ def cmd_repair_tax_status_components(args):
     except ValueError:
         print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
         sys.exit(1)
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    is_section_151_target = relative_output == Path("statutes/26/151.yaml")
 
     test_file = _rulespec_test_path(rules_file)
     original_content = rules_file.read_text()
@@ -6273,6 +6418,36 @@ def cmd_repair_tax_status_components(args):
     repaired_content, renamed_temporal_facts = _repair_section_151_temporal_fact_names(
         repaired_content
     )
+    repaired_content, deferred_151_phaseout = _repair_section_151_68b_phaseout_deferral(
+        repaired_content
+    )
+    (
+        repaired_content,
+        repaired_151_imports,
+        generated_151_import_files,
+    ) = _repair_section_151_imports(repaired_content, repo_path=repo_path)
+    (
+        repaired_content,
+        repaired_151_exclusion_imports,
+        generated_151_exclusion_files,
+    ) = _repair_section_151_exclusion_dependencies(
+        repaired_content, repo_path=repo_path
+    )
+    (
+        repaired_content,
+        repaired_151_dependency_imports,
+        generated_151_dependency_files,
+    ) = _repair_section_151_152_dependency(repaired_content, repo_path=repo_path)
+    repaired_content, repaired_24_child_dependency_imports = (
+        _repair_section_24_child_dependency_imports(
+            repaired_content, repo_path=repo_path
+        )
+    )
+    (
+        repaired_content,
+        repaired_24_7527a_imports,
+        generated_24_7527a_files,
+    ) = _repair_section_24_7527a_dependency(repaired_content, repo_path=repo_path)
     repaired_test_content, removed_test_refs = _remove_tax_status_component_test_inputs(
         original_test_content,
         repaired_components=repaired_components,
@@ -6280,10 +6455,65 @@ def cmd_repair_tax_status_components(args):
     repaired_test_content, renamed_temporal_test_refs = (
         _repair_section_151_temporal_test_input_names(repaired_test_content)
     )
+    repaired_test_content, repaired_151_test_refs = _repair_section_151_test_inputs(
+        repaired_test_content
+    )
+    repaired_test_content, repaired_exclusion_test_refs = (
+        _repair_exclusion_dependency_test_inputs(
+            repaired_test_content,
+            target_base=target_base,
+        )
+    )
+    repaired_test_content, repaired_24_child_test_refs = (
+        _repair_section_24_child_dependency_test_inputs(repaired_test_content)
+    )
+    repaired_test_content, repaired_24_7527a_test_refs = (
+        _repair_section_24_7527a_test_inputs(repaired_test_content)
+    )
+    if is_section_151_target:
+        extra_file_contents, repaired_related_151_test_refs = (
+            _repair_section_151_related_test_inputs(
+                repo_path=repo_path,
+                target_test_file=test_file,
+                repaired_components=repaired_components,
+            )
+        )
+    else:
+        extra_file_contents, repaired_related_151_test_refs = {}, []
+    related_151_test_files = (
+        _section_151_related_test_files(
+            repo_path=repo_path,
+            target_test_file=test_file,
+        )
+        if is_section_151_target
+        else []
+    )
+    generated_dependency_files = {
+        **generated_151_import_files,
+        **generated_151_dependency_files,
+        **generated_151_exclusion_files,
+        **generated_24_7527a_files,
+    }
+    extra_file_contents.update(generated_151_import_files)
+    extra_file_contents.update(generated_151_dependency_files)
+    extra_file_contents.update(generated_151_exclusion_files)
+    extra_file_contents.update(generated_24_7527a_files)
     if (
         repaired_content == original_content
         and not removed_test_refs
         and not renamed_temporal_test_refs
+        and not deferred_151_phaseout
+        and not repaired_151_imports
+        and not repaired_151_exclusion_imports
+        and not repaired_151_dependency_imports
+        and not repaired_24_child_dependency_imports
+        and not repaired_24_7527a_imports
+        and not repaired_151_test_refs
+        and not repaired_exclusion_test_refs
+        and not repaired_24_child_test_refs
+        and not repaired_24_7527a_test_refs
+        and not repaired_related_151_test_refs
+        and not extra_file_contents
     ):
         print("No tax status component repairs found.")
         return
@@ -6293,6 +6523,30 @@ def cmd_repair_tax_status_components(args):
     axiom_rules_path = getattr(
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+    _ensure_generated_dependency_files_safe(
+        repo_path,
+        generated_files=generated_dependency_files,
+    )
+    guard_files = [rules_file]
+    if (
+        repaired_test_content is not None
+        and repaired_test_content != original_test_content
+    ):
+        guard_files.append(test_file)
+    guard_files.extend(
+        path for path in extra_file_contents if path not in generated_dependency_files
+    )
+    _ensure_no_unmanifested_preexisting_rulespec_changes(
+        repo_path,
+        [(relative_output, _unique_paths(guard_files))],
+        allow_unmanifested_paths=set(related_151_test_files)
+        if is_section_151_target
+        else None,
+    )
+    original_extra_contents = {
+        path: (path.read_text() if path.exists() else None)
+        for path in extra_file_contents
+    }
 
     rules_file.write_text(repaired_content)
     if (
@@ -6300,22 +6554,59 @@ def cmd_repair_tax_status_components(args):
         and repaired_test_content != original_test_content
     ):
         test_file.write_text(repaired_test_content)
+    for path, content in extra_file_contents.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
 
+    validation_targets = [rules_file]
+    validation_targets.extend(
+        path
+        for path in extra_file_contents
+        if path.suffix in {".yaml", ".yml"} and not path.name.endswith(".test.yaml")
+    )
+    validation_targets = _unique_paths(validation_targets)
+    validation_issues: list[str] = []
     validation = ValidatorPipeline(
         policy_repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
         enable_oracles=False,
         require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
-    if not validation.all_passed:
+    )
+    for validation_target in validation_targets:
+        result = validation.validate(validation_target, skip_reviewers=True)
+        if result.all_passed:
+            continue
+        validation_issues.extend(
+            item.error for item in result.results.values() if item.error
+        )
+    if validation_issues:
         rules_file.write_text(original_content)
         if original_test_content is not None:
             test_file.write_text(original_test_content)
-        issues = [
-            result.error for result in validation.results.values() if result.error
-        ]
+        _restore_original_files(original_extra_contents)
         print("Repair failed validation; restored original RuleSpec file.")
-        for issue in issues:
+        for issue in validation_issues:
+            print(f"- {issue}")
+        sys.exit(1)
+
+    test_targets = [test_file]
+    test_targets.extend(
+        path for path in extra_file_contents if path.name.endswith(".test.yaml")
+    )
+    test_targets.extend(related_151_test_files)
+    test_targets = [path for path in _unique_paths(test_targets) if path.exists()]
+    test_issues = _companion_test_issues(
+        test_files=test_targets,
+        repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+    )
+    if test_issues:
+        rules_file.write_text(original_content)
+        if original_test_content is not None:
+            test_file.write_text(original_test_content)
+        _restore_original_files(original_extra_contents)
+        print("Repair failed companion tests; restored original RuleSpec file.")
+        for issue in test_issues:
             print(f"- {issue}")
         sys.exit(1)
 
@@ -6339,11 +6630,10 @@ def cmd_repair_tax_status_components(args):
             context_manifest_file=None,
         )
         applied_files = [rules_file]
-        if (
-            repaired_test_content is not None
-            and repaired_test_content != original_test_content
-        ):
+        if test_file.exists():
             applied_files.append(test_file)
+        applied_files.extend(extra_file_contents)
+        applied_files.extend(related_151_test_files)
         manifest_path = _write_applied_encoding_manifest(
             result,
             output_root=output_root,
@@ -6362,6 +6652,17 @@ def cmd_repair_tax_status_components(args):
     repairs.extend(removed_test_refs)
     repairs.extend(renamed_temporal_facts)
     repairs.extend(renamed_temporal_test_refs)
+    repairs.extend(deferred_151_phaseout)
+    repairs.extend(repaired_151_imports)
+    repairs.extend(repaired_151_exclusion_imports)
+    repairs.extend(repaired_151_dependency_imports)
+    repairs.extend(repaired_24_child_dependency_imports)
+    repairs.extend(repaired_24_7527a_imports)
+    repairs.extend(repaired_151_test_refs)
+    repairs.extend(repaired_exclusion_test_refs)
+    repairs.extend(repaired_24_child_test_refs)
+    repairs.extend(repaired_24_7527a_test_refs)
+    repairs.extend(repaired_related_151_test_refs)
     print(
         "Applied tax status component repair to "
         f"{relative_output}: {', '.join(repairs)}"
@@ -6553,18 +6854,1276 @@ _SECTION_151_TEMPORAL_FACT_REPLACEMENTS = {
     "taxable_year_begins_before_2029": (
         "taxable_year_begins_before_senior_deduction_expiration_date"
     ),
+    "taxable_year_begins_after_december_31_2028": (
+        "taxable_year_begins_after_temporary_deduction_termination_date"
+    ),
+    "taxable_year_begins_after_2024_and_before_2029": (
+        "taxable_year_is_in_temporary_passenger_vehicle_loan_interest_window"
+    ),
 }
+
+
+_SECTION_151_PHASEOUT_OUTPUT = "exemption_phaseout_applicable_percentage"
+_SECTION_151_68B_PLACEHOLDER_SYMBOL = "applicable_amount_in_effect_under_section_68_b"
+_SECTION_151_68B_PLACEHOLDER_INPUT = (
+    "us:statutes/26/151#input.applicable_amount_in_effect_under_section_68_b"
+)
+_SECTION_151_PHASEOUT_OUTPUT_REF = (
+    "us:statutes/26/151#exemption_phaseout_applicable_percentage"
+)
+_SECTION_151_911_PLACEHOLDER_SYMBOL = (
+    "amount_excluded_from_gross_income_under_section_911"
+)
+_SECTION_151_911_PLACEHOLDER_INPUT = (
+    "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911"
+)
+_SECTION_151_STALE_JOINT_RETURN_INPUT = (
+    "us:statutes/26/151#input.joint_return_made_by_taxpayer_and_spouse"
+)
+_SECTION_151_STALE_MARRIED_7703_INPUT = (
+    "us:statutes/26/151#input.taxpayer_is_married_individual_within_section_7703"
+)
+_SECTION_151_931_PLACEHOLDER_SYMBOL = (
+    "amount_excluded_from_gross_income_under_section_931"
+)
+_SECTION_151_931_PLACEHOLDER_INPUT = (
+    "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931"
+)
+_SECTION_151_933_PLACEHOLDER_SYMBOL = (
+    "amount_excluded_from_gross_income_under_section_933"
+)
+_SECTION_151_933_PLACEHOLDER_INPUT = (
+    "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_933"
+)
+_SECTION_151_152_PLACEHOLDER_SYMBOL = "is_dependent_under_section_152_of_taxpayer"
+_SECTION_151_152_PLACEHOLDER_INPUT = (
+    "us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer"
+)
+_SECTION_931_IMPORT = (
+    "us:statutes/26/931#amount_excluded_from_gross_income_under_section_931"
+)
+_SECTION_933_IMPORT = (
+    "us:statutes/26/933#amount_excluded_from_gross_income_under_section_933"
+)
+_SECTION_931_OUTPUT = "amount_excluded_from_gross_income_under_section_931"
+_SECTION_933_OUTPUT = "amount_excluded_from_gross_income_under_section_933"
+_SECTION_931_SOURCE_INPUT = (
+    "us:statutes/26/931#input.gross_income_excluded_under_section_931"
+)
+_SECTION_933_SOURCE_INPUT = (
+    "us:statutes/26/933#input.gross_income_excluded_under_section_933"
+)
+_SECTION_152_IMPORT = "us:statutes/26/152#dependent_of_taxpayer"
+_SECTION_152_C_IMPORT = "us:statutes/26/152/c#qualifying_child"
+_SECTION_152_D_IMPORT = "us:statutes/26/152/d#qualifying_relative"
+_SECTION_152_OUTPUT = "dependent_of_taxpayer"
+_SECTION_152_C_OUTPUT = "qualifying_child"
+_SECTION_152_D_OUTPUT = "qualifying_relative"
+_SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_IMPORT = (
+    "us:statutes/26/151#exemption_individual_eligible"
+)
+_SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_OUTPUT = "exemption_individual_eligible"
+_SECTION_24_152_C_PLACEHOLDER_SYMBOL = "qualifying_child_under_section_152_c"
+_SECTION_24_152_C_PLACEHOLDER_INPUT = (
+    "us:statutes/26/24#input.qualifying_child_under_section_152_c"
+)
+_SECTION_24_151_PLACEHOLDER_SYMBOL = "allowed_deduction_under_section_151_for_child"
+_SECTION_24_151_PLACEHOLDER_INPUT = (
+    "us:statutes/26/24#input.allowed_deduction_under_section_151_for_child"
+)
+_SECTION_24_7527A_PLACEHOLDER_SYMBOL = "aggregate_advance_payments_under_section_7527A"
+_SECTION_24_7527A_PLACEHOLDER_INPUT = (
+    "us:statutes/26/24#input.aggregate_advance_payments_under_section_7527A"
+)
+_SECTION_7527A_IMPORT = (
+    "us:statutes/26/7527A#aggregate_advance_payments_under_section_7527A"
+)
+_SECTION_7527A_OUTPUT = "aggregate_advance_payments_under_section_7527A"
+_SECTION_7527A_SOURCE_INPUT = (
+    "us:statutes/26/7527A#input.advance_payments_made_under_section_7527A"
+)
+_SECTION_151_68B_DEFERRED_OUTPUT_BLOCK = """  deferred_outputs:
+  - output: us:statutes/26/151#exemption_phaseout_applicable_percentage
+    blocked_by:
+    - us:statutes/26/68/b#applicable_amount
+    reason: >-
+      Current section 151(d)(3) continues to refer to the applicable amount in
+      effect under section 68(b), but section 68(b), as amended for taxable years
+      beginning after December 31, 2025, no longer defines that applicable amount.
+      The 2026 RuleSpec therefore leaves this phaseout percentage non-executable
+      rather than preserving a local cross-reference placeholder.
+    source_values:
+    - us:statutes/26/151#exemption_phaseout_rate_per_increment
+    - us:statutes/26/151#exemption_phaseout_increment
+    - us:statutes/26/151#exemption_phaseout_increment_separate
+    - us:statutes/26/151#exemption_phaseout_maximum_percentage
+"""
+
+
+def _repair_section_151_68b_phaseout_deferral(
+    content: str,
+) -> tuple[str, list[str]]:
+    if (
+        _SECTION_151_PHASEOUT_OUTPUT not in content
+        and _SECTION_151_68B_PLACEHOLDER_SYMBOL not in content
+    ):
+        return content, []
+
+    repaired = content
+    repairs: list[str] = []
+    repaired, removed = _remove_rulespec_rule_by_name(
+        repaired, _SECTION_151_PHASEOUT_OUTPUT
+    )
+    if removed:
+        repairs.append(f"defer:{_SECTION_151_PHASEOUT_OUTPUT}")
+
+    if _SECTION_151_PHASEOUT_OUTPUT_REF not in repaired:
+        marker = "  source_verification:\n    corpus_citation_path: us/statute/26/151\n"
+        if marker in repaired:
+            repaired = repaired.replace(
+                marker, marker + _SECTION_151_68B_DEFERRED_OUTPUT_BLOCK, 1
+            )
+            repairs.append("deferred_output:68b_applicable_amount")
+
+    return repaired, repairs
+
+
+def _repair_section_151_imports(
+    content: str, *, repo_path: Path
+) -> tuple[str, list[str], dict[Path, str]]:
+    if _SECTION_151_911_PLACEHOLDER_SYMBOL not in content:
+        return content, [], {}
+
+    section_911_file = repo_path / "statutes/26/911.yaml"
+    generated_files: dict[Path, str] = {}
+    if section_911_file.exists():
+        section_911_hash = _sha256_file(section_911_file)
+    else:
+        section_911_a_1_content = _section_911_a_1_exclusion_rulespec()
+        section_911_content = _section_911_exclusion_rulespec(
+            _sha256_text(section_911_a_1_content)
+        )
+        generated_files[repo_path / "statutes/26/911/a/1.yaml"] = (
+            section_911_a_1_content
+        )
+        generated_files[repo_path / "statutes/26/911/a/1.test.yaml"] = (
+            _section_911_a_1_exclusion_tests()
+        )
+        generated_files[repo_path / "statutes/26/911.yaml"] = section_911_content
+        generated_files[repo_path / "statutes/26/911.test.yaml"] = (
+            _section_911_exclusion_tests()
+        )
+        section_911_hash = _sha256_text(section_911_content)
+
+    repaired = _ensure_rulespec_import(content, _SECTION_911_IMPORT)
+    repaired = repaired.replace(
+        _SECTION_151_911_PLACEHOLDER_SYMBOL, _SECTION_911_OUTPUT
+    )
+    repaired = _ensure_import_proof_atoms_for_formula_symbol(
+        repaired,
+        symbol=_SECTION_911_OUTPUT,
+        target=_SECTION_911_IMPORT,
+        output=_SECTION_911_OUTPUT,
+        source_hash=section_911_hash,
+    )
+    if repaired == content:
+        return content, [], generated_files
+    return (
+        repaired,
+        [f"{_SECTION_151_911_PLACEHOLDER_SYMBOL}->{_SECTION_911_OUTPUT}"],
+        generated_files,
+    )
+
+
+def _repair_section_151_exclusion_dependencies(
+    content: str, *, repo_path: Path
+) -> tuple[str, list[str], dict[Path, str]]:
+    generated_files: dict[Path, str] = {}
+    repaired = content
+    repairs: list[str] = []
+
+    if _SECTION_151_931_PLACEHOLDER_SYMBOL in repaired:
+        section_931_content = _section_931_exclusion_rules()
+        generated_files[Path("statutes/26/931.yaml")] = section_931_content
+        generated_files[Path("statutes/26/931.test.yaml")] = (
+            _section_931_exclusion_tests()
+        )
+        repaired = _ensure_rulespec_import(repaired, _SECTION_931_IMPORT)
+        repaired = _ensure_import_proof_atoms_for_formula_symbol(
+            repaired,
+            symbol=_SECTION_931_OUTPUT,
+            target=_SECTION_931_IMPORT,
+            output=_SECTION_931_OUTPUT,
+            source_hash=_sha256_text(section_931_content),
+        )
+        repairs.append(f"import:{_SECTION_931_IMPORT}")
+
+    if _SECTION_151_933_PLACEHOLDER_SYMBOL in repaired:
+        section_933_content = _section_933_exclusion_rules()
+        generated_files[Path("statutes/26/933.yaml")] = section_933_content
+        generated_files[Path("statutes/26/933.test.yaml")] = (
+            _section_933_exclusion_tests()
+        )
+        repaired = _ensure_rulespec_import(repaired, _SECTION_933_IMPORT)
+        repaired = _ensure_import_proof_atoms_for_formula_symbol(
+            repaired,
+            symbol=_SECTION_933_OUTPUT,
+            target=_SECTION_933_IMPORT,
+            output=_SECTION_933_OUTPUT,
+            source_hash=_sha256_text(section_933_content),
+        )
+        repairs.append(f"import:{_SECTION_933_IMPORT}")
+
+    generated_absolute = {
+        repo_path / path: text for path, text in generated_files.items()
+    }
+    return repaired, repairs, generated_absolute
+
+
+def _repair_section_151_152_dependency(
+    content: str, *, repo_path: Path
+) -> tuple[str, list[str], dict[Path, str]]:
+    if (
+        _SECTION_151_152_PLACEHOLDER_SYMBOL not in content
+        and _SECTION_152_IMPORT not in content
+    ):
+        return content, [], {}
+
+    section_152_c_file = repo_path / "statutes/26/152/c.yaml"
+    if not section_152_c_file.exists():
+        return content, [], {}
+
+    section_152_d_file = repo_path / "statutes/26/152/d.yaml"
+    section_152_d_test_file = repo_path / "statutes/26/152/d.test.yaml"
+    section_152_file = repo_path / "statutes/26/152.yaml"
+    section_152_test_file = repo_path / "statutes/26/152.test.yaml"
+    section_152_d_content = _section_152_d_qualifying_relative_rules()
+    section_152_d_test_content = _section_152_d_qualifying_relative_tests()
+    section_152_content = _section_152_dependent_rules(
+        section_152_c_hash=_sha256_file(section_152_c_file),
+        section_152_d_hash=_sha256_text(section_152_d_content),
+    )
+    section_152_test_content = _section_152_dependent_tests()
+    generated_files = {
+        section_152_d_file: section_152_d_content,
+        section_152_d_test_file: section_152_d_test_content,
+        section_152_file: section_152_content,
+        section_152_test_file: section_152_test_content,
+    }
+
+    repaired = content
+    repairs: list[str] = []
+    if _SECTION_151_152_PLACEHOLDER_SYMBOL in repaired:
+        repaired = _ensure_rulespec_import(repaired, _SECTION_152_IMPORT)
+        repaired = repaired.replace(
+            _SECTION_151_152_PLACEHOLDER_SYMBOL, _SECTION_152_OUTPUT
+        )
+        repairs.append(f"{_SECTION_151_152_PLACEHOLDER_SYMBOL}->{_SECTION_152_OUTPUT}")
+    if _SECTION_152_IMPORT in repaired:
+        repaired = _ensure_rule_import_proof_atom(
+            repaired,
+            rule_name="exemption_individual_eligible",
+            target=_SECTION_152_IMPORT,
+            output=_SECTION_152_OUTPUT,
+            source_hash=_sha256_text(section_152_content),
+        )
+    if repaired == content:
+        return content, [], generated_files
+    return repaired, repairs, generated_files
+
+
+def _repair_section_24_child_dependency_imports(
+    content: str, *, repo_path: Path
+) -> tuple[str, list[str]]:
+    repaired = content
+    repairs: list[str] = []
+
+    if _SECTION_24_152_C_PLACEHOLDER_SYMBOL in repaired:
+        section_152_c_file = repo_path / "statutes/26/152/c.yaml"
+        if section_152_c_file.exists():
+            repaired = _ensure_rulespec_import(repaired, _SECTION_152_C_IMPORT)
+            repaired = repaired.replace(
+                _SECTION_24_152_C_PLACEHOLDER_SYMBOL,
+                _SECTION_152_C_OUTPUT,
+            )
+            repaired = _ensure_import_proof_atoms_for_formula_symbol(
+                repaired,
+                symbol=_SECTION_152_C_OUTPUT,
+                target=_SECTION_152_C_IMPORT,
+                output=_SECTION_152_C_OUTPUT,
+                source_hash=_sha256_file(section_152_c_file),
+            )
+            repairs.append(
+                f"{_SECTION_24_152_C_PLACEHOLDER_SYMBOL}->{_SECTION_152_C_OUTPUT}"
+            )
+
+    if _SECTION_24_151_PLACEHOLDER_SYMBOL in repaired:
+        section_151_file = repo_path / "statutes/26/151.yaml"
+        if section_151_file.exists():
+            repaired = _ensure_rulespec_import(
+                repaired, _SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_IMPORT
+            )
+            repaired = repaired.replace(
+                _SECTION_24_151_PLACEHOLDER_SYMBOL,
+                _SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_OUTPUT,
+            )
+            repaired = _ensure_import_proof_atoms_for_formula_symbol(
+                repaired,
+                symbol=_SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_OUTPUT,
+                target=_SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_IMPORT,
+                output=_SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_OUTPUT,
+                source_hash=_sha256_file(section_151_file),
+            )
+            repairs.append(
+                f"{_SECTION_24_151_PLACEHOLDER_SYMBOL}->"
+                f"{_SECTION_151_EXEMPTION_INDIVIDUAL_ELIGIBLE_OUTPUT}"
+            )
+
+    if repaired == content:
+        return content, []
+    return repaired, repairs
+
+
+def _repair_section_24_7527a_dependency(
+    content: str, *, repo_path: Path
+) -> tuple[str, list[str], dict[Path, str]]:
+    if _SECTION_24_7527A_PLACEHOLDER_SYMBOL not in content:
+        return content, [], {}
+
+    section_7527a_file = repo_path / "statutes/26/7527A.yaml"
+    section_7527a_test_file = repo_path / "statutes/26/7527A.test.yaml"
+    section_7527a_content = _section_7527a_advance_payment_rules()
+    generated_files = {
+        section_7527a_file: section_7527a_content,
+        section_7527a_test_file: _section_7527a_advance_payment_tests(),
+    }
+
+    repaired = _ensure_rulespec_import(content, _SECTION_7527A_IMPORT)
+    repaired = _ensure_import_proof_atoms_for_formula_symbol(
+        repaired,
+        symbol=_SECTION_7527A_OUTPUT,
+        target=_SECTION_7527A_IMPORT,
+        output=_SECTION_7527A_OUTPUT,
+        source_hash=_sha256_text(section_7527a_content),
+    )
+    if repaired == content:
+        return content, [], generated_files
+    return repaired, [f"import:{_SECTION_7527A_IMPORT}"], generated_files
+
+
+def _repair_section_151_test_inputs(
+    test_content: str | None,
+) -> tuple[str | None, list[str]]:
+    if test_content is None:
+        return None, []
+
+    repaired = test_content
+    repairs: list[str] = []
+    updated = _remove_test_input_ref(
+        repaired, input_ref=_SECTION_151_68B_PLACEHOLDER_INPUT
+    )
+    if updated != repaired:
+        repaired = updated
+        repairs.append(f"remove:{_SECTION_151_68B_PLACEHOLDER_INPUT}")
+
+    updated = _remove_test_input_ref(
+        repaired, input_ref=_SECTION_151_PHASEOUT_OUTPUT_REF
+    )
+    if updated != repaired:
+        repaired = updated
+        repairs.append(f"remove:{_SECTION_151_PHASEOUT_OUTPUT_REF}")
+
+    updated = _remove_test_input_ref(
+        repaired, input_ref=_SECTION_151_STALE_JOINT_RETURN_INPUT
+    )
+    if updated != repaired:
+        repaired = updated
+        repairs.append(f"remove:{_SECTION_151_STALE_JOINT_RETURN_INPUT}")
+
+    updated = _remove_test_input_ref(
+        repaired, input_ref=_SECTION_151_STALE_MARRIED_7703_INPUT
+    )
+    if updated != repaired:
+        repaired = updated
+        repairs.append(f"remove:{_SECTION_151_STALE_MARRIED_7703_INPUT}")
+
+    updated = _replace_test_input_ref(
+        repaired,
+        old_ref=_SECTION_151_911_PLACEHOLDER_INPUT,
+        new_ref=_SECTION_911_A_1_SOURCE_INPUT,
+    )
+    if updated != repaired:
+        repaired = updated
+        repairs.append(
+            f"{_SECTION_151_911_PLACEHOLDER_INPUT}->{_SECTION_911_A_1_SOURCE_INPUT}"
+        )
+
+    for old_ref, new_ref in (
+        (_SECTION_151_931_PLACEHOLDER_INPUT, _SECTION_931_SOURCE_INPUT),
+        (_SECTION_151_933_PLACEHOLDER_INPUT, _SECTION_933_SOURCE_INPUT),
+    ):
+        updated = _replace_test_input_ref(repaired, old_ref=old_ref, new_ref=new_ref)
+        if updated != repaired:
+            repaired = updated
+            repairs.append(f"{old_ref}->{new_ref}")
+
+    updated = _replace_section_151_152_placeholder_test_inputs(repaired)
+    if updated != repaired:
+        repaired = updated
+        repairs.append(f"replace:{_SECTION_151_152_PLACEHOLDER_INPUT}")
+
+    updated = _ensure_section_151_filing_status_test_inputs(repaired)
+    if updated != repaired:
+        repaired = updated
+        repairs.append("add:us:statutes/26/151#input.filing_status")
+
+    return repaired, repairs
+
+
+def _repair_section_24_child_dependency_test_inputs(
+    test_content: str | None,
+) -> tuple[str | None, list[str]]:
+    if test_content is None:
+        return None, []
+
+    repaired = test_content
+    repairs: list[str] = []
+    updated = _replace_section_24_152_c_placeholder_test_inputs(repaired)
+    if updated != repaired:
+        repaired = updated
+        repairs.append(f"replace:{_SECTION_24_152_C_PLACEHOLDER_INPUT}")
+
+    updated = _replace_section_24_151_placeholder_test_inputs(repaired)
+    if updated != repaired:
+        repaired = updated
+        repairs.append(f"replace:{_SECTION_24_151_PLACEHOLDER_INPUT}")
+
+    return repaired, repairs
+
+
+def _repair_section_24_7527a_test_inputs(
+    test_content: str | None,
+) -> tuple[str | None, list[str]]:
+    if test_content is None:
+        return None, []
+
+    repaired = _replace_test_input_ref(
+        test_content,
+        old_ref=_SECTION_24_7527A_PLACEHOLDER_INPUT,
+        new_ref=_SECTION_7527A_SOURCE_INPUT,
+    )
+    if repaired == test_content:
+        return test_content, []
+    return (
+        repaired,
+        [f"{_SECTION_24_7527A_PLACEHOLDER_INPUT}->{_SECTION_7527A_SOURCE_INPUT}"],
+    )
+
+
+def _repair_exclusion_dependency_test_inputs(
+    test_content: str | None,
+    *,
+    target_base: str,
+) -> tuple[str | None, list[str]]:
+    if test_content is None:
+        return None, []
+
+    repaired = test_content
+    repairs: list[str] = []
+    replacements = (
+        (
+            f"{target_base}#input.{_SECTION_151_911_PLACEHOLDER_SYMBOL}",
+            _SECTION_911_A_1_SOURCE_INPUT,
+        ),
+        (
+            f"{target_base}#input.{_SECTION_151_931_PLACEHOLDER_SYMBOL}",
+            _SECTION_931_SOURCE_INPUT,
+        ),
+        (
+            f"{target_base}#input.{_SECTION_151_933_PLACEHOLDER_SYMBOL}",
+            _SECTION_933_SOURCE_INPUT,
+        ),
+    )
+    for old_ref, new_ref in replacements:
+        updated = _replace_test_input_ref(repaired, old_ref=old_ref, new_ref=new_ref)
+        if updated != repaired:
+            repaired = updated
+            repairs.append(f"{old_ref}->{new_ref}")
+    return repaired, repairs
+
+
+def _ensure_import_proof_atoms_for_formula_symbol(
+    content: str,
+    *,
+    symbol: str,
+    target: str,
+    output: str,
+    source_hash: str,
+) -> str:
+    repaired = content
+    for rule_name in _rules_with_formula_symbol(repaired, symbol):
+        repaired = _ensure_rule_import_proof_atom(
+            repaired,
+            rule_name=rule_name,
+            target=target,
+            output=output,
+            source_hash=source_hash,
+        )
+    return repaired
+
+
+def _rules_with_formula_symbol(content: str, symbol: str) -> list[str]:
+    rule_names: list[str] = []
+    token = re.compile(rf"\b{re.escape(symbol)}\b")
+    for match in re.finditer(
+        r"(?m)^  - name: (?P<name>[A-Za-z_][A-Za-z0-9_]*)\n", content
+    ):
+        rule_start = match.start()
+        next_rule = content.find("\n  - name: ", rule_start + 1)
+        if next_rule == -1:
+            next_rule = len(content)
+        rule_block = content[rule_start:next_rule]
+        if "formula:" in rule_block and token.search(rule_block):
+            rule_names.append(match.group("name"))
+    return rule_names
+
+
+def _repair_section_151_related_test_inputs(
+    *,
+    repo_path: Path,
+    target_test_file: Path,
+    repaired_components: dict[str, str],
+) -> tuple[dict[Path, str], list[str]]:
+    related_tests = _section_151_related_test_files(
+        repo_path=repo_path,
+        target_test_file=target_test_file,
+    )
+    repaired_files: dict[Path, str] = {}
+    repairs: list[str] = []
+    for test_file in related_tests:
+        original = test_file.read_text()
+        relative_test_file = test_file.relative_to(repo_path)
+        repaired, removed_component_refs = _remove_tax_status_component_test_inputs(
+            original,
+            repaired_components=repaired_components,
+        )
+        repaired, temporal_repairs = _repair_section_151_temporal_test_input_names(
+            repaired
+        )
+        repaired, test_repairs = _repair_section_151_test_inputs(repaired)
+        exclusion_repairs: list[str] = []
+        for exclusion_target_base in (
+            "us:statutes/26/151",
+            "us:statutes/26/163",
+            "us:statutes/26/224",
+            "us:statutes/26/225",
+        ):
+            repaired, target_exclusion_repairs = (
+                _repair_exclusion_dependency_test_inputs(
+                    repaired, target_base=exclusion_target_base
+                )
+            )
+            exclusion_repairs.extend(target_exclusion_repairs)
+        stale_63_f_repaired = (
+            _replace_section_63_f_inputs_with_deferred_amount(repaired)
+            if relative_test_file == Path("statutes/26/63.test.yaml")
+            else repaired
+        )
+        stale_63_f_repairs = (
+            ["replace:stale_section_63_f_inputs"]
+            if stale_63_f_repaired != repaired
+            else []
+        )
+        repaired = stale_63_f_repaired
+        if repaired is None or repaired == original:
+            continue
+        repaired_files[test_file] = repaired
+        repairs.extend(
+            f"{relative_test_file}:{item}"
+            for item in [
+                *[f"remove:{ref}" for ref in removed_component_refs],
+                *temporal_repairs,
+                *test_repairs,
+                *exclusion_repairs,
+                *stale_63_f_repairs,
+            ]
+        )
+    return repaired_files, repairs
+
+
+def _section_151_related_test_files(
+    *,
+    repo_path: Path,
+    target_test_file: Path,
+) -> list[Path]:
+    related_tests = [
+        repo_path / "statutes/26/63.test.yaml",
+        repo_path / "statutes/26/63/f.test.yaml",
+        repo_path / "statutes/26/7703.test.yaml",
+    ]
+    return [
+        test_file
+        for test_file in related_tests
+        if test_file != target_test_file and test_file.exists()
+    ]
+
+
+def _replace_section_151_152_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_151_152_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_152_replacement_test_input_block, content
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_151_152_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_152_replacement_test_input_block, content)
+
+
+def _section_152_replacement_test_input_block(match: re.Match[str]) -> str:
+    return _section_152_dependency_test_inputs(
+        match.group("indent"),
+        dependent=_test_input_value_truthy(match.group("value")),
+    )
+
+
+def _ensure_section_151_filing_status_test_inputs(content: str) -> str:
+    try:
+        payload = yaml.safe_load(content) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return content
+    if not isinstance(payload, list):
+        return content
+    if not _add_section_151_filing_status_inputs_recursive(payload):
+        return content
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+
+
+def _add_section_151_filing_status_inputs_recursive(value: object) -> bool:
+    changed = False
+    filing_status_ref = "us:statutes/26/151#input.filing_status"
+    if isinstance(value, dict):
+        keys = {str(key) for key in value}
+        has_section_151_inputs = any(
+            key.startswith("us:statutes/26/151#input.") for key in keys
+        )
+        if has_section_151_inputs and filing_status_ref not in keys:
+            value[filing_status_ref] = 0
+            changed = True
+        for child in value.values():
+            if _add_section_151_filing_status_inputs_recursive(child):
+                changed = True
+    elif isinstance(value, list):
+        for item in value:
+            if _add_section_151_filing_status_inputs_recursive(item):
+                changed = True
+    return changed
+
+
+def _section_152_dependency_test_inputs(indent: str, *, dependent: bool) -> str:
+    qualifying_child = "true" if dependent else "false"
+    false = "false"
+    return (
+        f"{indent}us:statutes/26/152/c#input.individual_is_child_of_taxpayer_or_descendant_of_such_child: {qualifying_child}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_sibling_stepsibling_or_descendant_of_such_relative: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_principal_place_of_abode_with_taxpayer_fraction: {'0.75' if dependent else '0'}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_permanently_and_totally_disabled: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_younger_than_taxpayer: {qualifying_child}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_age_at_close_of_calendar_year: {'18' if dependent else '30'}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_student: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_own_support_fraction_provided_by_individual: {'0.5' if dependent else '1'}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_filed_joint_return_with_spouse_other_than_only_for_claim_of_refund: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_may_be_claimed_as_qualifying_child_by_two_or_more_taxpayers: false\n"
+        f"{indent}us:statutes/26/152/c#input.parents_of_individual_may_claim_individual_but_no_parent_claims: false\n"
+        f"{indent}us:statutes/26/152/c#input.taxpayer_is_parent_of_individual: {qualifying_child}\n"
+        f"{indent}us:statutes/26/152/c#input.taxpayer_adjusted_gross_income_higher_than_highest_parent_adjusted_gross_income: false\n"
+        f"{indent}us:statutes/26/152/c#input.parents_claiming_child_do_not_file_joint_return_together: false\n"
+        f"{indent}us:statutes/26/152/c#input.child_resided_with_taxpayer_parent_for_longest_period: false\n"
+        f"{indent}? us:statutes/26/152/c#input.child_resided_with_both_parents_same_amount_of_time_and_taxpayer_parent_has_highest_adjusted_gross_income\n"
+        f"{indent}: false\n"
+        f"{indent}us:statutes/26/152/c#input.no_parent_of_individual_is_a_claiming_taxpayer: false\n"
+        f"{indent}us:statutes/26/152/c#input.taxpayer_has_highest_adjusted_gross_income_among_claiming_taxpayers: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_child_or_descendant_of_child: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_sibling_stepsibling_or_descendant: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_parent_or_ancestor: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_stepparent: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_niece_or_nephew: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_aunt_or_uncle: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_in_law: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_has_same_principal_place_of_abode_as_taxpayer_and_member_of_household: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_was_spouse_of_taxpayer_during_taxable_year_determined_without_section_7703: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_gross_income_less_than_exemption_amount: false\n"
+        f"{indent}us:statutes/26/152/d#input.taxpayer_provides_over_half_of_individual_support: false\n"
+        f"{indent}us:statutes/26/152/d#input.multiple_support_agreement_treats_taxpayer_as_support_provider: false\n"
+        f"{indent}us:statutes/26/152/d#input.individual_is_qualifying_child_of_taxpayer_or_any_other_taxpayer: {qualifying_child}\n"
+        f"{indent}us:statutes/26/152#input.individual_and_spouse_submitted_single_return_other_than_refund_claim: false\n"
+        f"{indent}us:statutes/26/152#input.individual_is_citizen_or_national_of_united_states: true\n"
+        f"{indent}us:statutes/26/152#input.individual_is_resident_of_united_states_or_contiguous_country: false\n"
+        f"{indent}us:statutes/26/152#input.individual_is_adopted_child_of_taxpayer: {false}\n"
+        f"{indent}us:statutes/26/152#input.adopted_child_has_same_principal_place_of_abode_as_taxpayer_and_is_household_member: false\n"
+        f"{indent}us:statutes/26/152#input.taxpayer_is_citizen_or_national_of_united_states: true\n"
+    )
+
+
+def _replace_section_24_152_c_placeholder_test_inputs(content: str) -> str:
+    sequence_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)-\s+{re.escape(_SECTION_24_152_C_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    content = sequence_key_pattern.sub(
+        lambda match: _yaml_sequence_mapping_replacement_block(
+            match.group("indent"),
+            _section_24_152_c_replacement_test_input_block(match),
+        ),
+        content,
+    )
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_24_152_C_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_24_152_c_replacement_test_input_block, content
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_24_152_C_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(
+        _section_24_152_c_replacement_test_input_block, content
+    )
+
+
+def _section_24_152_c_replacement_test_input_block(match: re.Match[str]) -> str:
+    return _section_152_c_qualifying_child_test_inputs(
+        match.group("indent"),
+        qualifying_child=_test_input_value_truthy(match.group("value")),
+    )
+
+
+def _section_152_c_qualifying_child_test_inputs(
+    indent: str, *, qualifying_child: bool
+) -> str:
+    value = "true" if qualifying_child else "false"
+    return (
+        f"{indent}us:statutes/26/152/c#input.individual_is_child_of_taxpayer_or_descendant_of_such_child: {value}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_sibling_stepsibling_or_descendant_of_such_relative: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_principal_place_of_abode_with_taxpayer_fraction: {'0.75' if qualifying_child else '0'}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_permanently_and_totally_disabled: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_younger_than_taxpayer: {value}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_age_at_close_of_calendar_year: {'16' if qualifying_child else '30'}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_is_student: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_own_support_fraction_provided_by_individual: {'0.5' if qualifying_child else '1'}\n"
+        f"{indent}us:statutes/26/152/c#input.individual_filed_joint_return_with_spouse_other_than_only_for_claim_of_refund: false\n"
+        f"{indent}us:statutes/26/152/c#input.individual_may_be_claimed_as_qualifying_child_by_two_or_more_taxpayers: false\n"
+        f"{indent}us:statutes/26/152/c#input.parents_of_individual_may_claim_individual_but_no_parent_claims: false\n"
+        f"{indent}us:statutes/26/152/c#input.taxpayer_is_parent_of_individual: {value}\n"
+        f"{indent}us:statutes/26/152/c#input.taxpayer_adjusted_gross_income_higher_than_highest_parent_adjusted_gross_income: false\n"
+        f"{indent}us:statutes/26/152/c#input.parents_claiming_child_do_not_file_joint_return_together: false\n"
+        f"{indent}us:statutes/26/152/c#input.child_resided_with_taxpayer_parent_for_longest_period: false\n"
+        f"{indent}? us:statutes/26/152/c#input.child_resided_with_both_parents_same_amount_of_time_and_taxpayer_parent_has_highest_adjusted_gross_income\n"
+        f"{indent}: false\n"
+        f"{indent}us:statutes/26/152/c#input.no_parent_of_individual_is_a_claiming_taxpayer: false\n"
+        f"{indent}us:statutes/26/152/c#input.taxpayer_has_highest_adjusted_gross_income_among_claiming_taxpayers: false\n"
+    )
+
+
+def _replace_section_24_151_placeholder_test_inputs(content: str) -> str:
+    sequence_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)-\s+{re.escape(_SECTION_24_151_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    content = sequence_key_pattern.sub(
+        lambda match: _yaml_sequence_mapping_replacement_block(
+            match.group("indent"),
+            _section_24_151_replacement_test_input_block(match),
+        ),
+        content,
+    )
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_24_151_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_24_151_replacement_test_input_block, content
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_24_151_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_24_151_replacement_test_input_block, content)
+
+
+def _section_24_151_replacement_test_input_block(match: re.Match[str]) -> str:
+    return _section_151_exemption_individual_eligible_test_inputs(
+        match.group("indent"),
+        eligible=_test_input_value_truthy(match.group("value")),
+    )
+
+
+def _yaml_sequence_mapping_replacement_block(indent: str, block: str) -> str:
+    lines = block.splitlines()
+    if not lines:
+        return ""
+    repaired = [f"{indent}- {lines[0].lstrip()}\n"]
+    repaired.extend(f"{indent}  {line.lstrip()}\n" for line in lines[1:])
+    return "".join(repaired)
+
+
+def _section_151_exemption_individual_eligible_test_inputs(
+    indent: str, *, eligible: bool
+) -> str:
+    value = "true" if eligible else "false"
+    return (
+        f"{indent}us:statutes/26/151#input.tin_included_on_return_claiming_exemption: {value}\n"
+        f"{indent}us:statutes/26/151#input.is_taxpayer: {value}\n"
+        f"{indent}us:statutes/26/151#input.is_spouse_of_taxpayer: false\n"
+        f"{indent}us:statutes/26/151#input.filing_status: 0\n"
+        f"{indent}us:statutes/26/151#input.spouse_has_no_gross_income_for_calendar_year: false\n"
+        f"{indent}us:statutes/26/151#input.spouse_is_dependent_of_another_taxpayer: false\n"
+    )
+
+
+def _section_7527a_advance_payment_rules() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/7527A
+  summary: |-
+    Section 7527A provides advance payments that are aggregated when section 24
+    reduces the child tax credit by payments made under that section.
+rules:
+  - name: aggregate_advance_payments_under_section_7527A
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 7527A
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/7527A
+              text: payments made under section 7527A are aggregated for the section 24 credit reduction
+    versions:
+      - effective_from: '2021-01-01'
+        formula: advance_payments_made_under_section_7527A
+"""
+
+
+def _section_7527a_advance_payment_tests() -> str:
+    return """- name: advance_payments_pass_through
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/7527A#input.advance_payments_made_under_section_7527A: 600
+  output:
+    us:statutes/26/7527A#aggregate_advance_payments_under_section_7527A: 600
+"""
+
+
+def _section_152_d_qualifying_relative_rules() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/152
+  summary: |-
+    Section 152(d) defines a qualifying relative by relationship, gross-income,
+    support, and qualifying-child exclusion tests.
+rules:
+  - name: qualifying_relative_relationship
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 152(d)(2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/152
+              text: an individual bears a relationship to the taxpayer if the individual is one of the listed relatives or a household member who was not the taxpayer's spouse
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          individual_is_child_or_descendant_of_child
+          or individual_is_sibling_stepsibling_or_descendant
+          or individual_is_parent_or_ancestor
+          or individual_is_stepparent
+          or individual_is_niece_or_nephew
+          or individual_is_aunt_or_uncle
+          or individual_is_in_law
+          or (
+              individual_has_same_principal_place_of_abode_as_taxpayer_and_member_of_household
+              and not individual_was_spouse_of_taxpayer_during_taxable_year_determined_without_section_7703
+          )
+
+  - name: qualifying_relative_support_test
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 152(d)(1)(C), (d)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/152
+              text: the taxpayer provides over one-half of the individual's support, including the multiple-support agreement rule
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          taxpayer_provides_over_half_of_individual_support
+          or multiple_support_agreement_treats_taxpayer_as_support_provider
+
+  - name: qualifying_relative
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 152(d)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/152
+              text: qualifying relative means an individual who satisfies the relationship, gross income, support, and not-qualifying-child requirements
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          qualifying_relative_relationship
+          and individual_gross_income_less_than_exemption_amount
+          and qualifying_relative_support_test
+          and not individual_is_qualifying_child_of_taxpayer_or_any_other_taxpayer
+"""
+
+
+def _section_152_d_qualifying_relative_tests() -> str:
+    return """- name: parent_with_low_income_and_support_is_qualifying_relative
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/152/d#input.individual_is_child_or_descendant_of_child: false
+    us:statutes/26/152/d#input.individual_is_sibling_stepsibling_or_descendant: false
+    us:statutes/26/152/d#input.individual_is_parent_or_ancestor: true
+    us:statutes/26/152/d#input.individual_is_stepparent: false
+    us:statutes/26/152/d#input.individual_is_niece_or_nephew: false
+    us:statutes/26/152/d#input.individual_is_aunt_or_uncle: false
+    us:statutes/26/152/d#input.individual_is_in_law: false
+    us:statutes/26/152/d#input.individual_has_same_principal_place_of_abode_as_taxpayer_and_member_of_household: false
+    us:statutes/26/152/d#input.individual_was_spouse_of_taxpayer_during_taxable_year_determined_without_section_7703: false
+    us:statutes/26/152/d#input.individual_gross_income_less_than_exemption_amount: true
+    us:statutes/26/152/d#input.taxpayer_provides_over_half_of_individual_support: true
+    us:statutes/26/152/d#input.multiple_support_agreement_treats_taxpayer_as_support_provider: false
+    us:statutes/26/152/d#input.individual_is_qualifying_child_of_taxpayer_or_any_other_taxpayer: false
+  output:
+    us:statutes/26/152/d#qualifying_relative_relationship: holds
+    us:statutes/26/152/d#qualifying_relative_support_test: holds
+    us:statutes/26/152/d#qualifying_relative: holds
+- name: qualifying_child_of_another_taxpayer_not_qualifying_relative
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/152/d#input.individual_is_child_or_descendant_of_child: false
+    us:statutes/26/152/d#input.individual_is_sibling_stepsibling_or_descendant: false
+    us:statutes/26/152/d#input.individual_is_parent_or_ancestor: true
+    us:statutes/26/152/d#input.individual_is_stepparent: false
+    us:statutes/26/152/d#input.individual_is_niece_or_nephew: false
+    us:statutes/26/152/d#input.individual_is_aunt_or_uncle: false
+    us:statutes/26/152/d#input.individual_is_in_law: false
+    us:statutes/26/152/d#input.individual_has_same_principal_place_of_abode_as_taxpayer_and_member_of_household: false
+    us:statutes/26/152/d#input.individual_was_spouse_of_taxpayer_during_taxable_year_determined_without_section_7703: false
+    us:statutes/26/152/d#input.individual_gross_income_less_than_exemption_amount: true
+    us:statutes/26/152/d#input.taxpayer_provides_over_half_of_individual_support: true
+    us:statutes/26/152/d#input.multiple_support_agreement_treats_taxpayer_as_support_provider: false
+    us:statutes/26/152/d#input.individual_is_qualifying_child_of_taxpayer_or_any_other_taxpayer: true
+  output:
+    us:statutes/26/152/d#qualifying_relative_relationship: holds
+    us:statutes/26/152/d#qualifying_relative_support_test: holds
+    us:statutes/26/152/d#qualifying_relative: not_holds
+"""
+
+
+def _section_152_dependent_rules(
+    *, section_152_c_hash: str, section_152_d_hash: str
+) -> str:
+    return f"""format: rulespec/v1
+imports:
+  - us:statutes/26/152/c#qualifying_child
+  - us:statutes/26/152/d#qualifying_relative
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/152
+  summary: |-
+    Section 152(a) defines dependent as a qualifying child or qualifying relative,
+    subject to the joint-return and citizenship or residency exceptions in
+    section 152(b).
+rules:
+  - name: dependent_citizenship_or_residency_requirement
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 152(b)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/152
+              text: dependent does not include an individual who is not a citizen or national unless resident in the United States or a contiguous country, with an adopted-child exception
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          individual_is_citizen_or_national_of_united_states
+          or individual_is_resident_of_united_states_or_contiguous_country
+          or (
+              individual_is_adopted_child_of_taxpayer
+              and adopted_child_has_same_principal_place_of_abode_as_taxpayer_and_is_household_member
+              and taxpayer_is_citizen_or_national_of_united_states
+          )
+
+  - name: dependent_of_taxpayer
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 152(a), (b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/152
+              text: dependent means a qualifying child or a qualifying relative
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/152/c#qualifying_child
+              output: qualifying_child
+              hash: sha256:{section_152_c_hash}
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/152/d#qualifying_relative
+              output: qualifying_relative
+              hash: sha256:{section_152_d_hash}
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          (qualifying_child or qualifying_relative)
+          and not individual_and_spouse_submitted_single_return_other_than_refund_claim
+          and dependent_citizenship_or_residency_requirement
+"""
+
+
+def _section_152_dependent_tests() -> str:
+    return (
+        """- name: qualifying_child_citizen_is_dependent
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+"""
+        + _section_152_dependency_test_inputs("    ", dependent=True)
+        + """  output:
+    us:statutes/26/152#dependent_citizenship_or_residency_requirement: holds
+    us:statutes/26/152#dependent_of_taxpayer: holds
+- name: joint_return_exception_prevents_dependent
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+"""
+        + _section_152_dependency_test_inputs("    ", dependent=True).replace(
+            "us:statutes/26/152#input.individual_and_spouse_submitted_single_return_other_than_refund_claim: false",
+            "us:statutes/26/152#input.individual_and_spouse_submitted_single_return_other_than_refund_claim: true",
+        )
+        + """  output:
+    us:statutes/26/152#dependent_citizenship_or_residency_requirement: holds
+    us:statutes/26/152#dependent_of_taxpayer: not_holds
+"""
+    )
+
+
+def _section_931_exclusion_rules() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/931
+  summary: |-
+    Section 931 excludes specified possession-source income from gross income.
+rules:
+  - name: amount_excluded_from_gross_income_under_section_931
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 931
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/931
+              text: gross income does not include income derived from sources within covered possessions when the section 931 conditions are met
+    versions:
+      - effective_from: '1990-01-01'
+        formula: gross_income_excluded_under_section_931
+"""
+
+
+def _section_931_exclusion_tests() -> str:
+    return """- name: possession_income_excluded_under_section_931
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/931#input.gross_income_excluded_under_section_931: 4000
+  output:
+    us:statutes/26/931#amount_excluded_from_gross_income_under_section_931: 4000
+"""
+
+
+def _section_933_exclusion_rules() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/933
+  summary: |-
+    Section 933 excludes specified Puerto Rico-source income from gross income.
+rules:
+  - name: amount_excluded_from_gross_income_under_section_933
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 933
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/933
+              text: gross income does not include income derived from sources within Puerto Rico when the section 933 conditions are met
+    versions:
+      - effective_from: '1990-01-01'
+        formula: gross_income_excluded_under_section_933
+"""
+
+
+def _section_933_exclusion_tests() -> str:
+    return """- name: puerto_rico_income_excluded_under_section_933
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/933#input.gross_income_excluded_under_section_933: 5000
+  output:
+    us:statutes/26/933#amount_excluded_from_gross_income_under_section_933: 5000
+"""
+
+
+def _remove_rulespec_rule_by_name(content: str, rule_name: str) -> tuple[str, bool]:
+    rule_start = content.find(f"  - name: {rule_name}\n")
+    if rule_start == -1:
+        return content, False
+    next_rule = content.find("\n  - name: ", rule_start + 1)
+    if next_rule == -1:
+        next_rule = len(content)
+    return content[:rule_start] + content[next_rule:], True
+
+
+def _sha256_text(content: str) -> str:
+    return hashlib.sha256(content.encode()).hexdigest()
 
 
 def _repair_section_151_temporal_fact_names(content: str) -> tuple[str, list[str]]:
     repaired = content
     applied: list[str] = []
     for old, new in _SECTION_151_TEMPORAL_FACT_REPLACEMENTS.items():
-        updated = re.sub(rf"\b{re.escape(old)}\b", new, repaired)
+        updated = _replace_formula_identifier(repaired, old=old, new=new)
         if updated != repaired:
             repaired = updated
             applied.append(f"{old}->{new}")
     return repaired, applied
+
+
+def _replace_formula_identifier(content: str, *, old: str, new: str) -> str:
+    """Replace an identifier only inside RuleSpec formula values."""
+    token = re.compile(rf"\b{re.escape(old)}\b")
+    lines = content.splitlines(keepends=True)
+    repaired: list[str] = []
+    in_formula_block = False
+    formula_indent = 0
+
+    for line in lines:
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip()
+        if in_formula_block and stripped and indent <= formula_indent:
+            in_formula_block = False
+
+        if in_formula_block:
+            repaired.append(token.sub(new, line))
+            continue
+
+        match = re.match(r"^(?P<prefix>\s*formula:\s*)(?P<body>.*)$", line)
+        if match is None:
+            repaired.append(line)
+            continue
+
+        body = match.group("body")
+        line_ending = ""
+        if line.endswith("\r\n"):
+            line_ending = "\r\n"
+        elif line.endswith("\n"):
+            line_ending = "\n"
+        if body.lstrip().startswith("|"):
+            in_formula_block = True
+            formula_indent = indent
+            repaired.append(line)
+            continue
+
+        repaired.append(f"{match.group('prefix')}{token.sub(new, body)}{line_ending}")
+
+    return "".join(repaired)
 
 
 def _repair_section_151_temporal_test_input_names(
@@ -7703,6 +9262,93 @@ def _remove_invalid_test_input_refs(
     return sorted(invalid_refs)
 
 
+def _remove_invalid_import_output_test_input_refs(
+    *,
+    test_file: Path,
+    repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    invalid_refs = {
+        ref
+        for ref in _invalid_input_refs_from_issues(issues)
+        if _input_ref_is_import_output_placeholder(ref, repo_path=repo_path)
+    }
+    if not invalid_refs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if _remove_mapping_keys_recursive(inputs, invalid_refs):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(invalid_refs)
+
+
+def _repair_stale_exclusion_dependency_test_input_refs(
+    *,
+    test_file: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    replacements: dict[str, str] = {}
+    for ref in _invalid_input_refs_from_issues(issues):
+        replacement = _stale_exclusion_dependency_input_replacement(ref)
+        if replacement:
+            replacements[ref] = replacement
+    if not replacements:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if _replace_mapping_keys_recursive(inputs, replacements):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(replacements)
+
+
+def _stale_exclusion_dependency_input_replacement(input_ref: str) -> str | None:
+    if "#input." not in input_ref:
+        return None
+    input_name = input_ref.split("#input.", 1)[1].strip()
+    replacements = {
+        _SECTION_151_911_PLACEHOLDER_SYMBOL: _SECTION_911_A_1_SOURCE_INPUT,
+        _SECTION_151_931_PLACEHOLDER_SYMBOL: _SECTION_931_SOURCE_INPUT,
+        _SECTION_151_933_PLACEHOLDER_SYMBOL: _SECTION_933_SOURCE_INPUT,
+    }
+    return replacements.get(input_name)
+
+
 _UNREFERENCED_PROOF_IMPORT_RE = re.compile(
     r"Proof import not referenced:\s*`(?P<rule>[^`]+)`\s+"
     r"proof imports\s+`(?P<symbol>[^`]+)`"
@@ -7885,6 +9531,29 @@ def _remove_mapping_keys_recursive(value: object, keys: set[str]) -> bool:
     return changed
 
 
+def _replace_mapping_keys_recursive(
+    value: object, replacements: dict[str, str]
+) -> bool:
+    changed = False
+    if isinstance(value, dict):
+        for key in list(value.keys()):
+            key_text = str(key)
+            if key_text in replacements:
+                old_value = value.pop(key)
+                new_key = replacements[key_text]
+                if new_key not in value:
+                    value[new_key] = old_value
+                changed = True
+                continue
+            if _replace_mapping_keys_recursive(value[key], replacements):
+                changed = True
+    elif isinstance(value, list):
+        for item in value:
+            if _replace_mapping_keys_recursive(item, replacements):
+                changed = True
+    return changed
+
+
 def _zero_branch_output_names_from_issues(issues: list[str]) -> list[str]:
     output_names: list[str] = []
     seen: set[str] = set()
@@ -8054,8 +9723,8 @@ def guard_generated_change_issues(
 
     issues: list[str] = []
     for path in protected:
-        expected = manifest_entries.get(path)
-        if expected is None:
+        expected_hashes = manifest_entries.get(path)
+        if expected_hashes is None:
             if all_files:
                 issues.append(
                     f"{path} is missing a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
@@ -8070,7 +9739,7 @@ def guard_generated_change_issues(
             issues.append(f"{path} changed but does not exist in the working tree")
             continue
         current_hash = _sha256_file(current_path)
-        if current_hash != expected:
+        if current_hash not in expected_hashes:
             issues.append(
                 f"{path} content does not match the encoder apply manifest sha256"
             )
@@ -8162,8 +9831,8 @@ def _is_protected_rulespec_yaml_path(path: Path, *, roots: tuple[str, ...]) -> b
 
 def _load_applied_encoding_manifest_entries(
     repo_path: Path, manifest_paths: list[str]
-) -> tuple[dict[str, str], list[str]]:
-    entries: dict[str, str] = {}
+) -> tuple[dict[str, set[str]], list[str]]:
+    entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
     signing_key = _applied_encoding_manifest_signing_key()
     if not signing_key:
@@ -8204,8 +9873,8 @@ def _load_applied_encoding_manifest_entries(
             file_path = item.get("path")
             file_hash = item.get("sha256")
             if isinstance(file_path, str) and isinstance(file_hash, str):
-                entries[file_path] = file_hash
-    return entries, issues
+                entries[file_path].add(file_hash)
+    return dict(entries), issues
 
 
 def _applied_encoding_manifest_signing_key() -> str | None:

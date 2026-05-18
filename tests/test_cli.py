@@ -25,14 +25,18 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
+    _ensure_generated_dependency_files_safe,
     _find_rulespec_dependents,
     _has_zero_output_test,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _repair_mixed_scalar_output_tests,
+    _repair_section_151_imports,
+    _repair_section_151_temporal_fact_names,
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
     _sha256_file,
+    _sha256_text,
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
@@ -4696,6 +4700,63 @@ class TestGuardGenerated:
 
         assert issues == []
 
+    def test_accepts_rulespec_change_when_any_changed_manifest_matches(self, tmp_path):
+        rule = tmp_path / "regulations/example.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nrules: []\n")
+        current_hash = _sha256_file(rule)
+
+        repair_manifest = tmp_path / ".axiom/encoding-manifests/regulations/repair.json"
+        owner_manifest = tmp_path / ".axiom/encoding-manifests/regulations/example.json"
+        repair_manifest.parent.mkdir(parents=True)
+        repair_manifest.write_text(
+            json.dumps(
+                _signed_manifest_payload(
+                    {
+                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "applied_files": [
+                            {
+                                "path": "regulations/example.yaml",
+                                "sha256": current_hash,
+                            }
+                        ],
+                    }
+                )
+            )
+            + "\n"
+        )
+        owner_manifest.write_text(
+            json.dumps(
+                _signed_manifest_payload(
+                    {
+                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "applied_files": [
+                            {
+                                "path": "regulations/example.yaml",
+                                "sha256": "stale-owner-hash",
+                            }
+                        ],
+                    }
+                )
+            )
+            + "\n"
+        )
+
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            issues = guard_generated_change_issues(
+                tmp_path,
+                changed_files=[
+                    "regulations/example.yaml",
+                    ".axiom/encoding-manifests/regulations/repair.json",
+                    ".axiom/encoding-manifests/regulations/example.json",
+                ],
+            )
+
+        assert issues == []
+
     def test_accepts_existing_rulespec_with_matching_encoder_manifest_in_all_mode(
         self, tmp_path
     ):
@@ -5096,6 +5157,198 @@ rules: []
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "imported-test-inputs-v1"
         assert payload["tool"] == "axiom-encode repair-imported-test-inputs"
+
+    def test_repair_imported_test_inputs_removes_import_output_placeholders(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/224.yaml"
+        target = policy_repo / "statutes/26/63.yaml"
+        test_file = policy_repo / "statutes/26/63.test.yaml"
+        imported.parent.mkdir(parents=True)
+        imported.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
+rules: []
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/224
+rules: []
+"""
+        )
+        test_file.write_text(
+            """- name: transitive_case
+  input:
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/63#input.adjusted_gross_income: 100000
+  output: {}
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/63.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                FakePipeline.calls += 1
+                if FakePipeline.calls == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` execution failed: "
+                                    "dataset input "
+                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931` "
+                                    "must use an absolute legal RuleSpec reference "
+                                    "that resolves to an input slot, derived rule, "
+                                    "or parameter in the compiled program"
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_imported_test_inputs(args)
+
+        updated = test_file.read_text()
+        assert (
+            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
+            not in updated
+        )
+        assert "us:statutes/26/63#input.adjusted_gross_income: 100000" in updated
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "imported-test-inputs-v1"
+
+    def test_repair_imported_test_inputs_rewrites_stale_exclusion_inputs(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/63.yaml"
+        test_file = policy_repo / "statutes/26/63.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/224
+  - us:statutes/26/225
+rules: []
+"""
+        )
+        test_file.write_text(
+            """- name: transitive_case
+  input:
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_911: 0
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_933: 0
+    us:statutes/26/63#input.adjusted_gross_income: 100000
+  output: {}
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/63.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                FakePipeline.calls += 1
+                if FakePipeline.calls == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` input invalid: "
+                                    "input "
+                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_911` "
+                                    "does not resolve to an input slot; "
+                                    "input "
+                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931` "
+                                    "does not resolve to an input slot; "
+                                    "input "
+                                    "`us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_933` "
+                                    "does not resolve to an input slot"
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_imported_test_inputs(args)
+
+        updated = test_file.read_text()
+        assert (
+            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_911"
+            not in updated
+        )
+        assert (
+            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
+            not in updated
+        )
+        assert (
+            "us:statutes/26/225#input.amount_excluded_from_gross_income_under_section_933"
+            not in updated
+        )
+        assert (
+            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 0"
+            in updated
+        )
+        assert (
+            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 0"
+            in updated
+        )
+        assert (
+            "us:statutes/26/933#input.gross_income_excluded_under_section_933: 0"
+            in updated
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "imported-test-inputs-v1"
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
@@ -5747,6 +6000,10 @@ rules:
 
         with (
             patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
             patch(
                 "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
                 return_value={"commit": "abc123", "dirty_tracked": False},
@@ -5786,6 +6043,759 @@ rules:
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "policies/irs/rev-proc-2025-32/standard-deduction.yaml",
             "policies/irs/rev-proc-2025-32/standard-deduction.test.yaml",
+        ]
+
+    def test_repair_tax_status_temporal_rewrite_only_updates_formulas(self):
+        content = """format: rulespec/v1
+module:
+  summary: taxable_year_begins_after_2017 remains historical prose.
+rules:
+  - name: exemption_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              text: taxable_year_begins_after_2017 remains quoted source text
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if taxable_year_begins_after_2017: 0 else: 2000
+"""
+
+        repaired, repairs = _repair_section_151_temporal_fact_names(content)
+
+        assert repairs == [
+            "taxable_year_begins_after_2017->taxable_year_begins_after_tcja_exemption_amount_zero_effective_date"
+        ]
+        assert (
+            "summary: taxable_year_begins_after_2017 remains historical prose."
+            in repaired
+        )
+        assert (
+            "text: taxable_year_begins_after_2017 remains quoted source text"
+            in repaired
+        )
+        assert (
+            "if taxable_year_begins_after_tcja_exemption_amount_zero_effective_date: 0 else: 2000"
+            in repaired
+        )
+
+    def test_repair_tax_status_components_keeps_unchanged_test_in_manifest(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/151.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: exemption_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: if taxable_year_begins_after_2017: 0 else: 5000
+"""
+        )
+        test_file = target.with_name("151.test.yaml")
+        test_file.write_text(
+            """- name: unchanged_test
+  input:
+    us:statutes/26/151#input.adjusted_gross_income: 0
+  output:
+    us:statutes/26/151#exemption_amount: 0
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/151.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_tax_status_components(args)
+
+        assert test_file.read_text().startswith("- name: unchanged_test")
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/151.json"
+        payload = json.loads(manifest.read_text())
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/151.yaml",
+            "statutes/26/151.test.yaml",
+        ]
+
+    def test_generated_dependency_guard_rejects_unmanifested_existing_file(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        target = repo / "statutes/26/931.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+
+        with pytest.raises(
+            RuntimeError,
+            match="Refusing to overwrite existing RuleSpec dependency files",
+        ):
+            _ensure_generated_dependency_files_safe(
+                repo,
+                generated_files={
+                    target: "format: rulespec/v1\nrules:\n  - name: generated\n"
+                },
+            )
+
+    def test_repair_tax_status_components_defers_151_68b_phaseout(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/151.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+  summary: |-
+    Section 151(d)(3) refers to the applicable amount in effect under section 68(b).
+rules:
+  - name: exemption_phaseout_rate_per_increment
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 151(d)(3)(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.02
+  - name: exemption_phaseout_increment
+    kind: parameter
+    dtype: Money
+    unit: USD
+    source: 26 USC 151(d)(3)(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2500
+  - name: exemption_phaseout_increment_separate
+    kind: parameter
+    dtype: Money
+    unit: USD
+    source: 26 USC 151(d)(3)(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1250
+  - name: exemption_phaseout_maximum_percentage
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 151(d)(3)(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+  - name: exemption_phaseout_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    source: 26 USC 151(d)(3)(A)-(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, adjusted_gross_income - applicable_amount_in_effect_under_section_68_b)
+  - name: senior_deduction_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 151(d)(5)(C)(iii)(II)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/151
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          adjusted_gross_income
+          + amount_excluded_from_gross_income_under_section_911
+          + amount_excluded_from_gross_income_under_section_931
+          + amount_excluded_from_gross_income_under_section_933
+  - name: exemption_individual_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 151(c)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/151
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          tin_included_on_return_claiming_exemption
+          and is_dependent_under_section_152_of_taxpayer
+  - name: senior_deduction_allowed
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    source: 26 USC 151(d)(5)(C)(i)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          not taxpayer_is_married_individual_within_section_7703
+"""
+        )
+        test_file = target.with_name("151.test.yaml")
+        test_file.write_text(
+            """- name: senior_magi
+  input:
+    us:statutes/26/151#input.adjusted_gross_income: 100000
+    us:statutes/26/151#input.applicable_amount_in_effect_under_section_68_b: 0
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911: 5000
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_933: 0
+    us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
+    us:statutes/26/151#input.is_dependent_under_section_152_of_taxpayer: true
+  output:
+    us:statutes/26/151#exemption_phaseout_applicable_percentage: 1
+    us:statutes/26/151#senior_deduction_modified_adjusted_gross_income: 105000
+    us:statutes/26/151#exemption_individual_eligible: holds
+"""
+        )
+        section_63_test = policy_repo / "statutes/26/63.test.yaml"
+        section_63_test.write_text(
+            """- name: dependent_151_case
+  input:
+    us:statutes/26/151#input.taxable_year_begins_after_2017: true
+    us:statutes/26/151#input.taxable_year_begins_before_2029: true
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911: 0
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_933: 0
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
+    us:statutes/26/151#input.taxpayer_is_married_individual_within_section_7703: false
+    us:statutes/26/63/f#input.additional_exemption_allowable_for_spouse_under_section_151_b: false
+  output:
+    us:statutes/26/63#taxable_income: 0
+"""
+        )
+        section_63_f_test = policy_repo / "statutes/26/63/f.test.yaml"
+        section_63_f_test.parent.mkdir(parents=True, exist_ok=True)
+        section_63_f_test.write_text(
+            """- name: spouse_entitlements_require_section_151_exemption
+  input:
+    us:statutes/26/63/f#relation.spouse_of_taxpayer_for_subsection_f:
+    - us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true
+      us:statutes/26/151#input.is_spouse_of_taxpayer: true
+  output:
+    us:statutes/26/63/f#spouse_aged_additional_amount_entitlement: holds
+"""
+        )
+        section_152_c = policy_repo / "statutes/26/152/c.yaml"
+        section_152_c.parent.mkdir(parents=True, exist_ok=True)
+        section_152_c.write_text(
+            """format: rulespec/v1
+rules:
+  - name: qualifying_child
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: qualifying_child_before_tiebreaker
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/151.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if path != target.resolve():
+                    assert path in {
+                        policy_repo / "statutes/26/911/a/1.yaml",
+                        policy_repo / "statutes/26/911.yaml",
+                        policy_repo / "statutes/26/152.yaml",
+                        policy_repo / "statutes/26/152/d.yaml",
+                        policy_repo / "statutes/26/931.yaml",
+                        policy_repo / "statutes/26/933.yaml",
+                    }
+                    return SimpleNamespace(all_passed=True, results={})
+                content = target.read_text()
+                assert "applicable_amount_in_effect_under_section_68_b" not in content
+                assert (
+                    "  - name: exemption_phaseout_applicable_percentage\n"
+                    not in content
+                )
+                assert "deferred_outputs:" in content
+                assert "us:statutes/26/68/b#applicable_amount" in content
+                assert (
+                    "us:statutes/26/911#income_excluded_from_gross_income_under_section_911"
+                    in content
+                )
+                assert "is_dependent_under_section_152_of_taxpayer" not in content
+                assert "us:statutes/26/152#dependent_of_taxpayer" in content
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_tax_status_components(args)
+
+        content = target.read_text()
+        assert "amount_excluded_from_gross_income_under_section_911" not in content
+        assert "income_excluded_from_gross_income_under_section_911" in content
+        assert "dependent_of_taxpayer" in content
+        assert "us:statutes/26/151#exemption_phaseout_increment_separate" in content
+        test_content = test_file.read_text()
+        assert "applicable_amount_in_effect_under_section_68_b" not in test_content
+        assert "exemption_phaseout_applicable_percentage" not in test_content
+        assert "is_dependent_under_section_152_of_taxpayer" not in test_content
+        assert (
+            "us:statutes/26/151#input.amount_excluded_from_gross_income_under_section_911"
+            not in test_content
+        )
+        assert (
+            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 5000"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 0"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/933#input.gross_income_excluded_under_section_933: 0"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/152/c#input.individual_is_child_of_taxpayer" in test_content
+        )
+        related_test_content = section_63_test.read_text()
+        assert "us:statutes/26/151#input.taxable_year_begins_after_2017" not in (
+            related_test_content
+        )
+        assert (
+            "us:statutes/26/151#input.taxable_year_begins_after_tcja_exemption_amount_zero_effective_date: true"
+            in related_test_content
+        )
+        assert "us:statutes/26/151#input.taxable_year_begins_before_2029" not in (
+            related_test_content
+        )
+        assert (
+            "us:statutes/26/151#input.taxable_year_begins_before_senior_deduction_expiration_date: true"
+            in related_test_content
+        )
+        assert (
+            "us:statutes/26/151#input.taxpayer_is_married_individual_within_section_7703"
+            not in related_test_content
+        )
+        assert "additional_exemption_allowable_for_spouse_under_section_151_b" not in (
+            related_test_content
+        )
+        assert (
+            "us:statutes/26/63/c#input.additional_standard_deduction_amount_under_subsection_f: 0"
+            in related_test_content
+        )
+        assert (
+            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
+            not in related_test_content
+        )
+        assert (
+            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 0"
+            in related_test_content
+        )
+        related_63_f_content = section_63_f_test.read_text()
+        assert "us:statutes/26/151#input.filing_status: 0" in related_63_f_content
+        assert (
+            "us:statutes/26/63/c#input.additional_standard_deduction_amount_under_subsection_f"
+            not in related_63_f_content
+        )
+        generated_911_a_1 = policy_repo / "statutes/26/911/a/1.yaml"
+        generated_911 = policy_repo / "statutes/26/911.yaml"
+        assert generated_911_a_1.exists()
+        assert generated_911.exists()
+        assert f"hash: sha256:{_sha256_file(generated_911)}" in content
+        assert f"hash: sha256:{_sha256_file(generated_911_a_1)}" in (
+            generated_911.read_text()
+        )
+        assert (policy_repo / "statutes/26/152.yaml").exists()
+        assert (policy_repo / "statutes/26/152/d.yaml").exists()
+        assert (policy_repo / "statutes/26/931.yaml").exists()
+        assert (policy_repo / "statutes/26/933.yaml").exists()
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/151.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["backend"] == "deterministic"
+        assert payload["model"] == "tax-status-component-v1"
+        assert payload["tool"] == "axiom-encode repair-tax-status-components"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/151.yaml",
+            "statutes/26/151.test.yaml",
+            "statutes/26/63.test.yaml",
+            "statutes/26/63/f.test.yaml",
+            "statutes/26/911/a/1.yaml",
+            "statutes/26/911/a/1.test.yaml",
+            "statutes/26/911.yaml",
+            "statutes/26/911.test.yaml",
+            "statutes/26/152/d.yaml",
+            "statutes/26/152/d.test.yaml",
+            "statutes/26/152.yaml",
+            "statutes/26/152.test.yaml",
+            "statutes/26/931.yaml",
+            "statutes/26/931.test.yaml",
+            "statutes/26/933.yaml",
+            "statutes/26/933.test.yaml",
+        ]
+
+    def test_repair_section_151_911_import_hashes_generated_and_existing_files(
+        self, tmp_path
+    ):
+        content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: senior_deduction_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: adjusted_gross_income + amount_excluded_from_gross_income_under_section_911
+"""
+        repo_without_911 = tmp_path / "without-911"
+        repaired, repairs, generated = _repair_section_151_imports(
+            content, repo_path=repo_without_911
+        )
+        generated_911 = generated[repo_without_911 / "statutes/26/911.yaml"]
+        assert repairs == [
+            "amount_excluded_from_gross_income_under_section_911->income_excluded_from_gross_income_under_section_911"
+        ]
+        assert f"hash: sha256:{_sha256_text(generated_911)}" in repaired
+
+        repo_with_911 = tmp_path / "with-911"
+        section_911 = repo_with_911 / "statutes/26/911.yaml"
+        section_911.parent.mkdir(parents=True)
+        section_911.write_text(
+            """format: rulespec/v1
+rules:
+  - name: income_excluded_from_gross_income_under_section_911
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: existing_911_passthrough
+"""
+        )
+        repaired, repairs, generated = _repair_section_151_imports(
+            content, repo_path=repo_with_911
+        )
+        assert generated == {}
+        assert repairs == [
+            "amount_excluded_from_gross_income_under_section_911->income_excluded_from_gross_income_under_section_911"
+        ]
+        assert f"hash: sha256:{_sha256_file(section_911)}" in repaired
+
+    def test_repair_tax_status_components_imports_24_child_dependencies(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/24.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/24
+  summary: |-
+    Section 24 uses section 152(c), section 151, and sections 911, 931, and 933.
+rules:
+  - name: ctc_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/24
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          adjusted_gross_income
+          + amount_excluded_from_gross_income_under_section_911
+          + amount_excluded_from_gross_income_under_section_931
+          + amount_excluded_from_gross_income_under_section_933
+  - name: ctc_qualifying_child
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/24
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          qualifying_child_under_section_152_c
+          and allowed_deduction_under_section_151_for_child
+          and not certain_noncitizen_exception_applies
+  - name: ctc_after_advance_payments
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/24
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          max(0, ctc_before_advance_payments - aggregate_advance_payments_under_section_7527A)
+"""
+        )
+        test_file = target.with_name("24.test.yaml")
+        test_file.write_text(
+            """- name: child
+  input:
+    us:statutes/26/24#input.qualifying_child_under_section_152_c: true
+    us:statutes/26/24#input.allowed_deduction_under_section_151_for_child: true
+    us:statutes/26/24#input.certain_noncitizen_exception_applies: false
+  output:
+    us:statutes/26/24#ctc_qualifying_child: holds
+- name: child_relation_row
+  input:
+    us:statutes/26/24#relation.ctc_qualifying_child_of_tax_unit:
+    - us:statutes/26/24#input.qualifying_child_under_section_152_c: true
+      us:statutes/26/24#input.allowed_deduction_under_section_151_for_child: true
+      us:statutes/26/24#input.certain_noncitizen_exception_applies: false
+  output:
+    us:statutes/26/24#ctc_qualifying_child: holds
+- name: magi
+  input:
+    us:statutes/26/24#input.adjusted_gross_income: 100
+    us:statutes/26/24#input.amount_excluded_from_gross_income_under_section_911: 1
+    us:statutes/26/24#input.amount_excluded_from_gross_income_under_section_931: 2
+    us:statutes/26/24#input.amount_excluded_from_gross_income_under_section_933: 3
+  output:
+    us:statutes/26/24#ctc_modified_adjusted_gross_income: 106
+- name: advance_payment_reduction
+  input:
+    us:statutes/26/24#input.ctc_before_advance_payments: 500
+    us:statutes/26/24#input.aggregate_advance_payments_under_section_7527A: 100
+  output:
+    us:statutes/26/24#ctc_after_advance_payments: 400
+"""
+        )
+        section_151 = policy_repo / "statutes/26/151.yaml"
+        section_151.write_text(
+            """format: rulespec/v1
+rules:
+  - name: exemption_individual_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tin_included_on_return_claiming_exemption and is_taxpayer
+"""
+        )
+        section_152_c = policy_repo / "statutes/26/152/c.yaml"
+        section_152_c.parent.mkdir(parents=True, exist_ok=True)
+        section_152_c.write_text(
+            """format: rulespec/v1
+rules:
+  - name: qualifying_child
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: individual_is_child_of_taxpayer_or_descendant_of_such_child
+"""
+        )
+        section_911 = policy_repo / "statutes/26/911.yaml"
+        section_911.write_text(
+            """format: rulespec/v1
+rules:
+  - name: income_excluded_from_gross_income_under_section_911
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: foreign_earned_income_excluded_from_gross_income
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/24.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                if path == target.resolve():
+                    content = target.read_text()
+                    assert "qualifying_child_under_section_152_c" not in content
+                    assert (
+                        "allowed_deduction_under_section_151_for_child" not in content
+                    )
+                    assert "us:statutes/26/152/c#qualifying_child" in content
+                    assert "us:statutes/26/151#exemption_individual_eligible" in content
+                    assert (
+                        "us:statutes/26/7527A#aggregate_advance_payments_under_section_7527A"
+                        in content
+                    )
+                    assert "qualifying_child" in content
+                    assert "exemption_individual_eligible" in content
+                    return SimpleNamespace(all_passed=True, results={})
+                assert path in {
+                    policy_repo / "statutes/26/931.yaml",
+                    policy_repo / "statutes/26/933.yaml",
+                    policy_repo / "statutes/26/7527A.yaml",
+                }
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._companion_test_issues", return_value=[]),
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_tax_status_components(args)
+
+        test_content = test_file.read_text()
+        assert "us:statutes/26/24#input.qualifying_child_under_section_152_c" not in (
+            test_content
+        )
+        assert (
+            "us:statutes/26/24#input.allowed_deduction_under_section_151_for_child"
+            not in test_content
+        )
+        assert (
+            "us:statutes/26/152/c#input.individual_is_child_of_taxpayer_or_descendant_of_such_child: true"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/151#input.tin_included_on_return_claiming_exemption: true"
+            in test_content
+        )
+        assert (
+            "    - us:statutes/26/152/c#input.individual_is_child_of_taxpayer_or_descendant_of_such_child: true"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 1"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/931#input.gross_income_excluded_under_section_931: 2"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/933#input.gross_income_excluded_under_section_933: 3"
+            in test_content
+        )
+        assert (
+            "us:statutes/26/7527A#input.advance_payments_made_under_section_7527A: 100"
+            in test_content
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/24.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["tool"] == "axiom-encode repair-tax-status-components"
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/24.yaml",
+            "statutes/26/24.test.yaml",
+            "statutes/26/931.yaml",
+            "statutes/26/931.test.yaml",
+            "statutes/26/933.yaml",
+            "statutes/26/933.test.yaml",
+            "statutes/26/7527A.yaml",
+            "statutes/26/7527A.test.yaml",
         ]
 
     def test_repair_unreferenced_proof_imports_writes_signed_manifest(self, tmp_path):
@@ -6951,6 +7961,194 @@ rules:
         assert payload["model"] == "proof-import-hash-v1"
         assert payload["tool"] == "axiom-encode repair-proof-import-hashes"
         assert payload["applied_files"][0]["path"] == "statutes/7/2015/d/2.yaml"
+
+    def test_repair_proof_import_hashes_refreshes_existing_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/63.yaml"
+        test_file = policy_repo / "statutes/26/63.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: adjusted_gross_income
+"""
+        )
+        test_file.write_text(
+            """- name: taxable_income_case
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 100
+  output:
+    us:statutes/26/63#taxable_income: 100
+"""
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{"model": "proof-import-hash-v1"}')
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/63.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_proof_import_hashes(args)
+
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "proof-import-hash-v1"
+        assert payload["axiom_encode_git"]["commit"] == "abc123"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/63.yaml",
+            "statutes/26/63.test.yaml",
+        ]
+
+    def test_repair_proof_import_hashes_removes_import_output_placeholders(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        section_151 = policy_repo / "statutes/26/151.yaml"
+        section_224 = policy_repo / "statutes/26/224.yaml"
+        target = policy_repo / "statutes/26/63.yaml"
+        test_file = policy_repo / "statutes/26/63.test.yaml"
+        target.parent.mkdir(parents=True)
+        section_151.write_text(
+            """format: rulespec/v1
+rules:
+  - name: section_151_exemption_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+"""
+        )
+        section_224.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/931#amount_excluded_from_gross_income_under_section_931
+rules: []
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/151#section_151_exemption_deduction
+  - us:statutes/26/224
+rules:
+  - name: taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/151#section_151_exemption_deduction
+              output: section_151_exemption_deduction
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: adjusted_gross_income - section_151_exemption_deduction
+"""
+        )
+        test_file.write_text(
+            """- name: invalid_import_output_input
+  input:
+    us:statutes/26/63#input.adjusted_gross_income: 100000
+    us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931: 0
+  output:
+    us:statutes/26/63#taxable_income: 100000
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/63.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                FakePipeline.calls += 1
+                if FakePipeline.calls == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `invalid_import_output_input` execution failed: "
+                                    "dataset input "
+                                    "`us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931` "
+                                    "must use an absolute legal RuleSpec reference "
+                                    "that resolves to an input slot, derived rule, "
+                                    "or parameter in the compiled program"
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_proof_import_hashes(args)
+
+        assert "sha256:old" not in target.read_text()
+        updated = test_file.read_text()
+        assert (
+            "us:statutes/26/224#input.amount_excluded_from_gross_income_under_section_931"
+            not in updated
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
+        payload = json.loads(manifest.read_text())
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/63.yaml",
+            "statutes/26/63.test.yaml",
+        ]
 
     def test_repair_oracle_parameter_tests_adds_missing_parameter_output(
         self, tmp_path
