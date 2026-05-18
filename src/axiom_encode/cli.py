@@ -11110,6 +11110,70 @@ def _enforce_canonical_concept_registry(
     )
 
 
+def _read_corpus_citation_paths_from_rulespec(path: Path) -> set[str]:
+    """Return the corpus_citation_path(s) declared in a RuleSpec file, if any.
+
+    Reads ``module.source_verification.corpus_citation_path`` and the plural
+    ``corpus_citation_paths`` (list form). Returns an empty set when the file
+    is missing, unparseable, or has no source verification block — callers
+    treat an empty set as "no claim to compare against."
+    """
+    if not path.exists():
+        return set()
+    try:
+        doc = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return set()
+    if not isinstance(doc, dict):
+        return set()
+    module = doc.get("module")
+    if not isinstance(module, dict):
+        return set()
+    sv = module.get("source_verification")
+    if not isinstance(sv, dict):
+        return set()
+    declared: set[str] = set()
+    single = sv.get("corpus_citation_path")
+    if isinstance(single, str) and single.strip():
+        declared.add(single.strip())
+    plural = sv.get("corpus_citation_paths")
+    if isinstance(plural, list):
+        declared.update(
+            str(p).strip() for p in plural if isinstance(p, str) and p.strip()
+        )
+    return declared
+
+
+def _enforce_no_apply_collision(*, source_file: Path, target_file: Path) -> None:
+    """Refuse to overwrite an existing RuleSpec that encodes a different corpus citation.
+
+    Sibling encodes that resolve to the same output path are the original
+    symptom that produced 342 lost CalFresh encodings in 2026-05-13. Even
+    after the path-strategy and resolver-fallback fixes above, this guard is
+    a deliberate backstop: if any future regression reintroduces collision,
+    apply fails loudly instead of silently overwriting.
+
+    No-ops when the target does not yet exist, when neither file declares a
+    corpus_citation_path, or when both files declare the same path.
+    """
+    if not target_file.exists():
+        return
+    incoming = _read_corpus_citation_paths_from_rulespec(source_file)
+    existing = _read_corpus_citation_paths_from_rulespec(target_file)
+    if not incoming or not existing:
+        return
+    if incoming & existing:
+        return
+    raise RuntimeError(
+        "Refusing to overwrite "
+        f"{target_file} — existing file declares corpus citation(s) "
+        f"{sorted(existing)!r}, incoming encode declares "
+        f"{sorted(incoming)!r}. Sibling subsections likely share an "
+        "output path; check the citation-to-path strategy "
+        "(see issue #71)."
+    )
+
+
 def _apply_generated_encoding_result(
     result,
     *,
@@ -11140,6 +11204,8 @@ def _apply_generated_encoding_result(
             else _rulespec_test_path(relative_output)
         )
         target = policy_repo_path / relative_source
+        if source == output_file:
+            _enforce_no_apply_collision(source_file=source, target_file=target)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         applied.append(target)
