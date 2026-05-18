@@ -2337,11 +2337,19 @@ def _run_single_eval(
         extra_context_paths=extra_context_paths,
     )
 
+    # Derive the output path from the *requested* identifier rather than the
+    # *resolved* corpus citation_path. When the resolver falls back to a parent
+    # provision (subsection-level corpus row missing), the resolved path drops
+    # the subsection identity and every sibling subsection would collapse onto
+    # the parent's output file. Issue #71 documents the observable bug; using
+    # the requested identifier keeps each subsection in its own file.
+    is_corpus_path = _looks_like_corpus_citation_path(citation)
     relative_output = (
-        _source_identifier_to_relative_rulespec_path(source_unit.citation_path)
-        if _looks_like_corpus_citation_path(citation)
+        _source_identifier_to_relative_rulespec_path(citation)
+        if is_corpus_path
         else citation_to_relative_rulespec_path(citation)
     )
+    target_ref_source = citation if is_corpus_path else source_unit.citation_path
     prompt = _build_eval_prompt(
         citation,
         mode,
@@ -2349,7 +2357,7 @@ def _run_single_eval(
         workspace.context_files,
         target_file_name=relative_output.name,
         target_ref_prefix=_canonical_target_ref_prefix(
-            source_unit.citation_path, relative_output
+            target_ref_source, relative_output
         ),
         include_tests=include_tests,
         runner_backend=runner.backend,
@@ -2529,7 +2537,15 @@ def _run_single_source_eval(
 
 
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
-    """Map an arbitrary source identifier to a stable eval artifact path."""
+    """Map an arbitrary source identifier to a stable eval artifact path.
+
+    Each path segment is treated as a directory and a dot inside the leaf
+    segment is treated as a further nesting separator (CDSS-style numbering
+    like ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
+    ``with_suffix`` pitfall where a dotted leaf would be silently truncated
+    to a section-level path and collide with sibling subsections at apply
+    time (issue #71).
+    """
     parts = [part for part in source_id.strip().strip("/").split("/") if part]
     if len(parts) >= 3:
         document_roots = {
@@ -2547,8 +2563,23 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
                 tail = _canonical_us_regulation_tail(tail)
             if tail:
-                return (Path(root) / Path(*tail)).with_suffix(".yaml")
+                return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     return Path("source") / f"{_slugify(source_id)}.yaml"
+
+
+def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
+    """Join tail segments, splitting the leaf on ``.`` into further nesting.
+
+    ``["mpp", "63-503"]`` → ``mpp/63-503.yaml``
+    ``["mpp", "63-503.132"]`` → ``mpp/63-503/132.yaml``
+    ``["mpp", "63-503.131.a"]`` → ``mpp/63-503/131/a.yaml``
+    """
+    leaf_segments = tail[-1].split(".")
+    directory_parts = list(tail[:-1]) + leaf_segments[:-1]
+    leaf_file = f"{leaf_segments[-1]}.yaml"
+    if directory_parts:
+        return Path(*directory_parts) / leaf_file
+    return Path(leaf_file)
 
 
 def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:

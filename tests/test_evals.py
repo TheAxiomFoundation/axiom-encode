@@ -110,6 +110,37 @@ def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     ) == Path("regulations/7-cfr/273/10.yaml")
 
 
+@pytest.mark.parametrize(
+    "citation,expected",
+    [
+        # Issue #71: dot-separated CDSS-style citations must keep subsection
+        # identity in the output path. Before the fix, every sibling collapsed
+        # onto the section-level path because pathlib's with_suffix() treated
+        # the dotted leaf as a file extension.
+        ("us-ca/regulation/mpp/63-503", "regulations/mpp/63-503.yaml"),
+        ("us-ca/regulation/mpp/63-503.1", "regulations/mpp/63-503/1.yaml"),
+        ("us-ca/regulation/mpp/63-503.131", "regulations/mpp/63-503/131.yaml"),
+        ("us-ca/regulation/mpp/63-503.132", "regulations/mpp/63-503/132.yaml"),
+        ("us-ca/regulation/mpp/63-300.234", "regulations/mpp/63-300/234.yaml"),
+        # Deeper dotted nesting must also split correctly.
+        (
+            "us-ca/regulation/mpp/63-503.131.a",
+            "regulations/mpp/63-503/131/a.yaml",
+        ),
+        # Slash-separated citations (USC, NYCRR, CFR) are unaffected — these
+        # are regression cases for the dot-stripping fix.
+        (
+            "us-ny/regulation/18-nycrr/387/14/a/1",
+            "regulations/18-nycrr/387/14/a/1.yaml",
+        ),
+        ("us/statute/26/1/a/1", "statutes/26/1/a/1.yaml"),
+        ("us/regulation/7/273/8", "regulations/7-cfr/273/8.yaml"),
+    ],
+)
+def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
+    assert str(_source_identifier_to_relative_rulespec_path(citation)) == expected
+
+
 class TestCorpusSourceResolution:
     def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
