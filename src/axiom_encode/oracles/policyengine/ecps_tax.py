@@ -263,6 +263,9 @@ PE_PERSON_VARIABLES = tuple(
             "employer_medicare_tax",
             "employer_social_security_tax",
             "irs_employment_income",
+            "is_tax_unit_head",
+            "is_tax_unit_head_or_spouse",
+            "is_tax_unit_spouse",
             "payroll_tax_gross_wages",
         }
     )
@@ -1221,14 +1224,8 @@ def project_capital_gain_definition_inputs(
 def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
     filing_status = str(row["filing_status"])
     filing_status_numeric = filing_status_code(filing_status)
-    contexts = project_tax_unit_person_contexts(persons)
-    head_index, spouse_index = tax_unit_head_spouse_indices(persons)
-    filer_indices = {index for index in (head_index, spouse_index) if index is not None}
-    filer_contexts = [
-        context for index, context in enumerate(contexts) if index in filer_indices
-    ]
-    spouse_has_required_ssn = spouse_index is not None and valid_child_ssn_type(
-        str(persons[spouse_index].get("ssn_card_type", ""))
+    filer_meets_id_requirements = filer_meets_eitc_identification_requirements(
+        persons,
     )
     return {
         "filing_status": filing_status_numeric,
@@ -1239,11 +1236,8 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
         ),
         "childless_taxpayer_principal_place_of_abode_in_united_states_more_than_half_year": True,
         "childless_taxpayer_or_spouse_age_eligible_for_eitc": any(
-            context.is_head or context.is_spouse
-            for context in filer_contexts
-            if context.is_head or context.is_spouse
-        )
-        and any(25 <= money(persons[index]["age"]) < 65 for index in filer_indices),
+            25 <= money(person["age"]) < 65 for person in persons
+        ),
         "taxpayer_is_dependent_for_section_151_to_another_taxpayer": False,
         "taxpayer_is_qualifying_child_of_another_taxpayer": False,
         "taxpayer_claims_section_911_benefits": False,
@@ -1258,11 +1252,11 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
         "taxable_year_closed_by_reason_of_taxpayer_death": False,
         "eitc_disallowance_period_applies": False,
         "prior_deficiency_denial_without_required_eligibility_information": False,
-        "taxpayer_includes_required_social_security_number_on_return": any(
-            context.filer_has_valid_child_ctc_ssn for context in contexts
+        "taxpayer_includes_required_social_security_number_on_return": (
+            filer_meets_id_requirements
         ),
         "spouse_includes_required_social_security_number_on_return": (
-            spouse_has_required_ssn
+            filer_meets_id_requirements
         ),
     }
 
@@ -1534,6 +1528,26 @@ def project_tax_unit_person_contexts(
 
 
 def tax_unit_head_spouse_indices(persons: list[Any]) -> tuple[int | None, int | None]:
+    has_explicit_tax_unit_roles = any(
+        "is_tax_unit_head" in person or "is_tax_unit_spouse" in person
+        for person in persons
+    )
+    if has_explicit_tax_unit_roles:
+        head_indices = [
+            index
+            for index, person in enumerate(persons)
+            if bool_value(person.get("is_tax_unit_head", False))
+        ]
+        spouse_indices = [
+            index
+            for index, person in enumerate(persons)
+            if bool_value(person.get("is_tax_unit_spouse", False))
+        ]
+        return (
+            head_indices[0] if head_indices else None,
+            spouse_indices[0] if spouse_indices else None,
+        )
+
     adult_indices = [
         index for index, person in enumerate(persons) if money(person["age"]) >= 18
     ]
@@ -1553,6 +1567,25 @@ def tax_unit_head_spouse_indices(persons: list[Any]) -> tuple[int | None, int | 
         else None
     )
     return head_index, spouse_index
+
+
+def filer_meets_eitc_identification_requirements(persons: list[Any]) -> bool:
+    has_explicit_head_or_spouse = any(
+        "is_tax_unit_head_or_spouse" in person for person in persons
+    )
+    if has_explicit_head_or_spouse:
+        return not any(
+            bool_value(person.get("is_tax_unit_head_or_spouse", False))
+            and not valid_child_ssn_type(str(person.get("ssn_card_type", "")))
+            for person in persons
+        )
+
+    head_index, spouse_index = tax_unit_head_spouse_indices(persons)
+    filer_indices = [index for index in (head_index, spouse_index) if index is not None]
+    return all(
+        valid_child_ssn_type(str(persons[index].get("ssn_card_type", "")))
+        for index in filer_indices
+    )
 
 
 def run_axiom_program(
