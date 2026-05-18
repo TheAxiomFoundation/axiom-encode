@@ -139,9 +139,7 @@ def test_canonical_concept_section_skipped_for_partial_substrings(tmp_path: Path
 
 
 def test_build_rulespec_eval_prompt_splices_canonical_concept_section(tmp_path: Path):
-    source_text = (
-        "Calculate snap_gross_monthly_income before applying exclusions."
-    )
+    source_text = "Calculate snap_gross_monthly_income before applying exclusions."
     workspace = _minimal_workspace(tmp_path, source_text)
 
     prompt = _build_rulespec_eval_prompt(

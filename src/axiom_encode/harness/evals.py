@@ -3466,7 +3466,9 @@ def _format_canonical_concept_registry_guidance(
             haystack_parts.append(path.read_text())
         except OSError:
             continue
-    haystack_tokens = set(_CANONICAL_CONCEPT_TOKEN_RE.findall("\n".join(haystack_parts)))
+    haystack_tokens = set(
+        _CANONICAL_CONCEPT_TOKEN_RE.findall("\n".join(haystack_parts))
+    )
     if not haystack_tokens:
         return ""
 
