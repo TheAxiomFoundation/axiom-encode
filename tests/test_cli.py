@@ -57,7 +57,9 @@ from axiom_encode.cli import (
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
     cmd_repair_proof_import_hashes,
+    cmd_repair_section_63_f_stale_test_inputs,
     cmd_repair_section_172_c_capacity,
+    cmd_repair_section_911_a_1_exclusion,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
     cmd_repair_unreferenced_proof_imports,
@@ -5710,7 +5712,10 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if individual_is_unmarried_and_not_surviving_spouse: higher_amount else: regular_amount
+          if taxable_year_begins_after_2017:
+              if individual_is_unmarried_and_not_surviving_spouse: higher_amount else: regular_amount
+          else:
+              regular_amount
 """
         )
         test_file = target.with_name("standard-deduction.test.yaml")
@@ -5719,6 +5724,7 @@ rules:
   input:
     us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status: 3
     us:policies/irs/rev-proc-2025-32/standard-deduction#input.individual_is_unmarried_and_not_surviving_spouse: true
+    us:policies/irs/rev-proc-2025-32/standard-deduction#input.taxable_year_begins_after_2017: true
   output:
     us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_for_aged_or_blind: 2050
 """
@@ -5755,9 +5761,19 @@ rules:
         content = target.read_text()
         assert "individual_is_unmarried_and_not_surviving_spouse" not in content
         assert "filing_status == 0 or filing_status == 3" in content
+        assert "taxable_year_begins_after_2017" not in content
+        assert (
+            "taxable_year_begins_after_tcja_exemption_amount_zero_effective_date"
+            in content
+        )
         test_content = test_file.read_text()
         assert (
             "input.individual_is_unmarried_and_not_surviving_spouse" not in test_content
+        )
+        assert "input.taxable_year_begins_after_2017" not in test_content
+        assert (
+            "input.taxable_year_begins_after_tcja_exemption_amount_zero_effective_date"
+            in test_content
         )
         manifest = (
             policy_repo
@@ -6092,6 +6108,464 @@ rules:
             cmd_repair_section_172_c_capacity(args)
 
         assert not (policy_repo / "statutes/26/172").exists()
+
+    def test_repair_section_911_a_1_exclusion_writes_signed_manifests(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target_1411 = policy_repo / "statutes/26/1411.yaml"
+        test_1411 = policy_repo / "statutes/26/1411.test.yaml"
+        target_1411.parent.mkdir(parents=True)
+        target_1411.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
+rules:
+  - name: niit_modified_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/1411
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
+              output: section_911_disallowed_deductions_and_exclusions
+              hash: sha256:abc
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          adjusted_gross_income
+          + amount_excluded_from_gross_income_under_section_911_a_1
+          - section_911_disallowed_deductions_and_exclusions
+"""
+        )
+        test_1411.write_text(
+            """- name: section_911_case
+  input:
+    us:statutes/26/1411#input.amount_excluded_from_gross_income_under_section_911_a_1: 10000
+  output:
+    us:statutes/26/1411#niit_modified_adjusted_gross_income: 10000
+"""
+        )
+        subprocess.run(
+            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
+        )
+        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Axiom Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "baseline",
+            ],
+            cwd=policy_repo,
+            check=True,
+            stdout=subprocess.PIPE,
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+        companion_failures = MagicMock(return_value=[])
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                assert path in {
+                    policy_repo / "statutes/26/911/a/1.yaml",
+                    policy_repo / "statutes/26/67/e.yaml",
+                    target_1411,
+                }
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                companion_failures,
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_911_a_1_exclusion(args)
+
+        target_911 = policy_repo / "statutes/26/911/a/1.yaml"
+        target_67 = policy_repo / "statutes/26/67/e.yaml"
+        assert target_911.exists()
+        assert target_67.exists()
+        assert (
+            "us:statutes/26/911/a/1#foreign_earned_income_excluded_from_gross_income"
+            in target_1411.read_text()
+        )
+        assert f"hash: sha256:{_sha256_file(target_911)}" in target_1411.read_text()
+        assert (
+            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 10000"
+            in test_1411.read_text()
+        )
+        assert [call.args[0] for call in companion_failures.call_args_list] == [
+            policy_repo / "statutes/26/911/a/1.test.yaml",
+            policy_repo / "statutes/26/67/e.test.yaml",
+            test_1411,
+        ]
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            assert (
+                guard_generated_change_issues(
+                    policy_repo,
+                    changed_files=[
+                        "statutes/26/911/a/1.yaml",
+                        "statutes/26/911/a/1.test.yaml",
+                        "statutes/26/67/e.yaml",
+                        "statutes/26/67/e.test.yaml",
+                        "statutes/26/1411.yaml",
+                        "statutes/26/1411.test.yaml",
+                        ".axiom/encoding-manifests/statutes/26/911/a/1.json",
+                        ".axiom/encoding-manifests/statutes/26/67/e.json",
+                        ".axiom/encoding-manifests/statutes/26/1411.json",
+                    ],
+                )
+                == []
+            )
+
+    def test_repair_section_63_f_stale_test_inputs_writes_signed_manifests(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target_63_c = policy_repo / "statutes/26/63/c.yaml"
+        target_63 = policy_repo / "statutes/26/63.yaml"
+        target_6012 = policy_repo / "statutes/26/6012.yaml"
+        target_1_f_3 = policy_repo / "statutes/26/1/f/3.yaml"
+        target_121 = policy_repo / "statutes/26/121.yaml"
+        target_911_a_1 = policy_repo / "statutes/26/911/a/1.yaml"
+        target_911 = policy_repo / "statutes/26/911.yaml"
+        target_443_a_1 = policy_repo / "statutes/26/443/a/1.yaml"
+        target_7703 = policy_repo / "statutes/26/7703.yaml"
+        target_6013_a = policy_repo / "statutes/26/6013/a.yaml"
+        for target in (
+            target_1_f_3,
+            target_121,
+            target_911_a_1,
+            target_911,
+            target_443_a_1,
+            target_63_c,
+            target_63,
+            target_6012,
+            target_7703,
+            target_6013_a,
+        ):
+            target.parent.mkdir(parents=True, exist_ok=True)
+        target_63_c.write_text(
+            """format: rulespec/v1
+rules:
+  - name: head_of_household_basic_standard_deduction_amount
+    kind: derived
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          if taxable_year_begins_after_2025:
+            23625 + floor(23625 * cost_of_living_adjustment_under_section_1_f_3 / 50) * 50
+          else:
+            23625
+  - name: standard_deduction_ineligible
+    kind: derived
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          return_under_section_443_a_1_for_less_than_12_months_due_to_accounting_period_change
+"""
+        )
+        target_63.write_text("format: rulespec/v1\nrules: []\n")
+        target_6012.write_text(
+            """format: rulespec/v1
+rules:
+  - name: gross_income_for_section_6012
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/6012
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          gross_income + gain_excluded_from_gross_income_under_section_121
+          + income_excluded_from_gross_income_under_section_911
+  - name: unmarried_individual_exception_to_return_requirement_under_2018_2025_rule
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/6012
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          taxable_year_begins_after_2017_and_before_2026
+          and individual_not_married_under_section_7703
+          and gross_income_for_section_6012 <= standard_deduction
+  - name: joint_return_exception_to_return_requirement_under_2018_2025_rule
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/6012
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          individual_entitled_to_make_joint_return
+          and combined_gross_income_of_individual_and_spouse_for_section_6012 <= standard_deduction
+"""
+        )
+        target_443_a_1.write_text("format: rulespec/v1\nrules: []\n")
+        target_7703.write_text("format: rulespec/v1\nrules: []\n")
+        target_6013_a.write_text("format: rulespec/v1\nrules: []\n")
+        for target in (target_63_c, target_63, target_6012):
+            test_content = """- name: stale_input_case
+  input:
+    us:statutes/26/63/c#input.taxable_year_begins_after_2025: true
+    us:statutes/26/63/c#input.cost_of_living_adjustment_under_section_1_f_3: 0.1
+    us:statutes/26/63/c#input.return_under_section_443_a_1_for_less_than_12_months_due_to_accounting_period_change: false
+    us:statutes/26/63/f#input.filing_status: 0
+    us:statutes/26/63/f#input.additional_exemption_allowable_for_spouse_under_section_151_b: false
+    us:example#input.other_value: 1
+  output:
+    us:example#output.value: 1
+"""
+            if target == target_6012:
+                test_content = test_content.replace(
+                    "    us:example#input.other_value: 1\n",
+                    "    us:statutes/26/6012#input.individual_not_married_under_section_7703: true\n"
+                    "    us:statutes/26/6012#input.individual_entitled_to_make_joint_return: true\n"
+                    "    us:statutes/26/6012#input.taxable_year_begins_after_2017_and_before_2026: true\n"
+                    "    us:statutes/26/6012#input.gain_excluded_from_gross_income_under_section_121: 0\n"
+                    "    us:statutes/26/6012#input.income_excluded_from_gross_income_under_section_911: 0\n"
+                    "    us:example#input.other_value: 1\n",
+                )
+            target.with_name(f"{target.stem}.test.yaml").write_text(test_content)
+        subprocess.run(
+            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
+        )
+        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Axiom Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "baseline",
+            ],
+            cwd=policy_repo,
+            check=True,
+            stdout=subprocess.PIPE,
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+        companion_failures = MagicMock(return_value=[])
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                companion_failures,
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_section_63_f_stale_test_inputs(args)
+
+        for relative in (
+            "statutes/26/63/c.test.yaml",
+            "statutes/26/63.test.yaml",
+            "statutes/26/6012.test.yaml",
+        ):
+            content = (policy_repo / relative).read_text()
+            assert "additional_exemption_allowable_for_spouse" not in content
+            assert "us:statutes/26/63/f#input.filing_status" not in content
+            assert "cost_of_living_adjustment_under_section_1_f_3" not in content
+            assert "return_under_section_443_a_1" not in content
+            assert (
+                "us:statutes/26/1/f/3#input.consumer_price_index_for_preceding_calendar_year: 110"
+                in content
+            )
+            assert (
+                "us:statutes/26/443/a/1#input.taxpayer_changes_annual_accounting_period: false"
+                in content
+            )
+            assert (
+                "us:statutes/26/63/c#input.additional_standard_deduction_amount_under_subsection_f: 0"
+                in content
+            )
+            assert "us:example#input.other_value: 1" in content
+        assert target_1_f_3.exists()
+        assert "cost_of_living_adjustment" in target_1_f_3.read_text()
+        assert target_121.exists()
+        assert "principal_residence_sale_gain_exclusion" in target_121.read_text()
+        assert target_911_a_1.exists()
+        assert (
+            "foreign_earned_income_excluded_from_gross_income"
+            in target_911_a_1.read_text()
+        )
+        assert target_911.exists()
+        assert (
+            "income_excluded_from_gross_income_under_section_911"
+            in target_911.read_text()
+        )
+        assert (
+            "cost_of_living_adjustment_under_section_1_f_3"
+            not in target_63_c.read_text()
+        )
+        assert (
+            "us:statutes/26/1/f/3#cost_of_living_adjustment" in target_63_c.read_text()
+        )
+        assert "taxable_year_begins_after_2025" not in target_63_c.read_text()
+        assert (
+            "taxable_year_begins_after_tcja_standard_deduction_transition_period"
+            in target_63_c.read_text()
+        )
+        assert "return_under_section_443_a_1" not in target_63_c.read_text()
+        assert (
+            "annual_accounting_period_change_with_secretary_approval"
+            in target_63_c.read_text()
+        )
+        assert (
+            "gain_excluded_from_gross_income_under_section_121"
+            not in target_6012.read_text()
+        )
+        assert "principal_residence_sale_gain_exclusion" in target_6012.read_text()
+        assert (
+            "us:statutes/26/911#income_excluded_from_gross_income_under_section_911"
+            in target_6012.read_text()
+        )
+        assert (
+            "taxable_year_begins_after_2017_and_before_2026"
+            not in target_6012.read_text()
+        )
+        assert (
+            "taxable_year_is_in_temporary_effective_window" in target_6012.read_text()
+        )
+        assert (
+            "individual_not_married_under_section_7703" not in target_6012.read_text()
+        )
+        assert (
+            "not taxpayer_considered_married_after_living_apart_rule"
+            in target_6012.read_text()
+        )
+        assert "individual_entitled_to_make_joint_return" not in target_6012.read_text()
+        assert "joint_return_may_be_made" in target_6012.read_text()
+        assert (
+            "us:statutes/26/7703#input.taxpayer_married_at_close_of_taxable_year: false"
+            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
+        )
+        assert (
+            "us:statutes/26/6013/a#input.taxpayers_are_husband_and_wife: true"
+            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
+        )
+        assert (
+            "us:statutes/26/121#input.principal_residence_sale_gain_excluded_from_gross_income: 0"
+            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
+        )
+        assert (
+            "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 0"
+            in (policy_repo / "statutes/26/6012.test.yaml").read_text()
+        )
+        assert {call.args[0] for call in companion_failures.call_args_list} == {
+            policy_repo / "statutes/26/1/f/3.test.yaml",
+            policy_repo / "statutes/26/121.test.yaml",
+            policy_repo / "statutes/26/911/a/1.test.yaml",
+            policy_repo / "statutes/26/911.test.yaml",
+            policy_repo / "statutes/26/63/c.test.yaml",
+            policy_repo / "statutes/26/63.test.yaml",
+            policy_repo / "statutes/26/6012.test.yaml",
+        }
+        with patch.dict(
+            os.environ,
+            {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+        ):
+            assert (
+                guard_generated_change_issues(
+                    policy_repo,
+                    changed_files=[
+                        "statutes/26/1/f/3.yaml",
+                        "statutes/26/1/f/3.test.yaml",
+                        "statutes/26/121.yaml",
+                        "statutes/26/121.test.yaml",
+                        "statutes/26/911/a/1.yaml",
+                        "statutes/26/911/a/1.test.yaml",
+                        "statutes/26/911.yaml",
+                        "statutes/26/911.test.yaml",
+                        "statutes/26/63/c.yaml",
+                        "statutes/26/63/c.test.yaml",
+                        "statutes/26/63.test.yaml",
+                        "statutes/26/6012.yaml",
+                        "statutes/26/6012.test.yaml",
+                        ".axiom/encoding-manifests/statutes/26/1/f/3.json",
+                        ".axiom/encoding-manifests/statutes/26/121.json",
+                        ".axiom/encoding-manifests/statutes/26/911/a/1.json",
+                        ".axiom/encoding-manifests/statutes/26/911.json",
+                        ".axiom/encoding-manifests/statutes/26/63/c.json",
+                        ".axiom/encoding-manifests/statutes/26/63.json",
+                        ".axiom/encoding-manifests/statutes/26/6012.json",
+                    ],
+                )
+                == []
+            )
 
     def test_repair_missing_source_proofs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
