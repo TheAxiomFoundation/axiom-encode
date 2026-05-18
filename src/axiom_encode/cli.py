@@ -28,6 +28,7 @@ import time
 from collections import Counter
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -772,6 +773,44 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_section_911_a_1_parser = subparsers.add_parser(
+        "repair-section-911-a-1-exclusion",
+        help="Apply signed deterministic repairs for the 1411 section 911(a)(1) cross-reference",
+    )
+    repair_section_911_a_1_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_section_911_a_1_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_section_63_f_tests_parser = subparsers.add_parser(
+        "repair-section-63-f-stale-test-inputs",
+        help="Apply signed deterministic repairs for stale 63(f) spouse-exemption test inputs",
+    )
+    repair_section_63_f_tests_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_section_63_f_tests_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_imported_test_inputs_parser = subparsers.add_parser(
         "repair-imported-test-inputs",
         help="Apply signed deterministic repairs for missing imported test inputs",
@@ -1453,6 +1492,10 @@ def main():
         cmd_repair_unreferenced_proof_imports(args)
     elif args.command == "repair-section-172-c-capacity":
         cmd_repair_section_172_c_capacity(args)
+    elif args.command == "repair-section-911-a-1-exclusion":
+        cmd_repair_section_911_a_1_exclusion(args)
+    elif args.command == "repair-section-63-f-stale-test-inputs":
+        cmd_repair_section_63_f_stale_test_inputs(args)
     elif args.command == "repair-imported-test-inputs":
         cmd_repair_imported_test_inputs(args)
     elif args.command == "repair-oracle-parameter-tests":
@@ -3996,7 +4039,7 @@ def cmd_repair_section_172_c_capacity(args):
         if validation_issues:
             raise RuntimeError("\n".join(validation_issues))
 
-        test_issues = _section_172_c_companion_test_issues(
+        test_issues = _companion_test_issues(
             test_files=[test_172, test_1212, test_1222],
             repo_path=repo_path,
             axiom_rules_path=axiom_rules_path,
@@ -4269,7 +4312,7 @@ def _refresh_1222_proof_import_hash(rules_file: Path, repo_path: Path) -> list[P
     return [rules_file]
 
 
-def _section_172_c_companion_test_issues(
+def _companion_test_issues(
     *,
     test_files: list[Path],
     repo_path: Path,
@@ -4299,6 +4342,27 @@ def _write_section_172_c_capacity_manifests(
     manifest_groups: list[tuple[Path, list[Path]]],
     changed_files: list[Path],
 ) -> list[Path]:
+    return _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_files,
+        model="section-172-c-capacity-v1",
+        tool="axiom-encode repair-section-172-c-capacity",
+    )
+
+
+def _write_grouped_deterministic_repair_manifests(
+    *,
+    repo_path: Path,
+    signing_key: str,
+    axiom_encode_git: dict[str, object],
+    manifest_groups: list[tuple[Path, list[Path]]],
+    changed_files: list[Path],
+    model: str,
+    tool: str,
+) -> list[Path]:
     manifest_paths: list[Path] = []
     changed_file_set = {path.resolve() for path in changed_files}
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -4316,8 +4380,8 @@ def _write_section_172_c_capacity_manifests(
                 output_file=str(generated_output),
                 runner="deterministic-repair",
                 backend="deterministic",
-                model="section-172-c-capacity-v1",
-                tool="axiom-encode repair-section-172-c-capacity",
+                model=model,
+                tool=tool,
                 citation=(
                     f"{_repo_jurisdiction_prefix(repo_path)}:"
                     f"{_relative_rulespec_import_target(relative_output)}"
@@ -4339,6 +4403,1630 @@ def _write_section_172_c_capacity_manifests(
                 )
             )
     return manifest_paths
+
+
+_SECTION_911_A_1_IMPORT = (
+    "us:statutes/26/911/a/1#foreign_earned_income_excluded_from_gross_income"
+)
+_SECTION_911_A_1_PLACEHOLDER_INPUT = (
+    "us:statutes/26/1411#input.amount_excluded_from_gross_income_under_section_911_a_1"
+)
+_SECTION_911_A_1_SOURCE_INPUT = (
+    "us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount"
+)
+_SECTION_911_A_1_PLACEHOLDER_SYMBOL = (
+    "amount_excluded_from_gross_income_under_section_911_a_1"
+)
+_SECTION_911_A_1_OUTPUT = "foreign_earned_income_excluded_from_gross_income"
+_SECTION_911_IMPORT = (
+    "us:statutes/26/911#income_excluded_from_gross_income_under_section_911"
+)
+_SECTION_911_PLACEHOLDER_INPUT = (
+    "us:statutes/26/6012#input.income_excluded_from_gross_income_under_section_911"
+)
+_SECTION_911_PLACEHOLDER_SYMBOL = "income_excluded_from_gross_income_under_section_911"
+_SECTION_911_OUTPUT = "income_excluded_from_gross_income_under_section_911"
+_SECTION_67_E_IMPORT = "us:statutes/26/67/e#estate_or_trust_adjusted_gross_income"
+_SECTION_67_E_PLACEHOLDER_INPUT = (
+    "us:statutes/26/1411#input.adjusted_gross_income_under_section_67_e"
+)
+_SECTION_67_E_SOURCE_INPUT = "us:statutes/26/67/e#input.estate_or_trust_gross_income"
+_SECTION_67_E_PLACEHOLDER_SYMBOL = "adjusted_gross_income_under_section_67_e"
+_SECTION_67_E_OUTPUT = "estate_or_trust_adjusted_gross_income"
+_SECTION_1_F_3_IMPORT = "us:statutes/26/1/f/3#cost_of_living_adjustment"
+_SECTION_1_F_3_PLACEHOLDER_INPUT = (
+    "us:statutes/26/63/c#input.cost_of_living_adjustment_under_section_1_f_3"
+)
+_SECTION_1_F_3_PRECEDING_CPI_INPUT = (
+    "us:statutes/26/1/f/3#input.consumer_price_index_for_preceding_calendar_year"
+)
+_SECTION_1_F_3_BASE_CPI_INPUT = (
+    "us:statutes/26/1/f/3#input.consumer_price_index_for_base_calendar_year"
+)
+_SECTION_1_F_3_PLACEHOLDER_SYMBOL = "cost_of_living_adjustment_under_section_1_f_3"
+_SECTION_1_F_3_OUTPUT = "cost_of_living_adjustment"
+_SECTION_443_A_1_IMPORT = (
+    "us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval"
+)
+_SECTION_443_A_1_PLACEHOLDER_INPUT = (
+    "us:statutes/26/63/c#input."
+    "return_under_section_443_a_1_for_less_than_12_months_due_to_accounting_period_change"
+)
+_SECTION_443_A_1_PLACEHOLDER_SYMBOL = "return_under_section_443_a_1_for_less_than_12_months_due_to_accounting_period_change"
+_SECTION_443_A_1_OUTPUT = "annual_accounting_period_change_with_secretary_approval"
+_SECTION_63_C_OLD_DATE_INPUT = "taxable_year_begins_after_2025"
+_SECTION_63_C_NEW_DATE_INPUT = (
+    "taxable_year_begins_after_tcja_standard_deduction_transition_period"
+)
+_STALE_SECTION_63_F_SPOUSE_EXEMPTION_INPUT = (
+    "us:statutes/26/63/f#input."
+    "additional_exemption_allowable_for_spouse_under_section_151_b"
+)
+_STALE_SECTION_63_F_FILING_STATUS_INPUT = "us:statutes/26/63/f#input.filing_status"
+_SECTION_63_F_DEFERRED_TEST_INPUT_REFS = (
+    _STALE_SECTION_63_F_FILING_STATUS_INPUT,
+    "us:statutes/26/63/f#input.taxpayer_has_attained_age_65_before_close_of_taxable_year",
+    "us:statutes/26/63/f#input.spouse_has_attained_age_65_before_close_of_taxable_year",
+    _STALE_SECTION_63_F_SPOUSE_EXEMPTION_INPUT,
+    "us:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year",
+    "us:statutes/26/63/f#input.spouse_is_blind_as_of_close_of_taxable_year_or_time_of_death",
+)
+_SECTION_63_C_DEFERRED_ADDITIONAL_STANDARD_DEDUCTION_INPUT = (
+    "us:statutes/26/63/c#input.additional_standard_deduction_amount_under_subsection_f"
+)
+_SECTION_6012_7703_PLACEHOLDER_INPUT = (
+    "us:statutes/26/6012#input.individual_not_married_under_section_7703"
+)
+_SECTION_6012_7703_PLACEHOLDER_SYMBOL = "individual_not_married_under_section_7703"
+_SECTION_7703_IMPORT = (
+    "us:statutes/26/7703#taxpayer_considered_married_after_living_apart_rule"
+)
+_SECTION_7703_OUTPUT = "taxpayer_considered_married_after_living_apart_rule"
+_SECTION_6012_6013_PLACEHOLDER_INPUT = (
+    "us:statutes/26/6012#input.individual_entitled_to_make_joint_return"
+)
+_SECTION_6012_6013_PLACEHOLDER_SYMBOL = "individual_entitled_to_make_joint_return"
+_SECTION_6013_A_IMPORT = "us:statutes/26/6013/a#joint_return_may_be_made"
+_SECTION_6013_A_OUTPUT = "joint_return_may_be_made"
+_SECTION_6012_OLD_TEMPORARY_WINDOW_INPUT = (
+    "taxable_year_begins_after_2017_and_before_2026"
+)
+_SECTION_6012_NEW_TEMPORARY_WINDOW_INPUT = (
+    "taxable_year_is_in_temporary_effective_window"
+)
+_SECTION_121_IMPORT = "us:statutes/26/121#principal_residence_sale_gain_exclusion"
+_SECTION_121_PLACEHOLDER_INPUT = (
+    "us:statutes/26/6012#input.gain_excluded_from_gross_income_under_section_121"
+)
+_SECTION_121_PLACEHOLDER_SYMBOL = "gain_excluded_from_gross_income_under_section_121"
+_SECTION_121_OUTPUT = "principal_residence_sale_gain_exclusion"
+_SECTION_121_SOURCE_INPUT = (
+    "us:statutes/26/121#input.principal_residence_sale_gain_excluded_from_gross_income"
+)
+
+
+def cmd_repair_section_911_a_1_exclusion(args):
+    """Apply signed deterministic repairs for the 1411 section 911(a)(1) import."""
+    repo_path = Path(args.repo).resolve()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    path_911 = repo_path / "statutes/26/911/a/1.yaml"
+    test_911 = _rulespec_test_path(path_911)
+    path_67 = repo_path / "statutes/26/67/e.yaml"
+    test_67 = _rulespec_test_path(path_67)
+    path_1411 = repo_path / "statutes/26/1411.yaml"
+    test_1411 = _rulespec_test_path(path_1411)
+    manifest_groups = [
+        (Path("statutes/26/911/a/1.yaml"), [path_911, test_911]),
+        (Path("statutes/26/67/e.yaml"), [path_67, test_67]),
+        (Path("statutes/26/1411.yaml"), [path_1411, test_1411]),
+    ]
+    _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+
+    touched = [path_911, test_911, path_67, test_67, path_1411, test_1411]
+    originals = {
+        path: (path.read_text() if path.exists() else None) for path in touched
+    }
+
+    try:
+        changed: list[Path] = []
+        changed.extend(_write_section_911_a_1_exclusion_files(path_911, test_911))
+        changed.extend(
+            _write_section_67_e_adjusted_gross_income_files(path_67, test_67)
+        )
+        changed.extend(
+            _repair_1411_external_cross_references(
+                path_1411,
+                test_1411,
+                section_911_file=path_911,
+                section_67_file=path_67,
+            )
+        )
+        changed = _unique_paths(changed)
+        if not changed:
+            print("No section 911(a)(1) exclusion repairs found.")
+            return
+
+        pipeline = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        )
+        validation_issues: list[str] = []
+        for rules_file in [path_911, path_67, path_1411]:
+            validation = pipeline.validate(rules_file, skip_reviewers=True)
+            if validation.all_passed:
+                continue
+            validation_issues.extend(
+                result.error for result in validation.results.values() if result.error
+            )
+        if validation_issues:
+            raise RuntimeError("\n".join(validation_issues))
+
+        test_issues = _companion_test_issues(
+            test_files=[test_911, test_67, test_1411],
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if test_issues:
+            raise RuntimeError(
+                "Companion tests failed after section 911(a)(1) repair:\n"
+                + "\n".join(f"- {issue}" for issue in test_issues)
+            )
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in changed
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    if not changed_by_command:
+        print("No section 911(a)(1) exclusion repairs found.")
+        return
+
+    manifest_paths = _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+        model="section-911-a-1-exclusion-v1",
+        tool="axiom-encode repair-section-911-a-1-exclusion",
+    )
+    print("Applied section 911(a)(1) exclusion repair")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _write_section_911_a_1_exclusion_files(
+    rules_file: Path, test_file: Path
+) -> list[Path]:
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    changed: list[Path] = []
+    rules_content = _section_911_a_1_exclusion_rulespec()
+    test_content = _section_911_a_1_exclusion_tests()
+    if not rules_file.exists() or rules_file.read_text() != rules_content:
+        rules_file.write_text(rules_content)
+        changed.append(rules_file)
+    if not test_file.exists() or test_file.read_text() != test_content:
+        test_file.write_text(test_content)
+        changed.append(test_file)
+    return changed
+
+
+def _section_911_a_1_exclusion_rulespec() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/911
+  summary: |-
+    Section 911(a)(1) excludes foreign earned income from gross income and taxation when a qualified individual elects the section 911 exclusion.
+rules:
+  - name: foreign_earned_income_excluded_from_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 911(a)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/911
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/911
+    versions:
+      - effective_from: '1990-01-01'
+        formula: elected_foreign_earned_income_exclusion_amount
+"""
+
+
+def _section_911_a_1_exclusion_tests() -> str:
+    return """- name: no_elected_foreign_earned_income_exclusion
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 0
+  output:
+    us:statutes/26/911/a/1#foreign_earned_income_excluded_from_gross_income: 0
+- name: elected_foreign_earned_income_is_excluded
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 10000
+  output:
+    us:statutes/26/911/a/1#foreign_earned_income_excluded_from_gross_income: 10000
+"""
+
+
+def _write_section_911_exclusion_files(
+    rules_file: Path, test_file: Path, section_911_a_1_file: Path
+) -> list[Path]:
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    changed: list[Path] = []
+    section_911_a_1_hash = _sha256_file(section_911_a_1_file)
+    rules_content = _section_911_exclusion_rulespec(section_911_a_1_hash)
+    test_content = _section_911_exclusion_tests()
+    if not rules_file.exists() or rules_file.read_text() != rules_content:
+        rules_file.write_text(rules_content)
+        changed.append(rules_file)
+    if not test_file.exists() or test_file.read_text() != test_content:
+        test_file.write_text(test_content)
+        changed.append(test_file)
+    return changed
+
+
+def _section_911_exclusion_rulespec(section_911_a_1_hash: str) -> str:
+    return f"""format: rulespec/v1
+imports:
+  - {_SECTION_911_A_1_IMPORT}
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/911
+  summary: |-
+    Section 911 excludes qualifying foreign earned income from gross income
+    when a qualified individual elects the section 911 exclusion.
+rules:
+  - name: income_excluded_from_gross_income_under_section_911
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 911
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/911
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: {_SECTION_911_A_1_IMPORT}
+              output: {_SECTION_911_A_1_OUTPUT}
+              hash: sha256:{section_911_a_1_hash}
+    versions:
+      - effective_from: '1990-01-01'
+        formula: {_SECTION_911_A_1_OUTPUT}
+"""
+
+
+def _section_911_exclusion_tests() -> str:
+    return """- name: no_section_911_income_exclusion
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 0
+  output:
+    us:statutes/26/911#income_excluded_from_gross_income_under_section_911: 0
+- name: section_911_foreign_earned_income_exclusion
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/a/1#input.elected_foreign_earned_income_exclusion_amount: 12000
+  output:
+    us:statutes/26/911#income_excluded_from_gross_income_under_section_911: 12000
+"""
+
+
+def _write_section_67_e_adjusted_gross_income_files(
+    rules_file: Path, test_file: Path
+) -> list[Path]:
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    changed: list[Path] = []
+    rules_content = _section_67_e_adjusted_gross_income_rulespec()
+    test_content = _section_67_e_adjusted_gross_income_tests()
+    if not rules_file.exists() or rules_file.read_text() != rules_content:
+        rules_file.write_text(rules_content)
+        changed.append(rules_file)
+    if not test_file.exists() or test_file.read_text() != test_content:
+        test_file.write_text(test_content)
+        changed.append(test_file)
+    return changed
+
+
+def _section_67_e_adjusted_gross_income_rulespec() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/67
+  summary: |-
+    Section 67(e) defines adjusted gross income for an estate or trust by starting from gross income and allowing specified estate or trust deductions in arriving at adjusted gross income.
+rules:
+  - name: estate_or_trust_adjusted_gross_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 67(e)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/67
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/67
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          estate_or_trust_gross_income
+          - deductions_allowable_in_arriving_at_estate_or_trust_adjusted_gross_income
+"""
+
+
+def _section_67_e_adjusted_gross_income_tests() -> str:
+    return """- name: no_deductions_from_estate_or_trust_gross_income
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/67/e#input.estate_or_trust_gross_income: 20000
+    ? us:statutes/26/67/e#input.deductions_allowable_in_arriving_at_estate_or_trust_adjusted_gross_income
+    : 0
+  output:
+    us:statutes/26/67/e#estate_or_trust_adjusted_gross_income: 20000
+- name: estate_or_trust_deductions_reduce_adjusted_gross_income
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/67/e#input.estate_or_trust_gross_income: 20000
+    ? us:statutes/26/67/e#input.deductions_allowable_in_arriving_at_estate_or_trust_adjusted_gross_income
+    : 3000
+  output:
+    us:statutes/26/67/e#estate_or_trust_adjusted_gross_income: 17000
+"""
+
+
+def _repair_1411_external_cross_references(
+    rules_file: Path,
+    test_file: Path,
+    *,
+    section_911_file: Path,
+    section_67_file: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    repaired = _ensure_rulespec_import(content, _SECTION_911_A_1_IMPORT)
+    repaired = _ensure_rulespec_import(repaired, _SECTION_67_E_IMPORT)
+    repaired = repaired.replace(
+        _SECTION_911_A_1_PLACEHOLDER_SYMBOL, _SECTION_911_A_1_OUTPUT
+    )
+    repaired = repaired.replace(_SECTION_67_E_PLACEHOLDER_SYMBOL, _SECTION_67_E_OUTPUT)
+    repaired = _ensure_1411_section_911_a_1_proof_atom(
+        repaired,
+        section_911_hash=_sha256_file(section_911_file),
+    )
+    repaired = _ensure_1411_section_67_e_proof_atom(
+        repaired,
+        section_67_hash=_sha256_file(section_67_file),
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    test_content = test_file.read_text()
+    repaired_test = _replace_test_input_ref(
+        test_content,
+        old_ref=_SECTION_911_A_1_PLACEHOLDER_INPUT,
+        new_ref=_SECTION_911_A_1_SOURCE_INPUT,
+    )
+    repaired_test = _replace_section_67_e_placeholder_test_inputs(repaired_test)
+    if repaired_test != test_content:
+        test_file.write_text(repaired_test)
+        changed.append(test_file)
+    return changed
+
+
+def _ensure_1411_section_911_a_1_proof_atom(
+    content: str,
+    *,
+    section_911_hash: str,
+) -> str:
+    if "target: us:statutes/26/911/a/1#" in content:
+        return re.sub(
+            r"(?m)(target: us:statutes/26/911/a/1#"
+            r"foreign_earned_income_excluded_from_gross_income\n"
+            r"\s+output: foreign_earned_income_excluded_from_gross_income\n"
+            r"\s+hash: sha256:)[0-9a-f]+",
+            rf"\g<1>{section_911_hash}",
+            content,
+        )
+    anchor = """          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/911/d/6#section_911_disallowed_deductions_and_exclusions
+              output: section_911_disallowed_deductions_and_exclusions
+"""
+    proof_atom = f"""          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/911/a/1#foreign_earned_income_excluded_from_gross_income
+              output: foreign_earned_income_excluded_from_gross_income
+              hash: sha256:{section_911_hash}
+"""
+    if anchor not in content:
+        return content
+    return content.replace(anchor, proof_atom + anchor, 1)
+
+
+def _ensure_1411_section_67_e_proof_atom(
+    content: str,
+    *,
+    section_67_hash: str,
+) -> str:
+    if "target: us:statutes/26/67/e#" in content:
+        return re.sub(
+            r"(?m)(target: us:statutes/26/67/e#"
+            r"estate_or_trust_adjusted_gross_income\n"
+            r"\s+output: estate_or_trust_adjusted_gross_income\n"
+            r"\s+hash: sha256:)[0-9a-f]+",
+            rf"\g<1>{section_67_hash}",
+            content,
+        )
+    rule_start = content.find(
+        "  - name: niit_estate_or_trust_excess_adjusted_gross_income\n"
+    )
+    if rule_start == -1:
+        return content
+    next_rule = content.find("\n  - name: ", rule_start + 1)
+    if next_rule == -1:
+        next_rule = len(content)
+    rule_block = content[rule_start:next_rule]
+    versions_marker = "    versions:\n"
+    if versions_marker not in rule_block:
+        return content
+    proof_atom = f"""          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/67/e#estate_or_trust_adjusted_gross_income
+              output: estate_or_trust_adjusted_gross_income
+              hash: sha256:{section_67_hash}
+"""
+    repaired_block = rule_block.replace(
+        versions_marker, proof_atom + versions_marker, 1
+    )
+    return content[:rule_start] + repaired_block + content[next_rule:]
+
+
+def _replace_section_67_e_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_67_E_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_67_e_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_67_E_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_67_e_replacement_test_input_block, content)
+
+
+def _section_67_e_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    value = match.group("value").strip()
+    return (
+        f"{indent}{_SECTION_67_E_SOURCE_INPUT}: {value}\n"
+        f"{indent}? us:statutes/26/67/e#input.deductions_allowable_in_arriving_at_estate_or_trust_adjusted_gross_income\n"
+        f"{indent}: 0\n"
+    )
+
+
+def cmd_repair_section_63_f_stale_test_inputs(args):
+    """Apply signed deterministic repairs for stale 63(f) companion-test inputs."""
+    repo_path = Path(args.repo).resolve()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    path_1_f_3 = repo_path / "statutes/26/1/f/3.yaml"
+    test_1_f_3 = _rulespec_test_path(path_1_f_3)
+    path_121 = repo_path / "statutes/26/121.yaml"
+    test_121 = _rulespec_test_path(path_121)
+    path_911_a_1 = repo_path / "statutes/26/911/a/1.yaml"
+    test_911_a_1 = _rulespec_test_path(path_911_a_1)
+    path_911 = repo_path / "statutes/26/911.yaml"
+    test_911 = _rulespec_test_path(path_911)
+    path_63_c = repo_path / "statutes/26/63/c.yaml"
+    test_63_c = _rulespec_test_path(path_63_c)
+    path_63 = repo_path / "statutes/26/63.yaml"
+    test_63 = _rulespec_test_path(path_63)
+    path_6012 = repo_path / "statutes/26/6012.yaml"
+    test_6012 = _rulespec_test_path(path_6012)
+    path_7703 = repo_path / "statutes/26/7703.yaml"
+    path_6013_a = repo_path / "statutes/26/6013/a.yaml"
+    path_443_a_1 = repo_path / "statutes/26/443/a/1.yaml"
+    manifest_groups = [
+        (Path("statutes/26/1/f/3.yaml"), [path_1_f_3, test_1_f_3]),
+        (Path("statutes/26/121.yaml"), [path_121, test_121]),
+        (Path("statutes/26/911/a/1.yaml"), [path_911_a_1, test_911_a_1]),
+        (Path("statutes/26/911.yaml"), [path_911, test_911]),
+        (Path("statutes/26/63/c.yaml"), [path_63_c, test_63_c]),
+        (Path("statutes/26/63.yaml"), [path_63, test_63]),
+        (Path("statutes/26/6012.yaml"), [path_6012, test_6012]),
+    ]
+    _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+
+    touched = [path for _, paths in manifest_groups for path in paths]
+    originals = {
+        path: (path.read_text() if path.exists() else None) for path in touched
+    }
+    try:
+        changed: list[Path] = []
+        changed.extend(_write_section_1_f_3_cost_of_living(path_1_f_3, test_1_f_3))
+        changed.extend(_write_section_121_principal_residence_gain(path_121, test_121))
+        changed.extend(
+            _write_section_911_a_1_exclusion_files(path_911_a_1, test_911_a_1)
+        )
+        changed.extend(
+            _write_section_911_exclusion_files(path_911, test_911, path_911_a_1)
+        )
+        changed.extend(
+            _repair_section_63_c_cost_of_living_import(
+                path_63_c,
+                test_files=[test_63_c, test_63, test_6012],
+                path_1_f_3=path_1_f_3,
+            )
+        )
+        changed.extend(
+            _repair_section_63_c_443_a_1_import(
+                path_63_c,
+                test_files=[test_63_c, test_63, test_6012],
+                path_443_a_1=path_443_a_1,
+            )
+        )
+        changed.extend(
+            _repair_section_63_c_date_predicate(
+                path_63_c,
+                test_files=[test_63_c, test_63, test_6012],
+            )
+        )
+        changed.extend(_repair_section_63_f_deferred_amount_test_inputs(test_63_c))
+        changed.extend(_repair_section_63_f_deferred_amount_test_inputs(test_63))
+        changed.extend(_repair_section_63_f_deferred_amount_test_inputs(test_6012))
+        changed.extend(
+            _repair_6012_section_7703_cross_reference(path_6012, test_6012, path_7703)
+        )
+        changed.extend(
+            _repair_6012_section_6013_joint_return_cross_reference(
+                path_6012, test_6012, path_6013_a
+            )
+        )
+        changed.extend(
+            _repair_6012_section_121_cross_reference(path_6012, test_6012, path_121)
+        )
+        changed.extend(
+            _repair_6012_section_911_cross_reference(path_6012, test_6012, path_911)
+        )
+        changed.extend(_repair_6012_temporary_effective_window(path_6012, test_6012))
+        changed.extend(_refresh_proof_import_hashes_for_targets(path_63_c, repo_path))
+        changed.extend(_refresh_proof_import_hashes_for_targets(path_63, repo_path))
+        changed.extend(_refresh_proof_import_hashes_for_targets(path_6012, repo_path))
+        changed = _unique_paths(changed)
+        if not changed:
+            print("No stale section 63(f) test inputs found.")
+            return
+
+        pipeline = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        )
+        validation_issues: list[str] = []
+        for relative_output, _ in manifest_groups:
+            validation = pipeline.validate(
+                repo_path / relative_output, skip_reviewers=True
+            )
+            if validation.all_passed:
+                continue
+            validation_issues.extend(
+                result.error for result in validation.results.values() if result.error
+            )
+        if validation_issues:
+            raise RuntimeError("\n".join(validation_issues))
+
+        test_issues = _companion_test_issues(
+            test_files=[path for path in changed if path.name.endswith(".test.yaml")],
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if test_issues:
+            raise RuntimeError(
+                "Companion tests failed after section 63(f) test-input repair:\n"
+                + "\n".join(f"- {issue}" for issue in test_issues)
+            )
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in changed
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    if not changed_by_command:
+        print("No stale section 63(f) test inputs found.")
+        return
+
+    manifest_paths = _write_grouped_deterministic_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+        model="section-63-f-stale-test-inputs-v1",
+        tool="axiom-encode repair-section-63-f-stale-test-inputs",
+    )
+    print("Applied stale section 63(f) test input repair")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _write_section_1_f_3_cost_of_living(
+    rules_file: Path, test_file: Path
+) -> list[Path]:
+    changed: list[Path] = []
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/1
+  summary: |-
+    Section 1(f)(3) defines the cost-of-living adjustment as the percentage
+    by which the consumer price index for the preceding calendar year exceeds
+    the consumer price index for the base calendar year.
+rules:
+  - name: cost_of_living_adjustment
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    source: 26 USC 1(f)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/1
+              text: the cost-of-living adjustment for any calendar year is the percentage by which the CPI for the preceding calendar year exceeds the CPI for the base calendar year
+    versions:
+      - effective_from: '2018-01-01'
+        formula: |-
+          max(
+              0,
+              (
+                  consumer_price_index_for_preceding_calendar_year
+                  - consumer_price_index_for_base_calendar_year
+              )
+              / consumer_price_index_for_base_calendar_year
+          )
+"""
+    test_content = """- name: cpi_excess_produces_cost_of_living_adjustment
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/1/f/3#input.consumer_price_index_for_preceding_calendar_year: 110
+    us:statutes/26/1/f/3#input.consumer_price_index_for_base_calendar_year: 100
+  output:
+    us:statutes/26/1/f/3#cost_of_living_adjustment: 0.1
+- name: no_cpi_excess_gives_zero_adjustment
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/1/f/3#input.consumer_price_index_for_preceding_calendar_year: 95
+    us:statutes/26/1/f/3#input.consumer_price_index_for_base_calendar_year: 100
+  output:
+    us:statutes/26/1/f/3#cost_of_living_adjustment: 0
+"""
+    if not rules_file.exists() or rules_file.read_text() != content:
+        rules_file.write_text(content)
+        changed.append(rules_file)
+    if not test_file.exists() or test_file.read_text() != test_content:
+        test_file.write_text(test_content)
+        changed.append(test_file)
+    return changed
+
+
+def _write_section_121_principal_residence_gain(
+    rules_file: Path, test_file: Path
+) -> list[Path]:
+    changed: list[Path] = []
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/121
+  summary: |-
+    Section 121 excludes gain from gross income on the sale or exchange of a
+    principal residence, subject to the section's ownership, use, and amount
+    limitations.
+rules:
+  - name: principal_residence_sale_gain_exclusion
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 121
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/121
+              text: Gross income shall not include gain from the sale or exchange of property if, during the 5-year period ending on the date of the sale or exchange, such property has been owned and used by the taxpayer as the taxpayer's principal residence for periods aggregating 2 years or more.
+    versions:
+      - effective_from: '1998-01-01'
+        formula: |-
+          principal_residence_sale_gain_excluded_from_gross_income
+"""
+    test_content = """- name: principal_residence_gain_excluded_from_gross_income
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/121#input.principal_residence_sale_gain_excluded_from_gross_income: 250000
+  output:
+    us:statutes/26/121#principal_residence_sale_gain_exclusion: 250000
+- name: no_principal_residence_gain_exclusion
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/121#input.principal_residence_sale_gain_excluded_from_gross_income: 0
+  output:
+    us:statutes/26/121#principal_residence_sale_gain_exclusion: 0
+"""
+    if not rules_file.exists() or rules_file.read_text() != content:
+        rules_file.write_text(content)
+        changed.append(rules_file)
+    if not test_file.exists() or test_file.read_text() != test_content:
+        test_file.write_text(test_content)
+        changed.append(test_file)
+    return changed
+
+
+def _repair_section_63_c_cost_of_living_import(
+    rules_file: Path,
+    *,
+    test_files: list[Path],
+    path_1_f_3: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    section_1_f_3_hash = _sha256_file(path_1_f_3)
+    repaired = _ensure_rulespec_import(content, _SECTION_1_F_3_IMPORT)
+    repaired = repaired.replace(
+        _SECTION_1_F_3_PLACEHOLDER_SYMBOL, _SECTION_1_F_3_OUTPUT
+    )
+    for rule_name in (
+        "head_of_household_basic_standard_deduction_amount",
+        "other_case_basic_standard_deduction_amount",
+    ):
+        repaired = _ensure_rule_import_proof_atom(
+            repaired,
+            rule_name=rule_name,
+            target=_SECTION_1_F_3_IMPORT,
+            output=_SECTION_1_F_3_OUTPUT,
+            source_hash=section_1_f_3_hash,
+        )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    for test_file in test_files:
+        test_content = test_file.read_text()
+        repaired_test = _replace_section_1_f_3_placeholder_test_inputs(test_content)
+        if repaired_test != test_content:
+            test_file.write_text(repaired_test)
+            changed.append(test_file)
+    return changed
+
+
+def _repair_section_63_c_443_a_1_import(
+    rules_file: Path,
+    *,
+    test_files: list[Path],
+    path_443_a_1: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    section_443_a_1_hash = _sha256_file(path_443_a_1)
+    repaired = _ensure_rulespec_import(content, _SECTION_443_A_1_IMPORT)
+    repaired = repaired.replace(
+        _SECTION_443_A_1_PLACEHOLDER_SYMBOL,
+        _SECTION_443_A_1_OUTPUT,
+    )
+    repaired = _ensure_rule_import_proof_atom(
+        repaired,
+        rule_name="standard_deduction_ineligible",
+        target=_SECTION_443_A_1_IMPORT,
+        output=_SECTION_443_A_1_OUTPUT,
+        source_hash=section_443_a_1_hash,
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    for test_file in test_files:
+        test_content = test_file.read_text()
+        repaired_test = _replace_section_443_a_1_placeholder_test_inputs(test_content)
+        if repaired_test != test_content:
+            test_file.write_text(repaired_test)
+            changed.append(test_file)
+    return changed
+
+
+def _replace_section_443_a_1_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_443_A_1_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_443_a_1_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_443_A_1_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(
+        _section_443_a_1_replacement_test_input_block, content
+    )
+
+
+def _section_443_a_1_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    value = "true" if _test_input_value_truthy(match.group("value")) else "false"
+    return (
+        f"{indent}us:statutes/26/443/a/1#input.taxpayer_changes_annual_accounting_period: {value}\n"
+        f"{indent}us:statutes/26/443/a/1#input.secretary_approves_change_of_annual_accounting_period: {value}\n"
+    )
+
+
+def _replace_section_1_f_3_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_1_F_3_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_1_f_3_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_1_F_3_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_1_f_3_replacement_test_input_block, content)
+
+
+def _section_1_f_3_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    cost_of_living_adjustment = match.group("value").strip().strip("'\"")
+    return (
+        f"{indent}{_SECTION_1_F_3_PRECEDING_CPI_INPUT}: "
+        f"{_preceding_cpi_for_cost_of_living_adjustment(cost_of_living_adjustment)}\n"
+        f"{indent}{_SECTION_1_F_3_BASE_CPI_INPUT}: 100\n"
+    )
+
+
+def _preceding_cpi_for_cost_of_living_adjustment(value: str) -> str:
+    try:
+        preceding_cpi = Decimal("100") * (Decimal("1") + Decimal(value))
+    except InvalidOperation:
+        preceding_cpi = Decimal("100")
+    return _format_decimal_for_yaml(preceding_cpi)
+
+
+def _format_decimal_for_yaml(value: Decimal) -> str:
+    text = format(value.normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _ensure_rule_import_proof_atom(
+    content: str,
+    *,
+    rule_name: str,
+    target: str,
+    output: str,
+    source_hash: str,
+) -> str:
+    rule_start = content.find(f"  - name: {rule_name}\n")
+    if rule_start == -1:
+        return content
+    next_rule = content.find("\n  - name: ", rule_start + 1)
+    if next_rule == -1:
+        next_rule = len(content)
+    rule_block = content[rule_start:next_rule]
+    if f"target: {target}" in rule_block:
+        repaired_block = re.sub(
+            rf"(?m)(target: {re.escape(target)}\n"
+            rf"\s+output: {re.escape(output)}\n"
+            r"\s+hash: sha256:)[0-9a-f]+",
+            rf"\g<1>{source_hash}",
+            rule_block,
+        )
+        return content[:rule_start] + repaired_block + content[next_rule:]
+
+    versions_marker = "    versions:\n"
+    if versions_marker not in rule_block:
+        return content
+    proof_atom = f"""          - path: versions[0].formula
+            kind: import
+            import:
+              target: {target}
+              output: {output}
+              hash: sha256:{source_hash}
+"""
+    repaired_block = rule_block.replace(
+        versions_marker, proof_atom + versions_marker, 1
+    )
+    return content[:rule_start] + repaired_block + content[next_rule:]
+
+
+def _repair_section_63_c_date_predicate(
+    rules_file: Path,
+    *,
+    test_files: list[Path],
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    repaired = content.replace(
+        _SECTION_63_C_OLD_DATE_INPUT, _SECTION_63_C_NEW_DATE_INPUT
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    for test_file in test_files:
+        test_content = test_file.read_text()
+        repaired_test = test_content.replace(
+            f"us:statutes/26/63/c#input.{_SECTION_63_C_OLD_DATE_INPUT}",
+            f"us:statutes/26/63/c#input.{_SECTION_63_C_NEW_DATE_INPUT}",
+        )
+        if repaired_test != test_content:
+            test_file.write_text(repaired_test)
+            changed.append(test_file)
+    return changed
+
+
+def _remove_stale_section_63_f_test_inputs(test_file: Path) -> list[Path]:
+    content = test_file.read_text()
+    repaired = content
+    for input_ref in (
+        _STALE_SECTION_63_F_SPOUSE_EXEMPTION_INPUT,
+        _STALE_SECTION_63_F_FILING_STATUS_INPUT,
+    ):
+        repaired = _remove_test_input_ref(repaired, input_ref=input_ref)
+    if repaired == content:
+        return []
+    test_file.write_text(repaired)
+    return [test_file]
+
+
+def _repair_section_63_f_deferred_amount_test_inputs(test_file: Path) -> list[Path]:
+    content = test_file.read_text()
+    repaired = _replace_section_63_f_inputs_with_deferred_amount(content)
+    if repaired == content:
+        return []
+    test_file.write_text(repaired)
+    return [test_file]
+
+
+def _replace_section_63_f_inputs_with_deferred_amount(content: str) -> str:
+    lines = content.splitlines(keepends=True)
+    blocks = _find_yaml_input_blocks(lines)
+    if not blocks:
+        return content
+
+    changed = False
+    for start, end in reversed(blocks):
+        block = lines[start:end]
+        if not _input_block_contains_any_ref(
+            block, _SECTION_63_F_DEFERRED_TEST_INPUT_REFS
+        ):
+            continue
+        amount = _section_63_f_deferred_amount_from_input_block(block)
+        repaired_block = _remove_input_refs_from_block(
+            block, set(_SECTION_63_F_DEFERRED_TEST_INPUT_REFS)
+        )
+        repaired_block = _insert_input_ref_in_block(
+            repaired_block,
+            _SECTION_63_C_DEFERRED_ADDITIONAL_STANDARD_DEDUCTION_INPUT,
+            amount,
+        )
+        if repaired_block != block:
+            lines[start:end] = repaired_block
+            changed = True
+    if not changed:
+        return content
+    return "".join(lines)
+
+
+def _input_block_contains_any_ref(
+    block: list[str], input_refs: tuple[str, ...]
+) -> bool:
+    return any(
+        _input_block_value(block, input_ref) is not None for input_ref in input_refs
+    )
+
+
+def _section_63_f_deferred_amount_from_input_block(block: list[str]) -> int:
+    filing_status = _input_block_value(block, _STALE_SECTION_63_F_FILING_STATUS_INPUT)
+    unit_amount = 750 if str(filing_status).strip().lower() in {"0", "3"} else 600
+    taxpayer_entitlements = int(
+        _test_input_value_truthy(
+            _input_block_value(
+                block,
+                "us:statutes/26/63/f#input.taxpayer_has_attained_age_65_before_close_of_taxable_year",
+            )
+        )
+    ) + int(
+        _test_input_value_truthy(
+            _input_block_value(
+                block,
+                "us:statutes/26/63/f#input.taxpayer_is_blind_at_close_of_taxable_year",
+            )
+        )
+    )
+    spouse_entitlements = 0
+    if _test_input_value_truthy(
+        _input_block_value(block, _STALE_SECTION_63_F_SPOUSE_EXEMPTION_INPUT)
+    ):
+        spouse_entitlements = int(
+            _test_input_value_truthy(
+                _input_block_value(
+                    block,
+                    "us:statutes/26/63/f#input.spouse_has_attained_age_65_before_close_of_taxable_year",
+                )
+            )
+        ) + int(
+            _test_input_value_truthy(
+                _input_block_value(
+                    block,
+                    "us:statutes/26/63/f#input.spouse_is_blind_as_of_close_of_taxable_year_or_time_of_death",
+                )
+            )
+        )
+    return (taxpayer_entitlements + spouse_entitlements) * unit_amount
+
+
+def _input_block_value(block: list[str], input_ref: str) -> str | None:
+    for index, line in enumerate(block):
+        scalar_match = re.match(
+            rf"^\s*{re.escape(input_ref)}:\s*(?P<value>[^\n#]*)(?:#.*)?$",
+            line.rstrip("\n"),
+        )
+        if scalar_match:
+            return scalar_match.group("value").strip()
+        if re.match(rf"^\s*\?\s+{re.escape(input_ref)}\s*$", line.rstrip("\n")):
+            if index + 1 >= len(block):
+                return None
+            value_match = re.match(
+                r"^\s*:\s*(?P<value>[^\n#]*)(?:#.*)?$",
+                block[index + 1].rstrip("\n"),
+            )
+            if value_match:
+                return value_match.group("value").strip()
+    return None
+
+
+def _test_input_value_truthy(value: str | None) -> bool:
+    normalized = str(value or "").strip().strip("'\"").lower()
+    return normalized in {"true", "yes", "holds", "1"}
+
+
+def _remove_input_refs_from_block(block: list[str], input_refs: set[str]) -> list[str]:
+    repaired: list[str] = []
+    skip_next_colon_value = False
+    for line in block:
+        if skip_next_colon_value and re.match(r"^\s*:\s*", line):
+            skip_next_colon_value = False
+            continue
+        skip_next_colon_value = False
+        if any(
+            re.match(rf"^\s*{re.escape(input_ref)}\s*:", line)
+            for input_ref in input_refs
+        ):
+            continue
+        if any(
+            re.match(rf"^\s*\?\s+{re.escape(input_ref)}\s*$", line.rstrip("\n"))
+            for input_ref in input_refs
+        ):
+            skip_next_colon_value = True
+            continue
+        repaired.append(line)
+    return repaired
+
+
+def _insert_input_ref_in_block(
+    block: list[str], input_ref: str, value: object
+) -> list[str]:
+    if _input_block_value(block, input_ref) is not None:
+        return block
+    indent = _input_block_entry_indent(block)
+    return [*block, f"{indent}{input_ref}: {_format_yaml_scalar(value)}\n"]
+
+
+def _input_block_entry_indent(block: list[str]) -> str:
+    for line in block[1:]:
+        if line.strip():
+            return line[: len(line) - len(line.lstrip(" "))]
+    if block:
+        match = re.match(r"^(?P<indent>\s*)input:", block[0])
+        if match:
+            return f"{match.group('indent')}  "
+    return "  "
+
+
+def _repair_6012_section_7703_cross_reference(
+    rules_file: Path,
+    test_file: Path,
+    section_7703_file: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    repaired = _ensure_rulespec_import(content, _SECTION_7703_IMPORT)
+    repaired = repaired.replace(
+        _SECTION_6012_7703_PLACEHOLDER_SYMBOL,
+        f"not {_SECTION_7703_OUTPUT}",
+    )
+    repaired = _ensure_6012_section_7703_proof_atom(
+        repaired,
+        section_7703_hash=_sha256_file(section_7703_file),
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    test_content = test_file.read_text()
+    repaired_test = _replace_6012_section_7703_placeholder_test_inputs(test_content)
+    if repaired_test != test_content:
+        test_file.write_text(repaired_test)
+        changed.append(test_file)
+    return changed
+
+
+def _repair_6012_section_6013_joint_return_cross_reference(
+    rules_file: Path,
+    test_file: Path,
+    section_6013_a_file: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    repaired = _ensure_rulespec_import(content, _SECTION_6013_A_IMPORT)
+    repaired = repaired.replace(
+        _SECTION_6012_6013_PLACEHOLDER_SYMBOL,
+        _SECTION_6013_A_OUTPUT,
+    )
+    repaired = _ensure_6012_section_6013_proof_atom(
+        repaired,
+        section_6013_a_hash=_sha256_file(section_6013_a_file),
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    test_content = test_file.read_text()
+    repaired_test = _replace_6012_section_6013_placeholder_test_inputs(test_content)
+    if repaired_test != test_content:
+        test_file.write_text(repaired_test)
+        changed.append(test_file)
+    return changed
+
+
+def _repair_6012_section_121_cross_reference(
+    rules_file: Path,
+    test_file: Path,
+    section_121_file: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    section_121_hash = _sha256_file(section_121_file)
+    repaired = _ensure_rulespec_import(content, _SECTION_121_IMPORT)
+    repaired = repaired.replace(_SECTION_121_PLACEHOLDER_SYMBOL, _SECTION_121_OUTPUT)
+    repaired = _ensure_rule_import_proof_atom(
+        repaired,
+        rule_name="gross_income_for_section_6012",
+        target=_SECTION_121_IMPORT,
+        output=_SECTION_121_OUTPUT,
+        source_hash=section_121_hash,
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    test_content = test_file.read_text()
+    repaired_test = _replace_section_121_placeholder_test_inputs(test_content)
+    if repaired_test != test_content:
+        test_file.write_text(repaired_test)
+        changed.append(test_file)
+    return changed
+
+
+def _replace_section_121_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_121_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_121_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_121_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_121_replacement_test_input_block, content)
+
+
+def _section_121_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    value = match.group("value").strip()
+    return f"{indent}{_SECTION_121_SOURCE_INPUT}: {value}\n"
+
+
+def _repair_6012_section_911_cross_reference(
+    rules_file: Path,
+    test_file: Path,
+    section_911_file: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    section_911_hash = _sha256_file(section_911_file)
+    repaired = _ensure_rulespec_import(content, _SECTION_911_IMPORT)
+    repaired = _ensure_rule_import_proof_atom(
+        repaired,
+        rule_name="gross_income_for_section_6012",
+        target=_SECTION_911_IMPORT,
+        output=_SECTION_911_OUTPUT,
+        source_hash=section_911_hash,
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    test_content = test_file.read_text()
+    repaired_test = _replace_section_911_placeholder_test_inputs(test_content)
+    if repaired_test != test_content:
+        test_file.write_text(repaired_test)
+        changed.append(test_file)
+    return changed
+
+
+def _replace_section_911_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_911_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_911_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_911_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_911_replacement_test_input_block, content)
+
+
+def _section_911_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    value = match.group("value").strip()
+    return f"{indent}{_SECTION_911_A_1_SOURCE_INPUT}: {value}\n"
+
+
+def _repair_6012_temporary_effective_window(
+    rules_file: Path, test_file: Path
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    repaired = content.replace(
+        _SECTION_6012_OLD_TEMPORARY_WINDOW_INPUT,
+        _SECTION_6012_NEW_TEMPORARY_WINDOW_INPUT,
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    test_content = test_file.read_text()
+    repaired_test = test_content.replace(
+        f"us:statutes/26/6012#input.{_SECTION_6012_OLD_TEMPORARY_WINDOW_INPUT}",
+        f"us:statutes/26/6012#input.{_SECTION_6012_NEW_TEMPORARY_WINDOW_INPUT}",
+    )
+    if repaired_test != test_content:
+        test_file.write_text(repaired_test)
+        changed.append(test_file)
+    return changed
+
+
+def _ensure_6012_section_7703_proof_atom(
+    content: str,
+    *,
+    section_7703_hash: str,
+) -> str:
+    if (
+        "target: us:statutes/26/7703#taxpayer_considered_married_after_living_apart_rule"
+        in content
+    ):
+        return re.sub(
+            r"(?m)(target: us:statutes/26/7703#"
+            r"taxpayer_considered_married_after_living_apart_rule\n"
+            r"\s+output: taxpayer_considered_married_after_living_apart_rule\n"
+            r"\s+hash: sha256:)[0-9a-f]+",
+            rf"\g<1>{section_7703_hash}",
+            content,
+        )
+    rule_start = content.find(
+        "  - name: unmarried_individual_exception_to_return_requirement_under_2018_2025_rule\n"
+    )
+    if rule_start == -1:
+        return content
+    next_rule = content.find("\n  - name: ", rule_start + 1)
+    if next_rule == -1:
+        next_rule = len(content)
+    rule_block = content[rule_start:next_rule]
+    versions_marker = "    versions:\n"
+    if versions_marker not in rule_block:
+        return content
+    proof_atom = f"""          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/7703#taxpayer_considered_married_after_living_apart_rule
+              output: taxpayer_considered_married_after_living_apart_rule
+              hash: sha256:{section_7703_hash}
+"""
+    repaired_block = rule_block.replace(
+        versions_marker, proof_atom + versions_marker, 1
+    )
+    return content[:rule_start] + repaired_block + content[next_rule:]
+
+
+def _ensure_6012_section_6013_proof_atom(
+    content: str,
+    *,
+    section_6013_a_hash: str,
+) -> str:
+    if "target: us:statutes/26/6013/a#joint_return_may_be_made" in content:
+        return re.sub(
+            r"(?m)(target: us:statutes/26/6013/a#joint_return_may_be_made\n"
+            r"\s+output: joint_return_may_be_made\n"
+            r"\s+hash: sha256:)[0-9a-f]+",
+            rf"\g<1>{section_6013_a_hash}",
+            content,
+        )
+    rule_start = content.find(
+        "  - name: joint_return_exception_to_return_requirement_under_2018_2025_rule\n"
+    )
+    if rule_start == -1:
+        return content
+    next_rule = content.find("\n  - name: ", rule_start + 1)
+    if next_rule == -1:
+        next_rule = len(content)
+    rule_block = content[rule_start:next_rule]
+    versions_marker = "    versions:\n"
+    if versions_marker not in rule_block:
+        return content
+    proof_atom = f"""          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/6013/a#joint_return_may_be_made
+              output: joint_return_may_be_made
+              hash: sha256:{section_6013_a_hash}
+"""
+    repaired_block = rule_block.replace(
+        versions_marker, proof_atom + versions_marker, 1
+    )
+    return content[:rule_start] + repaired_block + content[next_rule:]
+
+
+def _replace_6012_section_7703_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_6012_7703_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_7703_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_6012_7703_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_7703_replacement_test_input_block, content)
+
+
+def _section_7703_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    not_married_value = match.group("value").strip().lower()
+    married = not_married_value not in {"true", "yes", "holds", "1"}
+    married_value = "true" if married else "false"
+    return (
+        f"{indent}us:statutes/26/7703#input.spouse_dies_during_taxable_year: false\n"
+        f"{indent}us:statutes/26/7703#input.taxpayer_married_at_time_of_spouse_death: false\n"
+        f"{indent}us:statutes/26/7703#input.taxpayer_married_at_close_of_taxable_year: {married_value}\n"
+        f"{indent}us:statutes/26/7703#input.legally_separated_under_decree_of_divorce_or_separate_maintenance: false\n"
+        f"{indent}us:statutes/26/7703#input.taxpayer_files_separate_return: false\n"
+        f"{indent}us:statutes/26/7703#input.taxpayer_maintains_household_as_home: false\n"
+        f"{indent}us:statutes/26/7703#input.taxpayer_household_cost_fraction_furnished: 0\n"
+        f"{indent}us:statutes/26/7703#input.spouse_not_member_of_household_final_month_count: 0\n"
+        f"{indent}us:statutes/26/7703#relation.living_apart_child_of_tax_unit: []\n"
+    )
+
+
+def _replace_6012_section_6013_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_6012_6013_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_6013_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_6012_6013_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_6013_replacement_test_input_block, content)
+
+
+def _section_6013_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    joint_return_value = (
+        "true" if _test_input_value_truthy(match.group("value")) else "false"
+    )
+    return (
+        f"{indent}us:statutes/26/6013/a#input.spouses_have_different_taxable_years: false\n"
+        f"{indent}us:statutes/26/6013/a#input.taxable_years_begin_on_same_day: false\n"
+        f"{indent}us:statutes/26/6013/a#input.taxable_years_end_on_different_days_because_of_death_of_either_or_both_spouses: false\n"
+        f"{indent}us:statutes/26/6013/a#input.surviving_spouse_remarries_before_close_of_surviving_spouse_taxable_year: false\n"
+        f"{indent}us:statutes/26/443/a/1#input.taxpayer_changes_annual_accounting_period: false\n"
+        f"{indent}us:statutes/26/443/a/1#input.secretary_approves_change_of_annual_accounting_period: false\n"
+        f"{indent}us:statutes/26/6013/a#input.death_of_one_spouse_or_both_spouses: false\n"
+        f"{indent}us:statutes/26/6013/a#input.joint_return_with_respect_to_decedent_made_by_executor_or_administrator: false\n"
+        f"{indent}us:statutes/26/6013/a#input.death_of_one_spouse: false\n"
+        f"{indent}us:statutes/26/6013/a#input.joint_return_with_respect_to_both_survivor_and_decedent_made_by_surviving_spouse: false\n"
+        f"{indent}us:statutes/26/6013/a#input.no_return_for_taxable_year_made_by_decedent: false\n"
+        f"{indent}us:statutes/26/6013/a#input.no_executor_or_administrator_has_been_appointed: false\n"
+        f"{indent}us:statutes/26/6013/a#input.no_executor_or_administrator_appointed_before_last_day_prescribed_for_filing_surviving_spouse_return: false\n"
+        f"{indent}us:statutes/26/6013/a#input.taxpayers_are_husband_and_wife: {joint_return_value}\n"
+        f"{indent}us:statutes/26/6013/a#input.single_return_jointly_of_income_taxes_under_subtitle_a_is_made: {joint_return_value}\n"
+        f"{indent}us:statutes/26/6013/a#input.either_spouse_is_nonresident_alien_at_any_time_during_taxable_year: false\n"
+    )
+
+
+def _refresh_proof_import_hashes_for_targets(
+    rules_file: Path, repo_path: Path
+) -> list[Path]:
+    content = rules_file.read_text()
+    repaired, repair_count = _repair_proof_import_hashes(
+        content,
+        target_base=(
+            f"{_repo_jurisdiction_prefix(repo_path)}:"
+            f"{_relative_rulespec_import_target(rules_file.relative_to(repo_path))}"
+        ),
+        rules_file=rules_file,
+        repo_path=repo_path,
+    )
+    if repair_count == 0:
+        return []
+    rules_file.write_text(repaired)
+    return [rules_file]
+
+
+def _replace_test_input_ref(content: str, *, old_ref: str, new_ref: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(old_ref)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        lambda match: (
+            f"{match.group('indent')}? {new_ref}\n"
+            f"{match.group('indent')}: {match.group('value').strip()}\n"
+        ),
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(old_ref)}:\s*(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(
+        lambda match: (
+            f"{match.group('indent')}{new_ref}: {match.group('value').strip()}\n"
+        ),
+        content,
+    )
+
+
+def _remove_test_input_ref(content: str, *, input_ref: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^\s*\?\s+{re.escape(input_ref)}\n\s*:\s*[^\n]+\n"
+    )
+    content = question_key_pattern.sub("", content)
+    scalar_key_pattern = re.compile(rf"(?m)^\s*{re.escape(input_ref)}:\s*[^\n]+\n")
+    return scalar_key_pattern.sub("", content)
 
 
 def _path_differs_from_original(path: Path, original: str | None) -> bool:
@@ -4582,11 +6270,21 @@ def cmd_repair_tax_status_components(args):
     repaired_content, repaired_components = _repair_tax_status_component_local_inputs(
         original_content
     )
+    repaired_content, renamed_temporal_facts = _repair_section_151_temporal_fact_names(
+        repaired_content
+    )
     repaired_test_content, removed_test_refs = _remove_tax_status_component_test_inputs(
         original_test_content,
         repaired_components=repaired_components,
     )
-    if repaired_content == original_content and not removed_test_refs:
+    repaired_test_content, renamed_temporal_test_refs = (
+        _repair_section_151_temporal_test_input_names(repaired_test_content)
+    )
+    if (
+        repaired_content == original_content
+        and not removed_test_refs
+        and not renamed_temporal_test_refs
+    ):
         print("No tax status component repairs found.")
         return
 
@@ -4662,6 +6360,8 @@ def cmd_repair_tax_status_components(args):
         for identifier, expression in sorted(repaired_components.items())
     ]
     repairs.extend(removed_test_refs)
+    repairs.extend(renamed_temporal_facts)
+    repairs.extend(renamed_temporal_test_refs)
     print(
         "Applied tax status component repair to "
         f"{relative_output}: {', '.join(repairs)}"
@@ -4844,6 +6544,46 @@ def _repair_tax_filing_status_match_block(
             repairs.append("other_case")
 
     return repaired, repairs
+
+
+_SECTION_151_TEMPORAL_FACT_REPLACEMENTS = {
+    "taxable_year_begins_after_2017": (
+        "taxable_year_begins_after_tcja_exemption_amount_zero_effective_date"
+    ),
+    "taxable_year_begins_before_2029": (
+        "taxable_year_begins_before_senior_deduction_expiration_date"
+    ),
+}
+
+
+def _repair_section_151_temporal_fact_names(content: str) -> tuple[str, list[str]]:
+    repaired = content
+    applied: list[str] = []
+    for old, new in _SECTION_151_TEMPORAL_FACT_REPLACEMENTS.items():
+        updated = re.sub(rf"\b{re.escape(old)}\b", new, repaired)
+        if updated != repaired:
+            repaired = updated
+            applied.append(f"{old}->{new}")
+    return repaired, applied
+
+
+def _repair_section_151_temporal_test_input_names(
+    test_content: str | None,
+) -> tuple[str | None, list[str]]:
+    if test_content is None:
+        return None, []
+    repaired = test_content
+    applied: list[str] = []
+    for old, new in _SECTION_151_TEMPORAL_FACT_REPLACEMENTS.items():
+        updated = re.sub(
+            rf"(?P<prefix>#input\.){re.escape(old)}\b",
+            rf"\g<prefix>{new}",
+            repaired,
+        )
+        if updated != repaired:
+            repaired = updated
+            applied.append(f"#input.{old}->#input.{new}")
+    return repaired, applied
 
 
 _TAX_STATUS_COMPONENT_ISSUE_RE = re.compile(
