@@ -393,6 +393,87 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
     }
 
 
+def test_eitc_projection_matches_policyengine_age_and_identification_edges():
+    row = {
+        "filing_status": "SEPARATE",
+        "adjusted_gross_income": -15_000,
+    }
+    persons = [
+        {
+            "age": 66,
+            "ssn_card_type": "CITIZEN",
+            "is_tax_unit_head": True,
+            "is_tax_unit_spouse": False,
+            "is_tax_unit_head_or_spouse": True,
+            "is_separated": True,
+            "employment_income_before_lsr": 0,
+            "self_employment_income_before_lsr": 0,
+            "sstb_self_employment_income_before_lsr": 0,
+        },
+        {
+            "age": 34,
+            "ssn_card_type": "CITIZEN",
+            "is_tax_unit_head": False,
+            "is_tax_unit_spouse": False,
+            "is_tax_unit_head_or_spouse": False,
+            "employment_income_before_lsr": 22_000,
+            "self_employment_income_before_lsr": 5_000,
+            "sstb_self_employment_income_before_lsr": 0,
+        },
+    ]
+
+    projected = project_eitc_tax_unit_inputs(row=row, persons=persons)
+    contexts = project_tax_unit_person_contexts(persons)
+
+    assert projected["childless_taxpayer_or_spouse_age_eligible_for_eitc"] is True
+    assert (
+        projected["taxpayer_includes_required_social_security_number_on_return"] is True
+    )
+    assert (
+        projected["spouse_includes_required_social_security_number_on_return"] is True
+    )
+    assert (
+        project_section_32_c_2_tax_unit_inputs(
+            persons=persons,
+            contexts=contexts,
+        )[
+            "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
+        ]
+        == 0
+    )
+
+
+def test_eitc_projection_treats_tax_units_without_explicit_filers_as_id_eligible():
+    row = {
+        "filing_status": "HEAD_OF_HOUSEHOLD",
+        "adjusted_gross_income": 0,
+    }
+    persons = [
+        {
+            "age": 16,
+            "ssn_card_type": "CITIZEN",
+            "is_tax_unit_head": False,
+            "is_tax_unit_spouse": False,
+            "is_tax_unit_head_or_spouse": False,
+            "employment_income_before_lsr": 0,
+            "self_employment_income_before_lsr": 0,
+            "sstb_self_employment_income_before_lsr": 0,
+        }
+    ]
+
+    projected = project_eitc_tax_unit_inputs(row=row, persons=persons)
+    context = project_tax_unit_person_contexts(persons)[0]
+
+    assert (
+        projected["taxpayer_includes_required_social_security_number_on_return"] is True
+    )
+    assert (
+        projected["spouse_includes_required_social_security_number_on_return"] is True
+    )
+    assert context.is_tax_unit_dependent is True
+    assert context.qualifying_child_under_section_152_c is True
+
+
 def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income():
     row = {"filing_status": "SINGLE"}
     persons = [
