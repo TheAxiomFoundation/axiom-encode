@@ -5510,8 +5510,9 @@ def _remove_unreferenced_proof_import_atoms(
     if not stale_pairs:
         return []
 
+    original_content = rules_file.read_text()
     try:
-        payload = yaml.safe_load(rules_file.read_text()) or {}
+        payload = yaml.safe_load(original_content) or {}
     except (OSError, ValueError, yaml.YAMLError):
         return []
     if not isinstance(payload, dict):
@@ -5520,58 +5521,84 @@ def _remove_unreferenced_proof_import_atoms(
     if not isinstance(rules, list):
         return []
 
-    removed: list[str] = []
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        rule_name = str(rule.get("name") or "").strip()
-        if not rule_name:
-            continue
-        metadata = rule.get("metadata")
-        if not isinstance(metadata, dict):
-            continue
-        proof = metadata.get("proof")
-        if not isinstance(proof, dict):
-            continue
-        atoms = proof.get("atoms")
-        if not isinstance(atoms, list):
-            continue
-
-        kept_atoms: list[object] = []
-        for atom in atoms:
-            if (
-                isinstance(atom, dict)
-                and str(atom.get("kind") or "").strip() == "import"
-                and isinstance(atom.get("import"), dict)
-            ):
-                import_payload = atom["import"]
-                imported_symbol = str(import_payload.get("output") or "").strip()
-                if not imported_symbol:
-                    target = str(import_payload.get("target") or "").strip()
-                    if "#" in target:
-                        imported_symbol = target.rsplit("#", 1)[1].strip()
-                pair = (rule_name, imported_symbol)
-                if pair in stale_pairs:
-                    removed.append(f"{rule_name}:{imported_symbol}")
-                    continue
-            kept_atoms.append(atom)
-        if len(kept_atoms) != len(atoms):
-            proof["atoms"] = kept_atoms
-
+    repaired_content, removed = _remove_unreferenced_proof_import_atom_blocks(
+        original_content,
+        stale_pairs=stale_pairs,
+    )
     if not removed:
         return []
-    repaired_content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
-    pruned_imports = _unused_import_items(repaired_content)
-    imports = payload.get("imports")
-    if pruned_imports and isinstance(imports, list):
-        pruned_set = set(pruned_imports)
-        payload["imports"] = [
-            item
-            for item in imports
-            if not (isinstance(item, str) and item.strip() in pruned_set)
-        ]
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    repaired_content, pruned_imports = _prune_unused_imports(repaired_content)
+    rules_file.write_text(repaired_content)
     return sorted([*removed, *[f"unused_import:{item}" for item in pruned_imports]])
+
+
+def _remove_unreferenced_proof_import_atom_blocks(
+    content: str,
+    *,
+    stale_pairs: set[tuple[str, str]],
+) -> tuple[str, list[str]]:
+    lines = content.splitlines(keepends=True)
+    repaired_lines: list[str] = []
+    removed: list[str] = []
+    current_rule = ""
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        rule_match = re.match(r"^\s*-\s+name:\s*(.+?)\s*$", line)
+        if rule_match:
+            current_rule = _strip_yaml_scalar_quotes(rule_match.group(1).strip())
+
+        item_match = re.match(r"^(\s*)-\s+path:\s*", line)
+        if current_rule and item_match:
+            block_end = _yaml_list_item_block_end(
+                lines,
+                start=index,
+                start_indent=len(item_match.group(1)),
+            )
+            block = "".join(lines[index:block_end])
+            imported_symbol = _proof_import_atom_block_imported_symbol(block)
+            if imported_symbol and (current_rule, imported_symbol) in stale_pairs:
+                removed.append(f"{current_rule}:{imported_symbol}")
+                index = block_end
+                continue
+
+        repaired_lines.append(line)
+        index += 1
+
+    return "".join(repaired_lines), removed
+
+
+def _yaml_list_item_block_end(
+    lines: list[str],
+    *,
+    start: int,
+    start_indent: int,
+) -> int:
+    index = start + 1
+    while index < len(lines):
+        line = lines[index]
+        if line.strip():
+            indent = len(line) - len(line.lstrip())
+            if indent <= start_indent:
+                break
+        index += 1
+    return index
+
+
+def _proof_import_atom_block_imported_symbol(block: str) -> str:
+    if not re.search(r"(?m)^\s*kind:\s*import\s*$", block):
+        return ""
+    output_match = re.search(r"(?m)^\s*output:\s*(.+?)\s*$", block)
+    if output_match:
+        return _strip_yaml_scalar_quotes(output_match.group(1).strip())
+    target_match = re.search(r"(?m)^\s*target:\s*(.+?)\s*$", block)
+    if not target_match:
+        return ""
+    target = _strip_yaml_scalar_quotes(target_match.group(1).strip())
+    if "#" not in target:
+        return ""
+    return target.rsplit("#", 1)[1].strip()
 
 
 def _imported_output_names(rules_file: Path) -> set[str]:
