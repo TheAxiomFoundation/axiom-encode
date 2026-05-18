@@ -753,6 +753,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_section_172_c_parser = subparsers.add_parser(
+        "repair-section-172-c-capacity",
+        help="Apply signed deterministic repairs for the 1212(a)(1) section 172(c) cross-reference",
+    )
+    repair_section_172_c_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_section_172_c_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_imported_test_inputs_parser = subparsers.add_parser(
         "repair-imported-test-inputs",
         help="Apply signed deterministic repairs for missing imported test inputs",
@@ -1432,6 +1451,8 @@ def main():
         cmd_repair_proof_import_hashes(args)
     elif args.command == "repair-unreferenced-proof-imports":
         cmd_repair_unreferenced_proof_imports(args)
+    elif args.command == "repair-section-172-c-capacity":
+        cmd_repair_section_172_c_capacity(args)
     elif args.command == "repair-imported-test-inputs":
         cmd_repair_imported_test_inputs(args)
     elif args.command == "repair-oracle-parameter-tests":
@@ -3896,6 +3917,458 @@ def cmd_repair_imported_test_inputs(args):
 
     print(f"Applied imported test input repair to {relative_output}")
     print(f"manifest={manifest_path}")
+
+
+_SECTION_172_C_IMPORT = (
+    "us:statutes/26/172/c#deduction_capacity_before_net_operating_loss"
+)
+_SECTION_172_C_PLACEHOLDER_INPUT = (
+    "us:statutes/26/1212/a/1#input."
+    "capital_loss_carryback_amount_that_does_not_increase_or_produce_"
+    "net_operating_loss_under_section_172_c"
+)
+_SECTION_172_C_GROSS_INCOME_INPUT = "us:statutes/26/172/c#input.gross_income"
+_SECTION_172_C_DEDUCTIONS_BEFORE_INPUT = (
+    "us:statutes/26/172/c#input."
+    "deductions_allowed_by_this_chapter_before_candidate_deduction_after_"
+    "subsection_d_modifications"
+)
+_SECTION_172_C_PLACEHOLDER_SYMBOL = (
+    "capital_loss_carryback_amount_that_does_not_increase_or_produce_"
+    "net_operating_loss_under_section_172_c"
+)
+_SECTION_172_C_CAPACITY_SYMBOL = "deduction_capacity_before_net_operating_loss"
+
+
+def cmd_repair_section_172_c_capacity(args):
+    """Apply signed deterministic repairs for the 1212(a)(1) 172(c) dependency."""
+    repo_path = Path(args.repo).resolve()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    path_172 = repo_path / "statutes/26/172/c.yaml"
+    test_172 = _rulespec_test_path(path_172)
+    path_1212 = repo_path / "statutes/26/1212/a/1.yaml"
+    test_1212 = _rulespec_test_path(path_1212)
+    path_1222 = repo_path / "statutes/26/1222.yaml"
+    test_1222 = _rulespec_test_path(path_1222)
+    manifest_groups = [
+        (Path("statutes/26/172/c.yaml"), [path_172, test_172]),
+        (Path("statutes/26/1212/a/1.yaml"), [path_1212, test_1212]),
+        (Path("statutes/26/1222.yaml"), [path_1222, test_1222]),
+    ]
+    _ensure_no_unmanifested_preexisting_rulespec_changes(repo_path, manifest_groups)
+
+    touched = [path_172, test_172, path_1212, test_1212, path_1222, test_1222]
+    originals = {
+        path: (path.read_text() if path.exists() else None) for path in touched
+    }
+
+    try:
+        changed: list[Path] = []
+        changed.extend(_write_section_172_c_capacity_files(path_172, test_172))
+        changed.extend(_repair_1212_section_172_c_cross_reference(path_1212, test_1212))
+        changed.extend(_repair_1222_section_172_c_test_inputs(test_1222))
+        changed.extend(_refresh_1222_proof_import_hash(path_1222, repo_path))
+        changed = _unique_paths(changed)
+        if not changed:
+            print("No section 172(c) capacity repairs found.")
+            return
+
+        pipeline = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        )
+        validation_files = [path_172, path_1212, path_1222]
+        validation_issues: list[str] = []
+        for rules_file in validation_files:
+            validation = pipeline.validate(rules_file, skip_reviewers=True)
+            if validation.all_passed:
+                continue
+            validation_issues.extend(
+                result.error for result in validation.results.values() if result.error
+            )
+        if validation_issues:
+            raise RuntimeError("\n".join(validation_issues))
+
+        test_issues = _section_172_c_companion_test_issues(
+            test_files=[test_172, test_1212, test_1222],
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if test_issues:
+            raise RuntimeError(
+                "Companion tests failed after section 172(c) repair:\n"
+                + "\n".join(f"- {issue}" for issue in test_issues)
+            )
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    changed_by_command = _unique_paths(
+        [
+            path
+            for path in changed
+            if _path_differs_from_original(path, originals.get(path))
+        ]
+    )
+    if not changed_by_command:
+        print("No section 172(c) capacity repairs found.")
+        return
+
+    manifest_paths = _write_section_172_c_capacity_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_by_command,
+    )
+    print("Applied section 172(c) capacity repair")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _ensure_no_unmanifested_preexisting_rulespec_changes(
+    repo_path: Path,
+    manifest_groups: list[tuple[Path, list[Path]]],
+) -> None:
+    """Refuse to sign over target files already dirty outside encoder manifests."""
+    try:
+        changed = set(_git_changed_files(repo_path, base_ref=None, head_ref="HEAD"))
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Cannot verify pre-existing RuleSpec target changes before signing."
+        ) from exc
+
+    dirty_targets: set[str] = set()
+    relevant_manifest_paths: set[str] = set()
+    for relative_output, files in manifest_groups:
+        group_dirty = False
+        for path in files:
+            relative_path = path.relative_to(repo_path).as_posix()
+            if relative_path in changed:
+                dirty_targets.add(relative_path)
+                group_dirty = True
+        if group_dirty:
+            relevant_manifest_paths.add(
+                _applied_encoding_manifest_path(relative_output).as_posix()
+            )
+    if not dirty_targets:
+        return
+
+    issues = guard_generated_change_issues(
+        repo_path,
+        roots=tuple(sorted(RULESPEC_SOURCE_ROOTS)),
+        changed_files=sorted(dirty_targets | (changed & relevant_manifest_paths)),
+    )
+    if not issues:
+        return
+    raise RuntimeError(
+        "Refusing to sign over pre-existing RuleSpec target changes:\n"
+        + "\n".join(f"- {issue}" for issue in issues)
+    )
+
+
+def _write_section_172_c_capacity_files(
+    rules_file: Path, test_file: Path
+) -> list[Path]:
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    changed: list[Path] = []
+    rules_content = _section_172_c_capacity_rulespec()
+    test_content = _section_172_c_capacity_tests()
+    if not rules_file.exists() or rules_file.read_text() != rules_content:
+        rules_file.write_text(rules_content)
+        changed.append(rules_file)
+    if not test_file.exists() or test_file.read_text() != test_content:
+        test_file.write_text(test_content)
+        changed.append(test_file)
+    return changed
+
+
+def _section_172_c_capacity_rulespec() -> str:
+    return """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/172
+  summary: |-
+    Section 172(c) defines a net operating loss as the excess of chapter deductions over gross income, computed with subsection (d) modifications.
+rules:
+  - name: net_operating_loss
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 172(c)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/172
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/172
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              deductions_allowed_by_this_chapter_after_subsection_d_modifications
+              - gross_income
+          )
+
+  - name: deduction_capacity_before_net_operating_loss
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 172(c)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/172
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(
+              0,
+              gross_income
+              - deductions_allowed_by_this_chapter_before_candidate_deduction_after_subsection_d_modifications
+          )
+"""
+
+
+def _section_172_c_capacity_tests() -> str:
+    return """- name: deductions_do_not_exceed_gross_income
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/172/c#input.gross_income: 8000
+    ? us:statutes/26/172/c#input.deductions_allowed_by_this_chapter_after_subsection_d_modifications
+    : 0
+    ? us:statutes/26/172/c#input.deductions_allowed_by_this_chapter_before_candidate_deduction_after_subsection_d_modifications
+    : 0
+  output:
+    us:statutes/26/172/c#net_operating_loss: 0
+    us:statutes/26/172/c#deduction_capacity_before_net_operating_loss: 8000
+- name: deductions_exceed_gross_income
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/172/c#input.gross_income: 1000
+    ? us:statutes/26/172/c#input.deductions_allowed_by_this_chapter_after_subsection_d_modifications
+    : 1500
+    ? us:statutes/26/172/c#input.deductions_allowed_by_this_chapter_before_candidate_deduction_after_subsection_d_modifications
+    : 1500
+  output:
+    us:statutes/26/172/c#net_operating_loss: 500
+    us:statutes/26/172/c#deduction_capacity_before_net_operating_loss: 0
+"""
+
+
+def _repair_1212_section_172_c_cross_reference(
+    rules_file: Path,
+    test_file: Path,
+) -> list[Path]:
+    changed: list[Path] = []
+    content = rules_file.read_text()
+    repaired = _ensure_rulespec_import(content, _SECTION_172_C_IMPORT)
+    repaired = repaired.replace(
+        _SECTION_172_C_PLACEHOLDER_SYMBOL,
+        _SECTION_172_C_CAPACITY_SYMBOL,
+    )
+    if repaired != content:
+        rules_file.write_text(repaired)
+        changed.append(rules_file)
+
+    test_content = test_file.read_text()
+    repaired_test = _replace_section_172_c_placeholder_test_inputs(test_content)
+    if repaired_test != test_content:
+        test_file.write_text(repaired_test)
+        changed.append(test_file)
+    return changed
+
+
+def _repair_1222_section_172_c_test_inputs(test_file: Path) -> list[Path]:
+    content = test_file.read_text()
+    repaired = _replace_section_172_c_placeholder_test_inputs(content)
+    if repaired == content:
+        return []
+    test_file.write_text(repaired)
+    return [test_file]
+
+
+def _ensure_rulespec_import(content: str, import_item: str) -> str:
+    if re.search(rf"(?m)^\s*-\s+{re.escape(import_item)}\s*$", content):
+        return content
+    lines = content.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if re.match(r"^imports:\s*$", line):
+            lines.insert(index + 1, f"  - {import_item}\n")
+            return "".join(lines)
+    insert_at = 1 if lines and re.match(r"^format:\s*", lines[0]) else 0
+    lines.insert(insert_at, f"imports:\n  - {import_item}\n")
+    return "".join(lines)
+
+
+def _replace_section_172_c_placeholder_test_inputs(content: str) -> str:
+    question_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*)\?\s+{re.escape(_SECTION_172_C_PLACEHOLDER_INPUT)}\n"
+        rf"(?P=indent):\s*(?P<value>[^\n]+)\n"
+    )
+    content = question_key_pattern.sub(
+        _section_172_c_replacement_test_input_block,
+        content,
+    )
+    scalar_key_pattern = re.compile(
+        rf"(?m)^(?P<indent>\s*){re.escape(_SECTION_172_C_PLACEHOLDER_INPUT)}:\s*"
+        rf"(?P<value>[^\n]+)\n"
+    )
+    return scalar_key_pattern.sub(_section_172_c_replacement_test_input_block, content)
+
+
+def _section_172_c_replacement_test_input_block(match: re.Match[str]) -> str:
+    indent = match.group("indent")
+    value = match.group("value").strip()
+    return (
+        f"{indent}{_SECTION_172_C_GROSS_INCOME_INPUT}: {value}\n"
+        f"{indent}? {_SECTION_172_C_DEDUCTIONS_BEFORE_INPUT}\n"
+        f"{indent}: 0\n"
+    )
+
+
+def _refresh_1222_proof_import_hash(rules_file: Path, repo_path: Path) -> list[Path]:
+    content = rules_file.read_text()
+    repaired, repair_count = _repair_proof_import_hashes(
+        content,
+        target_base=f"{_repo_jurisdiction_prefix(repo_path)}:statutes/26/1222",
+        rules_file=rules_file,
+        repo_path=repo_path,
+    )
+    if repair_count == 0:
+        return []
+    rules_file.write_text(repaired)
+    return [rules_file]
+
+
+def _section_172_c_companion_test_issues(
+    *,
+    test_files: list[Path],
+    repo_path: Path,
+    axiom_rules_path: Path,
+) -> list[str]:
+    issues: list[str] = []
+    for test_file in test_files:
+        failures = _rulespec_companion_test_failures(
+            test_file,
+            root=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        for failure in failures:
+            case_name = failure.get("case") or "<unknown case>"
+            message = failure.get("message") or "<no failure message>"
+            issues.append(
+                f"{test_file.relative_to(repo_path)} :: {case_name}: {message}"
+            )
+    return issues
+
+
+def _write_section_172_c_capacity_manifests(
+    *,
+    repo_path: Path,
+    signing_key: str,
+    axiom_encode_git: dict[str, object],
+    manifest_groups: list[tuple[Path, list[Path]]],
+    changed_files: list[Path],
+) -> list[Path]:
+    manifest_paths: list[Path] = []
+    changed_file_set = {path.resolve() for path in changed_files}
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        for relative_output, group_files in manifest_groups:
+            applied_files = [
+                path for path in group_files if path.resolve() in changed_file_set
+            ]
+            if not applied_files:
+                continue
+            generated_output = output_root / "deterministic-repair" / relative_output
+            generated_output.parent.mkdir(parents=True, exist_ok=True)
+            generated_output.write_text((repo_path / relative_output).read_text())
+            result = argparse.Namespace(
+                output_file=str(generated_output),
+                runner="deterministic-repair",
+                backend="deterministic",
+                model="section-172-c-capacity-v1",
+                tool="axiom-encode repair-section-172-c-capacity",
+                citation=(
+                    f"{_repo_jurisdiction_prefix(repo_path)}:"
+                    f"{_relative_rulespec_import_target(relative_output)}"
+                ),
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=None,
+            )
+            manifest_paths.append(
+                _write_applied_encoding_manifest(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=repo_path,
+                    relative_output=relative_output,
+                    applied_files=applied_files,
+                    run_id="deterministic-repair",
+                    signing_key=signing_key,
+                    axiom_encode_git=axiom_encode_git,
+                )
+            )
+    return manifest_paths
+
+
+def _path_differs_from_original(path: Path, original: str | None) -> bool:
+    if original is None:
+        return path.exists()
+    if not path.exists():
+        return True
+    return path.read_text() != original
+
+
+def _unique_paths(paths: list[Path]) -> list[Path]:
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
+def _restore_original_files(originals: dict[Path, str | None]) -> None:
+    for path, content in originals.items():
+        if content is None:
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
 
 
 def cmd_repair_oracle_parameter_tests(args):
