@@ -7678,6 +7678,36 @@ rules:
     assert issues == []
 
 
+def test_source_verification_prefers_corpus_source_over_module_summary():
+    content = """format: rulespec/v1
+module:
+  summary: The summary intentionally omits the exact official dollar amount.
+  source_verification:
+    corpus_citation_path: us/guidance/example/page-1
+    values:
+      official_amount: 140200
+rules:
+  - name: official_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '140200'
+"""
+
+    issues = find_source_verification_issues(
+        content,
+        source_texts={
+            "us/guidance/example/page-1": (
+                "Joint Returns or Surviving Spouses $140,200"
+            )
+        },
+    )
+
+    assert issues == []
+
+
 def test_source_verification_accepts_decimal_rate_values_as_percentages():
     content = """format: rulespec/v1
 module:
@@ -8222,7 +8252,7 @@ rules:
     assert find_unused_modifier_parameter_issues(content) == []
 
 
-def test_filing_status_local_input_rejects_numeric_test_assignment():
+def test_filing_status_local_input_allows_numeric_test_fixture():
     content = """format: rulespec/v1
 rules:
   - name: filing_status_sensitive_amount
@@ -8244,7 +8274,9 @@ rules:
 
     issues = find_tax_filing_status_local_input_issues(content, test_cases)
 
-    assert any("assigns filing status as a local input" in issue for issue in issues)
+    assert not any(
+        "assigns filing status as a local input" in issue for issue in issues
+    )
 
 
 def test_filing_status_test_input_rejects_string_value():
@@ -8265,12 +8297,28 @@ def test_filing_status_test_input_rejects_string_value():
     )
 
 
-def test_filing_status_test_input_rejects_numeric_value():
+def test_filing_status_test_input_allows_numeric_enum_fixture():
     test_cases = [
         {
             "name": "joint_status_code",
             "input": {
                 "us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status": 1
+            },
+            "output": {},
+        }
+    ]
+
+    issues = find_tax_filing_status_test_input_issues(test_cases)
+
+    assert issues == []
+
+
+def test_filing_status_test_input_rejects_out_of_range_numeric_value():
+    test_cases = [
+        {
+            "name": "bad_status_code",
+            "input": {
+                "us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status": 9
             },
             "output": {},
         }
