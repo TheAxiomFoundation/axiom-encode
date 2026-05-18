@@ -6157,6 +6157,94 @@ rules:
             "statutes/26/151.test.yaml",
         ]
 
+    def test_repair_tax_status_components_rejects_dirty_related_tests(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/151.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: exemption_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: if taxable_year_begins_after_2017: 0 else: 5000
+"""
+        )
+        target.with_name("151.test.yaml").write_text(
+            """- name: exemption_amount
+  input:
+    us:statutes/26/151#input.taxable_year_begins_after_2017: true
+  output:
+    us:statutes/26/151#exemption_amount: 0
+"""
+        )
+        related_test = policy_repo / "statutes/26/63.test.yaml"
+        related_test.write_text(
+            """- name: unrelated_baseline
+  input:
+    us:example#input.value: 1
+  output:
+    us:example#output.value: 1
+"""
+        )
+        subprocess.run(
+            ["git", "init"], cwd=policy_repo, check=True, stdout=subprocess.PIPE
+        )
+        subprocess.run(["git", "add", "statutes"], cwd=policy_repo, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Axiom Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "baseline",
+            ],
+            cwd=policy_repo,
+            check=True,
+            stdout=subprocess.PIPE,
+        )
+        dirty_related_content = """- name: dirty_related_151_case
+  input:
+    us:statutes/26/151#input.taxable_year_begins_after_2017: true
+  output:
+    us:example#output.value: 1
+"""
+        related_test.write_text(dirty_related_content)
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/151.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(
+                RuntimeError,
+                match="Refusing to sign over pre-existing RuleSpec target changes",
+            ) as excinfo,
+        ):
+            cmd_repair_tax_status_components(args)
+
+        assert ".axiom/encoding-manifests/statutes/26/151.json" in str(excinfo.value)
+        assert related_test.read_text() == dirty_related_content
+
     def test_generated_dependency_guard_rejects_unmanifested_existing_file(
         self, tmp_path
     ):

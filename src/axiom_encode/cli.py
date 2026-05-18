@@ -4168,8 +4168,6 @@ def cmd_repair_section_172_c_capacity(args):
 def _ensure_no_unmanifested_preexisting_rulespec_changes(
     repo_path: Path,
     manifest_groups: list[tuple[Path, list[Path]]],
-    *,
-    allow_unmanifested_paths: set[Path] | None = None,
 ) -> None:
     """Refuse to sign over target files already dirty outside encoder manifests."""
     try:
@@ -4181,16 +4179,10 @@ def _ensure_no_unmanifested_preexisting_rulespec_changes(
 
     dirty_targets: set[str] = set()
     relevant_manifest_paths: set[str] = set()
-    allowed_relative_paths = {
-        path.relative_to(repo_path).as_posix()
-        for path in (allow_unmanifested_paths or set())
-    }
     for relative_output, files in manifest_groups:
         group_dirty = False
         for path in files:
             relative_path = path.relative_to(repo_path).as_posix()
-            if relative_path in allowed_relative_paths:
-                continue
             if relative_path in changed:
                 dirty_targets.add(relative_path)
                 group_dirty = True
@@ -6539,9 +6531,6 @@ def cmd_repair_tax_status_components(args):
     _ensure_no_unmanifested_preexisting_rulespec_changes(
         repo_path,
         [(relative_output, _unique_paths(guard_files))],
-        allow_unmanifested_paths=set(related_151_test_files)
-        if is_section_151_target
-        else None,
     )
     original_extra_contents = {
         path: (path.read_text() if path.exists() else None)
