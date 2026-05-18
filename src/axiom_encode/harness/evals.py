@@ -23,6 +23,11 @@ import requests
 import yaml
 
 from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.concepts.registry import (
+    Concept,
+    ConceptRegistry,
+    load_concept_registry,
+)
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL
 from axiom_encode.repo_routing import canonical_rulespec_repo_name
 from axiom_encode.statute import (
@@ -2758,6 +2763,12 @@ Import and context rules:
         context_files,
     )
 
+    canonical_concept_section = _format_canonical_concept_registry_guidance(
+        source_text,
+        workspace,
+        context_files,
+    )
+
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
     if include_tests:
         oracle_rule = ""
@@ -2878,7 +2889,7 @@ Primary legal authority:
 {inline_source}
 {source_metadata_section}{context_section}{missing_cited_source_section}
 {backend_section}
-
+{canonical_concept_section}
 RuleSpec requirements:
 - The RuleSpec file must begin with `format: rulespec/v1`.
 - Include `module.summary: |-` containing the exact operative source text or an exact compact excerpt sufficient to audit all encoded rules.
@@ -3411,6 +3422,83 @@ def _format_context_file_listing(
         f"- inspect `{item.workspace_path}`; import target `{item.import_path}`"
         f"{hash_detail}{export_detail}{details}{kind}"
     )
+
+
+_CANONICAL_CONCEPT_TOKEN_RE = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _canonical_concept_token_index(registry: ConceptRegistry) -> dict[str, Concept]:
+    """Return a name → concept index covering canonicals and blocked synonyms."""
+    index: dict[str, Concept] = {}
+    for concept in registry.concepts_by_id.values():
+        index[concept.canonical_name] = concept
+        for synonym in concept.blocked_synonyms:
+            index[synonym] = concept
+    return index
+
+
+def _format_canonical_concept_registry_guidance(
+    source_text: str,
+    workspace: EvalWorkspace,
+    context_files: list[EvalContextFile],
+    *,
+    registry: ConceptRegistry | None = None,
+) -> str:
+    """Inject canonical-concept registry directives scoped to mentioned concepts.
+
+    Scans source text plus copied context files for any canonical name or
+    blocked synonym in the registry; emits a terse "use these exact names"
+    block for the matched concepts only. Concepts that never appear in any
+    text are omitted so the prompt does not pay tokens for irrelevant rules.
+    """
+    if registry is None:
+        try:
+            registry = load_concept_registry()
+        except (OSError, ValueError):
+            return ""
+    if not registry.concepts_by_id:
+        return ""
+
+    haystack_parts: list[str] = [source_text]
+    for item in context_files:
+        path = workspace.root / item.workspace_path
+        try:
+            haystack_parts.append(path.read_text())
+        except OSError:
+            continue
+    haystack_tokens = set(_CANONICAL_CONCEPT_TOKEN_RE.findall("\n".join(haystack_parts)))
+    if not haystack_tokens:
+        return ""
+
+    token_index = _canonical_concept_token_index(registry)
+    matched: list[Concept] = []
+    seen_ids: set[str] = set()
+    for token in haystack_tokens:
+        concept = token_index.get(token)
+        if concept is None or concept.id in seen_ids:
+            continue
+        seen_ids.add(concept.id)
+        matched.append(concept)
+
+    if not matched:
+        return ""
+
+    matched.sort(key=lambda c: c.id)
+    lines: list[str] = []
+    for concept in matched:
+        parts: list[str] = [f"`{concept.canonical_name}`"]
+        if concept.has_producer:
+            parts.append(f"producer `{concept.producer_anchor}`")
+        if concept.blocked_synonyms:
+            blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
+            parts.append(f"do not use: {blocked}")
+        lines.append("- " + " — ".join(parts))
+
+    return """
+Canonical concept names:
+Use these exact identifiers for the listed legal concepts; never introduce the blocked synonyms. The post-apply validator rejects drift, so picking the canonical name on the first pass avoids wasted re-encodes:
+{lines}
+""".format(lines="\n".join(lines))
 
 
 def _format_existing_target_contract_guidance(
