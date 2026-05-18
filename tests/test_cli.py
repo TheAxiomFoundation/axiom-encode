@@ -3950,7 +3950,7 @@ rules:
         assert mock_overlay.call_count == 3
         mock_apply.assert_called_once()
         content = yaml.safe_load(output_file.read_text())
-        assert content.get("imports") == []
+        assert not content.get("imports")
         atoms = content["rules"][0]["metadata"]["proof"]["atoms"]
         assert all(atom.get("kind") != "import" for atom in atoms)
         assert (
@@ -5836,6 +5836,12 @@ rules:
 
         content = target.read_text()
         assert "us:statutes/26/1401#self_employment_oasdi_tax_rate" not in content
+        assert "formula: |-" in content
+        assert (
+            "          net_earnings_before_paragraph_12_adjustment * "
+            "paragraph_12_deduction_rate"
+        ) in content
+        assert "  - name: paragraph_12_deduction\n" in content
         payload = yaml.safe_load(content)
         atoms = payload["rules"][0]["metadata"]["proof"]["atoms"]
         assert all(atom.get("kind") != "import" for atom in atoms)
