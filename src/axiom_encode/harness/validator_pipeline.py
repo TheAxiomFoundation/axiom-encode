@@ -3106,7 +3106,7 @@ def find_source_verification_issues(
             )
         )
 
-    source_text = extract_embedded_source_text(content) or _source_verification_text(
+    source_text = _source_verification_text(
         citation_paths=citation_paths,
         source_label=source_label,
         source_texts=source_texts,
@@ -3522,8 +3522,13 @@ def find_tax_filing_status_local_input_issues(
             inputs = test_case.get("input")
             if not isinstance(inputs, dict):
                 continue
-            for key in inputs:
+            for key, value in inputs.items():
                 fragment = _test_reference_fragment(key)
+                if (
+                    fragment == "input.filing_status"
+                    and _is_numeric_filing_status_fixture(value)
+                ):
+                    continue
                 if fragment not in {"input.filing_status", "input.tax_filing_status"}:
                     continue
                 issues.append(
@@ -3878,7 +3883,7 @@ def _match_fragment_has_named_arm(fragment: str) -> bool:
 
 
 def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
-    """Reject `#input.filing_status` test assignments."""
+    """Reject non-enum `#input.filing_status` and local alias test assignments."""
     if not isinstance(test_cases, list):
         return []
 
@@ -3890,11 +3895,13 @@ def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
         inputs = test_case.get("input")
         if not isinstance(inputs, dict):
             continue
-        for key in inputs:
-            if _test_reference_fragment(key) not in {
-                "input.filing_status",
-                "input.tax_filing_status",
-            }:
+        for key, value in inputs.items():
+            fragment = _test_reference_fragment(key)
+            if fragment == "input.filing_status" and _is_numeric_filing_status_fixture(
+                value
+            ):
+                continue
+            if fragment not in {"input.filing_status", "input.tax_filing_status"}:
                 continue
             issues.append(
                 "Filing status is a derived legal classification, not a factual "
@@ -3902,6 +3909,17 @@ def find_tax_filing_status_test_input_issues(test_cases: Any) -> list[str]:
                 f"`{key}`. Set the upstream filing-status leaf facts instead."
             )
     return issues
+
+
+def _is_numeric_filing_status_fixture(value: Any) -> bool:
+    numeric = _numeric_rule_value(value)
+    if numeric is None:
+        return False
+    _, number = numeric
+    with contextlib.suppress(TypeError, ValueError):
+        numeric_int = int(number)
+        return number == numeric_int and 0 <= numeric_int <= 4
+    return False
 
 
 def _filing_status_surviving_spouse_branch_issue(

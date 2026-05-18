@@ -2177,6 +2177,17 @@ rules:
             return binary
 
         def fake_run(cmd, **kwargs):
+            if (
+                len(cmd) >= 6
+                and cmd[:3] == ["git", "-C", str(repo)]
+                and cmd[3:] == ["remote", "get-url", "origin"]
+            ):
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="https://github.com/TheAxiomFoundation/rulespec-us.git\n",
+                    stderr="",
+                )
             captured_envs.append(kwargs.get("env"))
             if "compile" in cmd:
                 output_path = Path(cmd[cmd.index("--output") + 1])
