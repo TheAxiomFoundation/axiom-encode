@@ -3267,6 +3267,23 @@ _FINAL_AMOUNT_NAME_PATTERN = re.compile(
     r"(?:^|_)(?:amount|benefit|deduction|credit|tax|allotment|allowance)$",
     flags=re.IGNORECASE,
 )
+_UNIT_SCOPED_ENTITY_NAMES = {"household", "snapunit", "taxunit", "family", "spmunit"}
+_PERSON_SCOPE_SOURCE_PATTERN = re.compile(
+    r"\b(?:no|any|each|every|all)\s+"
+    r"(?:individual|person|(?:household\s+)?member|taxpayer|claimant|child)\b"
+    r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat)",
+    flags=re.IGNORECASE,
+)
+_HOUSEHOLD_SCOPE_SOURCE_PATTERN = re.compile(
+    r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
+    r"\b(?:eligible|eligibility|test|requirement|resources?|income)\b",
+    flags=re.IGNORECASE,
+)
+_HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
+    r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
+    r"\b(?:each|every|all)\s+(?:household\s+)?member\b",
+    flags=re.IGNORECASE,
+)
 
 
 def _rulespec_payload(content: str) -> dict[str, Any] | None:
@@ -3347,6 +3364,58 @@ def find_empty_rules_module_issues(content: str) -> list[str]:
         "If the source is executable, encode at least one source-backed rule; "
         "do not silently apply an empty module."
     ]
+
+
+def find_source_scope_consistency_issues(content: str) -> list[str]:
+    """Flag obvious mismatches between source legal subject and rule entity.
+
+    This is intentionally conservative: if the source appears mixed or vague,
+    it returns no issue rather than guessing a legal scope.
+    """
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    source_text = extract_embedded_source_text(content)
+    if not source_text:
+        return []
+
+    person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(source_text) is not None
+    household_scoped = _HOUSEHOLD_SCOPE_SOURCE_PATTERN.search(source_text) is not None
+    if _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN.search(source_text):
+        return []
+    if person_scoped == household_scoped:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind != "derived":
+            continue
+        name = str(rule.get("name") or "").strip()
+        entity = str(rule.get("entity") or "").strip()
+        normalized_entity = entity.lower()
+        if person_scoped and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES:
+            issues.append(
+                "Source scope mismatch: "
+                f"`{name}` is declared on `{entity}`, but the embedded source "
+                "states an individual/person/member-scoped eligibility or "
+                "disqualification. Encode the rule at the person/member scope "
+                "or cite source text that states the unit-level test."
+            )
+        elif household_scoped and normalized_entity == "person":
+            issues.append(
+                "Source scope mismatch: "
+                f"`{name}` is declared on `Person`, but the embedded source "
+                "states a household/unit-scoped test. Encode the rule at the "
+                "source-stated unit scope or cite source text that states the "
+                "person-level test."
+            )
+    return issues
 
 
 def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
@@ -10240,6 +10309,7 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_source_scope_consistency_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         issues.extend(find_tax_status_component_local_input_issues(content))

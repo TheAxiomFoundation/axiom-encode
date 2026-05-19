@@ -1,5 +1,29 @@
 """RuleSpec encoder prompt used by generic backend adapters."""
 
+SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
+- Match each executable rule's `entity:` to the legal subject stated by the
+  supplied source text. If the source states an individual, member, taxpayer,
+  claimant, or child disqualification, encode that person-scoped rule as such;
+  do not promote it to a household, unit, or top-level eligibility boolean.
+- If the source states a household, unit, filing-unit, or tax-unit test, encode
+  that scope directly. If the same source also states member/person predicates
+  that feed that test, encode those predicates only as support for the
+  source-stated unit-level output.
+- Do not create a roll-up, top-level program output, or connection merely
+  because downstream consumers want it, sibling/state files patched it, or the
+  program conventionally has such a concept. The output must be directly
+  supported by the supplied source text, an explicit imported RuleSpec export,
+  or an accepted source claim listed in `module.source_claims`.
+- Downstream convenience booleans that collapse a legal process into one
+  answer are not federal/source outputs unless the supplied source text itself
+  defines that collapsed test. Keep process simplifications out of RuleSpec
+  source encodings.
+- Before finalizing, compare the source's legal subject nouns and proof excerpts
+  against every executable `parameter` and `derived` rule's `entity:`. If the
+  scope does not match the source, rename/re-scope the rule, defer the blocked
+  output, or leave the phrase documentary; do not bridge the mismatch with an
+  opaque local fact or a made-up household/tax-unit proxy."""
+
 ENCODER_PROMPT = """# Axiom RuleSpec Encoder
 
 Encode only the supplied legal source text into Axiom RuleSpec YAML.
@@ -52,6 +76,7 @@ Hard requirements:
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
 - Use `kind: derived` for entity-scoped outputs.
+""" + SOURCE_SCOPE_PROTOCOL + """
 - If source text is a broad application, furnishing, administrative duty, or
   purpose clause without a computable policy condition, preserve it in
   `module.summary` but do not create an executable derived output just to

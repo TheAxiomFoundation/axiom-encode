@@ -55,6 +55,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
     find_source_limitation_application_issues,
+    find_source_scope_consistency_issues,
     find_source_verification_issues,
     find_tax_filing_status_enum_representation_issues,
     find_tax_filing_status_local_input_issues,
@@ -7911,6 +7912,109 @@ rules: []
 """
 
     assert find_empty_rules_module_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_person_source_as_household_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    No individual who refuses to provide a required Social Security number
+    shall be eligible to participate as a member of any household.
+rules:
+  - name: snap_ssn_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.6
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          count_where(member_of_household, member_has_provided_ssn) == len(member_of_household)
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `snap_ssn_eligible` is declared on "
+        "`Household`, but the embedded source states an "
+        "individual/person/member-scoped eligibility or disqualification. "
+        "Encode the rule at the person/member scope or cite source text that "
+        "states the unit-level test."
+    ]
+
+
+def test_source_scope_consistency_accepts_person_source_as_person_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    No individual who refuses to provide a required Social Security number
+    shall be eligible to participate as a member of any household.
+rules:
+  - name: snap_member_ssn_requirement_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.6
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_has_provided_ssn
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_household_source_as_person_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Household resources are tested against the applicable resource limit for
+    household eligibility.
+rules:
+  - name: snap_member_resource_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.8
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_resources <= resource_limit
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `snap_member_resource_eligible` is declared on "
+        "`Person`, but the embedded source states a household/unit-scoped test. "
+        "Encode the rule at the source-stated unit scope or cite source text "
+        "that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_does_not_guess_mixed_source_scope():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Household eligibility depends on each household member meeting an
+    individual condition.
+rules:
+  - name: snap_member_condition_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: mixed source
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_condition_met
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
 
 
 def test_filing_status_local_input_allows_imported_formula():

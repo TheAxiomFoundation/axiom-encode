@@ -29,6 +29,7 @@ from axiom_encode.concepts.registry import (
     load_concept_registry,
 )
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL
+from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
 from axiom_encode.repo_routing import canonical_rulespec_repo_name
 from axiom_encode.statute import (
     CitationParts,
@@ -2948,6 +2949,7 @@ RuleSpec requirements:
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
   the corpus locator.
+{SOURCE_SCOPE_PROTOCOL}
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
 - Do not encode a pure pass-through rule whose formula is only one local fact. If the source only names a preexisting fact without changing it, reference the upstream rule when available or leave the phrase documentary.
