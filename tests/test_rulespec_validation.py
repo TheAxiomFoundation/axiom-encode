@@ -8292,6 +8292,35 @@ rules:
     assert find_source_scope_consistency_issues(content) == []
 
 
+def test_source_scope_consistency_skips_no_household_member_counterfactual_cap():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    No household shall receive more benefits than it would have received if no
+    household member was rendered ineligible.
+rules:
+  - name: household_benefit_after_ineligible_member_cap
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: state statute
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: "No household shall receive more benefits than it would have received if no household member was rendered ineligible."
+    versions:
+      - effective_from: '1998-09-01'
+        formula: min(benefit_calculated_under_section, benefit_if_no_member_ineligible)
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
 def test_source_scope_consistency_checks_each_rule_independently():
     content = """format: rulespec/v1
 module:

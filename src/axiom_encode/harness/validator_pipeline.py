@@ -3309,7 +3309,7 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
-    r"\b(?:each|every|all)\s+(?:household\s+)?member\b",
+    r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b",
     flags=re.IGNORECASE,
 )
 _SOURCE_SCOPE_PERSON = "person"
