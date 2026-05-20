@@ -78,13 +78,21 @@ Hard requirements:
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
 - Use `kind: derived` for entity-scoped outputs.
-- Use `kind: derived_relation` when the source defines a derived legal
-  membership concept by filtering a source relation through a predicate. Keep
-  the membership predicate as an ordinary source-backed rule, then define the
-  filtered entity under `derived_relation:` with `arity`, `source_relation`,
+- Use `kind: derived_relation` only when the source text explicitly defines
+  membership in a derived legal unit by filtering a source relation through a
+  stated predicate. "This source is about SNAP" is not enough. If the source
+  uses an existing structural entity such as `Household`, `TaxUnit`, or
+  `Person`, and merely references a program-specific concept without defining
+  who belongs to it, stay on the source-stated structural entity.
+- Keep the membership predicate as an ordinary source-backed rule, then define
+  the filtered entity under `derived_relation:` with `arity`, `source_relation`,
   `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
-  names the predicate. Otherwise stay on `kind: derived` for ordinary
-  entity-scoped outputs.
+  names the predicate.
+- Any rule that uses `entity: <filtered-entity>` such as `SnapUnit`, a MAGI
+  household, or a qualifying-child set requires the same file to either declare
+  that entity with a `kind: derived_relation` rule or import a RuleSpec file
+  that declares it. Filtered entities have no structural existence without that
+  dependency.
 """
     + SOURCE_SCOPE_PROTOCOL
     + """

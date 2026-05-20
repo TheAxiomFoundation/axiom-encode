@@ -35,6 +35,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_deprecated_source_url_issues,
     find_empty_rules_module_issues,
     find_exception_test_coverage_issues,
+    find_filtered_entity_dependency_issues,
     find_formula_absolute_reference_issues,
     find_formula_date_literal_issues,
     find_helper_only_definition_issues,
@@ -7970,6 +7971,88 @@ rules:
         "Encode the rule at the person/member scope or cite source text that "
         "states the unit-level test."
     ]
+
+
+def test_filtered_entity_dependency_rejects_snapunit_without_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: household_entitled_to_expedited_service
+    kind: derived
+    entity: SnapUnit
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.2
+    versions:
+      - effective_from: '2026-01-01'
+        formula: expedited_service_conditions_met
+"""
+
+    issues = find_filtered_entity_dependency_issues(content)
+
+    assert issues == [
+        "Filtered entity dependency missing: "
+        "`household_entitled_to_expedited_service` uses `entity: SnapUnit`, "
+        "but this RuleSpec file does not declare `SnapUnit` with a "
+        "`kind: derived_relation` rule or import its declaring relation "
+        "(`snap_unit`)."
+    ]
+
+
+def test_filtered_entity_dependency_allows_local_snapunit_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: household_member_eligible_for_snap_unit
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_member_meets_snap_unit_rules
+  - name: snap_unit
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_member_eligible_for_snap_unit
+  - name: snap_unit_entitled_to_expedited_service
+    kind: derived
+    entity: SnapUnit
+    dtype: Judgment
+    period: Month
+    source: synthetic source
+    versions:
+      - effective_from: '2026-01-01'
+        formula: expedited_service_conditions_met
+"""
+
+    assert find_filtered_entity_dependency_issues(content) == []
+
+
+def test_filtered_entity_dependency_allows_imported_snapunit_relation():
+    content = """format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/1#snap_unit
+rules:
+  - name: snap_unit_entitled_to_expedited_service
+    kind: derived
+    entity: SnapUnit
+    dtype: Judgment
+    period: Month
+    source: synthetic source
+    versions:
+      - effective_from: '2026-01-01'
+        formula: expedited_service_conditions_met
+"""
+
+    assert find_filtered_entity_dependency_issues(content) == []
 
 
 def test_source_scope_consistency_accepts_person_source_as_person_rule():

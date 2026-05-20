@@ -2969,13 +2969,21 @@ RuleSpec requirements:
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
   the corpus locator.
-- Use `kind: derived_relation` when the source defines a derived legal
-  membership concept by filtering a source relation through a predicate. Keep
-  the membership predicate as an ordinary source-backed rule, then define the
-  filtered entity under `derived_relation:` with `arity`, `source_relation`,
+- Use `kind: derived_relation` only when the source text explicitly defines
+  membership in a derived legal unit by filtering a source relation through a
+  stated predicate. "This source is about SNAP" is not enough. If the source
+  uses an existing structural entity such as `Household`, `TaxUnit`, or
+  `Person`, and merely references a program-specific concept without defining
+  who belongs to it, stay on the source-stated structural entity.
+- Keep the membership predicate as an ordinary source-backed rule, then define
+  the filtered entity under `derived_relation:` with `arity`, `source_relation`,
   `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
-  names the predicate. Otherwise stay on `kind: derived` for ordinary
-  entity-scoped outputs.
+  names the predicate.
+- Any rule that uses `entity: <filtered-entity>` such as `SnapUnit`, a MAGI
+  household, or a qualifying-child set requires the same file to either declare
+  that entity with a `kind: derived_relation` rule or import a RuleSpec file
+  that declares it. Filtered entities have no structural existence without that
+  dependency.
 {SOURCE_SCOPE_PROTOCOL}
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
@@ -3376,7 +3384,7 @@ rules:
           451
   - name: example_output
     kind: derived
-    entity: SnapUnit
+    entity: Household
     dtype: Money
     period: Month
     unit: USD

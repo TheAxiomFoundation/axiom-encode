@@ -3280,6 +3280,9 @@ _UNIT_SCOPED_ENTITY_LABELS = {
     "spmunit": "SPMUnit",
 }
 _UNIT_ENTITY_EQUIVALENCE_SETS = (frozenset({"household", "snapunit"}),)
+_FILTERED_ENTITY_DECLARATION_IMPORTS = {
+    "SnapUnit": frozenset({"snap_unit"}),
+}
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
     r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
     r"(?:individual|person|(?:household\s+|family\s+)?member|taxpayer|claimant|child|"
@@ -3542,6 +3545,62 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 "unit-scoped test. Encode the rule at the source-stated unit "
                 "scope or cite source text that states the declared unit scope."
             )
+    return issues
+
+
+def find_filtered_entity_dependency_issues(content: str) -> list[str]:
+    """Reject rules scoped to filtered entities without a declaration/import."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    declared_entities: set[str] = set()
+    filtered_entity_rules: list[tuple[str, str]] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or f"rules[{index}]").strip()
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind == "derived_relation":
+            derived_relation = rule.get("derived_relation")
+            if isinstance(derived_relation, dict):
+                entity = str(derived_relation.get("entity") or "").strip()
+                if entity in _FILTERED_ENTITY_DECLARATION_IMPORTS:
+                    declared_entities.add(entity)
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if entity in _FILTERED_ENTITY_DECLARATION_IMPORTS:
+            filtered_entity_rules.append((name, entity))
+
+    if not filtered_entity_rules:
+        return []
+
+    imported_symbols = _rulespec_import_fragment_names(payload.get("imports"))
+    imported_entities = {
+        entity
+        for entity, symbols in _FILTERED_ENTITY_DECLARATION_IMPORTS.items()
+        if imported_symbols & symbols
+    }
+    available_entities = declared_entities | imported_entities
+
+    issues: list[str] = []
+    for name, entity in filtered_entity_rules:
+        if entity in available_entities:
+            continue
+        required_symbols = ", ".join(
+            f"`{symbol}`"
+            for symbol in sorted(_FILTERED_ENTITY_DECLARATION_IMPORTS[entity])
+        )
+        issues.append(
+            "Filtered entity dependency missing: "
+            f"`{name}` uses `entity: {entity}`, but this RuleSpec file does "
+            f"not declare `{entity}` with a `kind: derived_relation` rule or "
+            f"import its declaring relation ({required_symbols})."
+        )
     return issues
 
 
@@ -10460,6 +10519,7 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_filtered_entity_dependency_issues(content))
         issues.extend(find_source_scope_consistency_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
