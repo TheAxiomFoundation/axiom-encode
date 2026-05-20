@@ -89,6 +89,12 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "arity: 2" in ENCODER_PROMPT
     assert "source_relation: member_of_household" in ENCODER_PROMPT
     assert "formula: snap_member_eligible" in ENCODER_PROMPT
+    assert (
+        "Only include `blocked_by` entries when you know the exact RuleSpec output"
+        in ENCODER_PROMPT
+    )
+    assert "Do not list bare legal provisions" in ENCODER_PROMPT
+    assert "us:statutes/us-ca/17000" in ENCODER_PROMPT
     assert "round the" in prompt
     assert "increase before adding it to the base amount" in prompt
     assert "17300, not 17325" in prompt
@@ -107,6 +113,12 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
     assert "formula: snap_member_eligible" in prompt
+    assert (
+        "Only include `blocked_by` entries when you know the exact RuleSpec output"
+        in prompt
+    )
+    assert "Do not list bare legal provisions" in prompt
+    assert "us:statutes/us-ca/17000" in prompt
 
 
 class TestClaudeCodeBackend:

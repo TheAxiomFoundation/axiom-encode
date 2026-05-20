@@ -467,6 +467,12 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "modifier parameter stranded" in prompt
     assert "module.deferred_outputs[]" in prompt
     assert "source_values" in prompt
+    assert (
+        "Only include `blocked_by` entries when you know the exact RuleSpec output"
+        in prompt
+    )
+    assert "Do not list bare legal provisions" in prompt
+    assert "us:statutes/us-ca/17000" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
     assert "never assign prohibited derived" in prompt
@@ -1218,6 +1224,50 @@ rules:
                 source_text=(
                     "(a) Households in which each member receives qualifying public assistance shall be eligible.\n\n"
                     "(e) The unrelated standard deduction is 8.31 percent, $144, and $246."
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 0
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_numeric_occurrence_check_skips_empty_deferred_artifact(self, tmp_path):
+        rulespec_file = tmp_path / "statutes" / "wic" / "18901" / "5.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us-ca/statute/wic/18901.5
+  summary: |-
+    The department shall establish a program under 7 U.S.C. Sec. 2014(a). Categorical eligibility applies to households receiving or eligible to receive cash assistance under Part 5 (commencing with Section 17000), or food assistance under Chapter 10.1 (commencing with Section 18930).
+  deferred_outputs:
+    - output: us-ca:statutes/wic/18901/5#individual_categorically_eligible_for_calfresh
+      reason: Requires upstream rules under Part 5 commencing with Section 17000 and Chapter 10.1 commencing with Section 18930, but no exact RuleSpec outputs were available in context.
+rules: []
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "The department shall establish a program under 7 U.S.C. Sec. "
+                    "2014(a). Categorical eligibility applies to households "
+                    "receiving or eligible to receive cash assistance under Part "
+                    "5 (commencing with Section 17000), or food assistance under "
+                    "Chapter 10.1 (commencing with Section 18930)."
                 ),
             )
 

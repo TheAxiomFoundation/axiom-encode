@@ -3852,20 +3852,28 @@ def find_deferred_output_issues(content: str) -> list[str]:
             issues.append(f"{label}.reason is required.")
 
         blocked_by = record.get("blocked_by")
-        if not isinstance(blocked_by, list) or not blocked_by:
+        if blocked_by is not None and not isinstance(blocked_by, list):
             issues.append(
-                f"{label}.blocked_by must list the absolute RuleSpec targets "
-                "that prevent executable lowering."
+                f"{label}.blocked_by must be a list of absolute RuleSpec "
+                "targets when exact blockers are known."
             )
-            continue
-        for blocker in blocked_by:
-            blocker_text = str(blocker or "").strip()
-            blocker_ref = _parse_rulespec_target(blocker_text) if blocker_text else None
-            if blocker_ref is None or blocker_ref.symbol is None:
-                issues.append(
-                    f"{label}.blocked_by entry `{blocker_text}` must be an "
-                    "absolute RuleSpec target with a rule fragment."
+        elif isinstance(blocked_by, list):
+            for blocker in blocked_by:
+                blocker_text = str(blocker or "").strip()
+                blocker_ref = (
+                    _parse_rulespec_target(blocker_text) if blocker_text else None
                 )
+                if blocker_ref is None or blocker_ref.symbol is None:
+                    issues.append(
+                        f"{label}.blocked_by entry `{blocker_text}` must be an "
+                        "absolute RuleSpec target with a rule fragment."
+                    )
+                elif _target_path_embeds_jurisdiction(blocker_ref):
+                    issues.append(
+                        f"{label}.blocked_by entry `{blocker_text}` embeds a "
+                        "jurisdiction in the path; use the target jurisdiction "
+                        "prefix instead."
+                    )
 
         source_values = record.get("source_values")
         if source_values is not None:
@@ -8344,6 +8352,18 @@ def _parse_rulespec_target(target: str) -> _RuleSpecTargetRef | None:
         repo_name=f"rulespec-{prefix}",
         relative_path=relative_path,
         symbol=symbol.strip() if symbol and symbol.strip() else None,
+    )
+
+
+def _target_path_embeds_jurisdiction(target_ref: _RuleSpecTargetRef) -> bool:
+    """Return whether a RuleSpec path repeats a jurisdiction after the kind."""
+    parts = target_ref.relative_path.with_suffix("").parts
+    if len(parts) < 2 or parts[0] not in {"policies", "regulations", "statutes"}:
+        return False
+    embedded = parts[1]
+    return (
+        embedded == target_ref.prefix
+        or re.match(r"^[a-z]{2}-[a-z0-9_-]+$", embedded) is not None
     )
 
 

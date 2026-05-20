@@ -239,10 +239,14 @@ Hard requirements:
   surface and still encode independent source-backed outputs that do not require
   the unavailable dependency. For each omitted/deferred executable output in a
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
-  targets for `output` and every `blocked_by` dependency, a plain-language
-  `reason`, and `source_values` entries for any source-stated local parameters
-  retained only for that deferred output. Do not create tests for deferred
-  outputs. If a source-grounded overriding rule makes the
+  targets for `output`, a plain-language `reason`, and `source_values` entries
+  for any source-stated local parameters retained only for that deferred output.
+  Only include `blocked_by` entries when you know the exact RuleSpec output with
+  a `#rule_fragment`. Do not list bare legal provisions, corpus paths, statute
+  sections, or guessed pseudo-targets in `blocked_by`; for example,
+  `us:statutes/us-ca/17000` is invalid. If the exact upstream RuleSpec output is
+  unknown, omit `blocked_by` and name the legal dependency in `reason`. Do not create
+  tests for deferred outputs. If a source-grounded overriding rule makes the
   unavailable branch zero or unreachable for the encoded effective period,
   encode that overriding branch instead of deferring the whole module. If that
   section is present in repo context, import it and use its exported output
@@ -584,7 +588,9 @@ Hard requirements:
   affected formula, or defer that affected output until the upstream branch
   condition can be encoded/imported. If you defer the affected output, list the
   deferred output under `module.deferred_outputs[]` and list the absolute target
-  for the retained modifier parameter under that record's `source_values`.
+  for the retained modifier parameter under that record's `source_values`. Include
+  `blocked_by` only for exact upstream RuleSpec outputs with `#rule_fragment`;
+  otherwise explain the unknown blocker in `reason`.
   Do not solve this by deleting the affected numeric output while leaving the
   modifier parameter stranded.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
