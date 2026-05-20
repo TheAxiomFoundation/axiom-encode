@@ -11,7 +11,7 @@ import yaml
 
 from .registry import PolicyEngineMapping, load_policyengine_registry
 
-EXECUTABLE_RULE_KINDS = {"parameter", "derived"}
+EXECUTABLE_RULE_KINDS = {"parameter", "derived", "derived_relation"}
 ORACLE_COVERAGE_STATUSES = {"comparable", "known_not_comparable", "unmapped"}
 
 

@@ -30,6 +30,7 @@ from axiom_encode.cli import (
     _has_zero_output_test,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
+    _repair_missing_source_proof_atoms,
     _repair_mixed_scalar_output_tests,
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
@@ -7738,6 +7739,36 @@ rules:
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "statutes/26/3101/b/2.yaml",
         ]
+
+    def test_repair_missing_source_proofs_treats_derived_relation_as_executable(
+        self,
+    ):
+        content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/1
+rules:
+  - name: snap_unit
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
+"""
+
+        repaired, repaired_rules = _repair_missing_source_proof_atoms(content)
+
+        assert repaired_rules == ["snap_unit"]
+        assert "metadata:\n      proof:\n        atoms:" in repaired
+        assert "kind: formula" in repaired
+        assert "corpus_citation_path: us/regulation/7/273/1" in repaired
+        assert "span: '7 CFR 273.1(a)'" in repaired
 
     def test_repair_missing_source_proofs_allows_pending_tax_branch_repair(
         self, tmp_path

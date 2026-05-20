@@ -23,6 +23,7 @@ from axiom_encode.harness.evals import (
     _build_eval_prompt,
     _clean_generated_file_content,
     _command_looks_out_of_bounds,
+    _context_file_executable_surfaces,
     _eval_result_from_payload,
     _hydrate_eval_root,
     _is_single_amount_table_slice,
@@ -502,10 +503,40 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "header-only `parameter_table` proof atoms are invalid" in prompt
     assert "row_key" in prompt
     assert "column_key" in prompt
+    assert "kind: derived_relation" in prompt
+    assert "derived_relation:" in prompt
+    assert "arity: 2" in prompt
+    assert "source_relation: member_of_household" in prompt
+    assert "formula: snap_member_eligible" in prompt
     assert (
         "Adjacent bracket thresholds repeated as both an upper bound and the next"
         in prompt
     )
+
+
+def test_context_file_surfaces_include_derived_relation(tmp_path):
+    context_file = tmp_path / "snap_unit.yaml"
+    context_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: snap_unit
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
+"""
+    )
+
+    surfaces = _context_file_executable_surfaces(str(context_file))
+
+    assert surfaces["snap_unit"]["kind"] == "derived_relation"
+    assert surfaces["snap_unit"]["entity"] == "SnapUnit"
 
 
 def test_build_eval_prompt_lists_existing_target_surfaces(tmp_path):

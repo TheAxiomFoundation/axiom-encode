@@ -19,7 +19,8 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   defines that collapsed test. Keep process simplifications out of RuleSpec
   source encodings.
 - Before finalizing, compare the source's legal subject nouns and proof excerpts
-  against every executable `parameter` and `derived` rule's `entity:`. If the
+  against every executable `parameter`, `derived`, and `derived_relation`
+  rule's `entity:`. If the
   scope does not match the source, rename/re-scope the rule, defer the blocked
   output, or leave the phrase documentary; do not bridge the mismatch with an
   opaque local fact or a made-up household/tax-unit proxy."""
@@ -67,7 +68,7 @@ Hard requirements:
 - Do not emit `source_url`; RuleSpec validation reads normalized corpus provisions,
   not raw PDFs or web pages.
 - Use `rules:` as a list of rule objects.
-- Every executable `parameter` and `derived` rule must include a `source:`
+- Every executable `parameter`, `derived`, and `derived_relation` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
   the corpus locator.
@@ -77,6 +78,13 @@ Hard requirements:
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
 - Use `kind: derived` for entity-scoped outputs.
+- Use `kind: derived_relation` when the source defines a derived legal
+  membership concept by filtering a source relation through a predicate. Keep
+  the membership predicate as an ordinary source-backed rule, then define the
+  filtered entity under `derived_relation:` with `arity`, `source_relation`,
+  `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
+  names the predicate. Otherwise stay on `kind: derived` for ordinary
+  entity-scoped outputs.
 """
     + SOURCE_SCOPE_PROTOCOL
     + """
@@ -673,6 +681,33 @@ rules:
     versions:
       - effective_from: '2025-10-01'
         formula: example_amount_by_household_size[household_size]
+
+Derived membership shape:
+
+rules:
+  - name: snap_member_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_has_required_status
+          and not member_is_excluded_student
+  - name: snap_unit
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
 """
 )
 

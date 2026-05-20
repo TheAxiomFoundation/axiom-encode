@@ -2814,7 +2814,11 @@ def _rulespec_executable_index_for_roots(
 def _is_executable_rulespec_rule(rule: Any) -> bool:
     if not isinstance(rule, dict):
         return False
-    return str(rule.get("kind") or "").strip().lower() in {"parameter", "derived"}
+    return str(rule.get("kind") or "").strip().lower() in {
+        "parameter",
+        "derived",
+        "derived_relation",
+    }
 
 
 def _has_module_source_locator(payload: dict[str, Any]) -> bool:
@@ -3305,7 +3309,7 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
-    r"\b(?:each|every|all)\s+(?:household\s+)?member\b",
+    r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b",
     flags=re.IGNORECASE,
 )
 _SOURCE_SCOPE_PERSON = "person"
@@ -4927,7 +4931,11 @@ def find_formula_date_literal_issues(content: str) -> list[str]:
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        if str(rule.get("kind") or "").strip().lower() not in {"parameter", "derived"}:
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+            "derived_relation",
+        }:
             continue
         name = str(rule.get("name") or "").strip()
         versions = rule.get("versions")
@@ -6248,7 +6256,7 @@ def _rule_formula_numeric_values_by_name_for_child_source(
     for name, kind, formula, source, rule in _rulespec_rule_formula_rule_records(
         payload
     ):
-        if kind not in {"parameter", "derived"}:
+        if kind not in {"parameter", "derived", "derived_relation"}:
             continue
         context = "\n".join(
             [

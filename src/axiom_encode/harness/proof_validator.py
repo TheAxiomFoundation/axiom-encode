@@ -45,7 +45,7 @@ PROOF_ATOM_KINDS = frozenset(
         "unit",
     }
 )
-POLICY_RULE_KINDS = frozenset({"derived", "parameter"})
+POLICY_RULE_KINDS = frozenset({"derived", "derived_relation", "parameter"})
 
 
 def find_rulespec_proof_issues(content: str) -> list[str]:

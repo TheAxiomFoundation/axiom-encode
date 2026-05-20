@@ -118,6 +118,32 @@ rules:
     assert report["untested_comparable"] == 1
 
 
+def test_policyengine_coverage_counts_derived_relation_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "regulations/7-cfr/273/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_unit
+    kind: derived_relation
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    assert report["total_outputs"] == 1
+    assert report["items"][0]["legal_id"] == "us:regulations/7-cfr/273/1#snap_unit"
+    assert report["items"][0]["kind"] == "derived_relation"
+
+
 def test_policyengine_coverage_classifies_tax_parameter_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",
