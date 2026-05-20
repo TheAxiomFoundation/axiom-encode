@@ -3271,6 +3271,14 @@ _FINAL_AMOUNT_NAME_PATTERN = re.compile(
     r"(?:^|_)(?:amount|benefit|deduction|credit|tax|allotment|allowance)$",
     flags=re.IGNORECASE,
 )
+_TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN = re.compile(
+    r"(?m)^\((?P<label>[a-hj-r])\)[ \t]+(?P<text>.+)$"
+)
+_HIGH_SIGNAL_SUBPARAGRAPH_PATTERN = re.compile(
+    r"\b(?:means|shall\s+be\s+considered|is\s+defined\s+as|shall\s+be\s+deemed|"
+    r"eligible|ineligible)\b",
+    flags=re.IGNORECASE,
+)
 _UNIT_SCOPED_ENTITY_NAMES = {"household", "snapunit", "taxunit", "family", "spmunit"}
 _UNIT_SCOPED_ENTITY_LABELS = {
     "household": "Household",
@@ -3952,6 +3960,264 @@ def find_deferred_output_issues(content: str) -> list[str]:
                     )
 
     return issues
+
+
+def find_source_subparagraph_coverage_issues(
+    content: str,
+    *,
+    rules_file: Path | None = None,
+    source_texts: dict[str, str] | None = None,
+) -> list[str]:
+    """Require high-signal source children to be encoded or explicitly deferred."""
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return []
+
+    source_verification = _source_verification_block(payload)
+    if source_verification is None:
+        return []
+    citation_paths, source_label = _source_verification_source_fields(
+        source_verification
+    )
+    if len(citation_paths) != 1:
+        return []
+
+    citation_path = citation_paths[0]
+    source_text = _source_verification_text(
+        citation_paths=citation_paths,
+        source_label=source_label,
+        source_texts=source_texts,
+    ) or extract_embedded_source_text(content)
+    if not source_text:
+        return []
+
+    source_children = _high_signal_top_level_subparagraphs(source_text)
+    coverage_scope_prefix = _source_subparagraph_coverage_scope_prefix(
+        citation_path,
+        rules_file=rules_file,
+    )
+    if coverage_scope_prefix:
+        coverage_scope_top_level = _top_level_subparagraph_path(coverage_scope_prefix)
+        source_children = [
+            (label, text)
+            for label, text in source_children
+            if (label,) == coverage_scope_top_level
+        ]
+    if not source_children:
+        return []
+
+    covered_children = _rule_source_covered_subparagraphs(payload, citation_path)
+    covered_children.update(
+        _deferred_output_covered_subparagraphs(payload, citation_path)
+    )
+
+    issues: list[str] = []
+    for label, text in source_children:
+        if (label,) in covered_children:
+            continue
+        citation = _format_source_subparagraph_citation(citation_path, label)
+        excerpt = _compact_source_excerpt(text, limit=120)
+        issues.append(
+            "Source sub-paragraph coverage missing: "
+            f"{citation} ('{excerpt}') has no rule citing it and no entry in "
+            "`module.deferred_outputs`. Either encode a rule with "
+            f"`source: {citation}` or add a deferred_outputs entry naming the blocker."
+        )
+    return issues
+
+
+def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, str]]:
+    matches = list(_TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text))
+    children: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        label = match.group("label").lower()
+        start = match.start("text")
+        end = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
+        )
+        text = source_text[start:end].strip()
+        if _HIGH_SIGNAL_SUBPARAGRAPH_PATTERN.search(text):
+            children.append((label, text))
+    return children
+
+
+def _rule_source_covered_subparagraphs(
+    payload: dict[str, Any],
+    citation_path: str,
+) -> set[tuple[str, ...]]:
+    return {
+        _top_level_subparagraph_path(path)
+        for path in _rule_source_subparagraph_paths(payload, citation_path)
+        if path
+    }
+
+
+def _rule_source_subparagraph_paths(
+    payload: dict[str, Any],
+    citation_path: str,
+) -> set[tuple[str, ...]]:
+    paths: set[tuple[str, ...]] = set()
+    for _name, _kind, _formula, source, _rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if isinstance(source, str):
+            paths.update(_source_citation_subparagraph_paths(source, citation_path))
+    return paths
+
+
+def _deferred_output_covered_subparagraphs(
+    payload: dict[str, Any],
+    citation_path: str,
+) -> set[tuple[str, ...]]:
+    return {
+        _top_level_subparagraph_path(path)
+        for path in _deferred_output_subparagraph_paths(payload, citation_path)
+        if path
+    }
+
+
+def _deferred_output_subparagraph_paths(
+    payload: dict[str, Any],
+    citation_path: str,
+) -> set[tuple[str, ...]]:
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return set()
+    deferred_outputs = module.get("deferred_outputs")
+    if not isinstance(deferred_outputs, list):
+        return set()
+
+    base_parts = _rulespec_base_parts_for_corpus_path(citation_path)
+    if not base_parts:
+        return set()
+
+    paths: set[tuple[str, ...]] = set()
+    for record in deferred_outputs:
+        if not isinstance(record, dict):
+            continue
+        output = str(record.get("output") or "").strip()
+        target_ref = _parse_rulespec_target(output) if output else None
+        if target_ref is None:
+            continue
+        target_parts = _rulespec_relative_path_parts(target_ref.relative_path)
+        if (
+            len(target_parts) <= len(base_parts)
+            or target_parts[: len(base_parts)] != base_parts
+        ):
+            continue
+        paths.add(tuple(part.lower() for part in target_parts[len(base_parts) :]))
+    return paths
+
+
+def _source_subparagraph_coverage_scope_prefix(
+    citation_path: str,
+    *,
+    rules_file: Path | None,
+) -> tuple[str, ...]:
+    return _rulespec_file_subparagraph_scope(citation_path, rules_file)
+
+
+def _rulespec_file_subparagraph_scope(
+    citation_path: str,
+    rules_file: Path | None,
+) -> tuple[str, ...]:
+    if rules_file is None:
+        return ()
+    base_parts = _rulespec_base_parts_for_corpus_path(citation_path)
+    if not base_parts:
+        return ()
+
+    file_parts = list(rules_file.with_suffix("").parts)
+    for index in range(0, len(file_parts) - len(base_parts) + 1):
+        if tuple(file_parts[index : index + len(base_parts)]) != base_parts:
+            continue
+        return tuple(
+            part.lower() for part in file_parts[index + len(base_parts) :] if part
+        )
+    return ()
+
+
+def _source_citation_subparagraph_paths(
+    source: str,
+    citation_path: str,
+) -> set[tuple[str, ...]]:
+    pattern = _source_subparagraph_citation_pattern(citation_path)
+    if pattern is None:
+        return set()
+    paths: set[tuple[str, ...]] = set()
+    for match in pattern.finditer(source):
+        suffix = match.group("suffix")
+        parts = tuple(
+            part.lower() for part in re.findall(r"\(([A-Za-z0-9]+)\)", suffix) if part
+        )
+        if parts:
+            paths.add(parts)
+    return paths
+
+
+def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str] | None:
+    parts = citation_path.strip("/").split("/")
+    if len(parts) >= 4 and parts[:2] == ["us", "statute"]:
+        title = re.escape(parts[2])
+        section = re.escape(parts[3])
+        citation_prefixes = [rf"{title}\s+(?:U\.?\s*S\.?\s*C\.?|USC)\s+{section}"]
+        if parts[2] == "26":
+            citation_prefixes.append(rf"I\.?\s*R\.?\s*C\.?\s+section\s+{section}")
+            citation_prefixes.append(rf"IRC\s+section\s+{section}")
+        return re.compile(
+            rf"\b(?:{'|'.join(citation_prefixes)})"
+            r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+            flags=re.IGNORECASE,
+        )
+    if len(parts) >= 5 and parts[:2] == ["us", "regulation"]:
+        title = re.escape(parts[2])
+        section = re.escape(f"{parts[3]}.{parts[4]}")
+        return re.compile(
+            rf"\b{title}\s+(?:C\.?\s*F\.?\s*R\.?|CFR)\s+{section}"
+            r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+            flags=re.IGNORECASE,
+        )
+    return None
+
+
+def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
+    parts = citation_path.strip("/").split("/")
+    if len(parts) >= 4 and parts[:2] == ["us", "statute"]:
+        return ("statutes", parts[2], parts[3])
+    if len(parts) >= 5 and parts[:2] == ["us", "regulation"]:
+        return ("regulations", f"{parts[2]}-cfr", parts[3], parts[4])
+    return ()
+
+
+def _rulespec_relative_path_parts(path: Path) -> tuple[str, ...]:
+    parts = list(path.parts)
+    if parts:
+        last = parts[-1]
+        for suffix in (".yaml", ".yml"):
+            if last.endswith(suffix):
+                parts[-1] = last[: -len(suffix)]
+                break
+    return tuple(parts)
+
+
+def _top_level_subparagraph_path(path: tuple[str, ...]) -> tuple[str, ...]:
+    return (path[0].lower(),) if path else ()
+
+
+def _format_source_subparagraph_citation(citation_path: str, label: str) -> str:
+    parts = citation_path.strip("/").split("/")
+    if len(parts) >= 4 and parts[:2] == ["us", "statute"]:
+        return f"{parts[2]} USC {parts[3]}({label})"
+    if len(parts) >= 5 and parts[:2] == ["us", "regulation"]:
+        return f"{parts[2]} CFR {parts[3]}.{parts[4]}({label})"
+    return f"{citation_path}({label})"
+
+
+def _compact_source_excerpt(text: str, *, limit: int) -> str:
+    excerpt = re.sub(r"\s+", " ", text).strip()
+    if len(excerpt) <= limit:
+        return excerpt
+    return excerpt[: limit - 3].rstrip() + "..."
 
 
 def _deferred_output_source_value_symbols(payload: dict[str, Any]) -> set[str]:
@@ -10523,6 +10789,9 @@ class ValidatorPipeline:
         issues.extend(find_source_scope_consistency_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
+        issues.extend(
+            find_source_subparagraph_coverage_issues(content, rules_file=rules_file)
+        )
         issues.extend(find_tax_status_component_local_input_issues(content))
         issues.extend(find_unused_modifier_parameter_issues(content))
         issues.extend(find_tax_filing_status_enum_representation_issues(content))

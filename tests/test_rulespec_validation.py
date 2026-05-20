@@ -57,6 +57,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_condition_coverage_issues,
     find_source_limitation_application_issues,
     find_source_scope_consistency_issues,
+    find_source_subparagraph_coverage_issues,
     find_source_verification_issues,
     find_tax_filing_status_enum_representation_issues,
     find_tax_filing_status_local_input_issues,
@@ -8808,6 +8809,392 @@ rules: []
         "`us:statutes/us-ca/17000#general_assistance_eligibility` embeds a "
         "jurisdiction in the path; use the target jurisdiction prefix instead."
     ]
+
+
+def test_source_subparagraph_coverage_rejects_high_signal_omission():
+    source_text = """Definitions
+(a) Benefit means the amount payable under this program.
+(b) Effective date. This section applies after October 1.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+  summary: Definitions
+rules: []
+"""
+
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={"us/statute/7/2012": source_text},
+    )
+
+    assert issues == [
+        "Source sub-paragraph coverage missing: 7 USC 2012(a) "
+        "('Benefit means the amount payable under this program.') has no rule "
+        "citing it and no entry in `module.deferred_outputs`. Either encode a "
+        "rule with `source: 7 USC 2012(a)` or add a deferred_outputs entry "
+        "naming the blocker."
+    ]
+
+
+def test_source_subparagraph_coverage_allows_rule_citing_child():
+    source_text = """Definitions
+(a) Benefit means the amount payable under this program.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules:
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: 7 USC 2012(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: benefit_amount
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us/statute/7/2012": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_rejects_sibling_omission_for_top_level_rule():
+    source_text = """Definitions
+(a) Benefit means the amount payable under this program.
+(b) Household means an individual or group.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules:
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: 7 USC 2012(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: benefit_amount
+"""
+
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={"us/statute/7/2012": source_text},
+    )
+
+    assert len(issues) == 1
+    assert "7 USC 2012(b)" in issues[0]
+
+
+def test_source_subparagraph_coverage_allows_rule_citing_descendant():
+    source_text = """Definitions
+(m) Household means an individual who lives alone or a group of individuals who live together.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules:
+  - name: snap_household_member_condition
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 USC 2012(m)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: lives_with_household
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us/statute/7/2012": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_scopes_nested_rulespec_file_path(tmp_path):
+    source_text = """Eligibility disqualifications
+(a) Additional specific conditions rendering individuals ineligible.
+(d) Work requirement (1) In general. (2) Exemptions.
+(e) Students means individuals enrolled in higher education.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2015
+rules:
+  - name: title_iv_work_registration_exemption_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 USC 2015(d)(2)(A)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: complying_with_title_iv_work_registration
+"""
+    rules_file = (
+        tmp_path / "rulespec-us" / "statutes" / "7" / "2015" / "d" / "2" / "A.yaml"
+    )
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            rules_file=rules_file,
+            source_texts={"us/statute/7/2015": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_matches_irc_section_citation(tmp_path):
+    source_text = """Standard deduction
+(a) Rule for taxable years.
+(c) Standard deduction means the sum of the basic standard deduction and the additional standard deduction.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/63
+rules:
+  - name: dependent_basic_standard_deduction_limit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: IRC section 63(c)(5)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: dependent_standard_deduction_limit
+"""
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "26" / "63" / "c" / "5.yaml"
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            rules_file=rules_file,
+            source_texts={"us/statute/26/63": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_rejects_broad_parent_citation():
+    source_text = """Definitions
+(m) Household means an individual who lives alone or a group of individuals who live together.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules:
+  - name: snap_household_note
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 7 USC 2012
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_definition_applies
+"""
+
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={"us/statute/7/2012": source_text},
+    )
+
+    assert len(issues) == 1
+    assert "7 USC 2012(m)" in issues[0]
+
+
+def test_source_subparagraph_coverage_allows_deferred_child_path():
+    source_text = """Definitions
+(m) Household means an individual who lives alone or a group of individuals who live together.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+  deferred_outputs:
+    - output: us:statutes/7/2012/m#snap_household
+      reason: Requires a base source relation not yet available.
+rules: []
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us/statute/7/2012": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_rejects_deferred_parent_path_only():
+    source_text = """Definitions
+(m) Household means an individual who lives alone or a group of individuals who live together.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+  deferred_outputs:
+    - output: us:statutes/7/2012#snap_household
+      reason: Parent path is too broad to cover subsection m.
+rules: []
+"""
+
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={"us/statute/7/2012": source_text},
+    )
+
+    assert len(issues) == 1
+    assert "7 USC 2012(m)" in issues[0]
+
+
+def test_source_subparagraph_coverage_ignores_low_signal_children():
+    source_text = """Definitions
+(a) Effective date. This section applies after October 1.
+(b) Severability. If any provision is held invalid, the rest remains in effect.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules: []
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us/statute/7/2012": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_skips_missing_source_verification():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (m) Household means an individual who lives alone.
+rules: []
+"""
+
+    assert find_source_subparagraph_coverage_issues(content) == []
+
+
+def test_source_subparagraph_coverage_skips_multiple_source_verification_paths():
+    source_text = """Definitions
+(m) Household means an individual who lives alone.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/statute/7/2012
+      - us/statute/7/2014
+rules: []
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={
+                "us/statute/7/2012": source_text,
+                "us/statute/7/2014": source_text,
+            },
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_skips_missing_source_text(monkeypatch):
+    monkeypatch.setattr(
+        "axiom_encode.harness.validator_pipeline._fetch_corpus_source_text",
+        lambda citation_path: None,
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules: []
+"""
+
+    assert find_source_subparagraph_coverage_issues(content) == []
+
+
+def test_source_subparagraph_coverage_ignores_indented_nested_markers():
+    source_text = """Definitions
+(m) Household means one of the following:
+  (i) an individual who lives alone.
+  (ii) a group of individuals who live together.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+  deferred_outputs:
+    - output: us:statutes/7/2012/m#snap_household
+      reason: Requires a base source relation not yet available.
+rules: []
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us/statute/7/2012": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_ignores_column_zero_nested_roman_i():
+    source_text = """Definitions
+(a) Application process.
+(1) Special criteria.
+(i) Eligible alien means an alien satisfying this nested condition.
+(b) Benefit means the amount payable under this program.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules:
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    source: 7 USC 2012(a), 7 USC 2012(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: benefit_amount
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us/statute/7/2012": source_text},
+        )
+        == []
+    )
 
 
 def test_unused_modifier_parameter_ignores_judgment_names_with_amount_word():
