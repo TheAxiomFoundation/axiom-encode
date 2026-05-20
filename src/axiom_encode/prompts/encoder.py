@@ -24,7 +24,8 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   output, or leave the phrase documentary; do not bridge the mismatch with an
   opaque local fact or a made-up household/tax-unit proxy."""
 
-ENCODER_PROMPT = """# Axiom RuleSpec Encoder
+ENCODER_PROMPT = (
+    """# Axiom RuleSpec Encoder
 
 Encode only the supplied legal source text into Axiom RuleSpec YAML.
 
@@ -76,7 +77,9 @@ Hard requirements:
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
 - Use `kind: derived` for entity-scoped outputs.
-""" + SOURCE_SCOPE_PROTOCOL + """
+"""
+    + SOURCE_SCOPE_PROTOCOL
+    + """
 - If source text is a broad application, furnishing, administrative duty, or
   purpose clause without a computable policy condition, preserve it in
   `module.summary` but do not create an executable derived output just to
@@ -671,6 +674,7 @@ rules:
       - effective_from: '2025-10-01'
         formula: example_amount_by_household_size[household_size]
 """
+)
 
 
 def get_encoder_prompt(
