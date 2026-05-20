@@ -121,7 +121,7 @@ Use `snap-ecps-compare` to compare a SNAP composition module against
 PolicyEngine ECPS (enhanced CPS) records:
 
 ```bash
-uv run --with policyengine-us --with numpy \
+uv run --with 'policyengine[us]==4.9.0' --with numpy \
   axiom-encode snap-ecps-compare \
   --jurisdiction us-ny \
   --utility-projection policyengine-type \

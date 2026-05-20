@@ -10,3 +10,4 @@ build/
 .coverage
 hook_debug.log
 artifacts/eval-suites/
+.axiom/
