@@ -120,6 +120,23 @@ def _matching_numeric_occurrence_count(
     )
 
 
+def _is_empty_nonassertable_artifact(content: str) -> bool:
+    """Return true for intentionally non-executable artifacts with no rules."""
+    try:
+        payload = yaml.safe_load(content)
+    except (ValueError, yaml.YAMLError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    module = payload.get("module")
+    status = (
+        str(module.get("status", "")).strip()
+        if isinstance(module, dict)
+        else str(payload.get("status", "")).strip()
+    )
+    return status in {"deferred", "entity_not_supported"} and not payload.get("rules")
+
+
 @dataclass(frozen=True)
 class EvalRunnerSpec:
     """How to invoke a model in an eval."""
@@ -2129,6 +2146,8 @@ def evaluate_artifact(
     source_numeric_occurrences = Counter(
         extract_numeric_occurrences_from_text(numeric_validation_source_text or "")
     )
+    if _is_empty_nonassertable_artifact(content):
+        source_numeric_occurrences = Counter()
     named_scalar_occurrences = Counter(
         item.value for item in extract_named_scalar_occurrences(content)
     )
@@ -3037,10 +3056,14 @@ RuleSpec requirements:
   surface and still encode independent source-backed outputs that do not require
   the unavailable dependency. For each omitted/deferred executable output in a
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
-  targets for `output` and every `blocked_by` dependency, a plain-language
-  `reason`, and `source_values` entries for any source-stated local parameters
-  retained only for that deferred output. Do not create tests for deferred
-  outputs. If a source-grounded overriding rule makes the
+  targets for `output`, a plain-language `reason`, and `source_values` entries
+  for any source-stated local parameters retained only for that deferred output.
+  Only include `blocked_by` entries when you know the exact RuleSpec output with
+  a `#rule_fragment`. Do not list bare legal provisions, corpus paths, statute
+  sections, or guessed pseudo-targets in `blocked_by`; for example,
+  `us:statutes/us-ca/17000` is invalid. If the exact upstream RuleSpec output is
+  unknown, omit `blocked_by` and name the legal dependency in `reason`. Do not create
+  tests for deferred outputs. If a source-grounded overriding rule makes the
   unavailable branch zero or unreachable for the encoded effective period,
   encode that overriding branch instead of deferring the whole module. If that
   section is present in repo context, import it and use its exported output
@@ -3205,7 +3228,9 @@ RuleSpec requirements:
   affected formula, or defer that affected output until the upstream branch
   condition can be encoded/imported. If you defer the affected output, list the
   deferred output under `module.deferred_outputs[]` and list the absolute target
-  for the retained modifier parameter under that record's `source_values`.
+  for the retained modifier parameter under that record's `source_values`. Include
+  `blocked_by` only for exact upstream RuleSpec outputs with `#rule_fragment`;
+  otherwise explain the unknown blocker in `reason`.
   Do not solve this by deleting the affected numeric output while leaving the
   modifier parameter stranded.
 - Supported relation aggregators are `len(relation)`,
@@ -3270,7 +3295,7 @@ RuleSpec requirements:
 - Do not create named `parameter` rules for structural table row labels, household-size row indexes, or branch numbers unless the source actually sets that value as a legal amount, rate, threshold, cap, or limit; use those structural comparisons inline instead.
 - If the source cannot be represented faithfully with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
 - Never emit `rules: []` without an explicit non-executable `module.status`. If the source has operative text, encode at least one source-backed rule instead of silently returning an empty module.
-- For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty and do not create assertions against deferred symbols.
+- For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty. Do not create tests for deferred outputs or assertions against deferred symbols.
 - If metadata or context names an absolute canonical target that this source `sets`, `amends`, `implements`, or `restates`, add a separate `kind: source_relation` record with `source_relation.type` and `source_relation.target`. Do not put source graph edges in executable rule metadata.
 - Preserve existing or copied `kind: source_relation` records unless `./source.txt` proves the legal/provenance edge is wrong.
 - For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
@@ -3656,7 +3681,9 @@ issues are gone. If a copied import no longer resolves in the clean repo
 context, remove that import and defer the affected executable surface instead of
 preserving a dirty-tree dependency. For deferred executable surfaces, record
 exact provenance under `module.deferred_outputs[]` with absolute `output`,
-`blocked_by`, and `source_values` targets as applicable:
+`source_values`, and exact `blocked_by` targets as applicable. If an exact
+upstream RuleSpec output is unknown, omit `blocked_by` and explain the legal
+dependency in `reason` instead of inventing a bare provision target:
 {lines}
 """.format(lines="\n".join(issue_lines))
 

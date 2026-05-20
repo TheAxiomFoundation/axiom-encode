@@ -8695,6 +8695,38 @@ rules: []
     ]
 
 
+def test_deferred_output_allows_unknown_blockers_in_reason_without_blocked_by():
+    content = """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us-ca:statutes/wic/18901/5#calfresh_categorical_eligibility
+      reason: Requires California General Assistance rules under WIC 17000 and SNAP categorical eligibility rules under WIC 18930, but no exact RuleSpec outputs were available in context.
+rules: []
+"""
+
+    assert find_deferred_output_issues(content) == []
+
+
+def test_deferred_output_rejects_embedded_jurisdiction_blocker_path():
+    content = """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us-ca:statutes/wic/18901/5#calfresh_categorical_eligibility
+      reason: Missing upstream eligibility rules.
+      blocked_by:
+        - us:statutes/us-ca/17000#general_assistance_eligibility
+rules: []
+"""
+
+    issues = find_deferred_output_issues(content)
+
+    assert issues == [
+        "module.deferred_outputs[0].blocked_by entry "
+        "`us:statutes/us-ca/17000#general_assistance_eligibility` embeds a "
+        "jurisdiction in the path; use the target jurisdiction prefix instead."
+    ]
+
+
 def test_unused_modifier_parameter_ignores_judgment_names_with_amount_word():
     content = """format: rulespec/v1
 rules:
