@@ -17,6 +17,31 @@ def _write_rulespec(
 ):
     path = repo / relative
     path.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "derived_relation":
+        body = (
+            f"  - name: {rule_name}\n"
+            "    kind: derived_relation\n"
+            "    derived_relation:\n"
+            "      arity: 2\n"
+            "      source_relation: member_of_household\n"
+            "      entity: SnapUnit\n"
+            "      member_relation: members\n"
+            "      slot_entities: [Person, Household]\n"
+            "    versions:\n"
+            "      - effective_from: '2025-10-01'\n"
+            "        formula: snap_member_eligible\n"
+        )
+    else:
+        body = (
+            f"  - name: {rule_name}\n"
+            f"    kind: {kind}\n"
+            "    entity: Household\n"
+            "    dtype: Judgment\n"
+            "    period: Month\n"
+            "    versions:\n"
+            "      - effective_from: '2025-10-01'\n"
+            "        formula: true\n"
+        )
     path.write_text(
         "format: rulespec/v1\n"
         "module:\n"
@@ -24,14 +49,7 @@ def _write_rulespec(
         "  source_verification:\n"
         "    corpus_citation_path: us-tn/regulation/demo/snap\n"
         "rules:\n"
-        f"  - name: {rule_name}\n"
-        f"    kind: {kind}\n"
-        "    entity: Household\n"
-        "    dtype: Judgment\n"
-        "    period: Month\n"
-        "    versions:\n"
-        "      - effective_from: '2025-10-01'\n"
-        "        formula: true\n"
+        f"{body}"
     )
     return path
 

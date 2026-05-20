@@ -2953,9 +2953,10 @@ RuleSpec requirements:
 - Use `kind: derived_relation` when the source defines a derived legal
   membership concept by filtering a source relation through a predicate. Keep
   the membership predicate as an ordinary source-backed rule, then define the
-  filtered entity with `source_relation`, `member_relation`, `slot_entities`,
-  and a `versions[].formula` that names the predicate. Otherwise stay on
-  `kind: derived` for ordinary entity-scoped outputs.
+  filtered entity under `derived_relation:` with `arity`, `source_relation`,
+  `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
+  names the predicate. Otherwise stay on `kind: derived` for ordinary
+  entity-scoped outputs.
 {SOURCE_SCOPE_PROTOCOL}
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
@@ -3377,10 +3378,12 @@ rules:
           and not member_is_excluded_student
   - name: snap_unit
     kind: derived_relation
-    entity: SnapUnit
-    source_relation: member_of_household
-    member_relation: members
-    slot_entities: [Person]
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
     source: 7 CFR 273.1(a)
     versions:
       - effective_from: '2026-01-01'
@@ -4591,9 +4594,13 @@ def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, o
                     effective_dates.append(
                         str(version.get("effective_from") or "").strip()
                     )
+        derived_relation = rule.get("derived_relation")
+        relation_entity = ""
+        if kind == "derived_relation" and isinstance(derived_relation, dict):
+            relation_entity = str(derived_relation.get("entity") or "").strip()
         surfaces[name] = {
             "kind": kind,
-            "entity": str(rule.get("entity") or "").strip(),
+            "entity": relation_entity or str(rule.get("entity") or "").strip(),
             "dtype": str(rule.get("dtype") or "").strip(),
             "period": str(rule.get("period") or "").strip(),
             "unit": str(rule.get("unit") or "").strip(),

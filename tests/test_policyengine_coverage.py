@@ -125,10 +125,12 @@ def test_policyengine_coverage_counts_derived_relation_outputs(tmp_path):
 rules:
   - name: snap_unit
     kind: derived_relation
-    entity: SnapUnit
-    source_relation: member_of_household
-    member_relation: members
-    slot_entities: [Person]
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
     versions:
       - effective_from: '2026-01-01'
         formula: snap_member_eligible

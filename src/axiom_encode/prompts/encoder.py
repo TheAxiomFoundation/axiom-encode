@@ -81,9 +81,10 @@ Hard requirements:
 - Use `kind: derived_relation` when the source defines a derived legal
   membership concept by filtering a source relation through a predicate. Keep
   the membership predicate as an ordinary source-backed rule, then define the
-  filtered entity with `source_relation`, `member_relation`, `slot_entities`,
-  and a `versions[].formula` that names the predicate. Otherwise stay on
-  `kind: derived` for ordinary entity-scoped outputs.
+  filtered entity under `derived_relation:` with `arity`, `source_relation`,
+  `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
+  names the predicate. Otherwise stay on `kind: derived` for ordinary
+  entity-scoped outputs.
 """
     + SOURCE_SCOPE_PROTOCOL
     + """
@@ -697,10 +698,12 @@ rules:
           and not member_is_excluded_student
   - name: snap_unit
     kind: derived_relation
-    entity: SnapUnit
-    source_relation: member_of_household
-    member_relation: members
-    slot_entities: [Person]
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
     source: 7 CFR 273.1(a)
     versions:
       - effective_from: '2026-01-01'

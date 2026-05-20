@@ -85,6 +85,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "listed under invalid copied local inputs" in ENCODER_PROMPT
     assert "do not preserve, rename, or recreate" in ENCODER_PROMPT
     assert "kind: derived_relation" in ENCODER_PROMPT
+    assert "derived_relation:" in ENCODER_PROMPT
+    assert "arity: 2" in ENCODER_PROMPT
     assert "source_relation: member_of_household" in ENCODER_PROMPT
     assert "formula: snap_member_eligible" in ENCODER_PROMPT
     assert "round the" in prompt
@@ -101,6 +103,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "listed under invalid copied local inputs" in prompt
     assert "do not preserve, rename, or recreate" in prompt
     assert "kind: derived_relation" in prompt
+    assert "derived_relation:" in prompt
+    assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
     assert "formula: snap_member_eligible" in prompt
 

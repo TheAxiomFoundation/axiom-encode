@@ -7750,10 +7750,12 @@ module:
 rules:
   - name: snap_unit
     kind: derived_relation
-    entity: SnapUnit
-    source_relation: member_of_household
-    member_relation: members
-    slot_entities: [Person]
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
     source: 7 CFR 273.1(a)
     versions:
       - effective_from: '2026-01-01'

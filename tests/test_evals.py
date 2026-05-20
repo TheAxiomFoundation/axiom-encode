@@ -504,6 +504,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "row_key" in prompt
     assert "column_key" in prompt
     assert "kind: derived_relation" in prompt
+    assert "derived_relation:" in prompt
+    assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
     assert "formula: snap_member_eligible" in prompt
     assert (
@@ -519,10 +521,12 @@ def test_context_file_surfaces_include_derived_relation(tmp_path):
 rules:
   - name: snap_unit
     kind: derived_relation
-    entity: SnapUnit
-    source_relation: member_of_household
-    member_relation: members
-    slot_entities: [Person]
+    derived_relation:
+      arity: 2
+      source_relation: member_of_household
+      entity: SnapUnit
+      member_relation: members
+      slot_entities: [Person, Household]
     versions:
       - effective_from: '2026-01-01'
         formula: snap_member_eligible
