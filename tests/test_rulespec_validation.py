@@ -7995,6 +7995,156 @@ rules:
     ]
 
 
+def test_source_scope_consistency_allows_household_source_as_snapunit_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Household resources are tested against the applicable resource limit for
+    household eligibility.
+rules:
+  - name: snap_unit_resource_eligible
+    kind: derived
+    entity: SnapUnit
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.8
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          snap_unit_resources <= resource_limit
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_taxunit_source_as_household_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The tax unit income must be below the eligibility standard.
+rules:
+  - name: household_tax_unit_income_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: tax manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_income <= tax_unit_income_standard
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `household_tax_unit_income_eligible` is "
+        "declared on `Household`, but the embedded source states a `TaxUnit` "
+        "unit-scoped test. Encode the rule at the source-stated unit scope or "
+        "cite source text that states the declared unit scope."
+    ]
+
+
+def test_source_scope_consistency_accepts_matching_snapunit_source():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The SNAP unit income is tested against the applicable standard.
+rules:
+  - name: snap_unit_income_eligible
+    kind: derived
+    entity: SnapUnit
+    dtype: Judgment
+    period: Month
+    source: state manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          snap_unit_income <= snap_unit_income_standard
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_does_not_treat_family_member_as_family_unit():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A qualifying family member is eligible for food assistance.
+rules:
+  - name: qualifying_family_member_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: state manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          is_qualifying_family_member
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_recognizes_state_manual_person_wording():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    An applicant who fails to cooperate with identity verification is not
+    eligible for food assistance.
+rules:
+  - name: household_identity_verification_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: state manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          all_applicants_cooperated_with_identity_verification
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `household_identity_verification_eligible` "
+        "is declared on `Household`, but the embedded source states an "
+        "individual/person/member-scoped eligibility or disqualification. "
+        "Encode the rule at the person/member scope or cite source text that "
+        "states the unit-level test."
+    ]
+
+
+def test_source_scope_consistency_recognizes_state_manual_unit_wording():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The assistance unit income must be below the eligibility standard.
+rules:
+  - name: applicant_income_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: state manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          applicant_income <= eligibility_standard
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `applicant_income_eligible` is declared on "
+        "`Person`, but the embedded source states a household/unit-scoped test. "
+        "Encode the rule at the source-stated unit scope or cite source text "
+        "that states the person-level test."
+    ]
+
+
 def test_source_scope_consistency_does_not_guess_mixed_source_scope():
     content = """format: rulespec/v1
 module:
@@ -8015,6 +8165,156 @@ rules:
 """
 
     assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_uses_rule_proof_excerpt_before_mixed_summary():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Household eligibility depends on income, resources, and whether each
+    household member satisfies several person-level disqualification rules.
+rules:
+  - name: snap_sponsored_alien_verification_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.4(c)(5)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: "Until the alien provides information or verification necessary to carry out the provisions of paragraph (c)(2), the sponsored alien is ineligible."
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          all_members_have_sponsor_information
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `snap_sponsored_alien_verification_eligible` "
+        "is declared on `Household`, but the embedded source states an "
+        "individual/person/member-scoped eligibility or disqualification. "
+        "Encode the rule at the person/member scope or cite source text that "
+        "states the unit-level test."
+    ]
+
+
+def test_source_scope_consistency_rejects_definite_person_subject_at_unit_scope():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Until the alien provides information or verification necessary to carry out
+    the provisions of paragraph (c)(2), the sponsored alien is ineligible.
+rules:
+  - name: sponsored_alien_ineligible_while_verification_missing
+    kind: derived
+    entity: SnapUnit
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.4(c)(5)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          not sponsored_alien_provided_verification
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: "
+        "`sponsored_alien_ineligible_while_verification_missing` is declared "
+        "on `SnapUnit`, but the embedded source states an "
+        "individual/person/member-scoped eligibility or disqualification. "
+        "Encode the rule at the person/member scope or cite source text that "
+        "states the unit-level test."
+    ]
+
+
+def test_source_scope_consistency_skips_rule_with_mixed_proof_excerpt():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Household eligibility depends on each household member meeting an
+    individual condition.
+rules:
+  - name: snap_member_condition_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: mixed source
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: "Household eligibility depends on each household member meeting an individual condition."
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          all_member_conditions_met
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_checks_each_rule_independently():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Household eligibility depends on resources and member-level alien status.
+rules:
+  - name: snap_member_alien_status_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.4
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: "No person is eligible to participate in the Program unless that person meets a listed citizenship or alien status condition."
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_has_eligible_alien_status
+  - name: snap_sponsored_alien_verification_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.4(c)(5)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: "Until the alien provides information or verification necessary to carry out paragraph (c)(2), the sponsored alien is ineligible."
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          all_sponsored_aliens_provided_verification
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `snap_sponsored_alien_verification_eligible` "
+        "is declared on `Household`, but the embedded source states an "
+        "individual/person/member-scoped eligibility or disqualification. "
+        "Encode the rule at the person/member scope or cite source text that "
+        "states the unit-level test."
+    ]
 
 
 def test_filing_status_local_input_allows_imported_formula():
@@ -8316,6 +8616,26 @@ rules: []
         "source_values" in issue and "absolute RuleSpec target" in issue
         for issue in issues
     )
+
+
+def test_deferred_output_rejects_absolute_blocker_without_rule_fragment():
+    content = """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/4#qualified_alien_eligible_to_receive_snap_benefits
+      reason: Missing upstream INA withholding-of-removal rule.
+      blocked_by:
+        - us:statutes/us/241/b/3
+rules: []
+"""
+
+    issues = find_deferred_output_issues(content)
+
+    assert issues == [
+        "module.deferred_outputs[0].blocked_by entry "
+        "`us:statutes/us/241/b/3` must be an absolute RuleSpec target with a "
+        "rule fragment."
+    ]
 
 
 def test_unused_modifier_parameter_ignores_judgment_names_with_amount_word():
