@@ -2928,7 +2928,8 @@ RuleSpec requirements:
 - Do not emit `source_url`; RuleSpec source verification reads `corpus.provisions`, not raw PDFs or web pages.
 {corpus_rulespec_requirement.rstrip()}
 - Include `module.proof_validation.required: true` and add
-  `metadata.proof.atoms` to every `parameter` and `derived` rule. Each atom
+  `metadata.proof.atoms` to every `parameter`, `derived`, and
+  `derived_relation` rule. Each atom
   must point to the corpus source, an accepted claim, or an explicit imported
   RuleSpec export supporting that rule's formula/value.
 - For imported proof support, put `import:` at the proof atom top level
@@ -2943,12 +2944,18 @@ RuleSpec requirements:
   `parameter`, `parameter_table`, `predicate`, `table_cell`, or `unit`.
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
-- Rule kinds are `parameter`, `derived`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
+- Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
 - A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header`, `source.table.row_key`, and `source.table.column_key`; header-only `parameter_table` proof atoms are invalid. Example: `source: {{table: {{header: "credit percentage table", row_key: "qualifying_child_count", column_key: "credit_percentage"}}}}`. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell` or `parameter_table`.
-- Every executable `parameter` and `derived` rule must include a `source:`
+- Every executable `parameter`, `derived`, and `derived_relation` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
   the corpus locator.
+- Use `kind: derived_relation` when the source defines a derived legal
+  membership concept by filtering a source relation through a predicate. Keep
+  the membership predicate as an ordinary source-backed rule, then define the
+  filtered entity with `source_relation`, `member_relation`, `slot_entities`,
+  and a `versions[].formula` that names the predicate. Otherwise stay on
+  `kind: derived` for ordinary entity-scoped outputs.
 {SOURCE_SCOPE_PROTOCOL}
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
@@ -3352,6 +3359,32 @@ rules:
       - effective_from: '2024-01-01'
         formula: |-
           if example_condition: example_amount else: 0
+```
+
+Derived membership shape:
+```yaml
+rules:
+  - name: snap_member_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_has_required_status
+          and not member_is_excluded_student
+  - name: snap_unit
+    kind: derived_relation
+    entity: SnapUnit
+    source_relation: member_of_household
+    member_relation: members
+    slot_entities: [Person]
+    source: 7 CFR 273.1(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
 ```
 
 {output_rules}
@@ -4545,7 +4578,7 @@ def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, o
         if not isinstance(rule, dict):
             continue
         kind = str(rule.get("kind") or "").strip().lower()
-        if kind not in {"parameter", "derived", "data_relation"}:
+        if kind not in {"parameter", "derived", "derived_relation", "data_relation"}:
             continue
         name = str(rule.get("name") or "").strip()
         if not name:

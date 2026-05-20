@@ -12,7 +12,7 @@ import yaml
 
 from .ecps_snap import JURISDICTION_CONFIGS
 
-EXECUTABLE_RULE_KINDS = {"parameter", "derived"}
+EXECUTABLE_RULE_KINDS = {"parameter", "derived", "derived_relation"}
 SNAP_MARKERS = (
     "snap",
     "supplemental nutrition assistance",

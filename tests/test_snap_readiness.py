@@ -8,7 +8,13 @@ from axiom_encode.oracles.policyengine.snap_readiness import (
 )
 
 
-def _write_rulespec(repo: Path, relative: str, *, rule_name: str = "snap_eligible"):
+def _write_rulespec(
+    repo: Path,
+    relative: str,
+    *,
+    rule_name: str = "snap_eligible",
+    kind: str = "derived",
+):
     path = repo / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -19,7 +25,7 @@ def _write_rulespec(repo: Path, relative: str, *, rule_name: str = "snap_eligibl
         "    corpus_citation_path: us-tn/regulation/demo/snap\n"
         "rules:\n"
         f"  - name: {rule_name}\n"
-        "    kind: derived\n"
+        f"    kind: {kind}\n"
         "    entity: Household\n"
         "    dtype: Judgment\n"
         "    period: Month\n"
@@ -92,6 +98,24 @@ def test_snap_readiness_reports_ecps_ready_for_configured_program_module(tmp_pat
     assert colorado["policyengine_ecps_configured"] is True
     assert colorado["program_module_exists"] is True
     assert colorado["executable_outputs"] == 1
+
+
+def test_snap_readiness_counts_derived_relation_outputs(tmp_path):
+    root = tmp_path / "workspace"
+    corpus_root = root / "axiom-corpus"
+    repo = root / "rulespec-us-co"
+    _write_rulespec(
+        repo,
+        "policies/cdhs/snap/fy-2026-benefit-calculation.yaml",
+        rule_name="snap_unit",
+        kind="derived_relation",
+    )
+    _write_corpus_provision(corpus_root, "us-co/regulation/demo/snap")
+
+    report = build_snap_readiness_report(root, corpus_root=corpus_root)
+
+    by_jurisdiction = {item["jurisdiction"]: item for item in report["items"]}
+    assert by_jurisdiction["us-co"]["executable_outputs"] == 1
 
 
 def test_snap_readiness_flags_rules_without_policyengine_config(tmp_path):

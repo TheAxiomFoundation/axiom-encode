@@ -310,6 +310,32 @@ rules:
     ]
 
 
+def test_rule_source_metadata_rejects_derived_relation_without_rule_source():
+    content = """format: rulespec/v1
+module:
+  summary: Household members who meet the eligibility tests form the SNAP unit.
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/1
+rules:
+  - name: snap_unit
+    kind: derived_relation
+    entity: SnapUnit
+    source_relation: member_of_household
+    member_relation: members
+    slot_entities: [Person]
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_member_eligible
+"""
+
+    issues = find_rule_source_metadata_issues(content)
+
+    assert issues == [
+        "Rule source metadata required: `snap_unit` is an executable rule "
+        "and must include `source:` with the legal citation/span supporting it."
+    ]
+
+
 def test_rule_source_metadata_rejects_missing_module_source_locator():
     content = """format: rulespec/v1
 module:
@@ -9143,6 +9169,26 @@ rules:
     assert any(
         "taxable_year_begins_after_termination_date" in issue for issue in issues
     )
+
+
+def test_formula_date_literal_rejects_iso_dates_in_derived_relation_formulas():
+    content = """format: rulespec/v1
+rules:
+  - name: snap_unit
+    kind: derived_relation
+    entity: SnapUnit
+    source_relation: member_of_household
+    member_relation: members
+    slot_entities: [Person]
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          member_entry_date >= 2025-01-01
+"""
+
+    issues = find_formula_date_literal_issues(content)
+
+    assert any("Formula date literal unsupported" in issue for issue in issues)
 
 
 def test_temporal_value_fact_name_rejects_year_embedded_taxable_year_input():

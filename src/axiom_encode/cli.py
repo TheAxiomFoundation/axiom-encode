@@ -8334,7 +8334,7 @@ def _rulespec_module_source_paths(payload: dict[str, object]) -> list[str]:
 
 def _parsed_rule_requires_generated_source_proof(rule: dict[str, object]) -> bool:
     kind = str(rule.get("kind") or "").strip()
-    if kind not in {"parameter", "derived"}:
+    if kind not in {"parameter", "derived", "derived_relation"}:
         return False
     versions = rule.get("versions")
     if not isinstance(versions, list) or not versions:
