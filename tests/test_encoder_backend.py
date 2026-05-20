@@ -89,6 +89,15 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "arity: 2" in ENCODER_PROMPT
     assert "source_relation: member_of_household" in ENCODER_PROMPT
     assert "formula: snap_member_eligible" in ENCODER_PROMPT
+    assert "explicitly defines" in ENCODER_PROMPT
+    assert "membership in a derived legal unit" in ENCODER_PROMPT
+    assert '"This source is about SNAP" is not enough' in ENCODER_PROMPT
+    assert "stay on the source-stated structural entity" in ENCODER_PROMPT
+    assert "Any rule that uses `entity: <filtered-entity>`" in ENCODER_PROMPT
+    assert "declare" in ENCODER_PROMPT
+    assert "that entity with a `kind: derived_relation` rule" in ENCODER_PROMPT
+    assert "import a RuleSpec file" in ENCODER_PROMPT
+    assert "that declares it" in ENCODER_PROMPT
     assert (
         "Only include `blocked_by` entries when you know the exact RuleSpec output"
         in ENCODER_PROMPT
@@ -113,6 +122,15 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
     assert "formula: snap_member_eligible" in prompt
+    assert "explicitly defines" in prompt
+    assert "membership in a derived legal unit" in prompt
+    assert '"This source is about SNAP" is not enough' in prompt
+    assert "stay on the source-stated structural entity" in prompt
+    assert "Any rule that uses `entity: <filtered-entity>`" in prompt
+    assert "declare" in prompt
+    assert "that entity with a `kind: derived_relation` rule" in prompt
+    assert "import a RuleSpec file" in prompt
+    assert "that declares it" in prompt
     assert (
         "Only include `blocked_by` entries when you know the exact RuleSpec output"
         in prompt

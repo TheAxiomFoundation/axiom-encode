@@ -514,6 +514,16 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
     assert "formula: snap_member_eligible" in prompt
+    assert "explicitly defines" in prompt
+    assert "membership in a derived legal unit" in prompt
+    assert '"This source is about SNAP" is not enough' in prompt
+    assert "stay on the source-stated structural entity" in prompt
+    assert "Any rule that uses `entity: <filtered-entity>`" in prompt
+    assert "declare" in prompt
+    assert "that entity with a `kind: derived_relation` rule" in prompt
+    assert "import a RuleSpec file" in prompt
+    assert "that declares it" in prompt
+    assert "example_output\n    kind: derived\n    entity: Household" in prompt
     assert (
         "Adjacent bracket thresholds repeated as both an upper bound and the next"
         in prompt
