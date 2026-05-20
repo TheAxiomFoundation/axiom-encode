@@ -5,6 +5,7 @@ import pytest
 
 from axiom_encode.oracles.policyengine.ecps_snap import (
     JURISDICTION_CONFIGS,
+    PolicyEngineDatasetSimulation,
     add_snapscreener_results,
     project_income_resource_inputs,
     project_utility_allowance_type,
@@ -27,6 +28,53 @@ def test_set_input_value_updates_every_matching_legal_input():
     set_input_value(inputs, "household_size", 4)
 
     assert set(inputs.values()) == {4}
+
+
+def test_policyengine_dataset_adapter_uses_raw_relationship_ids():
+    pytest.importorskip("numpy")
+
+    class Frame(dict):
+        pass
+
+    dataset = SimpleNamespace(
+        data=SimpleNamespace(
+            person=Frame(
+                person_spm_unit_id=[10, 10, 20],
+                person_household_id=[1, 1, 2],
+            ),
+            household=Frame(
+                household_id=[1, 2],
+                state_code_str=["NY", "CO"],
+            ),
+            spm_unit=Frame(
+                spm_unit_id=[10, 20],
+            ),
+        )
+    )
+    output = SimpleNamespace(
+        data=SimpleNamespace(
+            person=Frame(
+                person_spm_unit_id=[0, 0, 0],
+                person_household_id=[0, 0, 0],
+            ),
+            household=Frame(
+                household_id=[0, 0],
+                state_code_str=["NY", "CO"],
+            ),
+            spm_unit=Frame(
+                spm_unit_id=[0, 0],
+                snap=[100, 200],
+            ),
+        )
+    )
+
+    sim = PolicyEngineDatasetSimulation(dataset=dataset, output=output)
+
+    assert sim.calculate("spm_unit_id", 2026).tolist() == [10, 20]
+    assert sim.calculate("household_id", 2026).tolist() == [1, 2]
+    assert sim.calculate("person_spm_unit_id", 2026).tolist() == [10, 10, 20]
+    assert sim.calculate("spm_unit_size", 2026).tolist() == [2, 1]
+    assert sim.calculate("snap", "2026-01").tolist() == [100, 200]
 
 
 def test_new_york_projector_uses_federal_income_and_resource_inputs():

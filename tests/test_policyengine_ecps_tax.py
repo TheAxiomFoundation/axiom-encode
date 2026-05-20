@@ -1207,7 +1207,7 @@ def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):
 
     monkeypatch.setattr(ecps_tax, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-us=="):
+    with pytest.raises(SystemExit, match="policyengine-us==1\\.691\\.12"):
         require_policyengine_versions()
 
 

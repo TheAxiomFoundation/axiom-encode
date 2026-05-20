@@ -40,7 +40,15 @@ except ImportError:  # pragma: no cover - exercised only without optional oracle
 
 
 PE_COMPARED_OUTPUT = "snap_normal_allotment"
+POLICYENGINE_INSTALL_HINT = (
+    "uv run --with 'policyengine[us]==4.9.0' --with numpy axiom-encode"
+)
+DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
 COMPARED_AXIOM_OUTPUT = "snap_regular_month_allotment"
+PREFERRED_ENTITY_BY_VARIABLE = {
+    "household_id": "household",
+    "spm_unit_id": "spm_unit",
+}
 AXIOM_RELATION_ID_BY_LABEL = {
     "member_of_household": "us:statutes/7/2012/j#relation.member_of_household",
 }
@@ -343,6 +351,44 @@ SSN_MEMBER_INPUT_DEFAULTS = {
     "member_ssn_application_filed_pending_state_agency_notification": False,
     "member_later_provided_ssn_ending_disqualification": False,
 }
+
+SNAP_POLICYENGINE_VARIABLES = (
+    "gas_expense",
+    "has_usda_elderly_disabled",
+    "heating_cooling_expense",
+    "housing_cost",
+    "is_snap_eligible",
+    "is_snap_immigration_status_eligible",
+    "is_snap_ineligible_student",
+    "meets_snap_categorical_eligibility",
+    "meets_snap_work_requirements",
+    "person_household_id",
+    "person_spm_unit_id",
+    "phone_expense",
+    "pre_subsidy_electricity_expense",
+    "sewage_expense",
+    "snap",
+    "snap_assets",
+    "snap_child_support_deduction",
+    "snap_dependent_care_deduction",
+    "snap_earned_income",
+    "snap_earned_income_deduction",
+    "snap_excess_medical_expense_deduction",
+    "snap_excess_shelter_expense_deduction",
+    "snap_gross_income",
+    "snap_max_allotment",
+    "snap_net_income",
+    "snap_normal_allotment",
+    "snap_standard_deduction",
+    "snap_unearned_income",
+    "snap_unit_size",
+    "snap_utility_allowance",
+    "snap_utility_allowance_type",
+    "snap_utility_region_str",
+    "state_code_str",
+    "trash_expense",
+    "water_expense",
+)
 
 GENERAL_WORK_MEMBER_AGE_INPUT = "us:regulations/7-cfr/273/7#input.member_age"
 ABAWD_MEMBER_AGE_INPUT = "us:regulations/7-cfr/273/24#input.member_age"
@@ -801,8 +847,7 @@ def require_numpy() -> None:
     if np is None:
         raise SystemExit(
             "numpy is required. Run with: "
-            "uv run --with numpy --with policyengine-us axiom-encode "
-            "snap-ecps-compare"
+            f"{POLICYENGINE_INSTALL_HINT} snap-ecps-compare"
         )
 
 
@@ -882,20 +927,9 @@ def load_policyengine_cases(
     positive_snap_only: bool,
     utility_projection: str,
 ) -> list[ProjectedCase]:
-    try:
-        from policyengine_us import Microsimulation
-    except ImportError as exc:
-        raise SystemExit(
-            "policyengine-us is required. Run with: "
-            "uv run --with policyengine-us --with numpy axiom-encode "
-            "snap-ecps-compare"
-        ) from exc
-
-    print("Loading PolicyEngine ECPS...")
-    sim = Microsimulation()
-
     period_label = period.label
     year = period.year
+    sim = load_policyengine_ecps_simulation(year)
     spm_ids = calculate(sim, "spm_unit_id", year)
     spm_unit_size = calculate(sim, "spm_unit_size", year)
     snap_unit_size = calculate(sim, "snap_unit_size", period_label)
@@ -1071,6 +1105,102 @@ def load_policyengine_cases(
         )
 
     return cases
+
+
+def load_policyengine_ecps_simulation(year: int) -> Any:
+    try:
+        import policyengine as pe
+        from policyengine.core import Simulation
+    except ImportError as exc:
+        raise SystemExit(
+            "policyengine.py with the US model is required. Run with: "
+            f"{POLICYENGINE_INSTALL_HINT} snap-ecps-compare"
+        ) from exc
+
+    print("Loading PolicyEngine ECPS...")
+    datasets = pe.us.ensure_datasets(
+        datasets=[DATASET],
+        years=[year],
+        data_folder=str(Path(".axiom") / "policyengine-data"),
+    )
+    dataset = datasets[f"enhanced_cps_2024_{year}"]
+    sim = Simulation(
+        dataset=dataset,
+        tax_benefit_model_version=pe.us.us_latest,
+        extra_variables=policyengine_extra_variables(pe, SNAP_POLICYENGINE_VARIABLES),
+    )
+    print("Running PolicyEngine SNAP outputs...")
+    sim.run()
+    return PolicyEngineDatasetSimulation(dataset=dataset, output=sim.output_dataset)
+
+
+def policyengine_extra_variables(
+    pe: Any, variable_names: tuple[str, ...]
+) -> dict[str, list[str]]:
+    variables: dict[str, list[str]] = {}
+    for name in variable_names:
+        entity = str(pe.us.us_latest.get_variable(name).entity)
+        variables.setdefault(entity, []).append(name)
+    return variables
+
+
+class PolicyEngineDatasetSimulation:
+    def __init__(self, *, dataset: Any, output: Any) -> None:
+        self._derived = build_policyengine_derived_values(
+            dataset=dataset, output=output
+        )
+        self._frames_by_entity: dict[str, list[Any]] = {}
+        self._frames = []
+        for entity in ("person", "household", "spm_unit"):
+            frames = [getattr(output.data, entity), getattr(dataset.data, entity)]
+            self._frames_by_entity[entity] = frames
+            self._frames.extend(frames)
+
+    def calculate(self, name: str, period: str | int) -> np.ndarray:
+        del period
+        if name in self._derived:
+            return self._derived[name]
+        preferred_entity = PREFERRED_ENTITY_BY_VARIABLE.get(name)
+        if preferred_entity is not None:
+            value = self._calculate_from_frames(
+                name,
+                self._frames_by_entity[preferred_entity],
+            )
+            if value is not None:
+                return value
+        value = self._calculate_from_frames(name, self._frames)
+        if value is not None:
+            return value
+        raise KeyError(name)
+
+    @staticmethod
+    def _calculate_from_frames(name: str, frames: list[Any]) -> np.ndarray | None:
+        for frame in frames:
+            if name in frame:
+                return array(frame[name])
+        return None
+
+
+def build_policyengine_derived_values(
+    *, dataset: Any, output: Any
+) -> dict[str, np.ndarray]:
+    person_frame = dataset.data.person
+    household_frame = dataset.data.household
+    spm_frame = dataset.data.spm_unit
+    person_spm_ids = array(person_frame["person_spm_unit_id"])
+    counts: dict[int, int] = {}
+    for raw_spm_id in person_spm_ids:
+        spm_id = int(raw_spm_id)
+        counts[spm_id] = counts.get(spm_id, 0) + 1
+    return {
+        "household_id": array(household_frame["household_id"]),
+        "person_household_id": array(person_frame["person_household_id"]),
+        "person_spm_unit_id": person_spm_ids,
+        "spm_unit_id": array(spm_frame["spm_unit_id"]),
+        "spm_unit_size": np.asarray(
+            [counts.get(int(spm_id), 0) for spm_id in spm_frame["spm_unit_id"]]
+        ),
+    }
 
 
 def project_jurisdiction_household_inputs(

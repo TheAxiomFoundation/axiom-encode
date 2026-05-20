@@ -26,8 +26,8 @@ except ImportError:  # pragma: no cover - exercised only without optional oracle
     np = None
 
 
-POLICYENGINE_VERSION = "4.4.4"
-POLICYENGINE_US_VERSION = "1.691.3"
+POLICYENGINE_VERSION = "4.9.0"
+POLICYENGINE_US_VERSION = "1.691.12"
 DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
 
 CTC_PROGRAM_PATH = Path("statutes/26/24.yaml")
@@ -550,13 +550,13 @@ def load_policyengine_tax_data(
     if allow_uncertified_policyengine_data:
         _install_policyengine_data_certification_override()
     try:
+        import policyengine as pe
         from policyengine.core import Simulation
-        from policyengine.tax_benefit_models.us import ensure_datasets, us_latest
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_install_message()) from exc
 
     log("Loading PolicyEngine ECPS...")
-    datasets = ensure_datasets(
+    datasets = pe.us.ensure_datasets(
         datasets=[DATASET],
         years=[year],
         data_folder=str(data_folder),
@@ -564,7 +564,7 @@ def load_policyengine_tax_data(
     dataset = datasets[f"enhanced_cps_2024_{year}"]
     sim = Simulation(
         dataset=dataset,
-        tax_benefit_model_version=us_latest,
+        tax_benefit_model_version=pe.us.us_latest,
         extra_variables={
             "person": list(PE_PERSON_VARIABLES),
             "tax_unit": list(PE_TAX_UNIT_VARIABLES),
@@ -614,8 +614,8 @@ def load_policyengine_tax_data(
 def _install_policyengine_data_certification_override() -> None:
     """Allow ECPS oracle runs against a local policyengine-us fix branch.
 
-    policyengine.py 4.4.4 certifies the bundled ECPS data against
-    policyengine-us 1.691.3. When validating a local policyengine-us PR, the
+    policyengine.py 4.9.0 certifies the bundled ECPS data against
+    policyengine-us 1.691.12. When validating a local policyengine-us PR, the
     installed model version can intentionally differ while the ECPS data is
     still the desired oracle input. This override is intentionally reachable
     only through an explicit CLI flag paired with --allow-policyengine-us-version.
@@ -1940,8 +1940,8 @@ def require_policyengine_versions(
 
 def policyengine_install_message() -> str:
     return (
-        "Run with: uv run --with policyengine==4.4.4 "
-        "--with policyengine-us==1.691.3 axiom-encode tax-ecps-compare"
+        "Run with: uv run --with 'policyengine[us]==4.9.0' "
+        "--with numpy axiom-encode tax-ecps-compare"
     )
 
 
