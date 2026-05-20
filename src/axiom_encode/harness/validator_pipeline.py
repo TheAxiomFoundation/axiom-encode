@@ -3268,22 +3268,48 @@ _FINAL_AMOUNT_NAME_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _UNIT_SCOPED_ENTITY_NAMES = {"household", "snapunit", "taxunit", "family", "spmunit"}
+_UNIT_SCOPED_ENTITY_LABELS = {
+    "household": "Household",
+    "snapunit": "SnapUnit",
+    "taxunit": "TaxUnit",
+    "family": "Family",
+    "spmunit": "SPMUnit",
+}
+_UNIT_ENTITY_EQUIVALENCE_SETS = (frozenset({"household", "snapunit"}),)
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
-    r"\b(?:no|any|each|every|all)\s+"
-    r"(?:individual|person|(?:household\s+)?member|taxpayer|claimant|child)\b"
+    r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
+    r"(?:individual|person|(?:household\s+|family\s+)?member|taxpayer|claimant|child|"
+    r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
+    r"participant|client|case\s+member)\b"
     r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat)",
     flags=re.IGNORECASE,
 )
-_HOUSEHOLD_SCOPE_SOURCE_PATTERN = re.compile(
-    r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
-    r"\b(?:eligible|eligibility|test|requirement|resources?|income)\b",
+_UNIT_SCOPE_SOURCE_PATTERN = re.compile(
+    r"\b(?:household\b(?!\s+member\b)|snap\s+unit|food\s+assistance\s+unit|"
+    r"assistance\s+unit|tax\s+unit|filing\s+unit|family\b(?!\s+member\b)|"
+    r"spm\s+unit)\b"
+    r"[\s\S]{0,180}\b"
+    r"(?:eligible|eligibility|test|requirement|resources?|income|standard|"
+    r"benefit|allotment)\b",
     flags=re.IGNORECASE,
+)
+_UNIT_SOURCE_ENTITY_PATTERNS = (
+    ("household", re.compile(r"\bhousehold\b(?!\s+member\b)", flags=re.IGNORECASE)),
+    (
+        "snapunit",
+        re.compile(r"\b(?:snap|food\s+assistance)\s+unit\b", flags=re.IGNORECASE),
+    ),
+    ("taxunit", re.compile(r"\b(?:tax|filing)\s+unit\b", flags=re.IGNORECASE)),
+    ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
+    ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
     r"\b(?:each|every|all)\s+(?:household\s+)?member\b",
     flags=re.IGNORECASE,
 )
+_SOURCE_SCOPE_PERSON = "person"
+_SOURCE_SCOPE_UNIT = "unit"
 
 
 def _rulespec_payload(content: str) -> dict[str, Any] | None:
@@ -3366,6 +3392,92 @@ def find_empty_rules_module_issues(content: str) -> list[str]:
     ]
 
 
+def _classify_source_scope(text: str) -> str | None:
+    """Return a clear source scope, or None when the text is mixed/vague."""
+    person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(text) is not None
+    unit_scoped = _UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
+    if _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN.search(text):
+        return None
+    if person_scoped == unit_scoped:
+        return None
+    return _SOURCE_SCOPE_PERSON if person_scoped else _SOURCE_SCOPE_UNIT
+
+
+def _classify_source_unit_entity(text: str) -> str | None:
+    """Return a clear unit entity from source text, or None when generic/mixed."""
+    matches = {
+        entity
+        for entity, pattern in _UNIT_SOURCE_ENTITY_PATTERNS
+        if pattern.search(text)
+    }
+    if len(matches) != 1:
+        return None
+    return next(iter(matches))
+
+
+def _unit_entities_are_equivalent(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    return any(
+        {left, right} <= entity_set for entity_set in _UNIT_ENTITY_EQUIVALENCE_SETS
+    )
+
+
+def _rule_proof_source_excerpts(rule: dict[str, Any]) -> list[str]:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return []
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return []
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return []
+
+    excerpts: list[str] = []
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        source = atom.get("source")
+        if not isinstance(source, dict):
+            continue
+        excerpt = source.get("excerpt")
+        if isinstance(excerpt, str) and excerpt.strip():
+            excerpts.append(excerpt.strip())
+    return excerpts
+
+
+def _rule_source_scope(
+    rule: dict[str, Any],
+    fallback_source_text: str,
+) -> tuple[str, str | None] | None:
+    source_texts = _rule_proof_source_excerpts(rule)
+    if not source_texts and fallback_source_text:
+        source_texts = [fallback_source_text]
+
+    classifications = [
+        (
+            scope,
+            _classify_source_unit_entity(text) if scope == _SOURCE_SCOPE_UNIT else None,
+        )
+        for text in source_texts
+        if (scope := _classify_source_scope(text)) is not None
+    ]
+    scopes = {scope for scope, _unit_entity in classifications}
+    if len(scopes) != 1:
+        return None
+    scope = next(iter(scopes))
+    unit_entities = {
+        unit_entity
+        for _scope, unit_entity in classifications
+        if unit_entity is not None
+    }
+    if len(unit_entities) > 1:
+        return None
+    source_unit_entity = next(iter(unit_entities), None)
+    return scope, source_unit_entity
+
+
 def find_source_scope_consistency_issues(content: str) -> list[str]:
     """Flag obvious mismatches between source legal subject and rule entity.
 
@@ -3376,15 +3488,6 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
     if payload is None:
         return []
     source_text = extract_embedded_source_text(content)
-    if not source_text:
-        return []
-
-    person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(source_text) is not None
-    household_scoped = _HOUSEHOLD_SCOPE_SOURCE_PATTERN.search(source_text) is not None
-    if _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN.search(source_text):
-        return []
-    if person_scoped == household_scoped:
-        return []
 
     rules = payload.get("rules")
     if not isinstance(rules, list):
@@ -3399,7 +3502,14 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
         name = str(rule.get("name") or "").strip()
         entity = str(rule.get("entity") or "").strip()
         normalized_entity = entity.lower()
-        if person_scoped and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES:
+        source_scope_record = _rule_source_scope(rule, source_text)
+        if source_scope_record is None:
+            continue
+        source_scope, source_unit_entity = source_scope_record
+        if (
+            source_scope == _SOURCE_SCOPE_PERSON
+            and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
+        ):
             issues.append(
                 "Source scope mismatch: "
                 f"`{name}` is declared on `{entity}`, but the embedded source "
@@ -3407,13 +3517,26 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 "disqualification. Encode the rule at the person/member scope "
                 "or cite source text that states the unit-level test."
             )
-        elif household_scoped and normalized_entity == "person":
+        elif source_scope == _SOURCE_SCOPE_UNIT and normalized_entity == "person":
             issues.append(
                 "Source scope mismatch: "
                 f"`{name}` is declared on `Person`, but the embedded source "
                 "states a household/unit-scoped test. Encode the rule at the "
                 "source-stated unit scope or cite source text that states the "
                 "person-level test."
+            )
+        elif (
+            source_scope == _SOURCE_SCOPE_UNIT
+            and source_unit_entity is not None
+            and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
+            and not _unit_entities_are_equivalent(normalized_entity, source_unit_entity)
+        ):
+            issues.append(
+                "Source scope mismatch: "
+                f"`{name}` is declared on `{entity}`, but the embedded source "
+                f"states a `{_UNIT_SCOPED_ENTITY_LABELS[source_unit_entity]}` "
+                "unit-scoped test. Encode the rule at the source-stated unit "
+                "scope or cite source text that states the declared unit scope."
             )
     return issues
 

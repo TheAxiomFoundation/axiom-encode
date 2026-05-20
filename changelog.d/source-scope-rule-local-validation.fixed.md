@@ -1,0 +1,1 @@
+Strengthened source-scope validation to use rule-local proof excerpts before module summaries, catch definite person/member subjects encoded at unit scope, flag clear unrelated unit-to-unit mismatches, and recognize additional state-manual source wording.
