@@ -417,7 +417,7 @@ def _load_policyengine_variable_names() -> set[str] | None:
 def _load_rulespec_payload(path: Path) -> dict[str, Any] | None:
     try:
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return None
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return None
@@ -431,7 +431,7 @@ def _rulespec_test_output_counts(path: Path) -> Counter[str]:
         return Counter()
     try:
         payload = yaml.safe_load(test_path.read_text(encoding="utf-8")) or []
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return Counter()
     if isinstance(payload, dict):
         cases = payload.get("cases", payload.get("tests", []))

@@ -1054,7 +1054,7 @@ def _policyengine_us_snap_input_aliases(inputs: dict[str, Any]) -> dict[str, Any
             return None
         try:
             return float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
 
     aliases: dict[str, Any] = {}
@@ -1919,7 +1919,7 @@ def find_deprecated_source_url_issues(content: str) -> list[str]:
     """Reject raw source URL references in RuleSpec encodings."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -2003,7 +2003,7 @@ def find_source_claim_reference_issues(content: str) -> list[str]:
     """Validate optional RuleSpec refs to accepted corpus-backed source claims."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -2298,7 +2298,7 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
     """Flag source-stated numeric scales encoded as branch formulas."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -2353,7 +2353,7 @@ def find_versioned_derived_formula_issues(content: str) -> list[str]:
     """Flag derived rules that rely on unsupported period-selected formulas."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -2398,7 +2398,7 @@ def find_upstream_placement_issues(
     """Flag rules encoded downstream of their canonical legal authority."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -2781,7 +2781,7 @@ def _rulespec_executable_index_for_roots(
                 continue
             try:
                 payload = yaml.safe_load(rules_file.read_text())
-            except (OSError, yaml.YAMLError, ValueError):
+            except OSError, yaml.YAMLError, ValueError:
                 continue
             if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
                 continue
@@ -2834,7 +2834,7 @@ def find_rule_source_metadata_issues(content: str) -> list[str]:
     """Require source metadata for executable RuleSpec records."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -2935,7 +2935,7 @@ def find_missing_derived_companion_output_issues(
     """Require companion tests to assert every local derived output."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -3058,7 +3058,7 @@ def find_source_verification_issues(
     """Validate declared RuleSpec values against an ingested corpus source page."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -3153,7 +3153,7 @@ def find_source_condition_coverage_issues(
     """Flag eligibility formulas that collapse cost availability to only exclusions."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict):
         return []
@@ -3272,7 +3272,7 @@ _FINAL_AMOUNT_NAME_PATTERN = re.compile(
 def _rulespec_payload(content: str) -> dict[str, Any] | None:
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return None
     return payload if isinstance(payload, dict) else None
 
@@ -5588,7 +5588,7 @@ def find_broad_application_passthrough_issues(content: str) -> list[str]:
     """Flag administrative furnishing/application clauses encoded as outputs."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict):
         return []
@@ -5936,7 +5936,7 @@ def _format_child_export_hint(targets: list[str]) -> str:
 def _rulespec_payload_from_file(path: Path) -> dict[str, Any] | None:
     try:
         payload = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return None
     return payload if isinstance(payload, dict) else None
 
@@ -6728,7 +6728,7 @@ def find_test_input_assignment_issues(
         return []
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict):
         return []
@@ -6983,7 +6983,7 @@ def find_exception_test_coverage_issues(
         return []
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict):
         return []
@@ -7055,7 +7055,7 @@ def find_aggregate_exception_predicate_issues(content: str) -> list[str]:
 
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict):
         return []
@@ -7174,7 +7174,7 @@ def _source_text_opens_exception_list(source_text: str) -> bool:
 def _rulespec_file_exception_exports(rules_file: Path) -> list[str]:
     try:
         payload = yaml.safe_load(rules_file.read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -7241,7 +7241,7 @@ def _rulespec_file_terminal_exports(payload: dict[Any, Any]) -> list[str]:
 def _rule_has_exception_proof(rule: dict[str, Any]) -> bool:
     try:
         atoms = rule["metadata"]["proof"]["atoms"]
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         return False
     if not isinstance(atoms, list):
         return False
@@ -7255,7 +7255,7 @@ def _rule_has_exception_proof(rule: dict[str, Any]) -> bool:
 def _rulespec_content_formula_identifiers(content: str) -> set[str]:
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, TypeError, ValueError):
+    except yaml.YAMLError, TypeError, ValueError:
         return set()
     if not isinstance(payload, dict):
         return set()
@@ -7481,7 +7481,7 @@ def _test_assignment_in_import_base(key: Any, import_base: str) -> bool:
 def _imported_symbol_bases_by_name(content: str) -> dict[str, str]:
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, TypeError, ValueError):
+    except yaml.YAMLError, TypeError, ValueError:
         return {}
     if not isinstance(payload, dict):
         return {}
@@ -7596,7 +7596,7 @@ def _source_verification_text(
 def _extract_source_verification_text(content: str) -> str | None:
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return None
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return None
@@ -7991,7 +7991,7 @@ def find_source_relation_issues(
     """Validate non-executable source-relation records."""
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -8621,7 +8621,7 @@ def _rulespec_formula_identifiers(payload: Any) -> set[str]:
 def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
     try:
         payload = yaml.safe_load(target_file.read_text()) or {}
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         payload = {}
     if not isinstance(payload, dict):
         payload = {}
@@ -9109,7 +9109,7 @@ class ValidatorPipeline:
             return False
         try:
             payload = yaml.safe_load(rules_file.read_text())
-        except (OSError, yaml.YAMLError, ValueError):
+        except OSError, yaml.YAMLError, ValueError:
             return False
         return isinstance(payload, dict) and payload.get("format") == "rulespec/v1"
 
@@ -10389,7 +10389,7 @@ class ValidatorPipeline:
         """Return true when a RuleSpec artifact intentionally has no assertions."""
         try:
             payload = yaml.safe_load(rules_file.read_text())
-        except (yaml.YAMLError, ValueError):
+        except yaml.YAMLError, ValueError:
             return False
         if not isinstance(payload, dict):
             return False
@@ -11330,7 +11330,7 @@ class ValidatorPipeline:
         """Extract simple summaries of RuleSpec rules."""
         try:
             payload = yaml.safe_load(content)
-        except (yaml.YAMLError, ValueError):
+        except yaml.YAMLError, ValueError:
             return []
         if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
             return []
@@ -11434,7 +11434,7 @@ class ValidatorPipeline:
         issues: list[tuple[int, str, str, str]] = []
         try:
             payload = yaml.safe_load(content)
-        except (yaml.YAMLError, ValueError):
+        except yaml.YAMLError, ValueError:
             return []
         if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
             return []
@@ -12685,7 +12685,7 @@ print("BENCHMARK:" + json.dumps(result))
 
             relative_diff = abs(actual_float - expected_float) / abs(expected_float)
             return relative_diff <= tolerance
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # Fall back to string comparison
             return str(actual) == str(expected)
 
@@ -14612,7 +14612,7 @@ print(f'RESULT:{{float(value)}}')
                     source_values = [
                         float(inputs[source_key]) for source_key in source_keys
                     ]
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
                 derived_value = derive_override_value(operation, source_values)
                 if derived_value is None:
@@ -14646,7 +14646,7 @@ print(f'RESULT:{{float(value)}}')
                         for source_key in source_keys
                         if source_key in inputs or missing_as_zero
                     ]
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
                 if len(source_values) != len(source_keys):
                     continue
@@ -14893,7 +14893,7 @@ print(f'RESULT:{{val}}')
                     0.0,
                     float(education_expenses) - float(excluded_assistance or 0),
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 adjusted_expenses = education_expenses
             attrs.append(
                 f"'qualified_tuition_expenses': "

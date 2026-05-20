@@ -3225,7 +3225,7 @@ def _repair_current_year_final_amount_test_expectations(
         return False
     try:
         payload = yaml.safe_load(rules_file.read_text())
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return False
     if not isinstance(payload, dict):
         return False
@@ -3372,7 +3372,7 @@ def _imported_parameter_values(
             continue
         try:
             imported_payload = yaml.safe_load(target_file.read_text())
-        except (OSError, yaml.YAMLError, ValueError):
+        except OSError, yaml.YAMLError, ValueError:
             continue
         if not isinstance(imported_payload, dict):
             continue
@@ -7482,7 +7482,7 @@ def _section_152_replacement_test_input_block(match: re.Match[str]) -> str:
 def _ensure_section_151_filing_status_test_inputs(content: str) -> str:
     try:
         payload = yaml.safe_load(content) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return content
     if not isinstance(payload, list):
         return content
@@ -8222,7 +8222,7 @@ def _remove_tax_status_component_test_inputs(
         return test_content, []
     try:
         test_payload = yaml.safe_load(test_content) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return test_content, []
     if not isinstance(test_payload, list):
         return test_content, []
@@ -8253,7 +8253,7 @@ def _remove_tax_status_component_test_inputs(
 def _repair_missing_source_proof_atoms(content: str) -> tuple[str, list[str]]:
     try:
         payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
+    except yaml.YAMLError, ValueError:
         return content, []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return content, []
@@ -8636,7 +8636,7 @@ def _rulespec_test_output_keys(test_file: Path) -> set[str]:
         return set()
     try:
         cases = _load_rulespec_test_cases(test_file)
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return set()
     outputs: set[str] = set()
     for case in cases:
@@ -8735,7 +8735,7 @@ def _append_exception_positive_companion_tests_if_missing(
 
     try:
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(test_payload, list):
         return []
@@ -8984,7 +8984,7 @@ def _append_generic_zero_branch_tests_if_missing(
         rules_content = rules_file.read_text()
         rules_payload = yaml.safe_load(rules_content) or {}
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
         return []
@@ -9067,7 +9067,7 @@ def _append_generated_derived_output_tests_if_missing(
         rules_content = rules_file.read_text()
         rules_payload = yaml.safe_load(rules_content) or {}
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
         return []
@@ -9196,7 +9196,7 @@ def _remove_generated_import_output_input_placeholders(
 
     try:
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(test_payload, list):
         return []
@@ -9231,7 +9231,7 @@ def _remove_invalid_test_input_refs(
 
     try:
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(test_payload, list):
         return []
@@ -9269,7 +9269,7 @@ def _remove_invalid_import_output_test_input_refs(
 
     try:
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(test_payload, list):
         return []
@@ -9306,7 +9306,7 @@ def _repair_stale_exclusion_dependency_test_input_refs(
 
     try:
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(test_payload, list):
         return []
@@ -9361,7 +9361,7 @@ def _remove_unreferenced_proof_import_atoms(
     original_content = rules_file.read_text()
     try:
         payload = yaml.safe_load(original_content) or {}
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return []
     if not isinstance(payload, dict):
         return []
@@ -9452,7 +9452,7 @@ def _proof_import_atom_block_imported_symbol(block: str) -> str:
 def _imported_output_names(rules_file: Path) -> set[str]:
     try:
         payload = yaml.safe_load(rules_file.read_text()) or {}
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return set()
     return _imported_output_names_from_payload(payload)
 
@@ -9950,7 +9950,7 @@ def _git_repo_provenance(path: Path) -> dict[str, object] | None:
             check=True,
             text=True,
         ).stdout
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return None
     return {
         "root": root,
@@ -10054,7 +10054,7 @@ def _git_first_parent(repo: Path, commit: str) -> str | None:
             check=True,
             text=True,
         ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return None
     parts = line.split()
     return parts[1] if len(parts) > 1 else None
@@ -10079,7 +10079,7 @@ def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
             check=True,
             text=True,
         ).stdout
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return None
 
 
@@ -10859,7 +10859,7 @@ def _fill_missing_test_input_assignments(
     try:
         rules_payload = yaml.safe_load(rules_file.read_text()) or {}
         test_payload = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return []
     if not isinstance(rules_payload, dict) or not isinstance(test_payload, list):
         return []
@@ -11122,7 +11122,7 @@ def _read_corpus_citation_paths_from_rulespec(path: Path) -> set[str]:
         return set()
     try:
         doc = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return set()
     if not isinstance(doc, dict):
         return set()
@@ -11406,7 +11406,7 @@ def _validate_generated_encoding_in_policy_overlay(
     if output_test.exists():
         try:
             loaded_tests = yaml.safe_load(output_test.read_text())
-        except (yaml.YAMLError, ValueError):
+        except yaml.YAMLError, ValueError:
             loaded_tests = None
         if isinstance(loaded_tests, dict) and isinstance(
             loaded_tests.get("cases"), list
@@ -11621,7 +11621,7 @@ def _same_repo_imported_rulespec_paths(
     """Return same-repo RuleSpec import file paths used by a generated target."""
     try:
         payload = yaml.safe_load(rules_file.read_text())
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return set()
     if not isinstance(payload, dict):
         return set()
@@ -11693,7 +11693,7 @@ def _repair_mixed_scalar_output_tests(
     try:
         rules_document = yaml.safe_load(rules_file.read_text()) or {}
         test_cases = yaml.safe_load(test_file.read_text()) or []
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return []
     if not isinstance(rules_document, dict) or not isinstance(test_cases, list):
         return []
@@ -11806,7 +11806,7 @@ def _repair_dependent_proof_import_hashes(
         try:
             relative_dependent = dependent.relative_to(overlay_repo)
             content = dependent.read_text()
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
         target_base = (
             f"{jurisdiction}:{_relative_rulespec_import_target(relative_dependent)}"
@@ -11997,7 +11997,7 @@ def _imported_input_refs_by_name(
 ) -> dict[str, list[str]]:
     try:
         payload = yaml.safe_load(rules_file.read_text()) or {}
-    except (OSError, ValueError, yaml.YAMLError):
+    except OSError, ValueError, yaml.YAMLError:
         return {}
     imports = payload.get("imports") if isinstance(payload, dict) else None
     if not isinstance(imports, list):
@@ -12043,7 +12043,7 @@ def _load_test_input_baseline(test_path: Path) -> dict[str, object]:
     """Return the first companion-test input block for generated defaults."""
     try:
         cases = yaml.safe_load(test_path.read_text()) or []
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return {}
     if not isinstance(cases, list):
         return {}
@@ -12340,7 +12340,7 @@ def _rulespec_file_imports_target(
 ) -> bool:
     try:
         payload = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError, ValueError):
+    except OSError, yaml.YAMLError, ValueError:
         return False
     if not isinstance(payload, dict):
         return False
@@ -13011,7 +13011,7 @@ def _load_eval_suite_run_state(output_root: Path) -> dict | None:
         return None
     try:
         return json.loads(state_path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
 
 

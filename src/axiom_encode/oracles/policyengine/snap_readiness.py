@@ -175,7 +175,7 @@ def _iter_snap_rulespec_payloads(repo: Path) -> list[tuple[Path, dict[str, Any]]
 def _load_yaml_mapping(path: Path) -> dict[str, Any] | None:
     try:
         payload = yaml.safe_load(path.read_text())
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return None
     return payload if isinstance(payload, dict) else None
 

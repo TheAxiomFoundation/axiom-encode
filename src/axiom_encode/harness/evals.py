@@ -3485,7 +3485,7 @@ def _format_canonical_concept_registry_guidance(
     if registry is None:
         try:
             registry = load_concept_registry()
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return ""
     if not registry.concepts_by_id:
         return ""
@@ -4417,7 +4417,7 @@ def _context_file_exports(source_path: str) -> list[str]:
     """Extract RuleSpec rule names exported by a copied context file."""
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -4441,7 +4441,7 @@ def _context_file_unavailable_reason(
     """Return a prompt-friendly reason when a context file cannot be imported."""
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return "no readable RuleSpec payload"
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return "no RuleSpec payload"
@@ -4475,7 +4475,7 @@ def _context_file_exception_exports(source_path: str) -> list[str]:
     """Return terminal exports from a copied child file that encode exceptions."""
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -4516,7 +4516,7 @@ def _is_exception_like_export_name(name: str) -> bool:
 def _rule_has_exception_proof(rule: dict[str, object]) -> bool:
     try:
         atoms = rule["metadata"]["proof"]["atoms"]  # type: ignore[index]
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         return False
     if not isinstance(atoms, list):
         return False
@@ -4531,7 +4531,7 @@ def _context_file_executable_surfaces(source_path: str) -> dict[str, dict[str, o
     """Extract public executable surfaces from a copied context RuleSpec file."""
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return {}
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return {}
@@ -4698,7 +4698,7 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
     """Return local factual input identifiers used by copied context formulas."""
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return set()
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return set()
@@ -4757,7 +4757,7 @@ def _context_file_imported_symbols(payload: dict[str, object]) -> set[str]:
 def _context_file_imports_target(source_path: str, target_ref_prefix: str) -> bool:
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return False
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return False
@@ -4796,7 +4796,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
     """Return executable exports not consumed by another local executable rule."""
     try:
         payload = yaml.safe_load(Path(source_path).read_text())
-    except (OSError, yaml.YAMLError, TypeError, ValueError):
+    except OSError, yaml.YAMLError, TypeError, ValueError:
         return []
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
@@ -5656,7 +5656,7 @@ def _format_safe_numeric_expression(expression: str) -> str | None:
     """Evaluate a numeric literal or simple arithmetic expression safely."""
     try:
         value = _evaluate_safe_numeric_expression(expression.strip())
-    except (ValueError, SyntaxError, ZeroDivisionError):
+    except ValueError, SyntaxError, ZeroDivisionError:
         return None
 
     if float(value).is_integer():
@@ -5980,7 +5980,7 @@ def _normalize_test_case_value(value: object) -> object:
         if _PURE_NUMERIC_EXPRESSION_PATTERN.fullmatch(expression):
             try:
                 return yaml.safe_load(_format_safe_numeric_expression(expression))
-            except (TypeError, ValueError, yaml.YAMLError):
+            except TypeError, ValueError, yaml.YAMLError:
                 return value
         return value
     if not isinstance(value, dict):

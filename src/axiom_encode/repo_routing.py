@@ -55,7 +55,7 @@ def _git_origin_repo_name(root: str) -> str | None:
             text=True,
             timeout=2,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     if completed.returncode != 0:
         return None
