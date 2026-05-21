@@ -14,6 +14,7 @@ import yaml
 from axiom_encode.harness.evals import (
     EvalArtifactMetrics,
     EvalContextFile,
+    EvalPromptResponse,
     EvalReadinessGates,
     EvalResult,
     EvalSuiteCase,
@@ -440,6 +441,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "RuleSpec YAML" in prompt
     assert "=== FILE: tn-snap-standard-utility-allowance.yaml ===" in prompt
     assert "=== FILE: tn-snap-standard-utility-allowance.test.yaml ===" in prompt
+    assert "Do not narrate your plan" in prompt
     assert "snap_standard_utility_allowance" in prompt
     assert "Do not use bare year periods like `2024`" in prompt
     assert "never use `period_kind: calendar_year`" in prompt
@@ -773,6 +775,92 @@ rules:
     assert output_file.read_text().startswith("format: rulespec/v1")
 
 
+def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_path):
+    policy_repo_root = tmp_path / "axiom-rules-engine"
+    policy_repo_root.mkdir()
+    first_response = EvalPromptResponse(
+        text="I'm going to encode a compact source-faithful slice.",
+        duration_ms=10,
+        trace={"attempt": "initial"},
+    )
+    second_response = EvalPromptResponse(
+        text=(
+            "=== FILE: sample.yaml ===\n"
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: source states 451.\n"
+            "rules: []\n"
+            "=== FILE: sample.test.yaml ===\n"
+            "[]\n"
+        ),
+        duration_ms=20,
+        trace={"attempt": "retry"},
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            side_effect=[first_response, second_response],
+        ) as mock_prompt_eval,
+        patch("axiom_encode.harness.evals.evaluate_artifact", return_value=None),
+    ):
+        [result] = run_source_eval(
+            source_id="sample",
+            source_text="source states 451.",
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            mode="cold",
+        )
+
+    assert result.success is True
+    assert result.retry_count == 1
+    assert result.duration_ms == 30
+    assert Path(result.output_file).exists()
+    assert mock_prompt_eval.call_count == 2
+    retry_prompt = mock_prompt_eval.call_args_list[1].args[2]
+    assert "previous response did not contain a RuleSpec artifact" in retry_prompt
+    assert "Do not narrate your plan" in retry_prompt
+
+
+def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_path):
+    policy_repo_root = tmp_path / "axiom-rules-engine"
+    policy_repo_root.mkdir()
+    response = EvalPromptResponse(
+        text=(
+            "=== FILE: sample.yaml ===\n"
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: source states 451.\n"
+            "rules: []\n"
+            "=== FILE: sample.test.yaml ===\n"
+            "[]\n"
+        ),
+        duration_ms=10,
+        trace={"attempt": "initial"},
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            return_value=response,
+        ) as mock_prompt_eval,
+        patch("axiom_encode.harness.evals.evaluate_artifact", return_value=None),
+    ):
+        [result] = run_source_eval(
+            source_id="sample",
+            source_text="source states 451.",
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            mode="cold",
+        )
+
+    assert result.success is True
+    assert result.retry_count == 0
+    assert mock_prompt_eval.call_count == 1
+
+
 def test_eval_result_payload_round_trips_prompt_digests():
     result = EvalResult(
         citation="snap_test",
@@ -795,6 +883,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
         actual_cost_usd=None,
         retrieved_files=["/tmp/context.yaml"],
         unexpected_accesses=[],
+        retry_count=1,
         metrics=EvalArtifactMetrics(
             compile_pass=True,
             compile_issues=[],
@@ -821,6 +910,7 @@ def test_eval_result_payload_round_trips_prompt_digests():
     restored = _eval_result_from_payload(result.to_dict())
 
     assert restored.generation_prompt_sha256 == "generation-digest"
+    assert restored.retry_count == 1
     assert restored.metrics is not None
     assert restored.metrics.generalist_review_prompt_sha256 == "review-digest"
 
