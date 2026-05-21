@@ -106,6 +106,11 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statutes", "regulation"}
+_CODEX_DEFAULT_TIMEOUT_SECONDS = 600
+_CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
+_CODEX_LONG_SOURCE_CHAR_THRESHOLD = 40_000
+_CODEX_LONG_SOURCE_TIMEOUT_SECONDS = 1800
+_CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS = 900
 
 
 def _matching_numeric_occurrence_count(
@@ -494,6 +499,16 @@ def _combine_retry_response(
             *retry.unexpected_accesses,
         ],
         error=retry.error,
+    )
+
+
+def _response_allows_empty_artifact_retry(response: EvalPromptResponse) -> bool:
+    """Return true when a missing artifact should get one forced retry."""
+    if response.error is None:
+        return True
+    return (
+        not response.text.strip()
+        and "timed out" in response.error.lower()
     )
 
 
@@ -2437,7 +2452,7 @@ def _run_prompt_eval_with_empty_artifact_retry(
         workspace_root=workspace.root,
         policyengine_rule_hint=policyengine_rule_hint,
     )
-    if wrote_artifact or response.error is not None:
+    if wrote_artifact or not _response_allows_empty_artifact_retry(response):
         return response, wrote_artifact, 0
 
     retry_prompt = _build_empty_artifact_retry_prompt(
@@ -5362,7 +5377,9 @@ def _run_codex_prompt_eval(
     prompt: str,
 ) -> EvalPromptResponse:
     """Run prompt-only eval via Codex CLI."""
-    codex_idle_timeout_seconds = 300
+    codex_timeout_seconds, codex_idle_timeout_seconds = _codex_prompt_timeouts(
+        workspace
+    )
     last_message_file = workspace.root / ".codex-last-message.txt"
     if last_message_file.exists():
         last_message_file.unlink()
@@ -5388,6 +5405,7 @@ def _run_codex_prompt_eval(
     start = time.time()
     terminated_after_output = False
     timed_out = False
+    timeout_reason = None
     with (
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
@@ -5405,12 +5423,17 @@ def _run_codex_prompt_eval(
             terminated_after_output = _wait_for_codex_process(
                 process,
                 last_message_file=last_message_file,
-                timeout=600,
+                timeout=codex_timeout_seconds,
                 heartbeat_paths=[stdout_path, stderr_path],
                 max_idle_seconds=codex_idle_timeout_seconds,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             timed_out = True
+            timeout_reason = (
+                "idle"
+                if exc.timeout == codex_idle_timeout_seconds
+                else "wall"
+            )
             process.kill()
             process.wait()
 
@@ -5488,11 +5511,29 @@ def _run_codex_prompt_eval(
             "provider": "openai",
             "backend": "codex-exec",
             "model": runner.model,
+            "timed_out": timed_out,
+            "timeout_reason": timeout_reason,
+            "timeout_seconds": codex_timeout_seconds,
+            "idle_timeout_seconds": codex_idle_timeout_seconds,
             "events": events,
         },
         unexpected_accesses=unexpected_accesses,
         error=error,
     )
+
+
+def _codex_prompt_timeouts(workspace: EvalWorkspace) -> tuple[int, int]:
+    """Return wall and idle timeouts for a Codex eval workspace."""
+    try:
+        source_length = len(workspace.source_text_file.read_text())
+    except OSError:
+        source_length = 0
+    if source_length >= _CODEX_LONG_SOURCE_CHAR_THRESHOLD:
+        return (
+            _CODEX_LONG_SOURCE_TIMEOUT_SECONDS,
+            _CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS,
+        )
+    return (_CODEX_DEFAULT_TIMEOUT_SECONDS, _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS)
 
 
 def _wait_for_codex_process(
