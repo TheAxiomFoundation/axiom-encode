@@ -9017,6 +9017,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 104(a)(4) service-injury pension exclusion outputs are source-specific exclusion predicates and amounts that PolicyEngine does not expose as one-to-one variables.
 
+  - legal_id_prefix: us:statutes/26/112#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 112 combat-zone compensation exclusion outputs are military-service-specific exclusion amounts and predicates that PolicyEngine does not expose as one-to-one variables.
+
   - legal_id_prefix: us:statutes/26/1211#
     country: us
     program: tax
@@ -9050,6 +9056,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 151 provision-level exemption and senior-deduction outputs use source-specific eligibility predicates, phaseout helpers, or current-law assembly surfaces that PolicyEngine folds into exemptions/additional_senior_deduction or stores through different parameter structures unless an exact mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/152/c#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 152(c) qualifying-child outputs are dependency-law predicates and tiebreaker intermediates that PolicyEngine derives inside household and dependent-status logic rather than exposing as one-to-one oracle variables.
 
   - legal_id_prefix: us:statutes/26/199A#
     country: us
@@ -9092,6 +9104,24 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 163(h)(4)(A) passenger-vehicle-loan-interest outputs are source-specific statutory predicates not exposed as one-to-one PolicyEngine variables.
+
+  - legal_id_prefix: us:statutes/26/163/h/4#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 163(h)(4) qualified passenger-vehicle-loan-interest outputs are new statutory deduction predicates, caps, and phaseouts that PolicyEngine does not yet expose as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/163/h/4/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 163(h)(4) child-fragment passenger-vehicle-loan-interest outputs are source-specific statutory predicates, caps, and phaseout intermediates not exposed as one-to-one PolicyEngine variables.
+
+  - legal_id_prefix: us:statutes/26/172/c#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 172(c) net-operating-loss outputs depend on chapter-wide deduction capacity and NOL composition that PolicyEngine does not expose as one-to-one variables.
 
   - legal_id_prefix: us:statutes/26/224#
     country: us
@@ -9158,6 +9188,54 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 32 EITC provision outputs are statutory parameters, predicates, and formula intermediates unless an exact PolicyEngine mapping overrides this prefix.
+
+  - legal_id_prefix: us:statutes/26/32/c/2#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 32(c)(2) earned-income component outputs expose source-specific employee-compensation, self-employment, and section 112 election intermediates that PolicyEngine folds into filer adjusted earnings unless exactly mapped.
+
+  - legal_id_prefix: us:statutes/26/6013/a#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 6013(a) joint-return permission outputs are filing-status and decedent-return authorization predicates that PolicyEngine does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/67/e#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 67(e) estate-or-trust adjusted-gross-income outputs are fiduciary-income-tax intermediates outside PolicyEngine's individual tax oracle surface.
+
+  - legal_id_prefix: us:statutes/26/7703#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 7703 marital-status outputs are statutory filing-status predicates and living-apart tests that PolicyEngine derives inside filing-status logic rather than exposing as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/911/a#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 911(a) foreign-earned-income and housing-cost exclusion outputs are exclusion-election intermediates that PolicyEngine does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/911/a/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 911(a) child-fragment exclusion outputs are source-specific exclusion-election intermediates that PolicyEngine does not expose as one-to-one variables.
+
+  - legal_id_prefix: us:statutes/26/931#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 931 specified-possession income exclusion outputs and deduction or credit disallowance rules are territory-specific legal intermediates outside PolicyEngine's current one-to-one oracle surface.
+
+  - legal_id_prefix: us:statutes/26/933#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 933 Puerto Rico income exclusion outputs and related deduction or credit disallowance rules are territory-specific legal intermediates outside PolicyEngine's current one-to-one oracle surface.
 
   - legal_id_prefix: us:statutes/26/63#
     country: us
