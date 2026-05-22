@@ -1121,6 +1121,246 @@ mappings:
     comparison: money
     rationale: Same final section 230 Social Security contribution-and-benefit base, stored in PolicyEngine as the Social Security payroll cap parameter.
 
+  - legal_id: us:policies/ssa/pia-bend-points/2026#base_year_first_pia_bend_point
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not compute the 2026 SSA PIA bend point automatic determination from the underlying base-year values.
+
+  - legal_id: us:policies/ssa/pia-bend-points/2026#base_year_second_pia_bend_point
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not compute the 2026 SSA PIA bend point automatic determination from the underlying base-year values.
+
+  - legal_id: us:policies/ssa/pia-bend-points/2026#pia_base_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA PIA bend point automatic determination.
+
+  - legal_id: us:policies/ssa/pia-bend-points/2026#pia_computation_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA PIA bend point automatic determination.
+
+  - legal_id: us:policies/ssa/pia-bend-points/2026#pia_bend_point_rounding_multiple
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the rounding parameter used by the 2026 SSA PIA bend point automatic determination.
+
+  - legal_id: us:policies/ssa/pia-bend-points/2026#first_pia_bend_point
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine ages or stores Social Security benefit parameters rather than computing this 2026 SSA PIA bend point determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/pia-bend-points/2026#second_pia_bend_point
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine ages or stores Social Security benefit parameters rather than computing this 2026 SSA PIA bend point determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/quarter-of-coverage/2026#base_year_quarter_of_coverage_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not compute the 2026 SSA quarter-of-coverage automatic determination from the underlying base-year values.
+
+  - legal_id: us:policies/ssa/quarter-of-coverage/2026#quarter_of_coverage_base_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA quarter-of-coverage automatic determination.
+
+  - legal_id: us:policies/ssa/quarter-of-coverage/2026#quarter_of_coverage_computation_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA quarter-of-coverage automatic determination.
+
+  - legal_id: us:policies/ssa/quarter-of-coverage/2026#prior_year_quarter_of_coverage_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final quarter-of-coverage amount, not the prior-year floor intermediate separately.
+
+  - legal_id: us:policies/ssa/quarter-of-coverage/2026#quarter_of_coverage_rounding_multiple
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the rounding parameter used by the 2026 SSA quarter-of-coverage automatic determination.
+
+  - legal_id: us:policies/ssa/quarter-of-coverage/2026#wage_indexed_quarter_of_coverage_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final quarter-of-coverage amount, not the wage-indexed pre-floor computation separately.
+
+  - legal_id: us:policies/ssa/quarter-of-coverage/2026#quarter_of_coverage_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores or ages the quarter-of-coverage amount rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#lower_base_year_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not compute the 2026 SSA retirement earnings test automatic determination from the underlying base-year values.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#higher_base_year_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not compute the 2026 SSA retirement earnings test automatic determination from the underlying base-year values.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#lower_base_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA retirement earnings test automatic determination.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#higher_base_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA retirement earnings test automatic determination.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_computation_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA retirement earnings test automatic determination.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_rounding_multiple
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the rounding parameter used by the 2026 SSA retirement earnings test automatic determination.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#prior_year_lower_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final retirement earnings test exempt amounts, not the prior-year floor intermediates separately.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#prior_year_higher_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final retirement earnings test exempt amounts, not the prior-year floor intermediates separately.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#wage_indexed_lower_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final retirement earnings test exempt amounts, not the wage-indexed pre-floor computation separately.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#wage_indexed_higher_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final retirement earnings test exempt amounts, not the wage-indexed pre-floor computation separately.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_lower_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores or ages the retirement earnings test exempt amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_lower_annual_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores or ages the retirement earnings test exempt amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_higher_monthly_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores or ages the retirement earnings test exempt amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/retirement-earnings-test/2026#retirement_earnings_test_higher_annual_exempt_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores or ages the retirement earnings test exempt amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#blind_base_year_sga_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not compute the 2026 SSA substantial gainful activity automatic determination from the underlying base-year values.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#blind_base_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA substantial gainful activity automatic determination.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#non_blind_disabled_base_year_sga_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not compute the 2026 SSA substantial gainful activity automatic determination from the underlying base-year values.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#non_blind_disabled_base_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA substantial gainful activity automatic determination.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#substantial_gainful_activity_computation_year_average_wage_index
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the wage-index inputs used by the 2026 SSA substantial gainful activity automatic determination.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#substantial_gainful_activity_rounding_multiple
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the rounding parameter used by the 2026 SSA substantial gainful activity automatic determination.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#prior_year_blind_sga_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final substantial gainful activity amounts, not the prior-year floor intermediates separately.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#prior_year_non_blind_disabled_sga_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final substantial gainful activity amounts, not the prior-year floor intermediates separately.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#wage_indexed_blind_sga_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final substantial gainful activity amounts, not the wage-indexed pre-floor computation separately.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#wage_indexed_non_blind_disabled_sga_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores the final substantial gainful activity amounts, not the wage-indexed pre-floor computation separately.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#substantial_gainful_activity_blind_monthly_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores or ages substantial gainful activity amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
+  - legal_id: us:policies/ssa/substantial-gainful-activity/2026#substantial_gainful_activity_non_blind_disabled_monthly_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine stores or ages substantial gainful activity amounts rather than computing this 2026 SSA automatic determination as an oracle-comparable formula.
+
   - legal_id: us:statutes/26/45A/a#base_year_1993_indian_employment_costs
     country: us
     program: tax
