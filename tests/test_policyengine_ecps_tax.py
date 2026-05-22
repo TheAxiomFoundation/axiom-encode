@@ -13,6 +13,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_BASE,
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     OASDI_WAGE_BASE_PROGRAM_PATH,
+    POLICYENGINE_CORE_VERSION,
     POLICYENGINE_VERSION,
     SECTION_32_C_2_BASE,
     SECTION_112_BASE,
@@ -1278,6 +1279,8 @@ def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):
     def fake_version(package):
         if package == "policyengine":
             return POLICYENGINE_VERSION
+        if package == "policyengine-core":
+            return POLICYENGINE_CORE_VERSION
         if package == "policyengine-us":
             return "999.0.0"
         raise AssertionError(package)
@@ -1288,10 +1291,28 @@ def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):
         require_policyengine_versions()
 
 
+def test_policyengine_version_guard_rejects_unpinned_core_version(monkeypatch):
+    def fake_version(package):
+        if package == "policyengine":
+            return POLICYENGINE_VERSION
+        if package == "policyengine-core":
+            return "999.0.0"
+        if package == "policyengine-us":
+            return "1.691.3"
+        raise AssertionError(package)
+
+    monkeypatch.setattr(ecps_tax, "version", fake_version)
+
+    with pytest.raises(SystemExit, match="policyengine-core=="):
+        require_policyengine_versions()
+
+
 def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
     def fake_version(package):
         if package == "policyengine":
             return POLICYENGINE_VERSION
+        if package == "policyengine-core":
+            return POLICYENGINE_CORE_VERSION
         if package == "policyengine-us":
             return "999.0.0"
         raise AssertionError(package)
