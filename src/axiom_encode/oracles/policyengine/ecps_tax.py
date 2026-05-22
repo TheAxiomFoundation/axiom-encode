@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - exercised only without optional oracle
 
 
 POLICYENGINE_VERSION = "4.4.4"
+POLICYENGINE_CORE_VERSION = "3.26.0"
 POLICYENGINE_US_VERSION = "1.691.3"
 DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
 
@@ -1981,6 +1982,7 @@ def require_policyengine_versions(
 ) -> None:
     try:
         policyengine_version = version("policyengine")
+        policyengine_core_version = version("policyengine-core")
         policyengine_us_version = version("policyengine-us")
     except PackageNotFoundError as exc:
         raise SystemExit(policyengine_install_message()) from exc
@@ -1988,6 +1990,11 @@ def require_policyengine_versions(
         raise SystemExit(
             f"policyengine=={POLICYENGINE_VERSION} required; found "
             f"{policyengine_version}. {policyengine_install_message()}"
+        )
+    if policyengine_core_version != POLICYENGINE_CORE_VERSION:
+        raise SystemExit(
+            f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
+            f"{policyengine_core_version}. {policyengine_install_message()}"
         )
     if (
         policyengine_us_version != POLICYENGINE_US_VERSION
@@ -2001,8 +2008,10 @@ def require_policyengine_versions(
 
 def policyengine_install_message() -> str:
     return (
-        "Run with: uv run --with policyengine==4.4.4 "
-        "--with policyengine-us==1.691.3 axiom-encode tax-ecps-compare"
+        f"Run with: uv run --with policyengine=={POLICYENGINE_VERSION} "
+        f"--with policyengine-core=={POLICYENGINE_CORE_VERSION} "
+        f"--with policyengine-us=={POLICYENGINE_US_VERSION} "
+        "axiom-encode tax-ecps-compare"
     )
 
 
