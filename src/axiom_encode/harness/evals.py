@@ -106,6 +106,11 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statutes", "regulation"}
+_CODEX_DEFAULT_TIMEOUT_SECONDS = 600
+_CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
+_CODEX_LONG_SOURCE_CHAR_THRESHOLD = 40_000
+_CODEX_LONG_SOURCE_TIMEOUT_SECONDS = 1800
+_CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS = 900
 
 
 def _matching_numeric_occurrence_count(
@@ -257,6 +262,7 @@ class EvalResult:
     unexpected_accesses: list[str]
     metrics: EvalArtifactMetrics | None
     generation_prompt_sha256: str | None = None
+    retry_count: int = 0
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -437,6 +443,72 @@ def _sha256_text(text: str | None) -> str | None:
     if text is None:
         return None
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _sum_optional_float(left: float | None, right: float | None) -> float | None:
+    if left is None and right is None:
+        return None
+    return (left or 0.0) + (right or 0.0)
+
+
+def _sum_token_usage(
+    left: TokenUsage | None,
+    right: TokenUsage | None,
+) -> TokenUsage | None:
+    if left is None and right is None:
+        return None
+    return TokenUsage(
+        input_tokens=(left.input_tokens if left else 0)
+        + (right.input_tokens if right else 0),
+        output_tokens=(left.output_tokens if left else 0)
+        + (right.output_tokens if right else 0),
+        cache_read_tokens=(left.cache_read_tokens if left else 0)
+        + (right.cache_read_tokens if right else 0),
+        cache_creation_tokens=(left.cache_creation_tokens if left else 0)
+        + (right.cache_creation_tokens if right else 0),
+        reasoning_output_tokens=(left.reasoning_output_tokens if left else 0)
+        + (right.reasoning_output_tokens if right else 0),
+    )
+
+
+def _combine_retry_response(
+    initial: EvalPromptResponse,
+    retry: EvalPromptResponse,
+    retry_prompt: str,
+) -> EvalPromptResponse:
+    """Return the retry response while preserving aggregate accounting."""
+    return EvalPromptResponse(
+        text=retry.text,
+        duration_ms=initial.duration_ms + retry.duration_ms,
+        tokens=_sum_token_usage(initial.tokens, retry.tokens),
+        estimated_cost_usd=_sum_optional_float(
+            initial.estimated_cost_usd, retry.estimated_cost_usd
+        ),
+        actual_cost_usd=_sum_optional_float(
+            initial.actual_cost_usd, retry.actual_cost_usd
+        ),
+        trace={
+            "retry_count": 1,
+            "retry_reason": "empty_rulespec_artifact",
+            "retry_prompt_sha256": _sha256_text(retry_prompt),
+            "attempts": [
+                {"attempt": 0, "trace": initial.trace or {}},
+                {"attempt": 1, "trace": retry.trace or {}},
+            ],
+        },
+        unexpected_accesses=[
+            *initial.unexpected_accesses,
+            *retry.unexpected_accesses,
+        ],
+        error=retry.error,
+    )
+
+
+def _response_allows_empty_artifact_retry(response: EvalPromptResponse) -> bool:
+    """Return true when a missing artifact should get one forced retry."""
+    if response.error is None:
+        return True
+    return not response.text.strip() and "timed out" in response.error.lower()
 
 
 def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
@@ -978,6 +1050,7 @@ def _eval_result_from_payload(payload: dict) -> EvalResult:
         retrieved_files=list(payload.get("retrieved_files") or []),
         unexpected_accesses=list(payload.get("unexpected_accesses") or []),
         metrics=metrics,
+        retry_count=int(payload.get("retry_count", 0) or 0),
     )
 
 
@@ -2328,6 +2401,79 @@ def _relative_rulespec_source_path(path: Path) -> Path | None:
     return None
 
 
+def _build_empty_artifact_retry_prompt(
+    original_prompt: str,
+    target_file_name: str,
+    include_tests: bool,
+) -> str:
+    """Build the one-shot repair prompt for narrative-only eval responses."""
+    output_contract = (
+        f"Return exactly this two-file bundle and nothing else, beginning with "
+        f"`=== FILE: {target_file_name} ===`."
+        if include_tests
+        else (
+            f"Return only raw RuleSpec YAML for `{target_file_name}` beginning "
+            "with `format: rulespec/v1`."
+        )
+    )
+    return f"""The previous response did not contain a RuleSpec artifact, so the harness could not parse or write `{target_file_name}`.
+
+Emit the artifact now.
+- Do not narrate your plan.
+- Do not explain what you will do.
+- Do not include markdown prose, analysis, or file-write confirmations.
+- {output_contract}
+
+Use the same source, context, schema, and validation constraints from the original task below.
+
+=== BEGIN ORIGINAL TASK ===
+{original_prompt}
+=== END ORIGINAL TASK ===
+"""
+
+
+def _run_prompt_eval_with_empty_artifact_retry(
+    runner: EvalRunnerSpec,
+    workspace: EvalWorkspace,
+    prompt: str,
+    output_file: Path,
+    source_text: str,
+    target_file_name: str,
+    include_tests: bool,
+    policyengine_rule_hint: str | None = None,
+) -> tuple[EvalPromptResponse, bool, int]:
+    """Run an eval and retry once if no RuleSpec artifact can be materialized."""
+    response = _run_prompt_eval(runner, workspace, prompt)
+    wrote_artifact = _materialize_eval_artifact(
+        response.text,
+        output_file,
+        source_text=source_text,
+        workspace_root=workspace.root,
+        policyengine_rule_hint=policyengine_rule_hint,
+    )
+    if wrote_artifact or not _response_allows_empty_artifact_retry(response):
+        return response, wrote_artifact, 0
+
+    retry_prompt = _build_empty_artifact_retry_prompt(
+        prompt,
+        target_file_name=target_file_name,
+        include_tests=include_tests,
+    )
+    retry_response = _run_prompt_eval(runner, workspace, retry_prompt)
+    retry_wrote_artifact = _materialize_eval_artifact(
+        retry_response.text,
+        output_file,
+        source_text=source_text,
+        workspace_root=workspace.root,
+        policyengine_rule_hint=policyengine_rule_hint,
+    )
+    return (
+        _combine_retry_response(response, retry_response, retry_prompt),
+        retry_wrote_artifact,
+        1,
+    )
+
+
 def _run_single_eval(
     citation: str,
     runner: EvalRunnerSpec,
@@ -2383,14 +2529,16 @@ def _run_single_eval(
         runner_backend=runner.backend,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
-    response = _run_prompt_eval(runner, workspace, prompt)
     output_file = Path(output_root) / runner.name / relative_output
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    wrote_artifact = _materialize_eval_artifact(
-        response.text,
-        output_file,
+    response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
+        runner=runner,
+        workspace=workspace,
+        prompt=prompt,
+        output_file=output_file,
         source_text=source_text,
-        workspace_root=workspace.root,
+        target_file_name=relative_output.name,
+        include_tests=include_tests,
     )
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
@@ -2438,6 +2586,7 @@ def _run_single_eval(
         retrieved_files=[item.source_path for item in workspace.context_files],
         unexpected_accesses=response.unexpected_accesses,
         metrics=metrics,
+        retry_count=retry_count,
     )
     emit_eval_result(result, response.trace)
     return result
@@ -2492,14 +2641,16 @@ def _run_single_source_eval(
         policyengine_rule_hint=policyengine_rule_hint,
     )
     generation_prompt_sha256 = _sha256_text(prompt)
-    response = _run_prompt_eval(runner, workspace, prompt)
     output_file = Path(output_root) / runner.name / relative_output
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    wrote_artifact = _materialize_eval_artifact(
-        response.text,
-        output_file,
+    response, wrote_artifact, retry_count = _run_prompt_eval_with_empty_artifact_retry(
+        runner=runner,
+        workspace=workspace,
+        prompt=prompt,
+        output_file=output_file,
         source_text=source_text,
-        workspace_root=workspace.root,
+        target_file_name=relative_output.name,
+        include_tests=True,
         policyengine_rule_hint=policyengine_rule_hint,
     )
     if wrote_artifact:
@@ -2551,6 +2702,7 @@ def _run_single_source_eval(
         retrieved_files=[item.source_path for item in workspace.context_files],
         unexpected_accesses=response.unexpected_accesses,
         metrics=metrics,
+        retry_count=retry_count,
     )
     emit_eval_result(result, response.trace)
     return result
@@ -2932,6 +3084,8 @@ Preferred principal output:
     return f"""You are participating in an encoding eval for {citation}.
 
 Author the output in Axiom RuleSpec YAML.
+Do not narrate your plan or describe what you will do before emitting the artifact.
+The response must begin with the requested RuleSpec artifact, not with prose.
 
 Primary legal authority:
 - `./source.txt` contains the complete source text for this target source unit.
@@ -5222,7 +5376,9 @@ def _run_codex_prompt_eval(
     prompt: str,
 ) -> EvalPromptResponse:
     """Run prompt-only eval via Codex CLI."""
-    codex_idle_timeout_seconds = 300
+    codex_timeout_seconds, codex_idle_timeout_seconds = _codex_prompt_timeouts(
+        workspace
+    )
     last_message_file = workspace.root / ".codex-last-message.txt"
     if last_message_file.exists():
         last_message_file.unlink()
@@ -5248,6 +5404,7 @@ def _run_codex_prompt_eval(
     start = time.time()
     terminated_after_output = False
     timed_out = False
+    timeout_reason = None
     with (
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
@@ -5265,12 +5422,15 @@ def _run_codex_prompt_eval(
             terminated_after_output = _wait_for_codex_process(
                 process,
                 last_message_file=last_message_file,
-                timeout=600,
+                timeout=codex_timeout_seconds,
                 heartbeat_paths=[stdout_path, stderr_path],
                 max_idle_seconds=codex_idle_timeout_seconds,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             timed_out = True
+            timeout_reason = (
+                "idle" if exc.timeout == codex_idle_timeout_seconds else "wall"
+            )
             process.kill()
             process.wait()
 
@@ -5348,11 +5508,29 @@ def _run_codex_prompt_eval(
             "provider": "openai",
             "backend": "codex-exec",
             "model": runner.model,
+            "timed_out": timed_out,
+            "timeout_reason": timeout_reason,
+            "timeout_seconds": codex_timeout_seconds,
+            "idle_timeout_seconds": codex_idle_timeout_seconds,
             "events": events,
         },
         unexpected_accesses=unexpected_accesses,
         error=error,
     )
+
+
+def _codex_prompt_timeouts(workspace: EvalWorkspace) -> tuple[int, int]:
+    """Return wall and idle timeouts for a Codex eval workspace."""
+    try:
+        source_length = len(workspace.source_text_file.read_text())
+    except OSError:
+        source_length = 0
+    if source_length >= _CODEX_LONG_SOURCE_CHAR_THRESHOLD:
+        return (
+            _CODEX_LONG_SOURCE_TIMEOUT_SECONDS,
+            _CODEX_LONG_SOURCE_IDLE_TIMEOUT_SECONDS,
+        )
+    return (_CODEX_DEFAULT_TIMEOUT_SECONDS, _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS)
 
 
 def _wait_for_codex_process(

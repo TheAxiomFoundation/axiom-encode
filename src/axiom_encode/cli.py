@@ -12834,6 +12834,8 @@ def cmd_eval(args):
         print(
             f"  tokens in={result.input_tokens} out={result.output_tokens} cache_read={result.cache_read_tokens} reasoning_out={result.reasoning_output_tokens}"
         )
+        if getattr(result, "retry_count", 0):
+            print(f"  retry_count={result.retry_count}")
         print(f"  retrieved_files={len(result.retrieved_files)}")
         if result.unexpected_accesses:
             print(f"  unexpected_accesses={len(result.unexpected_accesses)}")
@@ -12955,6 +12957,7 @@ def _serialize_eval_result(result) -> dict:
         "success": getattr(result, "success", None),
         "error": getattr(result, "error", None),
         "generation_prompt_sha256": getattr(result, "generation_prompt_sha256", None),
+        "retry_count": getattr(result, "retry_count", 0),
         "metrics": getattr(result, "metrics", None),
     }
 
