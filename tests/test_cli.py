@@ -20,6 +20,7 @@ from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
+    _append_generated_derived_output_tests_if_missing,
     _apply_generated_encoding_result,
     _complete_missing_imported_test_inputs,
     _default_generated_test_input_value,
@@ -3679,6 +3680,51 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_derived_output_test_repair_uses_indexed_selector_key(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "26" / "3241" / "b.yaml"
+        test_file = repo_path / "statutes" / "26" / "3241" / "b.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: average_account_benefits_ratio_bracket
+    kind: derived
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'if average_account_benefits_ratio < 2.5: 1 else: 2'
+  - name: applicable_percentage_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_bracket
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.221
+          2: 0.181
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_derived_output_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            relative_output=Path("statutes/26/3241/b.yaml"),
+            issues=[
+                "Derived rule missing companion output coverage: "
+                "`us:statutes/26/3241/b#average_account_benefits_ratio_bracket` "
+                "is not asserted by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_output_average_account_benefits_ratio_bracket"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["output"] == {
+            "us:statutes/26/3241/b#average_account_benefits_ratio_bracket": 1
+        }
 
     def test_encode_apply_removes_local_import_output_input_placeholders(
         self, capsys, tmp_path

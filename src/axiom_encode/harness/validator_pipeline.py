@@ -2577,17 +2577,18 @@ def repair_source_table_band_scalar_parameters(
     if not referenced_bounds:
         return content, []
 
+    removed_bounds = set(bound_values)
     payload["rules"] = [
         rule
         for rule in rules
         if not (
             isinstance(rule, dict)
-            and str(rule.get("name") or "").strip() in referenced_bounds
+            and str(rule.get("name") or "").strip() in removed_bounds
         )
     ]
 
     repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
-    return repaired_content, sorted(changed_rules | referenced_bounds)
+    return repaired_content, sorted(changed_rules | removed_bounds)
 
 
 def _is_source_table_structural_bound_parameter_name(name: str) -> bool:
