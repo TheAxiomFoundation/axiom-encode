@@ -59,6 +59,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
     require_policyengine_versions,
+    select_tax_unit_indices,
     taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
     valid_child_ssn_type,
@@ -1000,7 +1001,58 @@ def test_tax_ecps_parser_documents_full_sample_size():
     sample_size_help = next(
         action.help for action in parser._actions if action.dest == "sample_size"
     )
+    tax_unit_id_help = next(
+        action.help for action in parser._actions if action.dest == "tax_unit_ids"
+    )
     assert "0 compares all eligible tax units" in sample_size_help
+    assert "bypasses --sample-size" in tax_unit_id_help
+
+
+def test_select_tax_unit_indices_can_target_known_residuals():
+    pd = pytest.importorskip("pandas")
+    raw_tax_units = pd.DataFrame(
+        [
+            {"tax_unit_id": 10, "tax_unit_weight": 1},
+            {"tax_unit_id": 2976, "tax_unit_weight": 1},
+            {"tax_unit_id": 42, "tax_unit_weight": 0},
+        ]
+    )
+    tax_units = pd.DataFrame(
+        [
+            {"ctc": 0},
+            {"ctc": 10},
+            {"ctc": 10},
+        ]
+    )
+
+    indices = select_tax_unit_indices(
+        raw_tax_units=raw_tax_units,
+        tax_units=tax_units,
+        sample_size=1,
+        positive_ctc_only=False,
+        tax_unit_ids=(2976,),
+    )
+
+    assert indices.tolist() == [1]
+
+
+def test_select_tax_unit_indices_rejects_filtered_requested_case():
+    pd = pytest.importorskip("pandas")
+    raw_tax_units = pd.DataFrame(
+        [
+            {"tax_unit_id": 2976, "tax_unit_weight": 1},
+        ]
+    )
+    tax_units = pd.DataFrame([{"ctc": 0}])
+
+    with pytest.raises(SystemExit, match="not eligible"):
+        select_tax_unit_indices(
+            raw_tax_units=raw_tax_units,
+            tax_units=tax_units,
+            sample_size=0,
+            positive_ctc_only=True,
+            tax_unit_ids=(2976,),
+        )
 
 
 def test_compare_outputs_reports_max_relative_diff_for_large_float_noise():

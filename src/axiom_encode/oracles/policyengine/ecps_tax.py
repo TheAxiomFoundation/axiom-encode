@@ -369,6 +369,17 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--tax-unit-id",
+        type=int,
+        action="append",
+        default=None,
+        dest="tax_unit_ids",
+        help=(
+            "Compare a specific ECPS tax_unit_id. Repeat to compare multiple "
+            "known residual cases; when provided this bypasses --sample-size."
+        ),
+    )
+    parser.add_argument(
         "--positive-ctc-only",
         action="store_true",
         help="Restrict to ECPS tax units with positive PolicyEngine CTC",
@@ -438,6 +449,7 @@ def main(args: argparse.Namespace) -> int:
         data_folder=args.data_folder,
         tolerance=args.tolerance,
         relative_tolerance=args.relative_tolerance,
+        tax_unit_ids=tuple(args.tax_unit_ids or ()),
         allow_policyengine_us_version=args.allow_policyengine_us_version,
         allow_uncertified_policyengine_data=args.allow_uncertified_policyengine_data,
     )
@@ -466,6 +478,7 @@ def compare_tax_ecps(
     data_folder: Path,
     tolerance: float,
     relative_tolerance: float,
+    tax_unit_ids: tuple[int, ...] = (),
     allow_policyengine_us_version: bool = False,
     allow_uncertified_policyengine_data: bool = False,
 ) -> TaxComparisonReport:
@@ -486,6 +499,7 @@ def compare_tax_ecps(
         year=year,
         sample_size=sample_size,
         positive_ctc_only=positive_ctc_only,
+        tax_unit_ids=tax_unit_ids,
         data_folder=data_folder,
         allow_uncertified_policyengine_data=allow_uncertified_policyengine_data,
     )
@@ -561,6 +575,7 @@ def load_policyengine_tax_data(
     sample_size: int,
     positive_ctc_only: bool,
     data_folder: Path,
+    tax_unit_ids: tuple[int, ...] = (),
     allow_uncertified_policyengine_data: bool = False,
 ) -> dict[str, Any]:
     if allow_uncertified_policyengine_data:
@@ -596,12 +611,13 @@ def load_policyengine_tax_data(
     person_outputs = sim.output_dataset.data.person[
         ["person_id", *PE_PERSON_VARIABLES]
     ].copy()
-    mask = np.asarray(raw_tax_units["tax_unit_weight"]) > 0
-    if positive_ctc_only:
-        mask &= np.asarray(tax_units["ctc"]) > 0
-    indices = np.flatnonzero(mask)
-    if sample_size > 0:
-        indices = indices[:sample_size]
+    indices = select_tax_unit_indices(
+        raw_tax_units=raw_tax_units,
+        tax_units=tax_units,
+        sample_size=sample_size,
+        positive_ctc_only=positive_ctc_only,
+        tax_unit_ids=tax_unit_ids,
+    )
     selected = raw_tax_units.iloc[indices].copy()
     selected = selected.merge(
         tax_unit_outputs,
@@ -625,6 +641,51 @@ def load_policyengine_tax_data(
         "tax_unit_ids": [int(value) for value in selected["tax_unit_id"]],
         "person_ids": [int(value) for value in selected_persons["person_id"]],
     }
+
+
+def select_tax_unit_indices(
+    *,
+    raw_tax_units: Any,
+    tax_units: Any,
+    sample_size: int,
+    positive_ctc_only: bool,
+    tax_unit_ids: tuple[int, ...] = (),
+) -> Any:
+    """Select ECPS tax-unit row indices for oracle comparison."""
+    mask = np.asarray(raw_tax_units["tax_unit_weight"]) > 0
+    if positive_ctc_only:
+        mask &= np.asarray(tax_units["ctc"]) > 0
+    if not tax_unit_ids:
+        indices = np.flatnonzero(mask)
+        if sample_size > 0:
+            indices = indices[:sample_size]
+        return indices
+
+    requested_ids = tuple(dict.fromkeys(int(value) for value in tax_unit_ids))
+    raw_ids = np.asarray(raw_tax_units["tax_unit_id"], dtype=int)
+    index_by_id = {int(tax_unit_id): index for index, tax_unit_id in enumerate(raw_ids)}
+    selected: list[int] = []
+    missing: list[int] = []
+    filtered: list[int] = []
+    for tax_unit_id in requested_ids:
+        index = index_by_id.get(tax_unit_id)
+        if index is None:
+            missing.append(tax_unit_id)
+        elif not bool(mask[index]):
+            filtered.append(tax_unit_id)
+        else:
+            selected.append(index)
+    if missing:
+        raise SystemExit(
+            "Requested ECPS tax_unit_id not found: "
+            + ", ".join(str(value) for value in missing)
+        )
+    if filtered:
+        raise SystemExit(
+            "Requested ECPS tax_unit_id is not eligible for this comparison: "
+            + ", ".join(str(value) for value in filtered)
+        )
+    return np.asarray(selected, dtype=int)
 
 
 def _install_policyengine_data_certification_override() -> None:

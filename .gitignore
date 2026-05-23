@@ -8,5 +8,6 @@ build/
 *.db
 .DS_Store
 .coverage
+.axiom/
 hook_debug.log
 artifacts/eval-suites/
