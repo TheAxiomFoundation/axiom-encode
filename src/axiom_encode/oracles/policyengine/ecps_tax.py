@@ -183,6 +183,10 @@ CAPITAL_GAINS_DEFINITION_OUTPUTS = {
     },
 }
 EITC_OUTPUTS = {
+    "eitc_earned_income": {
+        "axiom": f"{SECTION_32_C_2_BASE}#earned_income",
+        "pe": "eitc_earned_income",
+    },
     "eitc_child_count": {
         "axiom": f"{EITC_BASE}#eitc_child_count",
         "pe": "eitc_child_count",
@@ -252,6 +256,7 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "ctc_qualifying_children",
             "eitc_child_count",
             "eitc_demographic_eligible",
+            "eitc_earned_income",
             "eitc_eligible",
             "eitc_investment_income_eligible",
             "eitc_maximum",
@@ -1363,13 +1368,21 @@ def project_section_1402_a_tax_unit_inputs(
     self_employment_income = sum(
         money(person.get("self_employment_income_before_lsr", 0))
         + money(person.get("sstb_self_employment_income_before_lsr", 0))
+        + money(person.get("farm_operations_income", 0))
+        for person, context in zip(persons, contexts, strict=True)
+        if context.is_head or context.is_spouse
+    )
+    partnership_self_employment_income = sum(
+        money(person.get("partnership_se_income", 0))
         for person, context in zip(persons, contexts, strict=True)
         if context.is_head or context.is_spouse
     )
     return {
         "self_employment_trade_or_business_gross_income": self_employment_income,
         "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": 0,
+        "partnership_section_702_a_8_income_or_loss": (
+            partnership_self_employment_income
+        ),
     }
 
 
@@ -1800,8 +1813,10 @@ def compare_outputs(
             "taxable income rather than using PolicyEngine taxable income as "
             "an Axiom input.",
             "EITC projections supply ECPS wage and self-employment leaf facts "
+            "including farm operations and partnership self-employment income "
             "to Sections 32(c)(2) and 1402(a); Section 32 earned income is "
-            "computed by Axiom rather than passed in as a PolicyEngine output.",
+            "computed by Axiom and compared as an output rather than passed in "
+            "from PolicyEngine.",
         ],
     )
 

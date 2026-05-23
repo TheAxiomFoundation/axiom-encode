@@ -615,6 +615,8 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
             "employment_income_before_lsr": 18_000,
             "self_employment_income_before_lsr": 2_500,
             "sstb_self_employment_income_before_lsr": 0,
+            "farm_operations_income": 300,
+            "partnership_se_income": 450,
         },
         {
             "age": 35,
@@ -622,6 +624,8 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
             "employment_income_before_lsr": 5_000,
             "self_employment_income_before_lsr": 0,
             "sstb_self_employment_income_before_lsr": 750,
+            "farm_operations_income": 0,
+            "partnership_se_income": -50,
         },
         {
             "age": 8,
@@ -629,6 +633,8 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
             "employment_income_before_lsr": 1_000,
             "self_employment_income_before_lsr": 9_999,
             "sstb_self_employment_income_before_lsr": 9_999,
+            "farm_operations_income": 9_999,
+            "partnership_se_income": 9_999,
         },
     ]
     contexts = project_tax_unit_person_contexts(persons)
@@ -648,9 +654,9 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         persons=persons,
         contexts=contexts,
     ) == {
-        "self_employment_trade_or_business_gross_income": 3_250,
+        "self_employment_trade_or_business_gross_income": 3_550,
         "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": 0,
+        "partnership_section_702_a_8_income_or_loss": 400,
     }
     assert project_section_164_f_tax_unit_inputs() == {
         "taxpayer_is_individual": True,
@@ -662,7 +668,7 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
     ) == {
         "international_social_security_agreement_under_section_233_in_effect": False,
         "filing_status": 0,
-        "self_employment_income": 3001.375,
+        "self_employment_income": 3647.825,
         "wages_taken_into_account_for_additional_medicare_tax": 0,
     }
 
