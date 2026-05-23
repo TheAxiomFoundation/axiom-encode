@@ -70,6 +70,7 @@ from .validator_pipeline import (
     find_ungrounded_numeric_issues,
     find_unused_modifier_parameter_issues,
     numeric_value_is_grounded,
+    repair_source_table_band_scalar_parameters,
 )
 
 EvalMode = Literal["cold", "repo-augmented"]
@@ -3357,6 +3358,7 @@ RuleSpec requirements:
   semantic date-window predicate in formulas and tests.
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
+  Do not write `else if` or `elif`; chain branches as `if condition: value else: if next_condition: next_value else: fallback`.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
 - Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
@@ -3421,11 +3423,11 @@ RuleSpec requirements:
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
-- Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax.
+- Axiom conditionals are expression syntax, not YAML syntax. Money/scalar formulas may use `if condition: value else: other`; do not use Python ternary syntax, `else if`, or `elif`.
 - `dtype: Judgment` formulas must not use `if ... else ...`. Write them as boolean expressions using `and`, `or`, `not`, comparisons, and parentheses. For example, encode `if exempt: net_ok else: net_ok and gross_ok` as `net_ok and (exempt or gross_ok)`.
 - When using negated conjuncts, write them as a multiline formula with each `not <predicate>` term on its own line joined by `and`, rather than one compact `not A and not B` line.
 - Do not use Python inline ternaries like `x if cond else y`.
-- Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks.
+- Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks, `else if`, or `elif`.
 - Do not append a multiline conditional directly onto another expression, and do not use inline assignment syntax like `:=` inside formula blocks.
 - For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals.
 - Do not simplify source-stated ratios or fractions into new decimal literals.
@@ -5860,11 +5862,17 @@ def _normalize_main_eval_content(
     *,
     target_path: Path,
     single_amount_table_slice: bool,
+    source_text: str | None = None,
 ) -> str:
     """Normalize generated main artifacts according to their format."""
     if target_path.suffix not in {".yaml", ".yml"}:
         raise ValueError("RuleSpec artifacts must use .yaml or .yml paths")
-    return _normalize_rulespec_content(content)
+    normalized = _normalize_rulespec_content(content)
+    normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
+        normalized,
+        source_text=source_text,
+    )
+    return normalized
 
 
 def _extract_generated_file_bundle(llm_response: str) -> dict[str, str]:
@@ -6640,6 +6648,7 @@ def _materialize_eval_artifact(
                         content,
                         target_path=target_path,
                         single_amount_table_slice=single_amount_table_slice,
+                        source_text=source_text,
                     )
                 except ValueError:
                     continue
@@ -6683,6 +6692,7 @@ def _materialize_eval_artifact(
             rulespec_content,
             target_path=expected_path,
             single_amount_table_slice=single_amount_table_slice,
+            source_text=source_text,
         )
     except ValueError:
         return False
@@ -6712,6 +6722,7 @@ def _materialize_workspace_artifacts(
             main_content,
             target_path=expected_path,
             single_amount_table_slice=single_amount_table_slice,
+            source_text=source_text,
         )
     except ValueError:
         return False

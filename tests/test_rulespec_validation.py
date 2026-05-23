@@ -77,6 +77,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_zero_branch_test_coverage_issues,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
+    repair_source_table_band_scalar_parameters,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -3271,6 +3272,66 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_allows_generated_band_selector_keys():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3241
+rules:
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if ratio < 2.5: 0 else: if ratio < 3.0: 4 else: 10
+  - name: rate_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0
+          4: 1
+          10: 2
+"""
+
+    source_text = (
+        "The table includes average account benefits ratio cutoffs 2.5 and 3.0."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_rulespec_grounding_rejects_ungrounded_index_like_integer_outputs():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/example/index
+rules:
+  - name: cost_of_living_index
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if eligible: 10 else: 0
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="The source describes eligibility but does not state the index value.",
+    )
+
+    assert len(issues) == 1
+    assert "10" in issues[0]
+
+
 def test_rulespec_grounding_accepts_slash_separated_source_measure_denominator():
     content = """format: rulespec/v1
 module:
@@ -4259,6 +4320,53 @@ rules:
             },
             "output": {
                 "us:statutes/26/32#credit_rate": 0.34,
+            },
+        },
+    ]
+
+    assert find_test_input_assignment_issues(content, test_cases) == []
+
+
+def test_test_input_assignment_treats_local_indexed_by_selector_as_dependency():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: income_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: if income < 100: 0 else: 4
+  - name: rate_by_income_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: income_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.1
+          4: 0.2
+  - name: rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: rate_by_income_band[income_band]
+"""
+    test_cases = [
+        {
+            "name": "low_income",
+            "input": {
+                "us:statutes/example#input.income": 50,
+            },
+            "output": {
+                "us:statutes/example#rate": 0.1,
             },
         },
     ]
@@ -7750,6 +7858,110 @@ rules:
     assert "Source table row/band scalar parameters" in issues[0]
     assert "average_account_benefits_ratio_lower_bound_band_0" in issues[0]
     assert "structural bounds inline" in issues[0]
+
+
+def test_repair_source_table_band_bound_scalars_inlines_selector_bounds():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+rules:
+  - name: average_account_benefits_ratio_lower_bound_band_0
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_upper_bound_band_0
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < average_account_benefits_ratio_lower_bound_band_0:
+            -1
+          else if average_account_benefits_ratio < average_account_benefits_ratio_upper_bound_band_0:
+            0
+          else:
+            1
+  - name: applicable_percentage_3201_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.049
+          1: 0
+"""
+
+    repaired, repaired_rules = repair_source_table_band_scalar_parameters(content)
+
+    assert "average_account_benefits_ratio_lower_bound_band_0" not in repaired
+    assert "average_account_benefits_ratio_upper_bound_band_0" not in repaired
+    assert "average_account_benefits_ratio < 2.5" in repaired
+    assert "< 3.0" in repaired
+    assert "else if" not in repaired
+    assert "average_account_benefits_ratio_band" in repaired_rules
+    assert find_source_table_row_scalar_parameter_issues(repaired) == []
+
+
+def test_repair_source_table_band_bound_scalars_uses_external_table_text():
+    content = """format: rulespec/v1
+module:
+  summary: Section defines applicable percentages by benefits ratio.
+rules:
+  - name: ratio_lower_bound_band_0
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: ratio_upper_bound_band_0
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if ratio < ratio_lower_bound_band_0:
+            -1
+          elif ratio < ratio_upper_bound_band_0:
+            0
+          else:
+            1
+"""
+
+    repaired, _repaired_rules = repair_source_table_band_scalar_parameters(
+        content,
+        source_text="Tax rate schedule | Average account benefits ratio | 2.5 | 3.0",
+    )
+
+    assert "ratio_lower_bound_band_0" not in repaired
+    assert "ratio < 2.5" in repaired
+    assert "elif" not in repaired
 
 
 def test_source_table_row_scalar_parameters_allows_indexed_table():
