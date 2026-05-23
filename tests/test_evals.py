@@ -442,6 +442,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "RuleSpec YAML" in prompt
     assert "=== FILE: tn-snap-standard-utility-allowance.yaml ===" in prompt
     assert "=== FILE: tn-snap-standard-utility-allowance.test.yaml ===" in prompt
+    assert "apply that limit at the source-stated lower entity" in prompt
+    assert "then cap the aggregate" in prompt
     assert "Do not narrate your plan" in prompt
     assert "snap_standard_utility_allowance" in prompt
     assert "Do not use bare year periods like `2024`" in prompt

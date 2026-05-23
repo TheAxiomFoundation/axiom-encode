@@ -9,6 +9,13 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   that scope directly. If the same source also states member/person predicates
   that feed that test, encode those predicates only as support for the
   source-stated unit-level output.
+- When the source applies a cap, threshold, ceiling, reduction, "not exceed",
+  "lesser/greater of", or coordination rule to the amount of an individual,
+  person, member, taxpayer, employee, claimant, child, dependent, or spouse,
+  apply that limit at the source-stated lower entity before aggregating to a
+  household, unit, filing-unit, tax-unit, or family output. Do not sum a broad
+  relation and then cap the aggregate unless the source says the cap applies to
+  that aggregate unit.
 - Do not create a roll-up, top-level program output, or connection merely
   because downstream consumers want it, sibling/state files patched it, or the
   program conventionally has such a concept. The output must be directly
