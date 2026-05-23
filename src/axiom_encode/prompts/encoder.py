@@ -264,6 +264,16 @@ Hard requirements:
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  If a source says a rate, percentage, amount, applicable percentage, or
+  similar numeric term is determined under, in effect under, or equal to rates
+  from another section or subsection, do not model that numeric term as a local
+  input such as `tier_1_applicable_percentage`. Import the upstream output when
+  it exists; otherwise defer the affected output and name the cited legal
+  dependency in `reason`.
+  When the omitted output covers a specific subsection or subparagraph, the
+  `output` target path must include that source path segment, e.g.
+  `us:statutes/26/3201/a#tier_1_employee_tax`, not
+  `us:statutes/26/3201#tier_1_employee_tax`.
   Only include `blocked_by` entries when you know the exact RuleSpec output with
   a `#rule_fragment`. Do not list bare legal provisions, corpus paths, statute
   sections, or guessed pseudo-targets in `blocked_by`; for example,

@@ -5897,6 +5897,77 @@ rules:
     assert "statutes/26/68/b" in issues[0]
 
 
+def test_cross_reference_numeric_placeholder_rejects_locally_supplied_rates(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    imported_file = repo / "statutes" / "26" / "3101.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: oasdi_wage_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.062
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    (a) Tier 1 tax In addition to other taxes, there is hereby imposed on
+    the income of each employee a tax equal to the applicable percentage of
+    the compensation received during any calendar year by such employee. For
+    purposes of the preceding sentence, the term "applicable percentage" means
+    the percentage equal to the sum of the rates of tax in effect under
+    subsections (a) and (b) of section 3101 for the calendar year.
+
+    (b) Tier 2 tax In addition to other taxes, there is hereby imposed on the
+    income of each employee a tax equal to the percentage determined under
+    section 3241 for any calendar year of the compensation received during
+    such calendar year by such employee.
+rules:
+  - name: tier_1_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    source: 26 USC 3201(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tier_1_applicable_percentage * compensation
+  - name: tier_2_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tier_2_applicable_percentage * compensation
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_numeric_placeholders(rules_file)
+
+    assert len(issues) == 2
+    assert all("Cross-reference numeric placeholder" in issue for issue in issues)
+    assert any("tier_1_applicable_percentage" in issue for issue in issues)
+    assert any("statutes/26/3101" in issue for issue in issues)
+    assert any("tier_2_applicable_percentage" in issue for issue in issues)
+    assert any("statutes/26/3241" in issue for issue in issues)
+
+
 def test_encoded_cross_reference_placeholder_allows_under_section_when_unencoded(
     tmp_path,
 ):

@@ -474,6 +474,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "modifier parameter stranded" in prompt
     assert "module.deferred_outputs[]" in prompt
     assert "source_values" in prompt
+    assert "do not model that numeric term as a local" in prompt
+    assert "tier_1_applicable_percentage" in prompt
+    assert "output` target path must include that source path segment" in prompt
+    assert "us:statutes/26/3201/a#tier_1_employee_tax" in prompt
     assert (
         "Only include `blocked_by` entries when you know the exact RuleSpec output"
         in prompt
@@ -2998,6 +3002,8 @@ class TestEvalPrompt:
             "In a mixed provision, omit or defer only the affected executable" in prompt
         )
         assert "module.deferred_outputs[]" in prompt
+        assert "do not model that numeric term as a local" in prompt
+        assert "output` target path must include that source path segment" in prompt
         assert "Do not create tests for deferred" in prompt
         assert (
             "only when no executable rule in the requested source can be represented"
