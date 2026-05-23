@@ -830,6 +830,20 @@ rules:
         values:
           0: 0.049
           1: 0
+=== FILE: b.test.yaml ===
+- name: selector_band
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3241/b#input.average_account_benefits_ratio: 2.75
+  output:
+    us:statutes/26/3241/b#average_account_benefits_ratio_lower_bound_band_0: 2.5
+    us:statutes/26/3241/b#applicable_percentage_3201_by_average_account_benefits_ratio_band:
+      0: 0.049
+      1: 0
+    us:statutes/26/3241/b#average_account_benefits_ratio_band: 0
 """
 
     wrote = _materialize_eval_artifact(
@@ -844,6 +858,13 @@ rules:
     assert "average_account_benefits_ratio < 2.5" in content
     assert "elif" not in content
     assert "else if" not in content
+    test_content = output_file.with_name("b.test.yaml").read_text()
+    assert "average_account_benefits_ratio_lower_bound_band_0" not in test_content
+    assert (
+        "applicable_percentage_3201_by_average_account_benefits_ratio_band"
+        not in test_content
+    )
+    assert "average_account_benefits_ratio_band" in test_content
 
 
 def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_path):
