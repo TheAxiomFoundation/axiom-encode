@@ -60,6 +60,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_source_limitation_application_issues,
     find_source_scope_consistency_issues,
     find_source_subparagraph_coverage_issues,
+    find_source_table_row_scalar_parameter_issues,
     find_source_verification_issues,
     find_tax_filing_status_enum_representation_issues,
     find_tax_filing_status_local_input_issues,
@@ -7666,6 +7667,83 @@ rules:
 
     assert result.passed is False
     assert any("does not declare `indexed_by`" in issue for issue in result.issues)
+
+
+def test_source_table_row_scalar_parameters_are_rejected():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+    | 3.0 | 3.5 | 4.9 |
+rules:
+  - name: avg_ratio_threshold_row_0_upper_2_5
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: applicable_percentage_3201_row_0
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.049
+  - name: applicable_percentage_3201_row_1
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.049
+"""
+
+    issues = find_source_table_row_scalar_parameter_issues(content)
+
+    assert len(issues) == 1
+    assert "Source table row-scalar parameters" in issues[0]
+    assert "avg_ratio_threshold_row_0_upper_2_5" in issues[0]
+    assert "`indexed_by`" in issues[0]
+
+
+def test_source_table_row_scalar_parameters_allows_indexed_table():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+rules:
+  - name: applicable_percentage_3201_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.049
+          1: 0.049
+  - name: applicable_percentage_3201
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    source: 26 USC 3241(a), 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          applicable_percentage_3201_by_average_account_benefits_ratio_band[
+              average_account_benefits_ratio_band
+          ]
+"""
+
+    assert find_source_table_row_scalar_parameter_issues(content) == []
 
 
 def test_source_verification_accepts_values_in_ingested_source_text():
