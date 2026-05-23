@@ -3261,16 +3261,8 @@ _RELATION_AMOUNT_AGGREGATE_CALL_PATTERN = re.compile(
     r"(?P<relation>[A-Za-z_][A-Za-z0-9_]*)(?P<tail>[^)]*)\)",
     flags=re.IGNORECASE | re.DOTALL,
 )
-_ENTITY_LIMITED_HELPER_NAME_PATTERN = re.compile(
-    r"(?:^|_|\b)(?:limit|limited|limitation|cap|capped|ceiling|maximum|"
-    r"minimum|not_exceed|lesser|greater|reduc(?:e|ed|tion)|net_of)"
-    r"(?:_|\b|$)",
-    flags=re.IGNORECASE,
-)
 _ENTITY_LIMIT_IMPLEMENTATION_PATTERN = re.compile(
-    r"\bmin\s*\(|\bif\b[^\n:]*[<>]=?|(?:^|_|\b)(?:limit|limited|limitation|"
-    r"cap|capped|ceiling|maximum|not_exceed|lesser|threshold|base|"
-    r"reduc(?:e|ed|tion)|net_of)(?:_|\b|$)",
+    r"\bmin\s*\(|\bif\b[^\n:]*[<>]=?",
     flags=re.IGNORECASE,
 )
 _LIMITING_FUNCTION_CALL_PATTERN = re.compile(
@@ -5927,19 +5919,15 @@ def _aggregate_uses_pre_limited_amount(
     tail: str,
     *,
     formula_by_name: dict[str, str],
-    source_text: str,
 ) -> bool:
     amount_arg = _aggregate_amount_argument(function_name, tail)
     helper_formula = formula_by_name.get(amount_arg)
     if helper_formula is None:
         return False
-    return bool(
-        _ENTITY_LIMITED_HELPER_NAME_PATTERN.search(amount_arg)
-        and _formula_or_referenced_helpers_implement_entity_limit(
-            helper_formula,
-            formula_by_name=formula_by_name,
-            current_name=amount_arg,
-        )
+    return _formula_or_referenced_helpers_implement_entity_limit(
+        helper_formula,
+        formula_by_name=formula_by_name,
+        current_name=amount_arg,
     )
 
 
@@ -5947,7 +5935,6 @@ def _uncapped_broad_relation_aggregates_in_formula(
     formula: str,
     *,
     formula_by_name: dict[str, str],
-    source_text: str,
 ) -> set[str]:
     relations: set[str] = set()
     for match in _RELATION_AMOUNT_AGGREGATE_CALL_PATTERN.finditer(formula):
@@ -5958,7 +5945,6 @@ def _uncapped_broad_relation_aggregates_in_formula(
             match.group("function"),
             match.group("tail") or "",
             formula_by_name=formula_by_name,
-            source_text=source_text,
         ):
             continue
         relations.add(relation_name)
@@ -6045,7 +6031,6 @@ def _limited_aggregate_relations_in_formula(
     *,
     aggregate_relations_by_name: dict[str, set[str]],
     formula_by_name: dict[str, str],
-    source_text: str,
 ) -> set[str]:
     relations: set[str] = set()
     for expression in _formula_limiting_expressions(formula):
@@ -6053,7 +6038,6 @@ def _limited_aggregate_relations_in_formula(
             _uncapped_broad_relation_aggregates_in_formula(
                 expression,
                 formula_by_name=formula_by_name,
-                source_text=source_text,
             )
         )
         relations.update(
@@ -6246,7 +6230,6 @@ def find_entity_limited_aggregation_order_issues(content: str) -> list[str]:
             relations := _uncapped_broad_relation_aggregates_in_formula(
                 formula,
                 formula_by_name=formula_by_name,
-                source_text=source_text,
             )
         )
     }
@@ -6272,7 +6255,6 @@ def find_entity_limited_aggregation_order_issues(content: str) -> list[str]:
             formula,
             aggregate_relations_by_name=aggregate_relations_by_name,
             formula_by_name=formula_by_name,
-            source_text=scoped_source_text,
         )
         scoped_entity_detail = ", ".join(sorted(scoped_entity_terms)[:4])
         for relation_name in sorted(relations):

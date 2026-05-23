@@ -10718,6 +10718,42 @@ rules:
     assert find_entity_limited_aggregation_order_issues(content) == []
 
 
+def test_entity_limited_aggregation_order_accepts_semantic_limited_helper_name():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+    The tax unit amount shall not exceed the tax unit maximum.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_covered_wages
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(covered_wages, annual_base - wages_already_paid_to_employee)
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(sum_where(member_of_tax_unit, employee_covered_wages, employee_counts_for_tax_unit), tax_unit_maximum)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
 def test_entity_limited_aggregation_order_accepts_source_stated_unit_cap():
     content = """format: rulespec/v1
 module:
@@ -10908,6 +10944,44 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: covered_wages
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit), annual_base)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_identifier_only_limited_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: covered_wages + annual_base_adjustment
   - name: tax_unit_covered_wages
     kind: derived
     entity: TaxUnit
