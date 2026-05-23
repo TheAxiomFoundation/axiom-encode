@@ -6,6 +6,8 @@ import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
 from axiom_encode.oracles.policyengine.ecps_tax import (
     CAPITAL_GAINS_BASE,
     CAPITAL_GAINS_DEFINITION_OUTPUTS,
+    CTC_BASE,
+    CTC_H_BASE,
     EITC_BASE,
     EITC_OUTPUTS,
     EMPLOYEE_OASDI_BASE,
@@ -25,6 +27,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
     build_contribution_and_benefit_base_request,
+    build_ctc_request,
     build_eitc_request,
     build_oasdi_wage_base_request,
     build_payroll_request,
@@ -234,6 +237,90 @@ def test_tax_unit_person_contexts_handle_minor_only_tax_unit_without_filer_ssn()
     assert context.qualifying_child_described_in_subsection_c is True
     assert context.filer_has_valid_child_ctc_ssn is False
     assert projected["taxpayer_or_spouse_ssn_is_valid_for_subsection_h"] is False
+
+
+def test_build_ctc_request_uses_refreshed_rulespec_input_contract():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "filing_status": "JOINT",
+                    "adjusted_gross_income": 125_000,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "person_tax_unit_id": 1,
+                    "age": 39,
+                    "ssn_card_type": "CITIZEN",
+                },
+                {
+                    "person_id": 8,
+                    "person_tax_unit_id": 1,
+                    "age": 9,
+                    "ssn_card_type": "CITIZEN",
+                },
+            ]
+        ),
+        "tax_unit_ids": [1],
+    }
+
+    request = build_ctc_request(pe_data=pe_data, year=2026)
+
+    inputs = request["dataset"]["inputs"]
+    input_names = {item["name"] for item in inputs}
+    input_values = {
+        (item["name"], item["entity_id"]): item["value"]["value"] for item in inputs
+    }
+    tax_unit_id = "tax_unit_1"
+    child_id = "tax_unit_1_person_1"
+    assert input_values[(f"{CTC_H_BASE}#input.filing_status", tax_unit_id)] == 1
+    assert (
+        input_values[
+            (
+                f"{CTC_BASE}#input.ctc_phaseout_joint_threshold_applies",
+                tax_unit_id,
+            )
+        ]
+        is True
+    )
+    assert (
+        input_values[(f"{CTC_BASE}#input.ctc_advance_payments_received", tax_unit_id)]
+        == 0
+    )
+    assert (
+        input_values[
+            (f"{CTC_BASE}#input.ctc_child_satisfies_dependency_rules", child_id)
+        ]
+        is True
+    )
+    assert (
+        input_values[(f"{CTC_BASE}#input.ctc_child_deduction_allowed", child_id)]
+        is True
+    )
+    assert (
+        input_values[
+            (f"{CTC_H_BASE}#input.ctc_person_satisfies_dependency_rules", child_id)
+        ]
+        is True
+    )
+    assert (
+        input_values[(f"{CTC_H_BASE}#input.ctc_child_satisfies_subsection_c", child_id)]
+        is True
+    )
+    assert f"{CTC_BASE}#input.filing_status" not in input_names
+    assert f"{CTC_H_BASE}#input.filing_status_is_joint_return" not in input_names
+    assert (
+        f"{CTC_BASE}#input.aggregate_advance_payments_under_section_7527A"
+        not in input_names
+    )
+    assert f"{CTC_BASE}#input.qualifying_child_under_section_152_c" not in input_names
+    assert f"{CTC_H_BASE}#input.dependent_under_section_152" not in input_names
 
 
 def test_tax_unit_projection_uses_boundary_inputs_without_ctc_outputs():
