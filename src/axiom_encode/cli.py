@@ -9143,7 +9143,10 @@ def _append_generated_derived_output_tests_if_missing(
                 },
                 "input": dict(input_defaults),
                 "output": {
-                    target: _default_generated_test_output_value(rule),
+                    target: _default_generated_test_output_value(
+                        rule,
+                        rules_payload=rules_payload,
+                    ),
                 },
             }
         )
@@ -9176,8 +9179,19 @@ def _missing_derived_output_targets_from_issues(issues: list[str]) -> list[str]:
     return targets
 
 
-def _default_generated_test_output_value(rule: dict[str, object]) -> object:
+def _default_generated_test_output_value(
+    rule: dict[str, object],
+    *,
+    rules_payload: dict[str, object] | None = None,
+) -> object:
     dtype = str(rule.get("dtype") or "").strip().lower()
+    if dtype in {"integer", "int"}:
+        selector_value = _default_generated_selector_output_value(
+            rule,
+            rules_payload=rules_payload,
+        )
+        if selector_value is not None:
+            return selector_value
     if dtype == "judgment":
         return "not_holds"
     if dtype in {"boolean", "bool"}:
@@ -9185,6 +9199,52 @@ def _default_generated_test_output_value(rule: dict[str, object]) -> object:
     if dtype in {"list", "array"}:
         return []
     return 0
+
+
+def _default_generated_selector_output_value(
+    rule: dict[str, object],
+    *,
+    rules_payload: dict[str, object] | None,
+) -> int | None:
+    selector_name = str(rule.get("name") or "").strip()
+    if not selector_name or not isinstance(rules_payload, dict):
+        return None
+    table_keys: list[int] = []
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return None
+    for candidate in rules:
+        if not isinstance(candidate, dict):
+            continue
+        if str(candidate.get("kind") or "").strip().lower() != "parameter":
+            continue
+        if str(candidate.get("indexed_by") or "").strip() != selector_name:
+            continue
+        versions = candidate.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            values = version.get("values")
+            if not isinstance(values, dict):
+                continue
+            table_keys.extend(
+                key
+                for raw_key in values
+                if (key := _integer_table_key(raw_key)) is not None
+            )
+    return min(table_keys) if table_keys else None
+
+
+def _integer_table_key(raw_key: object) -> int | None:
+    if isinstance(raw_key, bool):
+        return None
+    if isinstance(raw_key, int):
+        return raw_key
+    if isinstance(raw_key, str) and re.fullmatch(r"-?\d+", raw_key.strip()):
+        return int(raw_key.strip())
+    return None
 
 
 def _remove_generated_import_output_input_placeholders(

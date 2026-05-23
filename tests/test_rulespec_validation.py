@@ -7951,6 +7951,13 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: 3.0
+  - name: average_account_benefits_ratio_band_3_min
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
   - name: average_account_benefits_ratio_band
     kind: derived
     entity: TaxUnit
@@ -7973,6 +7980,7 @@ rules:
     assert "average_account_benefits_ratio_band_1_max" not in repaired
     assert "average_account_benefits_ratio_band_2_min" not in repaired
     assert "average_account_benefits_ratio_band_2_max" not in repaired
+    assert "average_account_benefits_ratio_band_3_min" not in repaired
     assert "average_account_benefits_ratio < 2.5" in repaired
     assert "< 3.0" in repaired
     assert ">= 2.5" in repaired
