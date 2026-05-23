@@ -1257,9 +1257,11 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
             and isinstance(payload.get("rules"), list)
         ):
             values: list[tuple[int, str, float]] = []
+            selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
             for rule in payload["rules"]:
                 if not isinstance(rule, dict):
                     continue
+                rule_name = str(rule.get("name") or "").strip()
                 versions = rule.get("versions")
                 if not isinstance(versions, list):
                     continue
@@ -1274,7 +1276,17 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
                         if value not in GROUNDING_ALLOWED_VALUES:
                             values.append((1, str(formula), value))
                     elif isinstance(formula, str):
-                        values.extend(_extract_formula_grounding_values(1, formula))
+                        values.extend(
+                            _extract_formula_grounding_values(
+                                1,
+                                formula,
+                                structural_selector_keys=(
+                                    selector_table_keys.get(rule_name)
+                                    if _is_structural_selector_rule(rule)
+                                    else None
+                                ),
+                            )
+                        )
                     table_values = version.get("values")
                     if isinstance(table_values, dict):
                         for table_value in table_values.values():
@@ -1302,7 +1314,9 @@ def _numeric_rule_value(value: Any) -> tuple[str, float] | None:
 
 
 def _extract_formula_grounding_values(
-    line_number: int, formula_text: str
+    line_number: int,
+    formula_text: str,
+    structural_selector_keys: set[str] | None = None,
 ) -> list[tuple[int, str, float]]:
     """Extract numeric literals from a formula expression or formula line."""
     cleaned = formula_text.split("#", 1)[0]
@@ -1319,11 +1333,68 @@ def _extract_formula_grounding_values(
             continue
         if _is_structural_enum_index_literal(cleaned, raw):
             continue
+        if _is_structural_selector_result_literal(
+            cleaned,
+            raw,
+            structural_selector_keys,
+        ):
+            continue
         with contextlib.suppress(ValueError):
             value = float(raw)
             if value not in GROUNDING_ALLOWED_VALUES:
                 values.append((line_number, raw, value))
     return values
+
+
+def _is_structural_selector_rule(rule: dict[str, Any]) -> bool:
+    if str(rule.get("dtype") or "").strip().lower() != "integer":
+        return False
+    name = str(rule.get("name") or "").strip().lower()
+    return bool(re.search(r"(?:^|_)(?:band|bracket|tier|index)(?:_|$)", name))
+
+
+def _rulespec_index_selector_keys(rules: list[Any]) -> dict[str, set[str]]:
+    selector_keys: dict[str, set[str]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        index_names = _rulespec_indexed_by_names(rule.get("indexed_by"))
+        if len(index_names) != 1:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        table_keys: set[str] = set()
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            table_values = version.get("values")
+            if not isinstance(table_values, dict):
+                continue
+            for key in table_values:
+                normalized_key = _structural_integer_key(key)
+                if normalized_key is not None:
+                    table_keys.add(normalized_key)
+        if table_keys:
+            selector_name = next(iter(index_names))
+            selector_keys.setdefault(selector_name, set()).update(table_keys)
+    return selector_keys
+
+
+def _structural_integer_key(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, str) and re.fullmatch(r"-?\d+(?:\.0+)?", value.strip()):
+        numeric_value = float(value.strip())
+        if numeric_value.is_integer():
+            return str(int(numeric_value))
+    return None
 
 
 def _is_half_up_rounding_expression(expression: str) -> bool:
@@ -1361,6 +1432,29 @@ def _is_structural_table_key_literal(expression: str, literal: str) -> bool:
             rf"\[[ \t]*{re.escape(literal)}[ \t]*\]",
             expression,
         )
+    )
+
+
+def _is_structural_selector_result_literal(
+    expression: str,
+    literal: str,
+    selector_keys: set[str] | None,
+) -> bool:
+    """Return true when an integer is only a generated table selector key."""
+    if not selector_keys or literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
+        return False
+    if not re.fullmatch(r"\d+(?:\.0+)?", literal):
+        return False
+    with contextlib.suppress(ValueError):
+        numeric_value = float(literal)
+        if not numeric_value.is_integer() or not (0 <= int(numeric_value) <= 20):
+            return False
+        if str(int(numeric_value)) not in selector_keys:
+            return False
+    normalized = re.sub(r"\s+", " ", expression)
+    return bool(
+        re.search(rf":\s*{re.escape(literal)}\s+(?:else\b|$)", normalized)
+        or re.search(rf"(?:^|\s)else\s*:\s*{re.escape(literal)}\s*$", normalized)
     )
 
 
@@ -2405,10 +2499,219 @@ def _is_source_table_structural_scalar_name(name: str) -> bool:
     )
 
 
+def repair_source_table_band_scalar_parameters(
+    content: str,
+    *,
+    source_text: str | None = None,
+) -> tuple[str, list[str]]:
+    """Inline generated structural table band bounds and remove public scalars."""
+    payload = _rulespec_payload(content)
+    table_source_text = source_text or extract_embedded_source_text(content)
+    if (
+        payload is None
+        or payload.get("format") != "rulespec/v1"
+        or not _source_text_looks_like_table(table_source_text)
+    ):
+        return content, []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    bound_values: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        if rule.get("indexed_by") is not None:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not _is_source_table_structural_bound_parameter_name(name):
+            continue
+        value = _single_version_numeric_formula(rule)
+        if value is not None:
+            bound_values[name] = value
+
+    if not bound_values:
+        return content, []
+
+    referenced_bounds: set[str] = set()
+    changed_rules: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            formula_bounds = {
+                name
+                for name in bound_values
+                if _formula_references_identifier(formula, name)
+            }
+            if not formula_bounds:
+                continue
+            repaired = _inline_formula_identifiers(
+                formula,
+                {
+                    name: value
+                    for name, value in bound_values.items()
+                    if name in formula_bounds
+                },
+            )
+            repaired = _repair_else_if_formula(repaired)
+            if _formula_has_unsupported_chained_conditional(repaired):
+                continue
+            referenced_bounds.update(formula_bounds)
+            if repaired != formula:
+                version["formula"] = repaired
+                changed_rules.add(rule_name)
+
+    if not referenced_bounds:
+        return content, []
+
+    payload["rules"] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict)
+            and str(rule.get("name") or "").strip() in referenced_bounds
+        )
+    ]
+
+    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    return repaired_content, sorted(changed_rules | referenced_bounds)
+
+
+def _is_source_table_structural_bound_parameter_name(name: str) -> bool:
+    normalized = name.strip().lower()
+    if not normalized:
+        return False
+    has_index = re.search(r"(?:^|_)(?:row|band|bracket)_\d+(?:_|$)", normalized)
+    has_bound_word = re.search(
+        r"(?:^|_)(?:lower|upper)(?:_bound|_threshold|_limit)?(?:_|$)",
+        normalized,
+    )
+    has_structural_noun = re.search(
+        r"(?:^|_)(?:bound|threshold|limit)(?:_|$)", normalized
+    )
+    return bool(has_index and has_bound_word and has_structural_noun)
+
+
+def _single_version_numeric_formula(rule: dict[str, Any]) -> str | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict):
+        return None
+    formula = version.get("formula")
+    if isinstance(formula, bool):
+        return None
+    if isinstance(formula, int):
+        return str(formula)
+    if isinstance(formula, float):
+        return str(formula)
+    if isinstance(formula, str) and re.fullmatch(r"-?\d+(?:\.\d+)?", formula.strip()):
+        return formula.strip()
+    return None
+
+
+def _inline_formula_identifiers(
+    formula: str,
+    replacements: dict[str, str],
+) -> str:
+    repaired = formula
+    for name in sorted(replacements, key=len, reverse=True):
+        repaired = re.sub(
+            rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])",
+            replacements[name],
+            repaired,
+        )
+    return repaired
+
+
+def _formula_references_identifier(formula: str, identifier: str) -> bool:
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])",
+            formula,
+        )
+        is not None
+    )
+
+
+def _repair_else_if_formula(formula: str) -> str:
+    branches = _parse_multiline_else_if_formula(formula)
+    if branches is None:
+        return formula
+
+    tail = branches[-1][1]
+    for condition, result in reversed(branches[:-1]):
+        tail = f"if {condition}: {result} else: {tail}"
+    return tail
+
+
+def _parse_multiline_else_if_formula(
+    formula: str,
+) -> list[tuple[str | None, str]] | None:
+    lines = [line.rstrip() for line in formula.strip().splitlines() if line.strip()]
+    if len(lines) < 4:
+        return None
+
+    branches: list[tuple[str | None, str]] = []
+    index = 0
+    while index < len(lines):
+        header = lines[index].strip()
+        if_match = re.fullmatch(r"(?:if|elif|else\s+if)\s+(.+):", header)
+        if if_match is not None:
+            if index + 1 >= len(lines):
+                return None
+            result = lines[index + 1].strip()
+            if not result or re.match(r"(?:if|elif|else\b)", result):
+                return None
+            branches.append((if_match.group(1).strip(), result))
+            index += 2
+            continue
+        if header == "else:":
+            if index + 1 >= len(lines):
+                return None
+            result = lines[index + 1].strip()
+            if not result or re.match(r"(?:if|elif|else\b)", result):
+                return None
+            branches.append((None, result))
+            index += 2
+            break
+        return None
+
+    if index != len(lines):
+        return None
+    if len(branches) < 2 or branches[-1][0] is not None:
+        return None
+    if not any(condition is not None for condition, _result in branches):
+        return None
+    return branches
+
+
+def _formula_has_unsupported_chained_conditional(formula: str) -> bool:
+    return bool(re.search(r"(?:^|\s)(?:elif|else\s+if)\b", formula))
+
+
 def _source_text_looks_like_table(source_text: str) -> bool:
     return bool(
         re.search(r"\btable\b", source_text, flags=re.IGNORECASE)
         or source_text.count("|") >= 6
+        or (
+            re.search(r"\bschedule\b", source_text, flags=re.IGNORECASE)
+            and source_text.count("|") >= 2
+        )
     )
 
 
@@ -8857,8 +9160,9 @@ def find_test_input_assignment_issues(
         if not rule_name:
             continue
         if str(rule.get("kind") or "").strip().lower() == "parameter":
-            symbol_inputs[rule_name] = _indexed_by_input_names(rule.get("indexed_by"))
-            symbol_dependencies[rule_name] = set()
+            index_names = _indexed_by_input_names(rule.get("indexed_by"))
+            symbol_inputs[rule_name] = index_names - defined_symbols - imported_symbols
+            symbol_dependencies[rule_name] = index_names & defined_symbols
             continue
         if str(rule.get("kind") or "").strip().lower() != "derived":
             continue

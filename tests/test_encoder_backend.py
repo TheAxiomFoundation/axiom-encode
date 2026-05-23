@@ -77,6 +77,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
         in ENCODER_PROMPT
     )
     assert "overrides preservation of existing local input names" in ENCODER_PROMPT
+    assert "Do not write `else if` or `elif`" in ENCODER_PROMPT
     assert "module.summary` or the rule's proof excerpt" in ENCODER_PROMPT
     assert "Importing an adjacent upstream output only as proof" in ENCODER_PROMPT
     assert "does not satisfy the dependency" in ENCODER_PROMPT

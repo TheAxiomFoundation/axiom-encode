@@ -788,6 +788,64 @@ rules:
     assert output_file.read_text().startswith("format: rulespec/v1")
 
 
+def test_materialize_eval_artifact_repairs_source_table_band_scalars(tmp_path):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "3241" / "b.yaml"
+    llm_response = """=== FILE: b.yaml ===
+format: rulespec/v1
+module:
+  summary: Section defines applicable percentages by benefits ratio.
+rules:
+  - name: average_account_benefits_ratio_lower_bound_band_0
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_upper_bound_band_0
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < average_account_benefits_ratio_lower_bound_band_0:
+            -1
+          elif average_account_benefits_ratio < average_account_benefits_ratio_upper_bound_band_0:
+            0
+          else:
+            1
+  - name: applicable_percentage_3201_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.049
+          1: 0
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="Tax rate schedule | Average account benefits ratio | 2.5 | 3.0",
+    )
+
+    assert wrote is True
+    content = output_file.read_text()
+    assert "average_account_benefits_ratio_lower_bound_band_0" not in content
+    assert "average_account_benefits_ratio < 2.5" in content
+    assert "elif" not in content
+    assert "else if" not in content
+
+
 def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_path):
     policy_repo_root = tmp_path / "axiom-rules-engine"
     policy_repo_root.mkdir()
@@ -2863,6 +2921,7 @@ class TestEvalPrompt:
         assert (
             "Use chained `if condition: value else: other_value` expressions" in prompt
         )
+        assert "Do not write `else if` or `elif`" in prompt
         assert "do not inline that cross-reference's mechanics into this file" in prompt
         assert (
             "additional_standard_deduction_entitlement_count_under_subsection_f"

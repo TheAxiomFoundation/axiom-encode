@@ -537,6 +537,8 @@ Hard requirements:
   temporal branch, or encode only the currently applicable provision after
   resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==`, `and`, and `or`.
+  Do not write `else if` or `elif`; chain branches as
+  `if condition: value else: if next_condition: next_value else: fallback`.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and
   `ceil(x)`. Do not use Python-only functions such as `round(...)`; express
   nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for
@@ -582,7 +584,7 @@ Hard requirements:
   reference `example_rule` inside formula text.
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar
   formulas may use `if condition: value else: other`; do not use Python ternary
-  syntax.
+  syntax, `else if`, or `elif`.
 - `dtype: Judgment` formulas must not use `if ... else ...`. Write them as
   boolean expressions using `and`, `or`, `not`, comparisons, and parentheses.
   For example, encode `if exempt: net_ok else: net_ok and gross_ok` as
