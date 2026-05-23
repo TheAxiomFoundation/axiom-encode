@@ -13,6 +13,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_BASE,
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     OASDI_WAGE_BASE_PROGRAM_PATH,
+    POLICYENGINE_CORE_VERSION,
     POLICYENGINE_VERSION,
     SECTION_32_C_2_BASE,
     SECTION_112_BASE,
@@ -40,6 +41,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_eitc_person_inputs,
     project_eitc_relevant_investment_income,
     project_eitc_tax_unit_inputs,
+    project_fica_wages,
     project_oasdi_wage_base_inputs,
     project_section_32_c_2_tax_unit_inputs,
     project_section_112_tax_unit_inputs,
@@ -946,6 +948,40 @@ def test_contribution_and_benefit_base_requires_axiom_result():
         contribution_and_benefit_base_from_results([], year=2026)
 
 
+def test_fica_wage_projection_does_not_subtract_retirement_deferrals():
+    projected = project_fica_wages(
+        {
+            "employment_income_before_lsr": 106_706,
+            "traditional_401k_contributions": 6_006,
+            "traditional_403b_contributions": 1_000,
+            "pre_tax_health_insurance_premiums": 5_606,
+            "health_savings_account_payroll_contributions": 6_750,
+            "payroll_tax_gross_wages": 94_344,
+        }
+    )
+
+    assert projected == 94_350
+
+
+def test_fica_wage_projection_falls_back_to_payroll_wages_for_unit_fixtures():
+    assert project_fica_wages({"payroll_tax_gross_wages": 80_000}) == 80_000
+
+
+def test_fica_wage_projection_skips_missing_gross_income_leaves():
+    np = pytest.importorskip("numpy")
+
+    assert (
+        project_fica_wages(
+            {
+                "employment_income_before_lsr": np.nan,
+                "employment_income": 100_000,
+                "pre_tax_health_insurance_premiums": 2_000,
+            }
+        )
+        == 98_000
+    )
+
+
 def test_oasdi_wage_base_projection_uses_gross_wages_and_official_base():
     projected = project_oasdi_wage_base_inputs(
         {"payroll_tax_gross_wages": 200_000},
@@ -975,7 +1011,19 @@ def test_oasdi_wage_base_projection_uses_gross_wages_and_official_base():
 def test_build_oasdi_wage_base_request_uses_3121_inputs():
     pd = pytest.importorskip("pandas")
     pe_data = {
-        "persons": pd.DataFrame([{"person_id": 7, "payroll_tax_gross_wages": 200_000}]),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "employment_income_before_lsr": 106_706,
+                    "traditional_401k_contributions": 6_006,
+                    "traditional_403b_contributions": 1_000,
+                    "pre_tax_health_insurance_premiums": 5_606,
+                    "health_savings_account_payroll_contributions": 6_750,
+                    "payroll_tax_gross_wages": 94_344,
+                }
+            ]
+        ),
         "person_ids": [7],
     }
 
@@ -1009,8 +1057,38 @@ def test_build_oasdi_wage_base_request_uses_3121_inputs():
         input_values[
             f"{OASDI_WAGE_BASE_BASE}#input.remuneration_paid_to_individual_by_employer_with_respect_to_employment"
         ]
-        == "200000.0"
+        == "94350.0"
     )
+
+
+def test_build_medicare_payroll_request_uses_projected_fica_wages():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "employment_income_before_lsr": 106_706,
+                    "traditional_401k_contributions": 6_006,
+                    "pre_tax_health_insurance_premiums": 5_606,
+                    "health_savings_account_payroll_contributions": 6_750,
+                    "payroll_tax_gross_wages": 94_344,
+                }
+            ]
+        ),
+        "person_ids": [7],
+    }
+
+    request = build_payroll_request(
+        pe_data=pe_data,
+        year=2026,
+        surface="employee-medicare",
+    )
+
+    input_values = {
+        item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
+    }
+    assert input_values["us:statutes/26/3101/b/1#input.wages"] == "94350.0"
 
 
 def test_taxable_oasdi_wages_come_from_axiom_3121_results():
@@ -1201,6 +1279,8 @@ def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):
     def fake_version(package):
         if package == "policyengine":
             return POLICYENGINE_VERSION
+        if package == "policyengine-core":
+            return POLICYENGINE_CORE_VERSION
         if package == "policyengine-us":
             return "999.0.0"
         raise AssertionError(package)
@@ -1211,10 +1291,28 @@ def test_policyengine_version_guard_rejects_unpinned_us_version(monkeypatch):
         require_policyengine_versions()
 
 
+def test_policyengine_version_guard_rejects_unpinned_core_version(monkeypatch):
+    def fake_version(package):
+        if package == "policyengine":
+            return POLICYENGINE_VERSION
+        if package == "policyengine-core":
+            return "999.0.0"
+        if package == "policyengine-us":
+            return "1.691.3"
+        raise AssertionError(package)
+
+    monkeypatch.setattr(ecps_tax, "version", fake_version)
+
+    with pytest.raises(SystemExit, match="policyengine-core=="):
+        require_policyengine_versions()
+
+
 def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
     def fake_version(package):
         if package == "policyengine":
             return POLICYENGINE_VERSION
+        if package == "policyengine-core":
+            return POLICYENGINE_CORE_VERSION
         if package == "policyengine-us":
             return "999.0.0"
         raise AssertionError(package)

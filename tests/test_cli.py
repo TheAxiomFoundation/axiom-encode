@@ -6046,6 +6046,90 @@ rules:
             "policies/irs/rev-proc-2025-32/standard-deduction.test.yaml",
         ]
 
+    def test_repair_tax_status_components_allows_preexisting_test_failures(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "policies/irs/rev-proc-2025-32/standard-deduction.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: additional_standard_deduction_for_aged_or_blind
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_is_unmarried_and_not_surviving_spouse: higher_amount else: regular_amount
+"""
+        )
+        test_file = target.with_name("standard-deduction.test.yaml")
+        test_file.write_text(
+            """- name: legacy_companion_shape
+  input:
+    us:policies/irs/rev-proc-2025-32/standard-deduction#input.filing_status: 3
+    us:policies/irs/rev-proc-2025-32/standard-deduction#input.individual_is_unmarried_and_not_surviving_spouse: true
+  output:
+    us:policies/irs/rev-proc-2025-32/standard-deduction#additional_standard_deduction_for_aged_or_blind: 2050
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("policies/irs/rev-proc-2025-32/standard-deduction.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+        preexisting_issue = (
+            "policies/irs/rev-proc-2025-32/standard-deduction.test.yaml :: "
+            "legacy_companion_shape: unknown executable output "
+            "us:policies/irs/rev-proc-2025-32/standard-deduction"
+            "#additional_standard_deduction_for_aged_or_blind"
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                assert "individual_is_unmarried" not in target.read_text()
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._companion_test_issues",
+                side_effect=[[preexisting_issue], [preexisting_issue]],
+            ) as companion_tests,
+            patch(
+                "axiom_encode.cli._ensure_no_unmanifested_preexisting_rulespec_changes"
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_tax_status_components(args)
+
+        assert companion_tests.call_count == 2
+        assert (
+            "individual_is_unmarried_and_not_surviving_spouse" not in target.read_text()
+        )
+        assert (
+            "input.individual_is_unmarried_and_not_surviving_spouse"
+            not in test_file.read_text()
+        )
+
     def test_repair_tax_status_temporal_rewrite_only_updates_formulas(self):
         content = """format: rulespec/v1
 module:

@@ -6536,6 +6536,23 @@ def cmd_repair_tax_status_components(args):
         path: (path.read_text() if path.exists() else None)
         for path in extra_file_contents
     }
+    preexisting_test_targets = [test_file] if test_file.exists() else []
+    preexisting_test_targets.extend(
+        path
+        for path in extra_file_contents
+        if path.name.endswith(".test.yaml") and path.exists()
+    )
+    preexisting_test_targets.extend(
+        path for path in related_151_test_files if path.exists()
+    )
+    preexisting_test_targets = _unique_paths(preexisting_test_targets)
+    preexisting_test_issues = set(
+        _companion_test_issues(
+            test_files=preexisting_test_targets,
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+    )
 
     rules_file.write_text(repaired_content)
     if (
@@ -6589,13 +6606,16 @@ def cmd_repair_tax_status_components(args):
         repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
     )
-    if test_issues:
+    new_test_issues = [
+        issue for issue in test_issues if issue not in preexisting_test_issues
+    ]
+    if new_test_issues:
         rules_file.write_text(original_content)
         if original_test_content is not None:
             test_file.write_text(original_test_content)
         _restore_original_files(original_extra_contents)
         print("Repair failed companion tests; restored original RuleSpec file.")
-        for issue in test_issues:
+        for issue in new_test_issues:
             print(f"- {issue}")
         sys.exit(1)
 

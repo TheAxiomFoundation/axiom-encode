@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - exercised only without optional oracle
 
 
 POLICYENGINE_VERSION = "4.4.4"
+POLICYENGINE_CORE_VERSION = "3.26.0"
 POLICYENGINE_US_VERSION = "1.691.3"
 DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
 
@@ -52,6 +53,15 @@ OASDI_WAGE_BASE_EXCLUSION_OUTPUT = (
     f"{OASDI_WAGE_BASE_BASE}#oasdi_wage_base_excess_excluded_remuneration"
 )
 AXIOM_3121_TAXABLE_OASDI_WAGES = "axiom_3121_taxable_oasdi_wages"
+FICA_EMPLOYMENT_INCOME_COLUMNS = (
+    "employment_income_before_lsr",
+    "employment_income",
+    "payroll_tax_gross_wages",
+)
+FICA_PRE_TAX_CONTRIBUTION_COLUMNS = (
+    "pre_tax_health_insurance_premiums",
+    "health_savings_account_payroll_contributions",
+)
 CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
 CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
 EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
@@ -978,7 +988,11 @@ def build_payroll_request(
         wages = (
             oasdi_taxable_wages[person_id]
             if oasdi_taxable_wages is not None
-            else money(person[wage_input])
+            else (
+                project_fica_wages(person)
+                if wage_input == "payroll_tax_gross_wages"
+                else money(person[wage_input])
+            )
         )
         inputs.append(
             input_record(
@@ -1111,7 +1125,7 @@ def project_oasdi_wage_base_inputs(
             contribution_base
         ),
         "remuneration_paid_to_individual_by_employer_with_respect_to_employment": (
-            money(person["payroll_tax_gross_wages"])
+            project_fica_wages(person)
         ),
     }
 
@@ -1138,9 +1152,26 @@ def taxable_oasdi_wages_by_person_id(
             raise ValueError(
                 f"Axiom 3121 wage-base output missing for {person_entity_id(person_id)}."
             )
-        gross_wages = money(persons.iloc[index]["payroll_tax_gross_wages"])
+        gross_wages = project_fica_wages(persons.iloc[index])
         values[person_id] = max(0.0, gross_wages - exclusion)
     return values
+
+
+def project_fica_wages(person: Any) -> float:
+    """Project IRC 3121(a) FICA wages from ECPS leaf inputs.
+
+    PolicyEngine's payroll tax gross wages are the output being tested here, so
+    use them only as a compatibility fallback for hand-built unit fixtures. ECPS
+    rows should supply gross employment income plus Section 125 deduction leaves.
+    Traditional 401(k) and 403(b) deferrals reduce income-tax wages, but not
+    FICA wages.
+    """
+    gross_wages = first_available_money(person, FICA_EMPLOYMENT_INCOME_COLUMNS)
+    fica_pre_tax_contributions = sum(
+        money(row_value(person, column, 0))
+        for column in FICA_PRE_TAX_CONTRIBUTION_COLUMNS
+    )
+    return max(0.0, gross_wages - fica_pre_tax_contributions)
 
 
 def payroll_surface_uses_axiom_3121(surface: str) -> bool:
@@ -1732,6 +1763,11 @@ def compare_outputs(
             "from PolicyEngine. The section 230 contribution-and-benefit base "
             "is resolved by running the encoded SSA automatic-determination "
             "RuleSpec before section 3121(a)(1).",
+            "Payroll projections derive FICA wages from ECPS employment-income "
+            "and Section 125 health/HSA payroll-deduction leaves instead of "
+            "feeding Axiom from PolicyEngine payroll_tax_gross_wages. "
+            "Traditional 401(k) and 403(b) elective deferrals are deliberately "
+            "not subtracted from the FICA wage base.",
             "Capital-gain-definition projections compare Section 1(h) net and "
             "adjusted net capital gain from ECPS raw capital-gain, dividend, "
             "investment-income-election, and unrecaptured-section-1250 fields. "
@@ -1887,6 +1923,32 @@ def money(value: Any) -> float:
     return float(value)
 
 
+def first_available_money(row: Any, columns: tuple[str, ...]) -> float:
+    for column in columns:
+        value = row_value(row, column, None)
+        if value is None:
+            continue
+        try:
+            if np is not None and np.isnan(value):
+                continue
+        except TypeError:
+            pass
+        return money(value)
+    return 0.0
+
+
+def row_value(row: Any, column: str, default: Any = None) -> Any:
+    try:
+        if column in row:
+            return row[column]
+    except TypeError:
+        pass
+    getter = getattr(row, "get", None)
+    if callable(getter):
+        return getter(column, default)
+    return default
+
+
 def bool_value(value: Any) -> bool:
     if value is None:
         return False
@@ -1920,6 +1982,7 @@ def require_policyengine_versions(
 ) -> None:
     try:
         policyengine_version = version("policyengine")
+        policyengine_core_version = version("policyengine-core")
         policyengine_us_version = version("policyengine-us")
     except PackageNotFoundError as exc:
         raise SystemExit(policyengine_install_message()) from exc
@@ -1927,6 +1990,11 @@ def require_policyengine_versions(
         raise SystemExit(
             f"policyengine=={POLICYENGINE_VERSION} required; found "
             f"{policyengine_version}. {policyengine_install_message()}"
+        )
+    if policyengine_core_version != POLICYENGINE_CORE_VERSION:
+        raise SystemExit(
+            f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
+            f"{policyengine_core_version}. {policyengine_install_message()}"
         )
     if (
         policyengine_us_version != POLICYENGINE_US_VERSION
@@ -1940,8 +2008,10 @@ def require_policyengine_versions(
 
 def policyengine_install_message() -> str:
     return (
-        "Run with: uv run --with policyengine==4.4.4 "
-        "--with policyengine-us==1.691.3 axiom-encode tax-ecps-compare"
+        f"Run with: uv run --with policyengine=={POLICYENGINE_VERSION} "
+        f"--with policyengine-core=={POLICYENGINE_CORE_VERSION} "
+        f"--with policyengine-us=={POLICYENGINE_US_VERSION} "
+        "axiom-encode tax-ecps-compare"
     )
 
 
