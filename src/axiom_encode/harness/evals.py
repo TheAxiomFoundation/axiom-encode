@@ -71,6 +71,8 @@ from .validator_pipeline import (
     find_unused_modifier_parameter_issues,
     numeric_value_is_grounded,
     repair_source_table_band_scalar_parameters,
+    repair_source_table_interval_row_alignment,
+    repair_source_table_interval_tests,
     repair_source_table_open_ended_bound_sentinels,
     repair_unsupported_chained_conditionals,
 )
@@ -3121,7 +3123,7 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
-- Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer or numeric keys supported by the RuleSpec engine, not strings such as `2_5_to_less_than_3_0`. Use structural row bounds inline in the band selector; do not promote those row labels to public parameter outputs.
+- Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer or numeric keys supported by the RuleSpec engine, not strings such as `2_5_to_less_than_3_0`. Use structural row bounds inline in the band selector; do not promote those row labels to public parameter outputs. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
 - A `kind: table_cell` proof atom must include `source.table.header`, `source.table.row`, and `source.table.column`. A `kind: parameter_table` proof atom with `source.table` must include `source.table.header`, `source.table.row_key`, and `source.table.column_key`; header-only `parameter_table` proof atoms are invalid. Example: `source: {{table: {{header: "credit percentage table", row_key: "qualifying_child_count", column_key: "credit_percentage"}}}}`. If you cannot identify table coordinates, use a direct proof kind such as `amount`, `parameter`, or `formula` instead of `table_cell` or `parameter_table`.
 - Every executable `parameter`, `derived`, and `derived_relation` rule must include a `source:`
   field with the legal citation/span that directly supports that rule. Keep
@@ -5878,6 +5880,10 @@ def _normalize_main_eval_content(
         normalized,
         source_text=source_text,
     )
+    normalized, _interval_repairs = repair_source_table_interval_row_alignment(
+        normalized,
+        source_text=source_text,
+    )
     normalized, _conditional_repairs = repair_unsupported_chained_conditionals(
         normalized
     )
@@ -6786,6 +6792,14 @@ def _materialize_eval_artifact(
                         policyengine_rule_hint=policyengine_rule_hint,
                         rulespec_path=expected_path,
                     )
+                    content, _interval_test_repairs = (
+                        repair_source_table_interval_tests(
+                            content,
+                            rulespec_content=normalized_main_content
+                            or raw_main_content,
+                            source_text=source_text,
+                        )
+                    )
                 content = _strip_test_outputs_for_rule_names(
                     content,
                     rule_names=stripped_test_output_names,
@@ -6867,6 +6881,11 @@ def _materialize_workspace_artifacts(
                 rulespec_content=main_content,
                 policyengine_rule_hint=policyengine_rule_hint,
                 rulespec_path=expected_path,
+            )
+            test_content, _interval_test_repairs = repair_source_table_interval_tests(
+                test_content,
+                rulespec_content=main_content,
+                source_text=source_text,
             )
         test_content = _strip_test_outputs_for_rule_names(
             test_content,

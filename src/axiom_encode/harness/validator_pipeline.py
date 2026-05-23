@@ -2690,7 +2690,388 @@ def repair_source_table_open_ended_bound_sentinels(
     return repaired_content, sorted(changed_rules)
 
 
-def _looks_like_open_ended_upper_bound_parameter(rule: dict[str, Any]) -> bool:
+@dataclass(frozen=True)
+class _IntervalSourceRow:
+    lower: str | None
+    upper: str | None
+    outputs: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _IntervalSourceTable:
+    output_headers: tuple[str, ...]
+    rows: tuple[_IntervalSourceRow, ...]
+
+
+@dataclass(frozen=True)
+class _IntervalAlignmentSpec:
+    selector_name: str
+    input_name: str
+    rows: tuple[_IntervalSourceRow, ...]
+    bound_parameter_names: frozenset[str]
+    output_parameter_names: tuple[str, ...]
+    output_parameter_rules: tuple[dict[str, Any], ...]
+
+
+def repair_source_table_interval_row_alignment(
+    content: str,
+    *,
+    source_text: str | None = None,
+) -> tuple[str, list[str]]:
+    """Preserve row identity for open-ended interval source tables."""
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return content, []
+
+    specs = _source_table_interval_alignment_specs(payload, source_text=source_text)
+    if not specs:
+        return content, []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    changed_rules: set[str] = set()
+    removed_bound_names: set[str] = set()
+    selector_by_name = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in rules
+        if isinstance(rule, dict)
+    }
+    for spec in specs:
+        selector_rule = selector_by_name.get(spec.selector_name)
+        if not isinstance(selector_rule, dict):
+            continue
+        versions = selector_rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            continue
+        first_version = versions[0]
+        if not isinstance(first_version, dict):
+            continue
+
+        repaired_formula = _build_interval_selector_formula(
+            input_name=spec.input_name,
+            rows=spec.rows,
+        )
+        if not repaired_formula:
+            continue
+        if first_version.get("formula") != repaired_formula:
+            first_version["formula"] = repaired_formula
+            changed_rules.add(spec.selector_name)
+
+        for column_index, parameter_rule in enumerate(spec.output_parameter_rules):
+            parameter_name = str(parameter_rule.get("name") or "").strip()
+            parameter_versions = parameter_rule.get("versions")
+            if not isinstance(parameter_versions, list) or not parameter_versions:
+                continue
+            parameter_version = parameter_versions[0]
+            if not isinstance(parameter_version, dict):
+                continue
+            repaired_values = {
+                row_index: _coerce_interval_source_output_value(
+                    row.outputs[column_index],
+                    parameter_rule,
+                )
+                for row_index, row in enumerate(spec.rows, start=1)
+            }
+            if parameter_version.get("values") != repaired_values:
+                parameter_version["values"] = repaired_values
+                changed_rules.add(parameter_name or "<unknown>")
+
+        removed_bound_names.update(spec.bound_parameter_names)
+
+    if not changed_rules and not removed_bound_names:
+        return content, []
+
+    if removed_bound_names:
+        payload["rules"] = [
+            rule
+            for rule in rules
+            if not (
+                isinstance(rule, dict)
+                and str(rule.get("name") or "").strip() in removed_bound_names
+            )
+        ]
+        changed_rules.update(removed_bound_names)
+
+    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    return repaired_content, sorted(changed_rules)
+
+
+def repair_source_table_interval_tests(
+    content: str,
+    *,
+    rulespec_content: str | None,
+    source_text: str | None = None,
+) -> tuple[str, list[str]]:
+    """Repair generated tests after interval source-table row realignment."""
+    if not rulespec_content:
+        return content, []
+    try:
+        cases = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return content, []
+    if not isinstance(cases, list):
+        return content, []
+
+    payload = _rulespec_payload(rulespec_content)
+    if payload is None:
+        return content, []
+    specs = _source_table_interval_alignment_specs(payload, source_text=source_text)
+    if not specs:
+        return content, []
+
+    changed_cases: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        outputs = case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+        case_changed = False
+        for spec in specs:
+            input_value = _test_input_value_for_name(inputs, spec.input_name)
+            if input_value is None:
+                continue
+            with contextlib.suppress(TypeError, ValueError):
+                selector_key = _interval_selector_key_for_value(
+                    float(input_value),
+                    spec.rows,
+                )
+                if selector_key is None:
+                    continue
+                expected_outputs = _interval_expected_outputs_for_key(
+                    payload,
+                    spec,
+                    selector_key,
+                )
+                for output_key in list(outputs):
+                    local_name = _rulespec_test_reference_local_name(output_key)
+                    if local_name not in expected_outputs:
+                        continue
+                    repaired_value = expected_outputs[local_name]
+                    if outputs[output_key] != repaired_value:
+                        outputs[output_key] = repaired_value
+                        case_changed = True
+        if case_changed:
+            changed_cases.append(str(case.get("name") or "<unnamed>"))
+
+    if not changed_cases:
+        return content, []
+    repaired_content = yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+    return repaired_content, changed_cases
+
+
+def _source_table_interval_alignment_specs(
+    payload: dict[str, Any],
+    *,
+    source_text: str | None = None,
+) -> list[_IntervalAlignmentSpec]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    source_table = _parse_interval_source_table(
+        source_text or _rulespec_module_summary(payload)
+    )
+    if source_table is None or not source_table.rows:
+        return []
+    if not any(row.lower is None or row.upper is None for row in source_table.rows):
+        return []
+
+    specs: list[_IntervalAlignmentSpec] = []
+    for selector_rule in rules:
+        if not isinstance(selector_rule, dict) or not _is_structural_selector_rule(
+            selector_rule
+        ):
+            continue
+        if str(selector_rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        selector_name = str(selector_rule.get("name") or "").strip()
+        if not selector_name:
+            continue
+        selector_formula = _first_version_formula(selector_rule)
+        if not selector_formula:
+            continue
+        bound_rules = [
+            rule
+            for rule in rules
+            if isinstance(rule, dict)
+            and selector_name in _rulespec_indexed_by_names(rule.get("indexed_by"))
+            and _looks_like_interval_bound_parameter(rule)
+        ]
+        bound_names = frozenset(
+            str(rule.get("name") or "").strip()
+            for rule in bound_rules
+            if str(rule.get("name") or "").strip()
+        )
+        if bound_names and not any(
+            name and _formula_references_identifier(selector_formula, name)
+            for name in bound_names
+        ):
+            continue
+
+        output_rules = [
+            rule
+            for rule in rules
+            if isinstance(rule, dict)
+            and str(rule.get("kind") or "").strip().lower() == "parameter"
+            and selector_name in _rulespec_indexed_by_names(rule.get("indexed_by"))
+            and not _looks_like_interval_bound_parameter(rule)
+        ]
+        output_rules = _ordered_interval_output_parameter_rules(
+            output_rules,
+            source_table.output_headers,
+        )
+        if len(output_rules) != len(source_table.rows[0].outputs):
+            continue
+
+        input_name = _infer_interval_selector_input_name(
+            selector_formula,
+            selector_name,
+            bound_names,
+        )
+        if not input_name:
+            continue
+        specs.append(
+            _IntervalAlignmentSpec(
+                selector_name=selector_name,
+                input_name=input_name,
+                rows=source_table.rows,
+                bound_parameter_names=bound_names,
+                output_parameter_names=tuple(
+                    str(rule.get("name") or "").strip() for rule in output_rules
+                ),
+                output_parameter_rules=tuple(output_rules),
+            )
+        )
+    return specs
+
+
+def _parse_interval_source_table(text: str | None) -> _IntervalSourceTable | None:
+    if not text:
+        return None
+    output_headers: tuple[str, ...] = ()
+    rows: list[_IntervalSourceRow] = []
+    for line in text.splitlines():
+        cells = _source_table_cells(line)
+        if not cells:
+            continue
+        row_key_index = _find_interval_row_key_header_index(cells)
+        if row_key_index is not None and row_key_index + 2 < len(cells):
+            candidate_headers = tuple(cells[row_key_index + 2 :])
+            if candidate_headers and not _cells_look_like_interval_row(
+                candidate_headers
+            ):
+                output_headers = candidate_headers
+        row_cells = _interval_row_cells_from_cells(cells)
+        if row_cells is None:
+            continue
+        lower, upper, outputs = row_cells
+        rows.append(_IntervalSourceRow(lower=lower, upper=upper, outputs=outputs))
+    if not rows:
+        return None
+    output_count = len(rows[0].outputs)
+    if output_count == 0 or any(len(row.outputs) != output_count for row in rows):
+        return None
+    if output_headers and len(output_headers) != output_count:
+        output_headers = ()
+    return _IntervalSourceTable(output_headers=output_headers, rows=tuple(rows))
+
+
+def _source_table_cells(line: str) -> list[str]:
+    if "|" not in line:
+        return []
+    return [cell.strip() for cell in line.split("|") if cell.strip()]
+
+
+def _find_interval_row_key_header_index(cells: list[str]) -> int | None:
+    for index in range(0, len(cells) - 1):
+        if (
+            _normalized_text(cells[index]) == "atleast"
+            and _normalized_text(cells[index + 1]) == "butlessthan"
+        ):
+            return index
+    return None
+
+
+def _interval_row_cells_from_cells(
+    cells: list[str],
+) -> tuple[str | None, str | None, tuple[str, ...]] | None:
+    row_key_index = _find_interval_row_key_header_index(cells)
+    if row_key_index is not None:
+        cells = cells[row_key_index + 2 :]
+    for start in range(0, max(1, len(cells) - 2)):
+        lower = _parse_interval_bound_cell(cells[start])
+        upper = (
+            _parse_interval_bound_cell(cells[start + 1])
+            if start + 1 < len(cells)
+            else _UNPARSED_BOUND
+        )
+        if lower is _UNPARSED_BOUND or upper is _UNPARSED_BOUND:
+            continue
+        outputs = tuple(
+            cell
+            for cell in cells[start + 2 :]
+            if _parse_source_numeric_cell(cell) is not None
+        )
+        if outputs:
+            return lower, upper, outputs
+    return None
+
+
+_UNPARSED_BOUND = object()
+
+
+def _parse_interval_bound_cell(cell: str) -> str | None | object:
+    normalized = cell.strip()
+    if not normalized or re.fullmatch(r"[.\u2026]+", normalized):
+        return None
+    return (
+        normalized
+        if _parse_source_numeric_cell(normalized) is not None
+        else _UNPARSED_BOUND
+    )
+
+
+def _parse_source_numeric_cell(cell: str) -> float | None:
+    normalized = cell.strip().replace(",", "")
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
+        return None
+    with contextlib.suppress(ValueError):
+        return float(normalized)
+    return None
+
+
+def _cells_look_like_interval_row(cells: tuple[str, ...]) -> bool:
+    return bool(cells and _parse_interval_bound_cell(cells[0]) is not _UNPARSED_BOUND)
+
+
+def _rulespec_module_summary(payload: dict[str, Any]) -> str:
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return ""
+    summary = module.get("summary")
+    return summary if isinstance(summary, str) else ""
+
+
+def _looks_like_interval_bound_parameter(rule: dict[str, Any]) -> bool:
+    return _looks_like_interval_lower_bound_parameter(
+        rule
+    ) or _looks_like_open_ended_upper_bound_parameter(rule)
+
+
+def _looks_like_interval_lower_bound_parameter(rule: dict[str, Any]) -> bool:
+    name = str(rule.get("name") or "").strip().lower()
+    text = _interval_parameter_text(rule)
+    return bool(
+        re.search(r"\bat\s+least\b", text)
+        or re.search(r"(?:^|_)(?:lower|minimum|min)(?:_|$)", name)
+    )
+
+
+def _interval_parameter_text(rule: dict[str, Any]) -> str:
     name = str(rule.get("name") or "").strip().lower()
     text_parts = [name]
     metadata = rule.get("metadata")
@@ -2712,7 +3093,260 @@ def _looks_like_open_ended_upper_bound_parameter(rule: dict[str, Any]) -> bool:
                         value = table.get(key)
                         if isinstance(value, str):
                             text_parts.append(value.lower())
-    text = " ".join(text_parts)
+    return " ".join(text_parts)
+
+
+def _ordered_interval_output_parameter_rules(
+    output_rules: list[dict[str, Any]],
+    output_headers: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    if not output_headers or len(output_headers) != len(output_rules):
+        return output_rules
+    indexed: list[tuple[int, dict[str, Any]]] = []
+    used_indexes: set[int] = set()
+    for rule in output_rules:
+        rule_text = _normalized_text(_interval_parameter_text(rule))
+        matches = [
+            index
+            for index, header in enumerate(output_headers)
+            if _normalized_text(header)
+            and (
+                _normalized_text(header) in rule_text
+                or rule_text in _normalized_text(header)
+            )
+        ]
+        if len(matches) != 1 or matches[0] in used_indexes:
+            return output_rules
+        used_indexes.add(matches[0])
+        indexed.append((matches[0], rule))
+    return [rule for _index, rule in sorted(indexed, key=lambda item: item[0])]
+
+
+def _normalized_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _first_version_formula(rule: dict[str, Any]) -> str | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        return None
+    first_version = versions[0]
+    if not isinstance(first_version, dict):
+        return None
+    formula = first_version.get("formula")
+    return formula if isinstance(formula, str) else None
+
+
+def _infer_interval_selector_input_name(
+    formula: str,
+    selector_name: str,
+    bound_names: frozenset[str],
+) -> str | None:
+    for bound_name in sorted(bound_names, key=len, reverse=True):
+        match = re.search(
+            rf"\b([A-Za-z_][A-Za-z0-9_]*)\b\s*(?:[<>]=?|==)\s*{re.escape(bound_name)}\s*\[",
+            formula,
+        )
+        if match:
+            return match.group(1)
+        match = re.search(
+            rf"{re.escape(bound_name)}\s*\[[^\]]+\]\s*(?:[<>]=?|==)\s*\b([A-Za-z_][A-Za-z0-9_]*)\b",
+            formula,
+        )
+        if match:
+            return match.group(1)
+    suffix_match = re.match(r"(.+?)_(?:band|bracket|tier|index)$", selector_name)
+    return suffix_match.group(1) if suffix_match else None
+
+
+def _build_interval_selector_formula(
+    *,
+    input_name: str,
+    rows: tuple[_IntervalSourceRow, ...],
+) -> str | None:
+    if not rows:
+        return None
+    tail = "0"
+    rows_to_chain = list(enumerate(rows, start=1))
+    if _interval_rows_are_contiguous(rows) and rows[-1].upper is None:
+        tail = str(len(rows))
+        rows_to_chain = rows_to_chain[:-1]
+    for row_index, row in reversed(rows_to_chain):
+        condition = _interval_row_condition(input_name, row)
+        if not condition:
+            tail = str(row_index)
+            continue
+        tail = f"if {condition}: {row_index} else: {tail}"
+    return tail
+
+
+def _interval_rows_are_contiguous(rows: tuple[_IntervalSourceRow, ...]) -> bool:
+    if len(rows) < 2:
+        return False
+    for previous, current in zip(rows, rows[1:]):
+        if previous.upper is None or current.lower is None:
+            return False
+        if not math.isclose(
+            float(previous.upper),
+            float(current.lower),
+            rel_tol=0,
+            abs_tol=1e-12,
+        ):
+            return False
+    return True
+
+
+def _interval_row_condition(input_name: str, row: _IntervalSourceRow) -> str | None:
+    parts: list[str] = []
+    if row.lower is not None:
+        parts.append(f"{input_name} >= {row.lower}")
+    if row.upper is not None:
+        parts.append(f"{input_name} < {row.upper}")
+    return " and ".join(parts) if parts else None
+
+
+def _coerce_interval_source_output_value(
+    raw_value: str,
+    rule: dict[str, Any],
+) -> float:
+    value = _parse_source_numeric_cell(raw_value)
+    if value is None:
+        return 0.0
+    dtype = str(rule.get("dtype") or "").strip().lower()
+    name = str(rule.get("name") or "").strip().lower()
+    if (dtype == "rate" or "percentage" in name or "percent" in name) and abs(
+        value
+    ) > 1:
+        value = value / 100
+    return round(value, 12)
+
+
+def _test_input_value_for_name(inputs: dict[Any, Any], input_name: str) -> Any:
+    for key, value in inputs.items():
+        key_text = str(key)
+        if key_text == input_name:
+            return value
+        if key_text.endswith(f"#input.{input_name}") or key_text.endswith(
+            f"#{input_name}"
+        ):
+            return value
+    return None
+
+
+def _interval_selector_key_for_value(
+    input_value: float,
+    rows: tuple[_IntervalSourceRow, ...],
+) -> int | None:
+    for row_index, row in enumerate(rows, start=1):
+        lower_ok = row.lower is None or input_value >= float(row.lower)
+        upper_ok = row.upper is None or input_value < float(row.upper)
+        if lower_ok and upper_ok:
+            return row_index
+    return None
+
+
+def _interval_expected_outputs_for_key(
+    payload: dict[str, Any],
+    spec: _IntervalAlignmentSpec,
+    selector_key: int,
+) -> dict[str, Any]:
+    expected: dict[str, Any] = {spec.selector_name: selector_key}
+    parameter_values = _interval_parameter_values_by_name(payload, spec)
+    for parameter_name, values in parameter_values.items():
+        if selector_key in values:
+            expected[parameter_name] = values[selector_key]
+
+    derived_to_parameter = _interval_derived_output_parameter_map(payload, spec)
+    for derived_name, parameter_name in derived_to_parameter.items():
+        values = parameter_values.get(parameter_name)
+        if values and selector_key in values:
+            expected[derived_name] = values[selector_key]
+    return expected
+
+
+def _interval_parameter_values_by_name(
+    payload: dict[str, Any],
+    spec: _IntervalAlignmentSpec,
+) -> dict[str, dict[int, Any]]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+    output_names = set(spec.output_parameter_names)
+    values_by_name: dict[str, dict[int, Any]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name not in output_names:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            continue
+        version = versions[0]
+        if not isinstance(version, dict) or not isinstance(version.get("values"), dict):
+            continue
+        values: dict[int, Any] = {}
+        for key, value in version["values"].items():
+            normalized_key = _structural_integer_key(key)
+            if normalized_key is None:
+                continue
+            values[int(normalized_key)] = value
+        values_by_name[name] = values
+    return values_by_name
+
+
+def _interval_derived_output_parameter_map(
+    payload: dict[str, Any],
+    spec: _IntervalAlignmentSpec,
+) -> dict[str, str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+    direct: dict[str, str] = {}
+    aliases: dict[str, str] = {}
+    output_names = set(spec.output_parameter_names)
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        name = str(rule.get("name") or "").strip()
+        formula = (_first_version_formula(rule) or "").strip()
+        lookup_match = re.fullmatch(
+            rf"([A-Za-z_][A-Za-z0-9_]*)\s*\[\s*{re.escape(spec.selector_name)}\s*\]",
+            formula,
+        )
+        if lookup_match and lookup_match.group(1) in output_names:
+            direct[name] = lookup_match.group(1)
+            continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", formula):
+            aliases[name] = formula
+
+    changed = True
+    while changed:
+        changed = False
+        for alias_name, target_name in aliases.items():
+            target_parameter = direct.get(target_name)
+            if (
+                target_parameter is not None
+                and direct.get(alias_name) != target_parameter
+            ):
+                direct[alias_name] = target_parameter
+                changed = True
+    return direct
+
+
+def _rulespec_test_reference_local_name(key: object) -> str | None:
+    if not isinstance(key, str):
+        return None
+    if "#" in key:
+        return key.rsplit("#", 1)[1].strip() or None
+    return key.strip() or None
+
+
+def _looks_like_open_ended_upper_bound_parameter(rule: dict[str, Any]) -> bool:
+    name = str(rule.get("name") or "").strip().lower()
+    text = _interval_parameter_text(rule)
     return bool(
         re.search(r"\bbut\s+less\s+than\b", text)
         or re.search(r"\bless\s+than\b", text)
