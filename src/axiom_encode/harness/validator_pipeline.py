@@ -2349,6 +2349,59 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
     return issues
 
 
+def find_source_table_row_scalar_parameter_issues(content: str) -> list[str]:
+    """Flag source tables exploded into one scalar parameter per row/cell."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+
+    source_text = extract_embedded_source_text(content)
+    if not _source_text_looks_like_table(source_text):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    row_scalar_names: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").lower() != "parameter":
+            continue
+        if rule.get("indexed_by") is not None:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        if re.search(r"(?:^|_)row_\d+(?:_|$)", name):
+            row_scalar_names.append(name)
+
+    if len(row_scalar_names) < 3:
+        return []
+
+    sample = ", ".join(f"`{name}`" for name in row_scalar_names[:5])
+    if len(row_scalar_names) > 5:
+        sample += ", ..."
+    return [
+        "Source table row-scalar parameters: "
+        f"{sample} encode table rows/cells as standalone public parameters. "
+        "Use one `kind: parameter` rule with `indexed_by` and versioned "
+        "`values` for each substantive source table column, plus a derived "
+        "band/key selector when the table uses interval rows."
+    ]
+
+
+def _source_text_looks_like_table(source_text: str) -> bool:
+    return bool(
+        re.search(r"\btable\b", source_text, flags=re.IGNORECASE)
+        or source_text.count("|") >= 6
+    )
+
+
 def find_versioned_derived_formula_issues(content: str) -> list[str]:
     """Flag derived rules that rely on unsupported period-selected formulas."""
     try:
@@ -12249,6 +12302,8 @@ class ValidatorPipeline:
         raw_output: str | None = None
         compiled_payload: dict[str, Any] | None = None
         compiled_path: Path | None = None
+
+        issues.extend(find_source_table_row_scalar_parameter_issues(content))
 
         tmpdir_cm = tempfile.TemporaryDirectory()
         tmpdir = Path(tmpdir_cm.name)

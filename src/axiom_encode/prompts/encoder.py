@@ -92,6 +92,15 @@ Hard requirements:
   numeric tables/scales keyed by household size, family size, income band,
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
+- For source tables with interval/range row labels such as "at least / but less
+  than" bands, do not create one scalar parameter per row, bound, or cell with
+  names like `*_row_0_upper_*` or `*_row_3_rate`. Define a source-backed band
+  selector as a `derived` rule, store each substantive output column as a
+  `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`,
+  and have the exported outputs look up the indexed table. Indexed table keys
+  must be integer or numeric keys supported by the RuleSpec engine, not strings
+  such as `2_5_to_less_than_3_0`. Use structural row bounds inline in the band
+  selector; do not promote those row labels to public parameter outputs.
 - Use `kind: derived` for entity-scoped outputs.
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering a source relation through a
