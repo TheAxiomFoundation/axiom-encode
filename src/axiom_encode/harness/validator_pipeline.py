@@ -3251,6 +3251,27 @@ _SOURCE_LIMITATION_PATTERN = re.compile(
     r"only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
     flags=re.IGNORECASE,
 )
+_LOWER_ENTITY_LIMITED_SOURCE_PATTERN = re.compile(
+    r"\b(?:individual|person|member|members|taxpayer|employee|claimant|applicant|"
+    r"child|children|dependent|spouse)\b",
+    flags=re.IGNORECASE,
+)
+_RELATION_AMOUNT_AGGREGATE_CALL_PATTERN = re.compile(
+    r"\b(?P<function>sum|sum_where)\s*\(\s*"
+    r"(?P<relation>[A-Za-z_][A-Za-z0-9_]*)(?P<tail>[^)]*)\)",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_ENTITY_LIMITED_HELPER_NAME_PATTERN = re.compile(
+    r"(?:^|_|\b)(?:limit|limited|limitation|cap|capped|ceiling|maximum|"
+    r"minimum|not_exceed|lesser|greater|reduc(?:e|ed|tion)|net_of)"
+    r"(?:_|\b|$)",
+    flags=re.IGNORECASE,
+)
+_LIMITING_FUNCTION_CALL_PATTERN = re.compile(
+    r"\b(?:min|max)\s*\(",
+    flags=re.IGNORECASE,
+)
+_SOURCE_LIMIT_SEGMENT_SPLIT_PATTERN = re.compile(r"(?<=[.;])\s+|\n\s*\n+")
 _CONDITIONAL_SOURCE_LIMITATION_PATTERN = re.compile(
     r"\b(?:except\s+that|only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
     flags=re.IGNORECASE,
@@ -5862,6 +5883,142 @@ def _source_supports_structural_relation_container(
     )
 
 
+def _aggregate_amount_argument(function_name: str, tail: str) -> str:
+    if function_name.lower() == "sum_where":
+        parts = [part.strip() for part in tail.lstrip(",").split(",", 2)]
+        return parts[0] if parts else ""
+    return ""
+
+
+def _aggregate_uses_pre_limited_amount(
+    function_name: str,
+    tail: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_text: str,
+) -> bool:
+    amount_arg = _aggregate_amount_argument(function_name, tail)
+    helper_formula = formula_by_name.get(amount_arg)
+    if helper_formula is None:
+        return False
+    return bool(
+        _ENTITY_LIMITED_HELPER_NAME_PATTERN.search(amount_arg)
+        and _formula_or_referenced_helpers_implement_limitation(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            current_name=amount_arg,
+            source_text=source_text,
+        )
+    )
+
+
+def _uncapped_broad_relation_aggregates_in_formula(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_text: str,
+) -> set[str]:
+    relations: set[str] = set()
+    for match in _RELATION_AMOUNT_AGGREGATE_CALL_PATTERN.finditer(formula):
+        relation_name = match.group("relation")
+        if not _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name):
+            continue
+        if _aggregate_uses_pre_limited_amount(
+            match.group("function"),
+            match.group("tail") or "",
+            formula_by_name=formula_by_name,
+            source_text=source_text,
+        ):
+            continue
+        relations.add(relation_name)
+    return relations
+
+
+def _aggregate_relations_referenced_by_formula(
+    formula: str,
+    *,
+    aggregate_relations_by_name: dict[str, set[str]],
+    formula_by_name: dict[str, str],
+    seen: set[str] | None = None,
+) -> set[str]:
+    relations: set[str] = set()
+    visited = set(seen or set())
+    for identifier in _formula_local_identifiers(formula):
+        if identifier in visited:
+            continue
+        if identifier in aggregate_relations_by_name:
+            relations.update(aggregate_relations_by_name[identifier])
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited.add(identifier)
+        relations.update(
+            _aggregate_relations_referenced_by_formula(
+                helper_formula,
+                aggregate_relations_by_name=aggregate_relations_by_name,
+                formula_by_name=formula_by_name,
+                seen=visited,
+            )
+        )
+    return relations
+
+
+def _formula_limiting_expressions(formula: str) -> list[str]:
+    expressions: list[str] = []
+    for match in _LIMITING_FUNCTION_CALL_PATTERN.finditer(formula):
+        start = match.start()
+        open_index = match.end() - 1
+        depth = 0
+        for index in range(open_index, len(formula)):
+            char = formula[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    expressions.append(formula[start : index + 1])
+                    break
+    return expressions
+
+
+def _limited_aggregate_relations_in_formula(
+    formula: str,
+    *,
+    aggregate_relations_by_name: dict[str, set[str]],
+    formula_by_name: dict[str, str],
+    source_text: str,
+) -> set[str]:
+    relations: set[str] = set()
+    for expression in _formula_limiting_expressions(formula):
+        relations.update(
+            _uncapped_broad_relation_aggregates_in_formula(
+                expression,
+                formula_by_name=formula_by_name,
+                source_text=source_text,
+            )
+        )
+        relations.update(
+            _aggregate_relations_referenced_by_formula(
+                expression,
+                aggregate_relations_by_name=aggregate_relations_by_name,
+                formula_by_name=formula_by_name,
+            )
+        )
+    return relations
+
+
+def _source_lower_entity_limitation_terms(source_text: str) -> set[str]:
+    terms: set[str] = set()
+    for segment in _SOURCE_LIMIT_SEGMENT_SPLIT_PATTERN.split(source_text):
+        if not _SOURCE_LIMITATION_PATTERN.search(segment):
+            continue
+        terms.update(
+            match.group(0).lower()
+            for match in _LOWER_ENTITY_LIMITED_SOURCE_PATTERN.finditer(segment)
+        )
+    return terms
+
+
 def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
     """Reject relation aggregation forms that the runtime does not support."""
     payload = _rulespec_payload(content)
@@ -5962,6 +6119,85 @@ def find_role_limited_relation_scope_issues(content: str) -> list[str]:
                 "a relation/fact scoped to the exact roles counted by the source; "
                 "do not count every member of a broader container unless the "
                 "source says every member counts."
+            )
+    return issues
+
+
+def find_entity_limited_aggregation_order_issues(content: str) -> list[str]:
+    """Flag lower-entity caps applied after aggregating a broad relation."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    source_entity_terms = (
+        _source_lower_entity_limitation_terms(source_text) if source_text else set()
+    )
+    if (
+        not source_text
+        or not _SOURCE_LIMITATION_PATTERN.search(source_text)
+        or not source_entity_terms
+    ):
+        return []
+
+    formula_records = _rulespec_rule_formula_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source in formula_records
+        if kind == "derived"
+    }
+    aggregate_relations_by_name = {
+        name: relations
+        for name, formula in formula_by_name.items()
+        if (
+            relations := _uncapped_broad_relation_aggregates_in_formula(
+                formula,
+                formula_by_name=formula_by_name,
+                source_text=source_text,
+            )
+        )
+    }
+    if not aggregate_relations_by_name:
+        return []
+
+    dtype_by_name = _rulespec_rule_dtype_by_name(payload)
+    entity_detail = ", ".join(sorted(source_entity_terms)[:4])
+    issues: list[str] = []
+    reported: set[tuple[str, str]] = set()
+    for name, kind, formula, rule_source in formula_records:
+        if kind != "derived":
+            continue
+        if dtype_by_name.get(name) in {"judgment", "boolean", "bool", "count"}:
+            continue
+        scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        scoped_entity_terms = _source_lower_entity_limitation_terms(scoped_source_text)
+        if not _SOURCE_LIMITATION_PATTERN.search(scoped_source_text):
+            continue
+        if not scoped_entity_terms:
+            continue
+        relations = _limited_aggregate_relations_in_formula(
+            formula,
+            aggregate_relations_by_name=aggregate_relations_by_name,
+            formula_by_name=formula_by_name,
+            source_text=scoped_source_text,
+        )
+        scoped_entity_detail = ", ".join(sorted(scoped_entity_terms)[:4])
+        for relation_name in sorted(relations):
+            key = (name, relation_name)
+            if key in reported:
+                continue
+            reported.add(key)
+            issues.append(
+                "Entity-limited aggregation order: "
+                f"`{name}` applies a limitation/cap/reduction to an aggregate "
+                f"over `{relation_name}`, while the source text states "
+                "lower-entity legal subject(s) "
+                f"({scoped_entity_detail or entity_detail}). Apply the "
+                "limit at the source-stated lower entity first, then aggregate; "
+                "do not aggregate before capping unless the source says the cap "
+                "applies to the aggregate unit."
             )
     return issues
 
@@ -10809,6 +11045,7 @@ class ValidatorPipeline:
         )
         issues.extend(find_relation_aggregate_syntax_issues(content))
         issues.extend(find_role_limited_relation_scope_issues(content))
+        issues.extend(find_entity_limited_aggregation_order_issues(content))
         issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_partial_extent_zeroing_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
