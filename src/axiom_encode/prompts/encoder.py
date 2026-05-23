@@ -16,6 +16,14 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   household, unit, filing-unit, tax-unit, or family output. Do not sum a broad
   relation and then cap the aggregate unless the source says the cap applies to
   that aggregate unit.
+- When a tax, credit, deduction, contribution, or other amount is computed as a
+  rate or percentage of a legal base stated for each/every individual, person,
+  member, employee, claimant, child, dependent, or spouse, compute that base and
+  the rate-applied result at the source-stated lower entity before any unit
+  roll-up. A household, filing-unit, tax-unit, or family output may aggregate
+  those lower-entity results through an explicit relation; it must not multiply
+  a unit-level placeholder or aggregate base by the rate unless the source
+  defines the base on that unit.
 - Do not create a roll-up, top-level program output, or connection merely
   because downstream consumers want it, sibling/state files patched it, or the
   program conventionally has such a concept. The output must be directly

@@ -47,6 +47,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_missing_same_section_subsection_import_issues,
     find_nonnegative_amount_reduction_issues,
     find_partial_extent_zeroing_issues,
+    find_person_scoped_rate_base_unit_issues,
     find_proof_import_hash_consistency_issues,
     find_proof_import_reference_issues,
     find_relation_aggregate_syntax_issues,
@@ -8404,6 +8405,81 @@ rules:
 """
 
     assert find_source_scope_consistency_issues(content) == []
+
+
+def test_person_scoped_rate_base_unit_rejects_unit_level_rate_base():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    In addition to other taxes, there shall be imposed for each taxable year, on
+    the self-employment income of every individual, a tax equal to 12.4 percent
+    of the amount of the self-employment income for such taxable year.
+rules:
+  - name: self_employment_oasdi_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.124
+  - name: self_employment_oasdi_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1401(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxable_self_employment_income_for_section_1401 * self_employment_oasdi_tax_rate
+"""
+
+    issues = find_person_scoped_rate_base_unit_issues(content)
+
+    assert any("Person-scoped rate base at unit scope" in issue for issue in issues)
+    assert "self_employment_oasdi_tax" in issues[0]
+    assert "TaxUnit" in issues[0]
+
+
+def test_person_scoped_rate_base_unit_accepts_relation_rollup():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, a payroll contribution is 6.2 percent of taxable wages.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: payroll_contribution_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.062
+  - name: employee_payroll_contribution
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: payroll contribution rule
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxable_wages * payroll_contribution_rate
+  - name: tax_unit_payroll_contribution
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: payroll contribution rule
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_payroll_contribution, employee_has_taxable_wages)
+"""
+
+    assert find_person_scoped_rate_base_unit_issues(content) == []
 
 
 def test_source_scope_consistency_checks_each_rule_independently():
