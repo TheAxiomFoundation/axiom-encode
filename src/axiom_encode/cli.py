@@ -10330,6 +10330,34 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_deferred_source_values = (
+                    _try_repair_generated_empty_deferred_source_values_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_deferred_source_values:
+                    outcome["auto_repaired_empty_deferred_source_values"] = (
+                        repaired_deferred_source_values
+                    )
+                    print(
+                        "  apply=auto_repaired_empty_deferred_source_values:"
+                        + ",".join(repaired_deferred_source_values)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_rules = _try_repair_generated_nonnegative_floors_for_apply(
                     result,
                     output_root=args.output,
@@ -10678,6 +10706,57 @@ def _can_attempt_apply(result) -> bool:
         "Generated RuleSpec failed compile validation",
         "Generated RuleSpec failed CI validation",
     }
+
+
+def _try_repair_generated_empty_deferred_source_values_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove empty optional deferred-output source_values emitted by the model."""
+    if not _only_pending_empty_deferred_source_values_issues(issues):
+        return []
+
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _remove_empty_deferred_source_values(rules_file=rules_file)
+
+
+def _only_pending_empty_deferred_source_values_issues(issues: list[str]) -> bool:
+    return bool(issues) and all(
+        "module.deferred_outputs[" in str(issue)
+        and ".source_values must list absolute RuleSpec targets" in str(issue)
+        for issue in issues
+    )
+
+
+def _remove_empty_deferred_source_values(*, rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+
+    try:
+        lines = rules_file.read_text().splitlines(keepends=True)
+    except OSError:
+        return []
+
+    repaired: list[str] = []
+    removed = 0
+    for line in lines:
+        if re.match(r"^\s*source_values:\s*\[\s*\]\s*(?:#.*)?$", line):
+            removed += 1
+            continue
+        repaired.append(line)
+
+    if removed == 0:
+        return []
+
+    rules_file.write_text("".join(repaired))
+    return [f"source_values[{index}]" for index in range(removed)]
 
 
 def _try_repair_generated_nonnegative_floors_for_apply(
@@ -11521,8 +11600,13 @@ def _validate_generated_encoding_in_policy_overlay(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         overlay_parent = Path(tmpdir)
+        overlay_repo_name = (
+            canonical_rulespec_repo_name(policy_repo_path) or policy_repo_path.name
+        )
         for sibling in policy_repo_path.parent.glob("rulespec-*"):
             if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
+                continue
+            if sibling.name == overlay_repo_name:
                 continue
             sibling_target = overlay_parent / sibling.name
             try:
@@ -11530,9 +11614,6 @@ def _validate_generated_encoding_in_policy_overlay(
             except OSError:
                 shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
 
-        overlay_repo_name = (
-            canonical_rulespec_repo_name(policy_repo_path) or policy_repo_path.name
-        )
         overlay_repo = overlay_parent / overlay_repo_name
         shutil.copytree(policy_repo_path, overlay_repo)
         overlay_target = overlay_repo / relative_output
