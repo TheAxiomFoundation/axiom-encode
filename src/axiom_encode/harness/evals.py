@@ -484,7 +484,9 @@ def _combine_retry_response(
         estimated_cost_usd=_sum_optional_float(
             initial.estimated_cost_usd, retry.estimated_cost_usd
         ),
-        actual_cost_usd=_sum_optional_float(initial.actual_cost_usd, retry.actual_cost_usd),
+        actual_cost_usd=_sum_optional_float(
+            initial.actual_cost_usd, retry.actual_cost_usd
+        ),
         trace={
             "retry_count": 1,
             "retry_reason": "empty_rulespec_artifact",
@@ -506,10 +508,7 @@ def _response_allows_empty_artifact_retry(response: EvalPromptResponse) -> bool:
     """Return true when a missing artifact should get one forced retry."""
     if response.error is None:
         return True
-    return (
-        not response.text.strip()
-        and "timed out" in response.error.lower()
-    )
+    return not response.text.strip() and "timed out" in response.error.lower()
 
 
 def load_eval_suite_manifest(path: Path) -> EvalSuiteManifest:
@@ -5430,9 +5429,7 @@ def _run_codex_prompt_eval(
         except subprocess.TimeoutExpired as exc:
             timed_out = True
             timeout_reason = (
-                "idle"
-                if exc.timeout == codex_idle_timeout_seconds
-                else "wall"
+                "idle" if exc.timeout == codex_idle_timeout_seconds else "wall"
             )
             process.kill()
             process.wait()
