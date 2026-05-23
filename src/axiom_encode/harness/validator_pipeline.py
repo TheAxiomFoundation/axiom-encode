@@ -3245,6 +3245,26 @@ _ROLE_LIMITED_SOURCE_PATTERN = re.compile(
     r"\b(?:taxpayer|spouse|claimant|applicant|child|children|dependent|individual)\b",
     flags=re.IGNORECASE,
 )
+_PERSON_SCOPED_RATE_BASE_SOURCE_PATTERN = re.compile(
+    r"\b(?:"
+    r"(?:for|with\s+respect\s+to)\s+(?:each|every|any|the)\s+"
+    r"(?:individual|person|member|employee|claimant|applicant|child|children|"
+    r"dependent|spouse)"
+    r"|(?:each|every|any|the)\s+"
+    r"(?:individual|person|member|employee|claimant|applicant|child|children|"
+    r"dependent|spouse)"
+    r"|of\s+(?:each|every|any|the)\s+"
+    r"(?:individual|person|member|employee|claimant|applicant|child|children|"
+    r"dependent|spouse)"
+    r")\b[\s\S]{0,260}\b(?:amount|allowance|base|benefit|compensation|"
+    r"contribution|credit|deduction|earnings?|income|tax|wages?)\b",
+    flags=re.IGNORECASE,
+)
+_RATE_IDENTIFIER_MULTIPLICATION_PATTERN = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:_rate|_percentage|_percent)\b\s*\*"
+    r"|\*\s*\b[A-Za-z_][A-Za-z0-9_]*(?:_rate|_percentage|_percent)\b",
+    flags=re.IGNORECASE,
+)
 _SOURCE_LIMITATION_PATTERN = re.compile(
     r"\b(?:limitation|limited\s+to|shall\s+not\s+exceed|may\s+not\s+exceed|"
     r"not\s+exceed|lesser\s+of|greater\s+of|reduced\s+by|except\s+that|"
@@ -3756,6 +3776,82 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
                 "unit-scoped test. Encode the rule at the source-stated unit "
                 "scope or cite source text that states the declared unit scope."
             )
+    return issues
+
+
+def _formula_or_referenced_helpers_use_relation_aggregate(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    seen: set[str] | None = None,
+) -> bool:
+    if _RELATION_AGGREGATE_PATTERN.search(formula):
+        return True
+    visited = set(seen or set())
+    for identifier in _formula_local_identifiers(formula):
+        if identifier in visited:
+            continue
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited.add(identifier)
+        if _formula_or_referenced_helpers_use_relation_aggregate(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            seen=visited,
+        ):
+            return True
+    return False
+
+
+def find_person_scoped_rate_base_unit_issues(content: str) -> list[str]:
+    """Flag unit-level rate * base formulas for person-scoped legal bases."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    source_text = extract_embedded_source_text(content)
+    if not source_text:
+        source_text = _extract_source_verification_text(content)
+    if not source_text:
+        return []
+
+    formula_records = _rulespec_rule_formula_rule_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source, _rule in formula_records
+        if kind == "derived"
+    }
+    dtype_by_name = _rulespec_rule_dtype_by_name(payload)
+    issues: list[str] = []
+    for name, kind, formula, rule_source, rule in formula_records:
+        if kind != "derived":
+            continue
+        if not _RATE_IDENTIFIER_MULTIPLICATION_PATTERN.search(formula):
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
+            continue
+        if dtype_by_name.get(name) not in {"money", "decimal", "rate"}:
+            continue
+        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        if not scoped_source_text:
+            scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if not _PERSON_SCOPED_RATE_BASE_SOURCE_PATTERN.search(scoped_source_text):
+            continue
+        if _formula_or_referenced_helpers_use_relation_aggregate(
+            formula,
+            formula_by_name=formula_by_name,
+        ):
+            continue
+        issues.append(
+            "Person-scoped rate base at unit scope: "
+            f"`{name}` is declared on `{entity}` and multiplies a base by a "
+            "rate, but the source text states the amount or tax for each/every "
+            "individual, person, member, employee, or similar lower-entity "
+            "subject. Encode the rate-applied amount at that lower entity "
+            "first, then aggregate through an explicit relation; do not "
+            "multiply a unit-level placeholder or aggregate base by the rate."
+        )
     return issues
 
 
@@ -12180,6 +12276,7 @@ class ValidatorPipeline:
         issues.extend(find_source_condition_coverage_issues(content))
         issues.extend(find_filtered_entity_dependency_issues(content))
         issues.extend(find_source_scope_consistency_issues(content))
+        issues.extend(find_person_scoped_rate_base_unit_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         issues.extend(
