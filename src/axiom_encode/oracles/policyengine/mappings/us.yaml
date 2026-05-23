@@ -9237,6 +9237,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 933 Puerto Rico income exclusion outputs and related deduction or credit disallowance rules are territory-specific legal intermediates outside PolicyEngine's current one-to-one oracle surface.
 
+  - legal_id_prefix: us:statutes/26/3241/b#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3241(b) Railroad Retirement Tax Act applicable-percentage schedule outputs are not exposed as one-to-one PolicyEngine variables or parameters.
+
   - legal_id_prefix: us:statutes/26/63#
     country: us
     program: tax
