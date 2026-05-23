@@ -2602,7 +2602,16 @@ def _is_source_table_structural_bound_parameter_name(name: str) -> bool:
     has_structural_noun = re.search(
         r"(?:^|_)(?:bound|threshold|limit)(?:_|$)", normalized
     )
-    return bool(has_index and has_bound_word and has_structural_noun)
+    has_adjacent_min_max = re.search(
+        r"(?:^|_)(?:row|band|bracket)_\d+_(?:min|max|minimum|maximum)(?:_|$)",
+        normalized,
+    ) or re.search(
+        r"(?:^|_)(?:min|max|minimum|maximum)_(?:row|band|bracket)_\d+(?:_|$)",
+        normalized,
+    )
+    return bool(
+        has_index and ((has_bound_word and has_structural_noun) or has_adjacent_min_max)
+    )
 
 
 def _single_version_numeric_formula(rule: dict[str, Any]) -> str | None:

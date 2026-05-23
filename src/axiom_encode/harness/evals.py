@@ -5875,6 +5875,97 @@ def _normalize_main_eval_content(
     return normalized
 
 
+def _rulespec_rule_names(content: str) -> set[str]:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _removed_rulespec_rule_names(original: str, normalized: str) -> set[str]:
+    return _rulespec_rule_names(original) - _rulespec_rule_names(normalized)
+
+
+def _indexed_parameter_rule_names(content: str) -> set[str]:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        if rule.get("indexed_by") is None:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _strip_test_outputs_for_rule_names(
+    content: str,
+    *,
+    rule_names: set[str],
+) -> str:
+    if not rule_names:
+        return content
+    try:
+        cases = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return content
+    if not isinstance(cases, list):
+        return content
+
+    changed = False
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            continue
+        filtered = {
+            key: value
+            for key, value in output.items()
+            if _rulespec_output_key_name(key) not in rule_names
+        }
+        if len(filtered) != len(output):
+            case["output"] = filtered
+            changed = True
+
+    if not changed:
+        return content
+    return yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
+
+
+def _rulespec_output_key_name(key: object) -> str | None:
+    if not isinstance(key, str):
+        return None
+    if "#" in key:
+        return key.rsplit("#", 1)[1].strip() or None
+    return key.strip() or None
+
+
 def _extract_generated_file_bundle(llm_response: str) -> dict[str, str]:
     """Extract a small multi-file bundle emitted by eval backends."""
     if not llm_response or "=== FILE:" not in llm_response:
@@ -6634,6 +6725,27 @@ def _materialize_eval_artifact(
         bundle_by_candidate_name = {
             Path(file_name).name: content for file_name, content in bundle.items()
         }
+        normalized_main_content: str | None = None
+        stripped_test_output_names: set[str] = set()
+        raw_main_content = bundle_by_candidate_name.get(expected_path.name)
+        if raw_main_content is not None:
+            try:
+                normalized_main_content = _normalize_main_eval_content(
+                    raw_main_content,
+                    target_path=expected_path,
+                    single_amount_table_slice=single_amount_table_slice,
+                    source_text=source_text,
+                )
+                stripped_test_output_names = _removed_rulespec_rule_names(
+                    raw_main_content,
+                    normalized_main_content,
+                )
+                stripped_test_output_names.update(
+                    _indexed_parameter_rule_names(normalized_main_content)
+                )
+            except ValueError:
+                normalized_main_content = None
+                stripped_test_output_names = set()
         for file_name, content in bundle.items():
             candidate_name = Path(file_name).name
             if candidate_name == expected_path.name:
@@ -6643,40 +6755,32 @@ def _materialize_eval_artifact(
             else:
                 continue
             if target_path == expected_path:
-                try:
-                    content = _normalize_main_eval_content(
-                        content,
-                        target_path=target_path,
-                        single_amount_table_slice=single_amount_table_slice,
-                        source_text=source_text,
-                    )
-                except ValueError:
+                if normalized_main_content is None:
                     continue
+                content = normalized_main_content
             elif target_path == expected_test_path:
                 if single_amount_table_slice:
                     content = _normalize_single_amount_row_test_content(
                         content,
-                        rulespec_content=bundle_by_candidate_name.get(
-                            expected_path.name
-                        ),
+                        rulespec_content=normalized_main_content or raw_main_content,
                         source_text=source_text,
                     )
                 else:
                     content = _normalize_test_periods_to_effective_dates(
                         content,
-                        rulespec_content=bundle_by_candidate_name.get(
-                            expected_path.name
-                        ),
+                        rulespec_content=normalized_main_content or raw_main_content,
                         source_text=source_text,
                     )
                     content = _complete_oracle_hint_test_outputs(
                         content,
-                        rulespec_content=bundle_by_candidate_name.get(
-                            expected_path.name
-                        ),
+                        rulespec_content=normalized_main_content or raw_main_content,
                         policyengine_rule_hint=policyengine_rule_hint,
                         rulespec_path=expected_path,
                     )
+                content = _strip_test_outputs_for_rule_names(
+                    content,
+                    rule_names=stripped_test_output_names,
+                )
             target_path.parent.mkdir(parents=True, exist_ok=True)
             target_path.write_text(content)
             if target_path == expected_path:
@@ -6716,16 +6820,21 @@ def _materialize_workspace_artifacts(
     if not workspace_main.exists():
         return False
 
-    main_content = workspace_main.read_text()
+    raw_main_content = workspace_main.read_text()
     try:
         main_content = _normalize_main_eval_content(
-            main_content,
+            raw_main_content,
             target_path=expected_path,
             single_amount_table_slice=single_amount_table_slice,
             source_text=source_text,
         )
     except ValueError:
         return False
+    stripped_test_output_names = _removed_rulespec_rule_names(
+        raw_main_content,
+        main_content,
+    )
+    stripped_test_output_names.update(_indexed_parameter_rule_names(main_content))
 
     expected_path.parent.mkdir(parents=True, exist_ok=True)
     expected_path.write_text(main_content)
@@ -6750,6 +6859,10 @@ def _materialize_workspace_artifacts(
                 policyengine_rule_hint=policyengine_rule_hint,
                 rulespec_path=expected_path,
             )
+        test_content = _strip_test_outputs_for_rule_names(
+            test_content,
+            rule_names=stripped_test_output_names,
+        )
         expected_test_path.write_text(test_content)
 
     return True
