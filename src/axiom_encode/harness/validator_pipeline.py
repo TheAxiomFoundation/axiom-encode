@@ -4326,6 +4326,16 @@ def find_source_subparagraph_coverage_issues(
 
 
 def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, str]]:
+    return [
+        (label, text)
+        for label, text in _top_level_source_subparagraph_segments(source_text)
+        if _HIGH_SIGNAL_SUBPARAGRAPH_PATTERN.search(text)
+    ]
+
+
+def _top_level_source_subparagraph_segments(
+    source_text: str,
+) -> list[tuple[str, str]]:
     matches = list(_TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text))
     children: list[tuple[str, str]] = []
     for index, match in enumerate(matches):
@@ -4335,8 +4345,7 @@ def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, st
             matches[index + 1].start() if index + 1 < len(matches) else len(source_text)
         )
         text = source_text[start:end].strip()
-        if _HIGH_SIGNAL_SUBPARAGRAPH_PATTERN.search(text):
-            children.append((label, text))
+        children.append((label, text))
     return children
 
 
@@ -8741,6 +8750,12 @@ def _formula_local_identifiers(formula: str) -> set[str]:
     return set(_RULESPEC_IDENTIFIER.findall(formula)) - _RULESPEC_FORMULA_BUILTINS
 
 
+def _normalize_identifier(value: str) -> str:
+    """Normalize source phrases and symbols for loose identifier matching."""
+    normalized = re.sub(r"[^a-z0-9]+", "_", value.lower())
+    return re.sub(r"_+", "_", normalized).strip("_")
+
+
 def find_test_input_assignment_issues(
     content: str,
     test_cases: Any,
@@ -12338,6 +12353,7 @@ class ValidatorPipeline:
         issues.extend(find_aggregate_exception_predicate_issues(content))
         issues.extend(self._check_cross_reference_exception_placeholders(rules_file))
         issues.extend(self._check_encoded_cross_reference_placeholders(rules_file))
+        issues.extend(self._check_cross_reference_numeric_placeholders(rules_file))
         issues.extend(
             find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
         )
@@ -12800,6 +12816,160 @@ class ValidatorPipeline:
                     f"encoded or required cited source. {resolution}"
                 )
         return issues
+
+    def _check_cross_reference_numeric_placeholders(
+        self, rulespec_file: Path
+    ) -> list[str]:
+        """Reject local numeric placeholders for rates/percentages set upstream."""
+        content = rulespec_file.read_text()
+        source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        title = self._infer_title_from_rulespec_path(rulespec_file)
+        if not title:
+            return []
+
+        obligations = self._extract_cross_reference_numeric_obligations(
+            source_text,
+            title=title,
+        )
+        if not obligations:
+            return []
+
+        import_items = self._extract_import_items(content)
+        import_paths = {
+            self._normalize_rulespec_import_path(import_item)
+            for import_item in import_items
+        }
+
+        issues: list[str] = []
+        seen: set[tuple[str, str, str]] = set()
+        for label, import_base, source_child in obligations:
+            if self._imports_cover_path(import_paths, import_base):
+                continue
+
+            target_import_base = import_base.removeprefix("statutes/")
+            target_exists = self._rulespec_import_target_exists(target_import_base)
+            resolution = (
+                f"Import `{import_base}` and reference the upstream output "
+                "instead of keeping a local numeric cross-reference input."
+            )
+            if not target_exists:
+                resolution = (
+                    f"Encode `{import_base}` first, or emit "
+                    "`module.status: deferred` or "
+                    "`module.status: entity_not_supported` with `rules: []` "
+                    "if this provision cannot be computed without that "
+                    "upstream source."
+                )
+
+            for block in self._extract_definition_blocks(content):
+                block_source_child = self._rule_source_top_level_child(block)
+                if (
+                    source_child
+                    and block_source_child
+                    and block_source_child != source_child
+                ):
+                    continue
+                formula = "\n".join(str(line) for line in block["body_lines"])
+                for identifier in sorted(_formula_local_identifiers(formula)):
+                    if not self._identifier_matches_numeric_cross_reference(
+                        identifier,
+                        label,
+                    ):
+                        continue
+                    key = (str(block["name"]), identifier, import_base)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    issues.append(
+                        "Cross-reference numeric placeholder: "
+                        f"`{block['name']}` uses local `{identifier}` for "
+                        f"`{label}` set by a cited legal section. {resolution}"
+                    )
+        return issues
+
+    def _extract_cross_reference_numeric_obligations(
+        self,
+        source_text: str,
+        *,
+        title: str,
+    ) -> list[tuple[str, str, tuple[str, ...] | None]]:
+        """Return source numeric terms that must come from a cited section."""
+        patterns = [
+            re.compile(
+                r"\b(?P<label>applicable\s+percentage)\b"
+                r".{0,500}?\b(?:sum\s+of\s+the\s+)?rates?\b"
+                r".{0,500}?\b(?:under|in\s+effect\s+under)\s+"
+                r"(?:subsections?\s+\([^)]+\)"
+                r"(?:\s+and\s+\([^)]+\))?\s+of\s+)?"
+                r"section\s+(?P<section>[0-9][A-Za-z0-9.-]*)",
+                flags=re.IGNORECASE | re.DOTALL,
+            ),
+            re.compile(
+                r"\b(?P<label>(?:applicable\s+)?(?:percentage|rate|amount))"
+                r"\s+(?:determined|in\s+effect|provided)\s+under\s+"
+                r"section\s+(?P<section>[0-9][A-Za-z0-9.-]*)",
+                flags=re.IGNORECASE,
+            ),
+        ]
+
+        source_segments = _top_level_source_subparagraph_segments(source_text)
+        if source_segments:
+            texts_to_scan: list[tuple[tuple[str, ...] | None, str]] = [
+                ((label,), text) for label, text in source_segments
+            ]
+        else:
+            texts_to_scan = [(None, source_text)]
+
+        obligations: list[tuple[str, str, tuple[str, ...] | None]] = []
+        seen: set[tuple[str, str, tuple[str, ...] | None]] = set()
+        for source_child, segment_text in texts_to_scan:
+            for pattern in patterns:
+                for match in pattern.finditer(segment_text):
+                    label = _normalize_identifier(match.group("label"))
+                    section = match.group("section")
+                    target_title = (
+                        _title_qualified_reference_for_section(section, source_text)
+                        or title
+                    )
+                    import_base = "/".join(["statutes", target_title, section])
+                    key = (label, import_base, source_child)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    obligations.append(key)
+        return obligations
+
+    def _rule_source_top_level_child(
+        self,
+        block: dict[str, object],
+    ) -> tuple[str, ...] | None:
+        source = str(block.get("source") or "").strip()
+        if not source:
+            return None
+        match = re.search(r"\(([A-Za-z0-9]+)\)", source)
+        if not match:
+            return None
+        return (match.group(1).lower(),)
+
+    def _identifier_matches_numeric_cross_reference(
+        self,
+        identifier: str,
+        label: str,
+    ) -> bool:
+        """Return whether a formula identifier is a local stand-in for a term."""
+        normalized_identifier = _normalize_identifier(identifier)
+        normalized_label = _normalize_identifier(label)
+        if normalized_label in normalized_identifier:
+            return True
+        if normalized_label in {"percentage", "rate", "amount"}:
+            return any(
+                token in normalized_identifier
+                for token in ("percentage", "rate", "amount")
+            )
+        return False
 
     def _source_text_requires_upstream_import(self, source_text: str) -> bool:
         """Return whether cited-section semantics must import or defer."""
@@ -13415,6 +13585,7 @@ class ValidatorPipeline:
                     "body_lines": formula_lines,
                     "imports": imports,
                     "dtype": rule.get("dtype"),
+                    "source": rule.get("source"),
                     "status": rule.get("status"),
                     "constant_boolean": constant_boolean,
                 }
