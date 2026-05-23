@@ -704,7 +704,7 @@ def build_ctc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
                 f"{CTC_H_BASE}#input.filing_status",
                 entity_id,
                 interval,
-                filing_status_code(str(row["filing_status"])),
+                ctc_h_filing_status_code(str(row["filing_status"])),
             )
         )
         tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
@@ -1919,6 +1919,12 @@ def filing_status_code(value: str) -> int:
     if normalized not in FILING_STATUS_CODES:
         raise ValueError(f"unsupported filing status: {value}")
     return FILING_STATUS_CODES[normalized]
+
+
+def ctc_h_filing_status_code(value: str) -> int:
+    if uses_joint_ctc_phaseout_threshold(value):
+        return filing_status_code("JOINT")
+    return filing_status_code(value)
 
 
 def uses_joint_ctc_phaseout_threshold(value: str) -> bool:

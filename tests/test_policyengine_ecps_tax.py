@@ -35,6 +35,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     contribution_and_benefit_base_from_results,
     contribution_and_benefit_base_output,
     contribution_and_benefit_base_program_path,
+    ctc_h_filing_status_code,
     filing_status_code,
     individual_is_unmarried_and_not_surviving_spouse,
     output_number,
@@ -108,6 +109,22 @@ def test_valid_child_ssn_type_maps_policyengine_enum(value, expected):
 )
 def test_uses_joint_ctc_phaseout_threshold_matches_policyengine(value, expected):
     assert uses_joint_ctc_phaseout_threshold(value) is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("JOINT", 1),
+        ("SURVIVING_SPOUSE", 1),
+        ("SINGLE", 0),
+        ("SEPARATE", 2),
+        ("HEAD_OF_HOUSEHOLD", 3),
+    ],
+)
+def test_ctc_h_filing_status_code_matches_policyengine_phaseout_threshold(
+    value, expected
+):
+    assert ctc_h_filing_status_code(value) == expected
 
 
 def test_ctc_person_projection_marks_under_17_valid_ssn_child():
@@ -239,14 +256,15 @@ def test_tax_unit_person_contexts_handle_minor_only_tax_unit_without_filer_ssn()
     assert projected["taxpayer_or_spouse_ssn_is_valid_for_subsection_h"] is False
 
 
-def test_build_ctc_request_uses_refreshed_rulespec_input_contract():
+@pytest.mark.parametrize("filing_status", ["JOINT", "SURVIVING_SPOUSE"])
+def test_build_ctc_request_uses_refreshed_rulespec_input_contract(filing_status):
     pd = pytest.importorskip("pandas")
     pe_data = {
         "tax_units": pd.DataFrame(
             [
                 {
                     "tax_unit_id": 1,
-                    "filing_status": "JOINT",
+                    "filing_status": filing_status,
                     "adjusted_gross_income": 125_000,
                 }
             ]
