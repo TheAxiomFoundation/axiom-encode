@@ -7705,9 +7705,51 @@ rules:
     issues = find_source_table_row_scalar_parameter_issues(content)
 
     assert len(issues) == 1
-    assert "Source table row-scalar parameters" in issues[0]
+    assert "Source table row/band scalar parameters" in issues[0]
     assert "avg_ratio_threshold_row_0_upper_2_5" in issues[0]
     assert "`indexed_by`" in issues[0]
+
+
+def test_source_table_band_bound_scalar_parameters_are_rejected():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+    | 3.0 | 3.5 | 4.9 |
+    | 3.5 | 4.0 | 4.9 |
+rules:
+  - name: average_account_benefits_ratio_lower_bound_band_0
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_upper_bound_band_0
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_lower_bound_band_1
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+"""
+
+    issues = find_source_table_row_scalar_parameter_issues(content)
+
+    assert len(issues) == 1
+    assert "Source table row/band scalar parameters" in issues[0]
+    assert "average_account_benefits_ratio_lower_bound_band_0" in issues[0]
+    assert "structural bounds inline" in issues[0]
 
 
 def test_source_table_row_scalar_parameters_allows_indexed_table():

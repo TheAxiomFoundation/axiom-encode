@@ -467,6 +467,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         in prompt
     )
     assert "do not create one scalar parameter per row, bound, or cell" in prompt
+    assert "`*_lower_bound_band_9`" in prompt
     assert "`indexed_by: <band_selector>`" in prompt
     assert "not strings such as `2_5_to_less_than_3_0`" in prompt
     assert "Before finalizing, do this self-check:" in prompt
