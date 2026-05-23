@@ -3267,11 +3267,43 @@ _ENTITY_LIMITED_HELPER_NAME_PATTERN = re.compile(
     r"(?:_|\b|$)",
     flags=re.IGNORECASE,
 )
+_ENTITY_LIMIT_IMPLEMENTATION_PATTERN = re.compile(
+    r"\bmin\s*\(|\bif\b[^\n:]*[<>]=?|(?:^|_|\b)(?:limit|limited|limitation|"
+    r"cap|capped|ceiling|maximum|not_exceed|lesser|threshold|base|"
+    r"reduc(?:e|ed|tion)|net_of)(?:_|\b|$)",
+    flags=re.IGNORECASE,
+)
 _LIMITING_FUNCTION_CALL_PATTERN = re.compile(
     r"\b(?:min|max)\s*\(",
     flags=re.IGNORECASE,
 )
+_LIMITING_CONDITIONAL_PATTERN = re.compile(
+    r"\bif\s+(?P<condition>[^\n:]+?)\s*:",
+    flags=re.IGNORECASE,
+)
+_FORMULA_LIMIT_COMPARISON_PATTERN = re.compile(r"[<>]=?")
 _SOURCE_LIMIT_SEGMENT_SPLIT_PATTERN = re.compile(r"(?<=[.;])\s+|\n\s*\n+")
+_LIMITATION_PHRASE_PATTERN = re.compile(
+    r"\b(?:limited\s+to|shall\s+not\s+exceed|may\s+not\s+exceed|"
+    r"not\s+exceed|lesser\s+of|greater\s+of|reduced\s+by)\b",
+    flags=re.IGNORECASE,
+)
+_AGGREGATE_UNIT_SUBJECT_PATTERN = re.compile(
+    r"\b(?:household|tax\s+unit|filing\s+unit|family)\b(?!\s+members?\b)"
+    r"[\s\S]{0,80}\b(?:benefit|amount|allotment|allowance|credit|"
+    r"deduction|tax|maximum|cap|ceiling)\b",
+    flags=re.IGNORECASE,
+)
+_LOWER_ENTITY_CONTEXTUAL_AMOUNT_PATTERN = re.compile(
+    r"\b(?:for\s+each|each|per)\s+"
+    r"(?:individual|person|member|members|taxpayer|employee|claimant|"
+    r"applicant|child|children|dependent|spouse)\b",
+    flags=re.IGNORECASE,
+)
+_ANAPHORIC_AMOUNT_PATTERN = re.compile(
+    r"\b(?:such|that|the)\s+amount\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_SOURCE_LIMITATION_PATTERN = re.compile(
     r"\b(?:except\s+that|only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
     flags=re.IGNORECASE,
@@ -5903,11 +5935,10 @@ def _aggregate_uses_pre_limited_amount(
         return False
     return bool(
         _ENTITY_LIMITED_HELPER_NAME_PATTERN.search(amount_arg)
-        and _formula_or_referenced_helpers_implement_limitation(
+        and _formula_or_referenced_helpers_implement_entity_limit(
             helper_formula,
             formula_by_name=formula_by_name,
             current_name=amount_arg,
-            source_text=source_text,
         )
     )
 
@@ -5978,7 +6009,35 @@ def _formula_limiting_expressions(formula: str) -> list[str]:
                 if depth == 0:
                     expressions.append(formula[start : index + 1])
                     break
+    for match in _LIMITING_CONDITIONAL_PATTERN.finditer(formula):
+        condition = match.group("condition")
+        if _FORMULA_LIMIT_COMPARISON_PATTERN.search(condition):
+            expressions.append(condition)
     return expressions
+
+
+def _formula_or_referenced_helpers_implement_entity_limit(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    current_name: str,
+    seen: set[str] | None = None,
+) -> bool:
+    if _ENTITY_LIMIT_IMPLEMENTATION_PATTERN.search(formula):
+        return True
+    visited = set(seen or set())
+    visited.add(current_name)
+    for identifier in _formula_local_identifiers(formula):
+        if identifier in visited or identifier not in formula_by_name:
+            continue
+        if _formula_or_referenced_helpers_implement_entity_limit(
+            formula_by_name[identifier],
+            formula_by_name=formula_by_name,
+            current_name=identifier,
+            seen=visited,
+        ):
+            return True
+    return False
 
 
 def _limited_aggregate_relations_in_formula(
@@ -6009,14 +6068,46 @@ def _limited_aggregate_relations_in_formula(
 
 def _source_lower_entity_limitation_terms(source_text: str) -> set[str]:
     terms: set[str] = set()
+    previous_lower_terms: set[str] = set()
     for segment in _SOURCE_LIMIT_SEGMENT_SPLIT_PATTERN.split(source_text):
-        if not _SOURCE_LIMITATION_PATTERN.search(segment):
+        if not segment.strip():
             continue
-        terms.update(
-            match.group(0).lower()
-            for match in _LOWER_ENTITY_LIMITED_SOURCE_PATTERN.finditer(segment)
-        )
+        segment_lower_terms = _source_lower_entity_terms_before_limitation(segment)
+        if not _SOURCE_LIMITATION_PATTERN.search(segment):
+            if _LOWER_ENTITY_CONTEXTUAL_AMOUNT_PATTERN.search(segment):
+                previous_lower_terms = segment_lower_terms
+            continue
+        if segment_lower_terms:
+            terms.update(segment_lower_terms)
+            previous_lower_terms = segment_lower_terms
+            continue
+        if previous_lower_terms and _ANAPHORIC_AMOUNT_PATTERN.search(segment):
+            terms.update(previous_lower_terms)
+            continue
+        if not _source_limitation_subject_is_aggregate_unit(segment):
+            later_terms = {
+                match.group(0).lower()
+                for match in _LOWER_ENTITY_LIMITED_SOURCE_PATTERN.finditer(segment)
+            }
+            terms.update(later_terms)
     return terms
+
+
+def _source_lower_entity_terms_before_limitation(segment: str) -> set[str]:
+    match = _LIMITATION_PHRASE_PATTERN.search(segment)
+    search_text = segment[: match.start()] if match else segment
+    return {
+        term_match.group(0).lower()
+        for term_match in _LOWER_ENTITY_LIMITED_SOURCE_PATTERN.finditer(search_text)
+    }
+
+
+def _source_limitation_subject_is_aggregate_unit(segment: str) -> bool:
+    match = _LIMITATION_PHRASE_PATTERN.search(segment)
+    if match is None:
+        return False
+    subject = segment[max(0, match.start() - 120) : match.start()]
+    return bool(_AGGREGATE_UNIT_SUBJECT_PATTERN.search(subject))
 
 
 def find_relation_aggregate_syntax_issues(content: str) -> list[str]:
