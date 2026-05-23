@@ -10679,8 +10679,8 @@ rules:
     issues = find_entity_limited_aggregation_order_issues(content)
 
     assert any("Entity-limited aggregation order" in issue for issue in issues)
-    assert "tax_unit_covered_wages_after_base_limit" in issues[0]
-    assert "member_of_tax_unit" in issues[0]
+    assert any("tax_unit_covered_wages_after_base_limit" in issue for issue in issues)
+    assert any("member_of_tax_unit" in issue for issue in issues)
 
 
 def test_entity_limited_aggregation_order_accepts_per_entity_limited_sum():
@@ -10713,6 +10713,546 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
+def test_entity_limited_aggregation_order_accepts_reversed_per_entity_minimum():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(annual_base - wages_already_paid_to_employee, covered_wages)
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
+def test_entity_limited_aggregation_order_rejects_missing_entity_cap_before_sum():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_tax_unit.covered_wages)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_sum_where_with_spaced_comma():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit , covered_wages, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_unrelated_helper_minimum():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(covered_wages, unrelated_program_cap)
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_lesser_of_amount_with_unrelated_cap():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages are limited to the lesser of covered wages
+    and annual base.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(covered_wages, unrelated_program_cap)
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_generic_lesser_of_subject_with_unrelated_cap():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, the employee benefit is limited to the lesser of covered
+    wages and annual base.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(covered_wages, unrelated_program_cap)
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_accepts_generic_lesser_of_entity_limit():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, the employee benefit is limited to the lesser of covered
+    wages and annual base.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(covered_wages, annual_base)
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
+def test_entity_limited_aggregation_order_rejects_cap_applied_to_wrong_amount():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(other_income, annual_base)
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_accepts_predicate_factored_helper():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_exceed_base
+    kind: derived
+    entity: Person
+    dtype: Boolean
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: covered_wages > annual_base
+  - name: employee_covered_wages
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employee_wages_exceed_base:
+              annual_base
+          else:
+              covered_wages
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(sum_where(member_of_tax_unit, employee_covered_wages, employee_counts_for_tax_unit), tax_unit_maximum)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
+def test_entity_limited_aggregation_order_rejects_predicate_without_capping_branch():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_above_base_kept
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if covered_wages > annual_base:
+              covered_wages
+          else:
+              0
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_above_base_kept, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_unrelated_predicate_with_cap_branch():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if covered_wages > unrelated_program_cap:
+              annual_base
+          else:
+              covered_wages
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_swapped_conditional_branches():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base reduced by wages already paid to the employee.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_wages_after_annual_base_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if covered_wages > annual_base:
+              covered_wages
+          else:
+              annual_base
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_wages_after_annual_base_limit, employee_counts_for_tax_unit)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_tax_unit" in issues[0]
+
+
+def test_entity_limited_aggregation_order_accepts_only_if_sum_where_predicate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each child, the allowance applies only if the child is eligible.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: household_child_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_household, child_allowance, child_is_eligible)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
+def test_entity_limited_aggregation_order_rejects_only_if_without_predicate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each child, the allowance applies only if the child is eligible.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: household_child_allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_household.child_allowance)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_household" in issues[0]
+
+
+def test_entity_limited_aggregation_order_accepts_standalone_per_entity_reduction():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages are reduced by excluded wages.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: employee_covered_wages
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: covered_wages - excluded_wages
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, employee_covered_wages, employee_counts_for_tax_unit)
 """
 
     assert find_entity_limited_aggregation_order_issues(content) == []
@@ -10806,6 +11346,58 @@ rules:
     assert find_entity_limited_aggregation_order_issues(content) == []
 
 
+def test_entity_limited_aggregation_order_accepts_unit_cap_with_member_condition():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The household benefit for a household with an elderly member shall not
+    exceed the household maximum.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: household_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(sum(member_of_household.member_allowance), household_maximum)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
+def test_entity_limited_aggregation_order_accepts_unit_cap_with_prefixed_amount():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The maximum allotment for a household with an elderly member shall not
+    exceed the household maximum.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: household_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(sum(member_of_household.member_allotment), household_maximum)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
+
+
 def test_entity_limited_aggregation_order_accepts_unrelated_limit_and_sum():
     content = """format: rulespec/v1
 module:
@@ -10859,6 +11451,61 @@ rules:
 
     assert any("Entity-limited aggregation order" in issue for issue in issues)
     assert "member_of_household" in issues[0]
+
+
+def test_entity_limited_aggregation_order_rejects_same_sentence_mixed_caps():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The household benefit shall not exceed the household maximum, and each
+    household member amount shall not exceed the member maximum.
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+  - name: household_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(sum(member_of_household.member_amount), household_maximum)
+"""
+
+    issues = find_entity_limited_aggregation_order_issues(content)
+
+    assert any("Entity-limited aggregation order" in issue for issue in issues)
+    assert "member_of_household" in issues[0]
+
+
+def test_entity_limited_aggregation_order_accepts_cap_side_unrelated_aggregate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For each employee, covered wages taken into account for the employee shall
+    not exceed the annual base.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: tax_unit_annual_base_adjustment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_tax_unit.annual_base_adjustment)
+"""
+
+    assert find_entity_limited_aggregation_order_issues(content) == []
 
 
 def test_entity_limited_aggregation_order_rejects_conditional_aggregate_cap():

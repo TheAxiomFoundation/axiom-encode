@@ -3261,8 +3261,8 @@ _RELATION_AMOUNT_AGGREGATE_CALL_PATTERN = re.compile(
     r"(?P<relation>[A-Za-z_][A-Za-z0-9_]*)(?P<tail>[^)]*)\)",
     flags=re.IGNORECASE | re.DOTALL,
 )
-_ENTITY_LIMIT_IMPLEMENTATION_PATTERN = re.compile(
-    r"\bmin\s*\(|\bif\b[^\n:]*[<>]=?",
+_MIN_FUNCTION_CALL_PATTERN = re.compile(
+    r"\bmin\s*\(",
     flags=re.IGNORECASE,
 )
 _LIMITING_FUNCTION_CALL_PATTERN = re.compile(
@@ -3274,16 +3274,36 @@ _LIMITING_CONDITIONAL_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _FORMULA_LIMIT_COMPARISON_PATTERN = re.compile(r"[<>]=?")
+_SOURCE_RELEVANT_COMPARISON_PATTERN = re.compile(
+    r"(?P<left>[^<>=:\n]+?)\s*(?P<op><=|>=|<|>)\s*(?P<right>[^<>=:\n]+)"
+)
+_NEGATED_IDENTIFIER_PATTERN = re.compile(
+    r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b",
+    flags=re.IGNORECASE,
+)
 _SOURCE_LIMIT_SEGMENT_SPLIT_PATTERN = re.compile(r"(?<=[.;])\s+|\n\s*\n+")
+_SOURCE_LIMIT_CLAUSE_SPLIT_PATTERN = re.compile(
+    r"\s*(?:,\s+and\s+|;\s*(?:and\s+)?|"
+    r"\s+and\s+(?=(?:each|every|per|for\s+each|the|a|an)\s+"
+    r"(?:household|tax\s+unit|filing\s+unit|family|individual|person|"
+    r"member|members|taxpayer|employee|claimant|applicant|child|children|"
+    r"dependent|spouse)\b))"
+)
 _LIMITATION_PHRASE_PATTERN = re.compile(
     r"\b(?:limited\s+to|shall\s+not\s+exceed|may\s+not\s+exceed|"
     r"not\s+exceed|lesser\s+of|greater\s+of|reduced\s+by)\b",
     flags=re.IGNORECASE,
 )
 _AGGREGATE_UNIT_SUBJECT_PATTERN = re.compile(
+    r"(?:"
     r"\b(?:household|tax\s+unit|filing\s+unit|family)\b(?!\s+members?\b)"
     r"[\s\S]{0,80}\b(?:benefit|amount|allotment|allowance|credit|"
-    r"deduction|tax|maximum|cap|ceiling)\b",
+    r"deduction|tax|maximum|cap|ceiling)\b"
+    r"|"
+    r"\b(?:benefit|amount|allotment|allowance|credit|deduction|tax|maximum|"
+    r"cap|ceiling)\b[\s\S]{0,80}\b(?:for|of|in)\s+(?:a\s+|an\s+|the\s+)?"
+    r"(?:household|tax\s+unit|filing\s+unit|family)\b(?!\s+members?\b)"
+    r")",
     flags=re.IGNORECASE,
 )
 _LOWER_ENTITY_CONTEXTUAL_AMOUNT_PATTERN = re.compile(
@@ -3296,9 +3316,147 @@ _ANAPHORIC_AMOUNT_PATTERN = re.compile(
     r"\b(?:such|that|the)\s+amount\b",
     flags=re.IGNORECASE,
 )
+_LIMIT_RELEVANCE_WORD_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
+_LIMIT_RELEVANCE_TOKEN_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "any",
+        "apply",
+        "applies",
+        "applicant",
+        "are",
+        "be",
+        "benefit",
+        "by",
+        "can",
+        "cap",
+        "capped",
+        "ceiling",
+        "child",
+        "children",
+        "claimant",
+        "credit",
+        "deduction",
+        "dependent",
+        "did",
+        "do",
+        "does",
+        "each",
+        "employee",
+        "exceed",
+        "exceeds",
+        "family",
+        "filing",
+        "for",
+        "from",
+        "greater",
+        "had",
+        "has",
+        "have",
+        "household",
+        "if",
+        "in",
+        "individual",
+        "into",
+        "is",
+        "lesser",
+        "limit",
+        "limitation",
+        "limited",
+        "limits",
+        "maximum",
+        "may",
+        "member",
+        "members",
+        "minimum",
+        "must",
+        "not",
+        "of",
+        "on",
+        "only",
+        "or",
+        "per",
+        "person",
+        "reduced",
+        "reduction",
+        "shall",
+        "spouse",
+        "such",
+        "tax",
+        "taxpayer",
+        "that",
+        "the",
+        "to",
+        "unit",
+        "unless",
+        "was",
+        "were",
+        "with",
+    }
+)
+_LIMIT_RELEVANCE_PHRASE_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "any",
+        "are",
+        "be",
+        "by",
+        "can",
+        "did",
+        "do",
+        "does",
+        "each",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "if",
+        "in",
+        "into",
+        "is",
+        "may",
+        "must",
+        "not",
+        "of",
+        "on",
+        "only",
+        "or",
+        "per",
+        "shall",
+        "such",
+        "that",
+        "the",
+        "to",
+        "unless",
+        "was",
+        "were",
+        "with",
+    }
+)
 _CONDITIONAL_SOURCE_LIMITATION_PATTERN = re.compile(
     r"\b(?:except\s+that|only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
     flags=re.IGNORECASE,
+)
+_FILTER_LIMITATION_PHRASE_PATTERN = re.compile(
+    r"\b(?:only\s+if|shall\s+not\s+apply|does\s+not\s+apply|unless)\b",
+    flags=re.IGNORECASE,
+)
+_FILTER_NEGATION_SOURCE_PATTERN = re.compile(
+    r"\b(?:not|unless|ineligible|ineligibility|disqualified|excluded)\b",
+    flags=re.IGNORECASE,
+)
+_FILTER_NEGATION_IDENTIFIER_WORDS = frozenset(
+    {
+        "disqualified",
+        "excluded",
+        "ineligible",
+        "not",
+    }
 )
 _LIMITATION_ON_SUBJECT_PATTERN = re.compile(
     r"\blimitation\s+on\s+(?:the\s+)?([A-Za-z][A-Za-z\s-]{2,80}?)"
@@ -5907,11 +6065,468 @@ def _source_supports_structural_relation_container(
     )
 
 
+@dataclass(frozen=True)
+class _SourceLimitPair:
+    tokens: frozenset[str]
+    phrases: frozenset[str]
+    amount_tokens: frozenset[str]
+    amount_phrases: frozenset[str]
+    cap_tokens: frozenset[str]
+    cap_phrases: frozenset[str]
+    has_standalone_reduction: bool = False
+
+
+@dataclass(frozen=True)
+class _SourceLimitRelevance:
+    tokens: frozenset[str]
+    phrases: frozenset[str]
+    amount_tokens: frozenset[str]
+    amount_phrases: frozenset[str]
+    cap_tokens: frozenset[str]
+    cap_phrases: frozenset[str]
+    filter_tokens: frozenset[str]
+    filter_phrases: frozenset[str]
+    has_standalone_reduction: bool
+    filter_allows_negated_identifiers: bool
+    limit_pairs: tuple[_SourceLimitPair, ...]
+
+
+def _limit_relevance_tokens(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for raw_word in _LIMIT_RELEVANCE_WORD_PATTERN.findall(text):
+        for token in raw_word.lower().split("_"):
+            if len(token) < 3 or token in _LIMIT_RELEVANCE_TOKEN_STOPWORDS:
+                continue
+            tokens.add(token)
+    return tokens
+
+
+def _limit_relevance_phrase_words(text: str) -> list[str]:
+    words: list[str] = []
+    for raw_word in _LIMIT_RELEVANCE_WORD_PATTERN.findall(text):
+        for token in raw_word.lower().split("_"):
+            if len(token) < 3 or token in _LIMIT_RELEVANCE_PHRASE_STOPWORDS:
+                continue
+            words.append(token)
+    return words
+
+
+def _limit_relevance_phrases(text: str) -> set[str]:
+    phrases: set[str] = set()
+    phrase_words = _limit_relevance_phrase_words(text)
+    for ngram_size in range(2, 5):
+        for index in range(0, len(phrase_words) - ngram_size + 1):
+            phrases.add("_".join(phrase_words[index : index + ngram_size]))
+    return phrases
+
+
+def _phrase_is_amount_side(
+    phrase: str,
+    *,
+    amount_words: set[str],
+    amount_phrases: set[str],
+) -> bool:
+    phrase_words = set(phrase.split("_"))
+    return phrase_words <= amount_words or any(
+        amount_phrase in phrase for amount_phrase in amount_phrases
+    )
+
+
+_LESSER_GREATER_OF_PATTERN = re.compile(
+    r"\b(?:lesser|greater)\s+of\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_limit_lesser_greater_operands(
+    text: str,
+    *,
+    already_after_phrase: bool = False,
+) -> tuple[str, str] | None:
+    operand_text = text
+    if not already_after_phrase:
+        match = _LESSER_GREATER_OF_PATTERN.search(text)
+        if match is None:
+            return None
+        operand_text = text[match.end() :]
+    operand_text = re.sub(r"^\s*(?:the\s+)?", "", operand_text.strip(), flags=re.I)
+    parts = re.split(r"\s+(?:and|or)\s+", operand_text, maxsplit=1, flags=re.I)
+    if len(parts) < 2:
+        return None
+    return parts[0].strip(" ,.;:"), parts[1].strip(" ,.;:")
+
+
+def _source_limit_pair(
+    *,
+    segment_text: str,
+    amount_text: str,
+    cap_text: str,
+    has_standalone_reduction: bool = False,
+) -> _SourceLimitPair | None:
+    amount_tokens = _limit_relevance_tokens(amount_text)
+    amount_phrases = _limit_relevance_phrases(amount_text)
+    cap_tokens = _limit_relevance_tokens(cap_text) - amount_tokens
+    cap_phrases = {
+        phrase
+        for phrase in _limit_relevance_phrases(cap_text)
+        if not _phrase_is_amount_side(
+            phrase,
+            amount_words=amount_tokens,
+            amount_phrases=amount_phrases,
+        )
+    }
+    if (not amount_tokens and not amount_phrases) or (
+        not cap_tokens and not cap_phrases
+    ):
+        return None
+    return _SourceLimitPair(
+        tokens=frozenset(_limit_relevance_tokens(segment_text)),
+        phrases=frozenset(_limit_relevance_phrases(segment_text)),
+        amount_tokens=frozenset(amount_tokens),
+        amount_phrases=frozenset(amount_phrases),
+        cap_tokens=frozenset(cap_tokens),
+        cap_phrases=frozenset(cap_phrases),
+        has_standalone_reduction=has_standalone_reduction,
+    )
+
+
+def _operand_matches_amount_side(
+    operand_text: str,
+    *,
+    amount_tokens: set[str],
+    amount_phrases: set[str],
+) -> bool:
+    if not amount_tokens and not amount_phrases:
+        return False
+    operand_tokens = _limit_relevance_tokens(operand_text)
+    operand_phrases = _limit_relevance_phrases(operand_text)
+    return bool(
+        operand_tokens & amount_tokens
+        or operand_phrases & amount_phrases
+        or any(
+            _phrase_is_amount_side(
+                phrase,
+                amount_words=amount_tokens,
+                amount_phrases=amount_phrases,
+            )
+            for phrase in operand_phrases
+        )
+    )
+
+
+def _source_limit_pairs_from_segment(segment: str) -> list[_SourceLimitPair]:
+    match = _LIMITATION_PHRASE_PATTERN.search(segment)
+    if match is None:
+        return []
+    has_standalone_reduction = bool(
+        re.fullmatch(r"reduced\s+by", match.group(0), flags=re.I)
+    )
+    amount_side_text = _source_limit_amount_side_text(segment)
+    operands = _source_limit_lesser_greater_operands(
+        segment[match.end() :],
+        already_after_phrase=bool(
+            re.fullmatch(r"(?:lesser|greater)\s+of", match.group(0), flags=re.I)
+        ),
+    )
+    candidate_texts: list[tuple[str, str]]
+    if operands is None:
+        candidate_texts = [(amount_side_text, _source_limit_cap_side_text(segment))]
+    else:
+        left_operand, right_operand = operands
+        amount_side_tokens = _limit_relevance_tokens(amount_side_text)
+        amount_side_phrases = _limit_relevance_phrases(amount_side_text)
+        left_matches_amount = _operand_matches_amount_side(
+            left_operand,
+            amount_tokens=amount_side_tokens,
+            amount_phrases=amount_side_phrases,
+        )
+        right_matches_amount = _operand_matches_amount_side(
+            right_operand,
+            amount_tokens=amount_side_tokens,
+            amount_phrases=amount_side_phrases,
+        )
+        if left_matches_amount and not right_matches_amount:
+            candidate_texts = [(f"{amount_side_text} {left_operand}", right_operand)]
+        elif right_matches_amount and not left_matches_amount:
+            candidate_texts = [(f"{amount_side_text} {right_operand}", left_operand)]
+        else:
+            candidate_texts = [
+                (f"{amount_side_text} {left_operand}", right_operand),
+                (f"{amount_side_text} {right_operand}", left_operand),
+            ]
+    pairs: list[_SourceLimitPair] = []
+    seen: set[tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]]] = (
+        set()
+    )
+    for amount_text, cap_text in candidate_texts:
+        pair = _source_limit_pair(
+            segment_text=segment,
+            amount_text=amount_text,
+            cap_text=cap_text,
+            has_standalone_reduction=has_standalone_reduction,
+        )
+        if pair is None:
+            continue
+        key = (
+            pair.amount_tokens,
+            pair.amount_phrases,
+            pair.cap_tokens,
+            pair.cap_phrases,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        pairs.append(pair)
+    return pairs
+
+
+def _source_filter_allows_negated_identifiers(
+    phrase_text: str,
+    filter_side_text: str,
+) -> bool:
+    return bool(
+        _FILTER_NEGATION_SOURCE_PATTERN.search(f"{phrase_text} {filter_side_text}")
+    )
+
+
+def _source_limit_relevance(source_text: str) -> _SourceLimitRelevance:
+    tokens: set[str] = set()
+    phrases: set[str] = set()
+    amount_tokens: set[str] = set()
+    amount_phrases: set[str] = set()
+    cap_tokens: set[str] = set()
+    cap_phrases: set[str] = set()
+    filter_tokens: set[str] = set()
+    filter_phrases: set[str] = set()
+    limit_pairs: list[_SourceLimitPair] = []
+    has_standalone_reduction = False
+    filter_allows_negated_identifiers = False
+    for segment, _terms in _source_lower_entity_limitation_records(source_text):
+        tokens.update(_limit_relevance_tokens(segment))
+        phrases.update(_limit_relevance_phrases(segment))
+        limitation_match = _LIMITATION_PHRASE_PATTERN.search(segment)
+        filter_match = _FILTER_LIMITATION_PHRASE_PATTERN.search(segment)
+        if filter_match is not None and limitation_match is None:
+            amount_side_text = segment[: filter_match.start()]
+            amount_tokens.update(_limit_relevance_tokens(amount_side_text))
+            amount_phrases.update(_limit_relevance_phrases(amount_side_text))
+            filter_side_text = segment[filter_match.end() :]
+            filter_tokens.update(_limit_relevance_tokens(filter_side_text))
+            filter_phrases.update(_limit_relevance_phrases(filter_side_text))
+            filter_allows_negated_identifiers = (
+                filter_allows_negated_identifiers
+                or _source_filter_allows_negated_identifiers(
+                    filter_match.group(0),
+                    filter_side_text,
+                )
+            )
+            continue
+        segment_pairs = _source_limit_pairs_from_segment(segment)
+        limit_pairs.extend(segment_pairs)
+        for pair in segment_pairs:
+            amount_tokens.update(pair.amount_tokens)
+            amount_phrases.update(pair.amount_phrases)
+            cap_tokens.update(pair.cap_tokens)
+            cap_phrases.update(pair.cap_phrases)
+            has_standalone_reduction = (
+                has_standalone_reduction or pair.has_standalone_reduction
+            )
+    return _SourceLimitRelevance(
+        tokens=frozenset(tokens),
+        phrases=frozenset(phrases),
+        amount_tokens=frozenset(amount_tokens),
+        amount_phrases=frozenset(amount_phrases),
+        cap_tokens=frozenset(cap_tokens),
+        cap_phrases=frozenset(cap_phrases),
+        filter_tokens=frozenset(filter_tokens),
+        filter_phrases=frozenset(filter_phrases),
+        has_standalone_reduction=has_standalone_reduction,
+        filter_allows_negated_identifiers=filter_allows_negated_identifiers,
+        limit_pairs=tuple(limit_pairs),
+    )
+
+
+def _source_limit_cap_side_text(segment: str) -> str:
+    match = _LIMITATION_PHRASE_PATTERN.search(segment)
+    if match is None:
+        return segment
+    tail = segment[match.end() :]
+    operands = _source_limit_lesser_greater_operands(
+        tail,
+        already_after_phrase=bool(
+            re.fullmatch(r"(?:lesser|greater)\s+of", match.group(0), flags=re.I)
+        ),
+    )
+    return operands[1] if operands is not None else tail
+
+
+def _source_limit_amount_side_text(segment: str) -> str:
+    match = _LIMITATION_PHRASE_PATTERN.search(segment)
+    return segment[: match.start()] if match else ""
+
+
+def _source_limit_lesser_greater_amount_side_text(segment: str) -> str:
+    match = _LIMITATION_PHRASE_PATTERN.search(segment)
+    if match is None:
+        return ""
+    operands = _source_limit_lesser_greater_operands(
+        segment[match.end() :],
+        already_after_phrase=bool(
+            re.fullmatch(r"(?:lesser|greater)\s+of", match.group(0), flags=re.I)
+        ),
+    )
+    return operands[0] if operands is not None else ""
+
+
+def _text_matches_source_cap_relevance(
+    text: str,
+    source_limit_relevance: _SourceLimitRelevance | _SourceLimitPair,
+) -> bool:
+    if not source_limit_relevance.cap_tokens and not source_limit_relevance.cap_phrases:
+        return False
+    identifiers = {
+        raw_word.lower() for raw_word in _LIMIT_RELEVANCE_WORD_PATTERN.findall(text)
+    }
+    if any(
+        _identifier_matches_source_cap_phrase(
+            identifier,
+            source_limit_relevance.cap_phrases,
+        )
+        for identifier in identifiers
+        if "_" in identifier
+    ):
+        return True
+    if any("_" in identifier for identifier in identifiers):
+        return False
+    return bool(_limit_relevance_tokens(text) & source_limit_relevance.cap_tokens)
+
+
+def _text_matches_source_amount_relevance(
+    text: str,
+    source_limit_relevance: _SourceLimitRelevance | _SourceLimitPair,
+) -> bool:
+    if (
+        not source_limit_relevance.amount_tokens
+        and not source_limit_relevance.amount_phrases
+    ):
+        return False
+    identifiers = {
+        raw_word.lower() for raw_word in _LIMIT_RELEVANCE_WORD_PATTERN.findall(text)
+    }
+    if any(
+        identifier in source_limit_relevance.amount_phrases
+        for identifier in identifiers
+        if "_" in identifier
+    ):
+        return True
+    return bool(_limit_relevance_tokens(text) & source_limit_relevance.amount_tokens)
+
+
+def _text_matches_source_filter_relevance(
+    text: str,
+    source_limit_relevance: _SourceLimitRelevance,
+) -> bool:
+    if (
+        not source_limit_relevance.filter_tokens
+        and not source_limit_relevance.filter_phrases
+    ):
+        return False
+    if (
+        _expression_has_negated_filter_identifier(text)
+        and not source_limit_relevance.filter_allows_negated_identifiers
+    ):
+        return False
+    identifiers = {
+        raw_word.lower() for raw_word in _LIMIT_RELEVANCE_WORD_PATTERN.findall(text)
+    }
+    if any(
+        _identifier_matches_source_filter_phrase(
+            identifier,
+            source_limit_relevance.filter_phrases,
+        )
+        for identifier in identifiers
+        if "_" in identifier
+    ):
+        return True
+    return bool(_limit_relevance_tokens(text) & source_limit_relevance.filter_tokens)
+
+
+def _identifier_has_negated_filter(identifier: str) -> bool:
+    return bool(set(identifier.lower().split("_")) & _FILTER_NEGATION_IDENTIFIER_WORDS)
+
+
+def _expression_has_negated_filter_identifier(expression: str) -> bool:
+    if _NEGATED_IDENTIFIER_PATTERN.search(expression):
+        return True
+    return any(
+        _identifier_has_negated_filter(raw_word)
+        for raw_word in _LIMIT_RELEVANCE_WORD_PATTERN.findall(expression)
+    )
+
+
+def _identifier_matches_source_cap_phrase(
+    identifier: str,
+    cap_phrases: frozenset[str],
+) -> bool:
+    if identifier in cap_phrases:
+        return True
+    for suffix in (
+        "_amount",
+        "_cap",
+        "_ceiling",
+        "_limit",
+        "_limitation",
+        "_maximum",
+        "_value",
+    ):
+        if identifier.endswith(suffix) and identifier[: -len(suffix)] in cap_phrases:
+            return True
+    return False
+
+
+def _identifier_matches_source_filter_phrase(
+    identifier: str,
+    filter_phrases: frozenset[str],
+) -> bool:
+    if identifier in filter_phrases:
+        return True
+    identifier_words = [
+        word
+        for word in identifier.split("_")
+        if word and word not in _LIMIT_RELEVANCE_PHRASE_STOPWORDS
+    ]
+    normalized_identifier = "_".join(identifier_words)
+    return any(
+        phrase in normalized_identifier
+        or set(phrase.split("_")) <= set(identifier_words)
+        for phrase in filter_phrases
+    )
+
+
+def _aggregate_tail_arguments(tail: str) -> list[str]:
+    tail_after_relation = re.sub(r"^\s*,\s*", "", tail, count=1)
+    return [
+        argument.strip()
+        for argument in _split_top_level_call_arguments(tail_after_relation)
+        if argument.strip()
+    ]
+
+
 def _aggregate_amount_argument(function_name: str, tail: str) -> str:
     if function_name.lower() == "sum_where":
-        parts = [part.strip() for part in tail.lstrip(",").split(",", 2)]
+        parts = _aggregate_tail_arguments(tail)
         return parts[0] if parts else ""
+    if function_name.lower() == "sum":
+        field_match = re.match(r"\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)", tail)
+        return field_match.group(1) if field_match else ""
     return ""
+
+
+def _aggregate_predicate_argument(function_name: str, tail: str) -> str:
+    if function_name.lower() != "sum_where":
+        return ""
+    parts = _aggregate_tail_arguments(tail)
+    return parts[1] if len(parts) >= 2 else ""
 
 
 def _aggregate_uses_pre_limited_amount(
@@ -5919,7 +6534,16 @@ def _aggregate_uses_pre_limited_amount(
     tail: str,
     *,
     formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
 ) -> bool:
+    predicate_arg = _aggregate_predicate_argument(function_name, tail)
+    if predicate_arg and _expression_or_referenced_helpers_match_source_filter(
+        predicate_arg,
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=set(),
+    ):
+        return True
     amount_arg = _aggregate_amount_argument(function_name, tail)
     helper_formula = formula_by_name.get(amount_arg)
     if helper_formula is None:
@@ -5928,6 +6552,27 @@ def _aggregate_uses_pre_limited_amount(
         helper_formula,
         formula_by_name=formula_by_name,
         current_name=amount_arg,
+        source_limit_relevance=source_limit_relevance,
+    )
+
+
+def _aggregate_amount_matches_source_limit(
+    function_name: str,
+    tail: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
+) -> bool:
+    amount_arg = _aggregate_amount_argument(function_name, tail)
+    if _text_matches_source_amount_relevance(amount_arg, source_limit_relevance):
+        return True
+    helper_formula = formula_by_name.get(amount_arg)
+    return bool(
+        helper_formula is not None
+        and _text_matches_source_amount_relevance(
+            helper_formula,
+            source_limit_relevance,
+        )
     )
 
 
@@ -5935,18 +6580,34 @@ def _uncapped_broad_relation_aggregates_in_formula(
     formula: str,
     *,
     formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
+    require_source_amount_match: bool = False,
 ) -> set[str]:
     relations: set[str] = set()
     for match in _RELATION_AMOUNT_AGGREGATE_CALL_PATTERN.finditer(formula):
         relation_name = match.group("relation")
         if not _BROAD_STRUCTURAL_RELATION_PATTERN.search(relation_name):
             continue
+        function_name = match.group("function")
+        tail = match.group("tail") or ""
         if _aggregate_uses_pre_limited_amount(
-            match.group("function"),
-            match.group("tail") or "",
+            function_name,
+            tail,
             formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
         ):
             continue
+        if require_source_amount_match and not _text_matches_source_amount_relevance(
+            _aggregate_amount_argument(function_name, tail),
+            source_limit_relevance,
+        ):
+            if not _aggregate_amount_matches_source_limit(
+                function_name,
+                tail,
+                formula_by_name=formula_by_name,
+                source_limit_relevance=source_limit_relevance,
+            ):
+                continue
         relations.add(relation_name)
     return relations
 
@@ -6002,17 +6663,390 @@ def _formula_limiting_expressions(formula: str) -> list[str]:
     return expressions
 
 
+def _formula_min_limit_side_expressions(formula: str) -> list[str]:
+    expressions: list[str] = []
+    for arguments in _formula_min_argument_sets(formula):
+        expressions.extend(arguments)
+    return expressions
+
+
+def _formula_min_argument_sets(formula: str) -> list[list[str]]:
+    argument_sets: list[list[str]] = []
+    for match in _MIN_FUNCTION_CALL_PATTERN.finditer(formula):
+        open_index = match.end() - 1
+        depth = 0
+        for index in range(open_index, len(formula)):
+            char = formula[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    arguments = _split_top_level_call_arguments(
+                        formula[open_index + 1 : index]
+                    )
+                    argument_sets.append([argument.strip() for argument in arguments])
+                    break
+    return argument_sets
+
+
+def _formula_has_source_relevant_comparison(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance | _SourceLimitPair,
+    seen: set[str],
+) -> bool:
+    return bool(
+        _FORMULA_LIMIT_COMPARISON_PATTERN.search(formula)
+        and _expression_or_referenced_helpers_match_source_amount(
+            formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+        and _expression_or_referenced_helpers_match_source_cap(
+            formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+    )
+
+
+def _clean_comparison_operand(operand: str) -> str:
+    return re.sub(
+        r"^\s*(?:if|elif|return)\s+",
+        "",
+        operand.strip().strip("() "),
+        flags=re.I,
+    ).strip()
+
+
+def _source_relevant_comparison_direction(
+    expression: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance | _SourceLimitPair,
+    seen: set[str],
+) -> str | None:
+    for match in _SOURCE_RELEVANT_COMPARISON_PATTERN.finditer(expression):
+        left = _clean_comparison_operand(match.group("left"))
+        right = _clean_comparison_operand(match.group("right"))
+        op = match.group("op")
+        left_amount = _expression_or_referenced_helpers_match_source_amount(
+            left,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+        right_amount = _expression_or_referenced_helpers_match_source_amount(
+            right,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+        left_cap = _expression_or_referenced_helpers_match_source_cap(
+            left,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+        right_cap = _expression_or_referenced_helpers_match_source_cap(
+            right,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+        if left_amount and right_cap:
+            return "amount_gt_cap" if op in {">", ">="} else "amount_lt_cap"
+        if left_cap and right_amount:
+            return "amount_gt_cap" if op in {"<", "<="} else "amount_lt_cap"
+
+    for match in _NEGATED_IDENTIFIER_PATTERN.finditer(expression):
+        identifier = match.group(1)
+        if identifier in seen:
+            continue
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited = set(seen)
+        visited.add(identifier)
+        direction = _source_relevant_comparison_direction(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=visited,
+        )
+        if direction == "amount_gt_cap":
+            return "amount_lt_cap"
+        if direction == "amount_lt_cap":
+            return "amount_gt_cap"
+
+    for identifier in _formula_local_identifiers(expression):
+        if identifier in seen:
+            continue
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited = set(seen)
+        visited.add(identifier)
+        direction = _source_relevant_comparison_direction(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=visited,
+        )
+        if direction is not None:
+            return direction
+    return None
+
+
+def _expression_or_referenced_helpers_match_source_filter(
+    expression: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
+    seen: set[str],
+) -> bool:
+    if _text_matches_source_filter_relevance(expression, source_limit_relevance):
+        return True
+    for identifier in _formula_local_identifiers(expression):
+        if identifier in seen:
+            continue
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited = set(seen)
+        visited.add(identifier)
+        if _expression_or_referenced_helpers_match_source_filter(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=visited,
+        ):
+            return True
+    return False
+
+
+def _expression_or_referenced_helpers_match_source_amount(
+    expression: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance | _SourceLimitPair,
+    seen: set[str],
+) -> bool:
+    if _text_matches_source_amount_relevance(expression, source_limit_relevance):
+        return True
+    for identifier in _formula_local_identifiers(expression):
+        if identifier in seen:
+            continue
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited = set(seen)
+        visited.add(identifier)
+        if _expression_or_referenced_helpers_match_source_amount(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=visited,
+        ):
+            return True
+    return False
+
+
+def _expression_or_referenced_helpers_match_source_cap(
+    expression: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance | _SourceLimitPair,
+    seen: set[str],
+) -> bool:
+    if _text_matches_source_cap_relevance(expression, source_limit_relevance):
+        return True
+    for identifier in _formula_local_identifiers(expression):
+        if identifier in seen:
+            continue
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited = set(seen)
+        visited.add(identifier)
+        if _expression_or_referenced_helpers_match_source_cap(
+            helper_formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=visited,
+        ):
+            return True
+    return False
+
+
+def _conditional_branch_texts(
+    formula: str, condition_match: re.Match[str]
+) -> list[str]:
+    body = formula[condition_match.end() :]
+    else_match = re.search(r"(?m)^\s*else\s*:\s*", body)
+    if else_match is None:
+        return [body.strip()]
+    return [
+        body[: else_match.start()].strip(),
+        body[else_match.end() :].strip(),
+    ]
+
+
+def _conditional_implements_source_relevant_limit(
+    formula: str,
+    condition_match: re.Match[str],
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
+    seen: set[str],
+) -> bool:
+    branch_texts = _conditional_branch_texts(formula, condition_match)
+    if len(branch_texts) < 2:
+        return False
+    then_branch, else_branch = branch_texts[0], branch_texts[1]
+    direction = _source_relevant_comparison_direction(
+        condition_match.group("condition"),
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=seen,
+    )
+    if direction is None:
+        return False
+    then_matches_amount = _expression_or_referenced_helpers_match_source_amount(
+        then_branch,
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=seen,
+    )
+    else_matches_amount = _expression_or_referenced_helpers_match_source_amount(
+        else_branch,
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=seen,
+    )
+    then_matches_cap = _expression_or_referenced_helpers_match_source_cap(
+        then_branch,
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=seen,
+    )
+    else_matches_cap = _expression_or_referenced_helpers_match_source_cap(
+        else_branch,
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=seen,
+    )
+    if direction == "amount_gt_cap":
+        return then_matches_cap and else_matches_amount
+    return then_matches_amount and else_matches_cap
+
+
+def _min_arguments_implement_source_limit(
+    arguments: list[str],
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
+    seen: set[str],
+) -> bool:
+    amount_indexes = {
+        index
+        for index, argument in enumerate(arguments)
+        if _expression_or_referenced_helpers_match_source_amount(
+            argument,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+    }
+    cap_indexes = {
+        index
+        for index, argument in enumerate(arguments)
+        if _expression_or_referenced_helpers_match_source_cap(
+            argument,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+    }
+    return any(
+        amount_index != cap_index
+        for amount_index in amount_indexes
+        for cap_index in cap_indexes
+    )
+
+
+def _formula_has_source_relevant_reduction(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
+    seen: set[str],
+) -> bool:
+    return bool(
+        source_limit_relevance.has_standalone_reduction
+        and "-" in formula
+        and _expression_or_referenced_helpers_match_source_amount(
+            formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+        and _expression_or_referenced_helpers_match_source_cap(
+            formula,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=seen,
+        )
+    )
+
+
 def _formula_or_referenced_helpers_implement_entity_limit(
     formula: str,
     *,
     formula_by_name: dict[str, str],
     current_name: str,
+    source_limit_relevance: _SourceLimitRelevance,
     seen: set[str] | None = None,
 ) -> bool:
-    if _ENTITY_LIMIT_IMPLEMENTATION_PATTERN.search(formula):
-        return True
     visited = set(seen or set())
     visited.add(current_name)
+    for arguments in _formula_min_argument_sets(formula):
+        if _min_arguments_implement_source_limit(
+            arguments,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=visited,
+        ):
+            return True
+    for match in _LIMITING_CONDITIONAL_PATTERN.finditer(formula):
+        if _conditional_implements_source_relevant_limit(
+            formula,
+            match,
+            formula_by_name=formula_by_name,
+            source_limit_relevance=source_limit_relevance,
+            seen=visited,
+        ):
+            return True
+    if _formula_has_source_relevant_reduction(
+        formula,
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=visited,
+    ):
+        return True
+    if not _LIMITING_CONDITIONAL_PATTERN.search(
+        formula
+    ) and _formula_has_source_relevant_comparison(
+        formula,
+        formula_by_name=formula_by_name,
+        source_limit_relevance=source_limit_relevance,
+        seen=visited,
+    ):
+        return True
     for identifier in _formula_local_identifiers(formula):
         if identifier in visited or identifier not in formula_by_name:
             continue
@@ -6020,6 +7054,7 @@ def _formula_or_referenced_helpers_implement_entity_limit(
             formula_by_name[identifier],
             formula_by_name=formula_by_name,
             current_name=identifier,
+            source_limit_relevance=source_limit_relevance,
             seen=visited,
         ):
             return True
@@ -6031,6 +7066,7 @@ def _limited_aggregate_relations_in_formula(
     *,
     aggregate_relations_by_name: dict[str, set[str]],
     formula_by_name: dict[str, str],
+    source_limit_relevance: _SourceLimitRelevance,
 ) -> set[str]:
     relations: set[str] = set()
     for expression in _formula_limiting_expressions(formula):
@@ -6038,6 +7074,8 @@ def _limited_aggregate_relations_in_formula(
             _uncapped_broad_relation_aggregates_in_formula(
                 expression,
                 formula_by_name=formula_by_name,
+                source_limit_relevance=source_limit_relevance,
+                require_source_amount_match=True,
             )
         )
         relations.update(
@@ -6052,29 +7090,59 @@ def _limited_aggregate_relations_in_formula(
 
 def _source_lower_entity_limitation_terms(source_text: str) -> set[str]:
     terms: set[str] = set()
+    for _segment, segment_terms in _source_lower_entity_limitation_records(source_text):
+        terms.update(segment_terms)
+    return terms
+
+
+def _source_lower_entity_limitation_records(
+    source_text: str,
+) -> list[tuple[str, set[str]]]:
+    records: list[tuple[str, set[str]]] = []
     previous_lower_terms: set[str] = set()
-    for segment in _SOURCE_LIMIT_SEGMENT_SPLIT_PATTERN.split(source_text):
-        if not segment.strip():
-            continue
-        segment_lower_terms = _source_lower_entity_terms_before_limitation(segment)
-        if not _SOURCE_LIMITATION_PATTERN.search(segment):
-            if _LOWER_ENTITY_CONTEXTUAL_AMOUNT_PATTERN.search(segment):
+    previous_context_segment = ""
+    for raw_segment in _SOURCE_LIMIT_SEGMENT_SPLIT_PATTERN.split(source_text):
+        for segment in _source_limit_clauses(raw_segment):
+            if not segment.strip():
+                continue
+            segment_lower_terms = _source_lower_entity_terms_before_limitation(segment)
+            if not _SOURCE_LIMITATION_PATTERN.search(segment):
+                if _LOWER_ENTITY_CONTEXTUAL_AMOUNT_PATTERN.search(segment):
+                    previous_lower_terms = segment_lower_terms
+                    previous_context_segment = segment
+                continue
+            if _source_limitation_subject_is_aggregate_unit(segment):
+                previous_lower_terms = set()
+                previous_context_segment = ""
+                continue
+            if segment_lower_terms:
+                records.append((segment, segment_lower_terms))
                 previous_lower_terms = segment_lower_terms
-            continue
-        if segment_lower_terms:
-            terms.update(segment_lower_terms)
-            previous_lower_terms = segment_lower_terms
-            continue
-        if previous_lower_terms and _ANAPHORIC_AMOUNT_PATTERN.search(segment):
-            terms.update(previous_lower_terms)
-            continue
-        if not _source_limitation_subject_is_aggregate_unit(segment):
+                previous_context_segment = segment
+                continue
+            if previous_lower_terms and _ANAPHORIC_AMOUNT_PATTERN.search(segment):
+                records.append(
+                    (
+                        f"{previous_context_segment} {segment}".strip(),
+                        previous_lower_terms,
+                    )
+                )
+                continue
             later_terms = {
                 match.group(0).lower()
                 for match in _LOWER_ENTITY_LIMITED_SOURCE_PATTERN.finditer(segment)
             }
-            terms.update(later_terms)
-    return terms
+            if later_terms:
+                records.append((segment, later_terms))
+    return records
+
+
+def _source_limit_clauses(segment: str) -> list[str]:
+    clauses = [
+        clause.strip(" ,;")
+        for clause in _SOURCE_LIMIT_CLAUSE_SPLIT_PATTERN.split(segment)
+    ]
+    return [clause for clause in clauses if clause]
 
 
 def _source_lower_entity_terms_before_limitation(segment: str) -> set[str]:
@@ -6210,10 +7278,14 @@ def find_entity_limited_aggregation_order_issues(content: str) -> list[str]:
     source_entity_terms = (
         _source_lower_entity_limitation_terms(source_text) if source_text else set()
     )
+    source_limit_relevance = (
+        _source_limit_relevance(source_text) if source_text else None
+    )
     if (
         not source_text
         or not _SOURCE_LIMITATION_PATTERN.search(source_text)
         or not source_entity_terms
+        or source_limit_relevance is None
     ):
         return []
 
@@ -6230,6 +7302,8 @@ def find_entity_limited_aggregation_order_issues(content: str) -> list[str]:
             relations := _uncapped_broad_relation_aggregates_in_formula(
                 formula,
                 formula_by_name=formula_by_name,
+                source_limit_relevance=source_limit_relevance,
+                require_source_amount_match=True,
             )
         )
     }
@@ -6251,10 +7325,20 @@ def find_entity_limited_aggregation_order_issues(content: str) -> list[str]:
             continue
         if not scoped_entity_terms:
             continue
+        scoped_limit_relevance = _source_limit_relevance(scoped_source_text)
         relations = _limited_aggregate_relations_in_formula(
             formula,
             aggregate_relations_by_name=aggregate_relations_by_name,
             formula_by_name=formula_by_name,
+            source_limit_relevance=scoped_limit_relevance,
+        )
+        relations.update(
+            _uncapped_broad_relation_aggregates_in_formula(
+                formula,
+                formula_by_name=formula_by_name,
+                source_limit_relevance=scoped_limit_relevance,
+                require_source_amount_match=True,
+            )
         )
         scoped_entity_detail = ", ".join(sorted(scoped_entity_terms)[:4])
         for relation_name in sorted(relations):
