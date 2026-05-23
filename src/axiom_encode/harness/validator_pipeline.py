@@ -2350,7 +2350,7 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
 
 
 def find_source_table_row_scalar_parameter_issues(content: str) -> list[str]:
-    """Flag source tables exploded into one scalar parameter per row/cell."""
+    """Flag source tables exploded into scalar parameters per row/band/cell."""
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -2377,7 +2377,7 @@ def find_source_table_row_scalar_parameter_issues(content: str) -> list[str]:
         name = str(rule.get("name") or "").strip()
         if not name:
             continue
-        if re.search(r"(?:^|_)row_\d+(?:_|$)", name):
+        if _is_source_table_structural_scalar_name(name):
             row_scalar_names.append(name)
 
     if len(row_scalar_names) < 3:
@@ -2387,12 +2387,22 @@ def find_source_table_row_scalar_parameter_issues(content: str) -> list[str]:
     if len(row_scalar_names) > 5:
         sample += ", ..."
     return [
-        "Source table row-scalar parameters: "
-        f"{sample} encode table rows/cells as standalone public parameters. "
+        "Source table row/band scalar parameters: "
+        f"{sample} encode table rows, bands, or cells as standalone public "
+        "parameters. "
         "Use one `kind: parameter` rule with `indexed_by` and versioned "
         "`values` for each substantive source table column, plus a derived "
-        "band/key selector when the table uses interval rows."
+        "band/key selector when the table uses interval rows. Keep structural "
+        "bounds inline in the selector instead of exporting them as public "
+        "parameters."
     ]
+
+
+def _is_source_table_structural_scalar_name(name: str) -> bool:
+    return bool(
+        re.search(r"(?:^|_)row_\d+(?:_|$)", name)
+        or re.search(r"(?:^|_)(?:band|bracket)_\d+(?:_|$)", name)
+    )
 
 
 def _source_text_looks_like_table(source_text: str) -> bool:
