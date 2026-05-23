@@ -945,6 +945,216 @@ rules:
     assert " else: if average_account_benefits_ratio >= " in formula
 
 
+def test_materialize_eval_artifact_preserves_open_interval_source_table_rows(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "3241" / "b.yaml"
+    source_text = """Tax rate schedule | Average account benefits ratio | Applicable percentage for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b)
+| At least | But less than | | | .............. | 2.5 | 22.1 | 4.9 |
+| 2.5 | 6.1 | 18.1 | 4.9 |
+| 6.1 | 9.0 | 12.6 | 4.4 |
+| 9.0 | .............. | 8.2 | 0 |"""
+    llm_response = """=== FILE: b.yaml ===
+format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b)
+    | At least | But less than | | | .............. | 2.5 | 22.1 | 4.9 |
+    | 2.5 | 6.1 | 18.1 | 4.9 |
+    | 6.1 | 9.0 | 12.6 | 4.4 |
+    | 9.0 | .............. | 8.2 | 0 |
+rules:
+  - name: section_3241b_average_account_benefits_ratio_bracket_lower_bound
+    kind: parameter
+    dtype: Decimal
+    indexed_by: average_account_benefits_ratio_bracket
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              table:
+                header: Tax rate schedule
+                row_key: average account benefits ratio band
+                column_key: At least
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 2.5
+          2: 6.1
+          3: 9.0
+  - name: section_3241b_average_account_benefits_ratio_bracket_upper_bound
+    kind: parameter
+    dtype: Decimal
+    indexed_by: average_account_benefits_ratio_bracket
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              table:
+                header: Tax rate schedule
+                row_key: average account benefits ratio band
+                column_key: But less than
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 6.1
+          2: 9.0
+  - name: average_account_benefits_ratio_bracket
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio >= section_3241b_average_account_benefits_ratio_bracket_lower_bound[1] and average_account_benefits_ratio < section_3241b_average_account_benefits_ratio_bracket_upper_bound[1]:
+            1
+          else if average_account_benefits_ratio >= section_3241b_average_account_benefits_ratio_bracket_lower_bound[2] and average_account_benefits_ratio < section_3241b_average_account_benefits_ratio_bracket_upper_bound[2]:
+            2
+          else:
+            0
+  - name: section_3241b_sections_3211b_and_3221b_applicable_percentage_points
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_bracket
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.0
+          1: 0.221
+          2: 0.181
+          3: 0.126
+  - name: section_3241b_section_3201b_applicable_percentage_points
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_bracket
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.0
+          1: 0.049
+          2: 0.049
+          3: 0.044
+  - name: section_3211b_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3241b_sections_3211b_and_3221b_applicable_percentage_points[average_account_benefits_ratio_bracket]
+  - name: section_3201b_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3241b_section_3201b_applicable_percentage_points[average_account_benefits_ratio_bracket]
+=== FILE: b.test.yaml ===
+- name: below_open_lower_row
+  period: 2026
+  input:
+    average_account_benefits_ratio: 2.49
+  output:
+    average_account_benefits_ratio_bracket: 0
+    section_3211b_applicable_percentage: 0.0
+    section_3201b_applicable_percentage: 0.0
+- name: boundary_2_5_uses_second_source_row
+  period: 2026
+  input:
+    average_account_benefits_ratio: 2.5
+  output:
+    section_3211b_applicable_percentage: 0.221
+    section_3201b_applicable_percentage: 0.049
+- name: boundary_6_1_uses_next_source_row
+  period: 2026
+  input:
+    average_account_benefits_ratio: 6.1
+  output:
+    section_3211b_applicable_percentage: 0.181
+    section_3201b_applicable_percentage: 0.049
+- name: open_upper_row
+  period: 2026
+  input:
+    average_account_benefits_ratio: 9.0
+  output:
+    section_3211b_applicable_percentage: 0.126
+    section_3201b_applicable_percentage: 0.044
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text=source_text,
+    )
+
+    assert wrote is True
+    payload = yaml.safe_load(output_file.read_text())
+    rule_names = {rule["name"] for rule in payload["rules"]}
+    assert (
+        "section_3241b_average_account_benefits_ratio_bracket_lower_bound"
+        not in rule_names
+    )
+    assert (
+        "section_3241b_average_account_benefits_ratio_bracket_upper_bound"
+        not in rule_names
+    )
+    selector = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_bracket"
+    )
+    assert selector["versions"][0]["formula"] == (
+        "if average_account_benefits_ratio < 2.5: 1 else: "
+        "if average_account_benefits_ratio >= 2.5 and average_account_benefits_ratio < 6.1: 2 else: "
+        "if average_account_benefits_ratio >= 6.1 and average_account_benefits_ratio < 9.0: 3 else: 4"
+    )
+    rates = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"]
+        == "section_3241b_sections_3211b_and_3221b_applicable_percentage_points"
+    )
+    assert rates["versions"][0]["values"] == {
+        1: 0.221,
+        2: 0.181,
+        3: 0.126,
+        4: 0.082,
+    }
+    cases = {
+        case["name"]: case
+        for case in yaml.safe_load(output_file.with_name("b.test.yaml").read_text())
+    }
+    assert (
+        cases["below_open_lower_row"]["output"][
+            "average_account_benefits_ratio_bracket"
+        ]
+        == 1
+    )
+    assert (
+        cases["below_open_lower_row"]["output"]["section_3211b_applicable_percentage"]
+        == 0.221
+    )
+    assert (
+        cases["boundary_2_5_uses_second_source_row"]["output"][
+            "section_3211b_applicable_percentage"
+        ]
+        == 0.181
+    )
+    assert (
+        cases["boundary_6_1_uses_next_source_row"]["output"][
+            "section_3211b_applicable_percentage"
+        ]
+        == 0.126
+    )
+    assert (
+        cases["open_upper_row"]["output"]["section_3211b_applicable_percentage"]
+        == 0.082
+    )
+
+
 def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_path):
     policy_repo_root = tmp_path / "axiom-rules-engine"
     policy_repo_root.mkdir()

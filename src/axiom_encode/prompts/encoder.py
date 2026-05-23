@@ -101,7 +101,11 @@ Hard requirements:
   outputs look up the indexed table. Indexed table keys must be integer or
   numeric keys supported by the RuleSpec engine, not strings such as
   `2_5_to_less_than_3_0`. Use structural row bounds inline in the band selector;
-  do not promote those row labels to public parameter outputs.
+  do not promote those row labels to public parameter outputs. Preserve source
+  row identity: open lower or upper interval cells are real rows, not defaults
+  and not dropped rows. Omit the open side of the predicate; for example an
+  open-lower row ending at `2.5` is `if x < 2.5: <that row key>`, and an
+  open-upper row starting at `9.0` is the final row key for `x >= 9.0`.
 - Use `kind: derived` for entity-scoped outputs.
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering a source relation through a
@@ -640,7 +644,8 @@ Hard requirements:
   modifier parameter stranded.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
   a named scalar definition when it is a legal amount, rate, threshold, cap, or
-  limit.
+  limit, except structural interval-table row labels that are used only inside
+  the source-backed band selector predicate.
 - If the same numeric value appears in separate numbered exceptions,
   subparagraphs, or otherwise materially different legal roles, give those roles
   distinct named scalars; reuse a named scalar only for the same legal role.
@@ -650,7 +655,8 @@ Hard requirements:
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
      or limit has a named `parameter`, and derived formulas reference the name
-     rather than an inline literal.
+     rather than an inline literal, except structural interval-table row labels
+     used only by the band selector.
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
