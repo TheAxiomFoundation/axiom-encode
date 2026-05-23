@@ -72,6 +72,7 @@ SECTION_152_C_BASE = "us:statutes/26/152/c"
 SECTION_164_F_BASE = "us:statutes/26/164/f"
 SECTION_1401_BASE = "us:statutes/26/1401"
 SECTION_1402_A_BASE = "us:statutes/26/1402/a"
+SECTION_7703_BASE = "us:statutes/26/7703"
 
 
 def contribution_and_benefit_base_program_path(year: int) -> Path:
@@ -700,10 +701,10 @@ def build_ctc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
             )
         inputs.append(
             input_record(
-                f"{CTC_H_BASE}#input.filing_status_is_joint_return",
+                f"{CTC_H_BASE}#input.filing_status",
                 entity_id,
                 interval,
-                uses_joint_ctc_phaseout_threshold(str(row["filing_status"])),
+                filing_status_code(str(row["filing_status"])),
             )
         )
         tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
@@ -858,6 +859,15 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
         ).items():
             inputs.append(
                 input_record(f"{EITC_BASE}#input.{name}", entity_id, interval, value)
+            )
+        for name, value in project_section_7703_tax_unit_inputs(row=row).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_7703_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
             )
         for name, value in project_section_32_c_2_tax_unit_inputs(
             persons=tax_unit_persons,
@@ -1183,34 +1193,36 @@ def payroll_surface_uses_axiom_3121(surface: str) -> bool:
 
 
 def project_tax_unit_inputs(row: Any) -> dict[str, Any]:
+    filing_status = str(row["filing_status"])
     return {
         "adjusted_gross_income": money(row["adjusted_gross_income"]),
-        "amount_excluded_from_gross_income_under_section_911": 0,
-        "amount_excluded_from_gross_income_under_section_931": 0,
-        "amount_excluded_from_gross_income_under_section_933": 0,
-        "filing_status": filing_status_code(str(row["filing_status"])),
-        "taxable_year_begins_after_2017": True,
+        "ctc_foreign_earned_income_exclusion_adjustment": 0,
+        "ctc_possession_income_exclusion_adjustment": 0,
+        "ctc_puerto_rico_income_exclusion_adjustment": 0,
+        "ctc_phaseout_joint_threshold_applies": (
+            uses_joint_ctc_phaseout_threshold(filing_status)
+        ),
+        "ctc_phaseout_separate_threshold_applies": (
+            filing_status_code(filing_status) == 2
+        ),
+        "ctc_subsection_h_special_rules_apply": True,
         "taxpayer_identification_number_issued_after_return_due_date": False,
         "taxable_year_months": 12,
         "taxable_year_closed_by_reason_of_taxpayer_death": False,
         "ctc_fraud_disallowance_period_applies": False,
         "ctc_reckless_or_intentional_disregard_disallowance_period_applies": False,
         "prior_deficiency_denial_without_required_eligibility_information": False,
-        "aggregate_advance_payments_under_section_7527A": 0,
+        "ctc_advance_payments_received": 0,
     }
 
 
 def project_standard_deduction_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
-    filing_status = str(row["filing_status"])
     return {
-        "filing_status": filing_status_code(filing_status),
+        "filing_status": filing_status_code(str(row["filing_status"])),
         "may_be_claimed_as_dependent_by_another_taxpayer": False,
         "earned_income": 0,
         "additional_standard_deduction_entitlement_count_under_subsection_f": (
             additional_standard_deduction_entitlement_count(persons)
-        ),
-        "individual_is_unmarried_and_not_surviving_spouse": (
-            individual_is_unmarried_and_not_surviving_spouse(filing_status)
         ),
     }
 
@@ -1274,7 +1286,6 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
         "taxpayer_claims_section_911_benefits": False,
         "taxpayer_is_nonresident_alien_for_any_portion_of_year": False,
         "taxpayer_treated_as_resident_by_section_6013_g_or_h_election": False,
-        "taxpayer_is_married_under_section_7703_a": filing_status_numeric in {1, 2},
         "satisfies_eitc_separated_spouse_rules": (
             filing_status_numeric == 2
             and any(bool_value(person.get("is_separated", False)) for person in persons)
@@ -1289,6 +1300,20 @@ def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]
         "spouse_includes_required_social_security_number_on_return": (
             filer_meets_id_requirements
         ),
+    }
+
+
+def project_section_7703_tax_unit_inputs(*, row: Any) -> dict[str, Any]:
+    filing_status_numeric = filing_status_code(str(row["filing_status"]))
+    return {
+        "spouse_dies_during_taxable_year": False,
+        "taxpayer_married_at_time_of_spouse_death": False,
+        "taxpayer_married_at_close_of_taxable_year": filing_status_numeric in {1, 2},
+        "legally_separated_under_decree_of_divorce_or_separate_maintenance": False,
+        "taxpayer_files_separate_return": filing_status_numeric == 2,
+        "taxpayer_maintains_household_as_home": False,
+        "taxpayer_household_cost_fraction_furnished": 0,
+        "spouse_not_member_of_household_final_month_count": 0,
     }
 
 
@@ -1405,7 +1430,7 @@ def project_eitc_person_inputs(
         "qualifying_child_name_age_and_tin_included_on_return": (
             context.has_valid_child_ssn
         ),
-        "qualifying_child_is_married_at_close_of_taxable_year": False,
+        "qualifying_child_marital_status_requires_section_151_entitlement": False,
         "taxpayer_entitled_to_section_151_deduction_for_child_or_would_be_but_for_section_152_e": (
             context.is_tax_unit_dependent
         ),
@@ -1432,12 +1457,14 @@ def project_section_152_c_person_inputs(
         "individual_is_student": bool_value(
             person.get("is_full_time_college_student", False)
         ),
-        "individual_filed_joint_return_with_spouse_other_than_only_for_claim_of_refund": False,
+        "individual_own_support_fraction_provided_by_individual": 0,
+        "filing_status": 0,
+        "return_filed_only_for_claim_of_refund": False,
         "individual_may_be_claimed_as_qualifying_child_by_two_or_more_taxpayers": False,
         "parents_of_individual_may_claim_individual_but_no_parent_claims": False,
         "taxpayer_is_parent_of_individual": context.is_tax_unit_dependent,
         "taxpayer_adjusted_gross_income_higher_than_highest_parent_adjusted_gross_income": False,
-        "parents_claiming_child_do_not_file_joint_return_together": False,
+        "parents_filing_status": 1,
         "child_resided_with_taxpayer_parent_for_longest_period": False,
         "child_resided_with_both_parents_same_amount_of_time_and_taxpayer_parent_has_highest_adjusted_gross_income": False,
         "no_parent_of_individual_is_a_claiming_taxpayer": False,
@@ -1470,12 +1497,10 @@ def project_ctc_person_inputs(
     age = money(person["age"])
     return {
         "age": age,
-        "qualifying_child_under_section_152_c": (
+        "ctc_child_satisfies_dependency_rules": (
             context.qualifying_child_under_section_152_c
         ),
-        "allowed_deduction_under_section_151_for_child": (
-            context.is_tax_unit_dependent
-        ),
+        "ctc_child_deduction_allowed": context.is_tax_unit_dependent,
         "certain_noncitizen_exception_applies": False,
         "ctc_child_missing_identification": bool(
             context.qualifying_child_described_in_subsection_c
@@ -1494,8 +1519,8 @@ def project_ctc_h_person_inputs(
 ) -> dict[str, Any]:
     context = context or project_tax_unit_person_contexts([person])[0]
     return {
-        "dependent_under_section_152": context.is_tax_unit_dependent,
-        "qualifying_child_described_in_subsection_c": (
+        "ctc_person_satisfies_dependency_rules": context.is_tax_unit_dependent,
+        "ctc_child_satisfies_subsection_c": (
             context.qualifying_child_described_in_subsection_c
         ),
         "noncitizen_exception_to_other_dependent_credit_under_subsection_h": False,

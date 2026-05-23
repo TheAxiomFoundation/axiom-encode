@@ -21,6 +21,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     SECTION_164_F_BASE,
     SECTION_1401_BASE,
     SECTION_1402_A_BASE,
+    SECTION_7703_BASE,
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
     build_contribution_and_benefit_base_request,
@@ -49,6 +50,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_section_164_f_tax_unit_inputs,
     project_section_1401_tax_unit_inputs,
     project_section_1402_a_tax_unit_inputs,
+    project_section_7703_tax_unit_inputs,
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
@@ -109,8 +111,8 @@ def test_ctc_person_projection_marks_under_17_valid_ssn_child():
     projected = project_ctc_person_inputs({"age": 16, "ssn_card_type": "CITIZEN"})
 
     assert projected["age"] == 16
-    assert projected["qualifying_child_under_section_152_c"] is True
-    assert projected["allowed_deduction_under_section_151_for_child"] is True
+    assert projected["ctc_child_satisfies_dependency_rules"] is True
+    assert projected["ctc_child_deduction_allowed"] is True
     assert projected["ctc_child_missing_identification"] is False
     assert projected["qualifying_child_tin_included_on_return"] is True
 
@@ -121,10 +123,10 @@ def test_ctc_person_projection_marks_under_17_missing_ssn_child():
         {"age": 9, "ssn_card_type": "NONE"}
     )
 
-    assert projected["qualifying_child_under_section_152_c"] is True
+    assert projected["ctc_child_satisfies_dependency_rules"] is True
     assert projected["ctc_child_missing_identification"] is True
     assert projected["qualifying_child_tin_included_on_return"] is False
-    assert subsection_h_projected["dependent_under_section_152"] is True
+    assert subsection_h_projected["ctc_person_satisfies_dependency_rules"] is True
     assert (
         subsection_h_projected["qualifying_child_ssn_is_valid_for_subsection_h"]
         is False
@@ -137,9 +139,9 @@ def test_ctc_person_projection_treats_single_adult_as_tax_unit_head():
         {"age": 18, "ssn_card_type": "CITIZEN"}
     )
 
-    assert projected["qualifying_child_under_section_152_c"] is False
-    assert projected["allowed_deduction_under_section_151_for_child"] is False
-    assert subsection_h_projected["dependent_under_section_152"] is False
+    assert projected["ctc_child_satisfies_dependency_rules"] is False
+    assert projected["ctc_child_deduction_allowed"] is False
+    assert subsection_h_projected["ctc_person_satisfies_dependency_rules"] is False
 
 
 def test_tax_unit_person_contexts_project_head_spouse_and_dependents():
@@ -240,9 +242,11 @@ def test_tax_unit_projection_uses_boundary_inputs_without_ctc_outputs():
     )
 
     assert projected["adjusted_gross_income"] == 123_456
-    assert projected["filing_status"] == 3
-    assert projected["aggregate_advance_payments_under_section_7527A"] == 0
-    assert "ctc" not in projected
+    assert projected["ctc_phaseout_joint_threshold_applies"] is False
+    assert projected["ctc_phaseout_separate_threshold_applies"] is False
+    assert projected["ctc_subsection_h_special_rules_apply"] is True
+    assert projected["ctc_advance_payments_received"] == 0
+    assert "ctc_before_advance_payments" not in projected
 
 
 @pytest.mark.parametrize(
@@ -289,7 +293,7 @@ def test_standard_deduction_projection_uses_leaf_age_and_blind_inputs():
         projected["additional_standard_deduction_entitlement_count_under_subsection_f"]
         == 2
     )
-    assert projected["individual_is_unmarried_and_not_surviving_spouse"] is True
+    assert "individual_is_unmarried_and_not_surviving_spouse" not in projected
 
 
 def test_capital_gain_definition_projection_uses_ecps_leaf_inputs():
@@ -364,6 +368,17 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
     assert (
         projected["taxpayer_includes_required_social_security_number_on_return"] is True
     )
+    assert "taxpayer_is_married_under_section_7703_a" not in projected
+    assert project_section_7703_tax_unit_inputs(row=row) == {
+        "spouse_dies_during_taxable_year": False,
+        "taxpayer_married_at_time_of_spouse_death": False,
+        "taxpayer_married_at_close_of_taxable_year": False,
+        "legally_separated_under_decree_of_divorce_or_separate_maintenance": False,
+        "taxpayer_files_separate_return": False,
+        "taxpayer_maintains_household_as_home": False,
+        "taxpayer_household_cost_fraction_furnished": 0,
+        "spouse_not_member_of_household_final_month_count": 0,
+    }
 
     contexts = project_tax_unit_person_contexts(persons)
     earned_income_inputs = project_section_32_c_2_tax_unit_inputs(
@@ -433,6 +448,16 @@ def test_eitc_projection_matches_policyengine_age_and_identification_edges():
     )
     assert (
         projected["spouse_includes_required_social_security_number_on_return"] is True
+    )
+    assert (
+        project_section_7703_tax_unit_inputs(row=row)[
+            "taxpayer_married_at_close_of_taxable_year"
+        ]
+        is True
+    )
+    assert (
+        project_section_7703_tax_unit_inputs(row=row)["taxpayer_files_separate_return"]
+        is True
     )
     assert (
         project_section_32_c_2_tax_unit_inputs(
@@ -562,7 +587,7 @@ def test_eitc_person_projection_marks_valid_minor_child():
     assert projected == {
         "qualifying_child_principal_place_of_abode_is_in_united_states": True,
         "qualifying_child_name_age_and_tin_included_on_return": True,
-        "qualifying_child_is_married_at_close_of_taxable_year": False,
+        "qualifying_child_marital_status_requires_section_151_entitlement": False,
         "taxpayer_entitled_to_section_151_deduction_for_child_or_would_be_but_for_section_152_e": True,
     }
 
@@ -595,6 +620,10 @@ def test_section_152_c_projection_uses_leaf_child_facts():
     assert projected["individual_is_younger_than_taxpayer"] is True
     assert projected["individual_age_at_close_of_calendar_year"] == 20
     assert projected["individual_is_student"] is True
+    assert projected["individual_own_support_fraction_provided_by_individual"] == 0
+    assert projected["filing_status"] == 0
+    assert projected["return_filed_only_for_claim_of_refund"] is False
+    assert projected["parents_filing_status"] == 1
     assert (
         projected[
             "individual_may_be_claimed_as_qualifying_child_by_two_or_more_taxpayers"
@@ -736,6 +765,12 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     assert (
         input_values[
             f"{SECTION_1401_BASE}#input.international_social_security_agreement_under_section_233_in_effect"
+        ]
+        is False
+    )
+    assert (
+        input_values[
+            f"{SECTION_7703_BASE}#input.taxpayer_married_at_close_of_taxable_year"
         ]
         is False
     )
