@@ -2591,6 +2591,159 @@ def repair_source_table_band_scalar_parameters(
     return repaired_content, sorted(changed_rules | removed_bounds)
 
 
+def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str]]:
+    """Rewrite generated multiline `elif`/`else if` formulas into expressions."""
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return content, []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    changed_rules: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            repaired = _repair_else_if_formula(formula)
+            if repaired == formula:
+                continue
+            if _formula_has_unsupported_chained_conditional(repaired):
+                continue
+            version["formula"] = repaired
+            changed_rules.add(rule_name)
+
+    if not changed_rules:
+        return content, []
+
+    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    return repaired_content, sorted(changed_rules)
+
+
+def repair_source_table_open_ended_bound_sentinels(
+    content: str,
+    *,
+    source_text: str | None = None,
+) -> tuple[str, list[str]]:
+    """Remove invented sentinel values for open-ended source table bounds."""
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return content, []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return content, []
+
+    source = (
+        source_text.strip()
+        if source_text is not None
+        else (extract_numeric_grounding_source_text(content) or "").strip()
+    )
+    source_numbers = extract_numbers_from_text(source) if source else set()
+    changed_rules: set[str] = set()
+
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        if rule.get("indexed_by") is None:
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if not _looks_like_open_ended_upper_bound_parameter(rule):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            values = version.get("values")
+            if not isinstance(values, dict) or len(values) < 2:
+                continue
+            max_key = _max_structural_integer_table_key(values)
+            if max_key is None:
+                continue
+            numeric = _numeric_rule_value(values.get(max_key))
+            if numeric is None:
+                continue
+            _raw, value = numeric
+            if not _is_generated_open_ended_bound_sentinel(value, source_numbers):
+                continue
+            del values[max_key]
+            changed_rules.add(rule_name or "<unknown>")
+
+    if not changed_rules:
+        return content, []
+
+    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    return repaired_content, sorted(changed_rules)
+
+
+def _looks_like_open_ended_upper_bound_parameter(rule: dict[str, Any]) -> bool:
+    name = str(rule.get("name") or "").strip().lower()
+    text_parts = [name]
+    metadata = rule.get("metadata")
+    if isinstance(metadata, dict):
+        proof = metadata.get("proof")
+        if isinstance(proof, dict):
+            atoms = proof.get("atoms")
+            if isinstance(atoms, list):
+                for atom in atoms:
+                    if not isinstance(atom, dict):
+                        continue
+                    source = atom.get("source")
+                    if not isinstance(source, dict):
+                        continue
+                    table = source.get("table")
+                    if not isinstance(table, dict):
+                        continue
+                    for key in ("header", "row_key", "column_key"):
+                        value = table.get(key)
+                        if isinstance(value, str):
+                            text_parts.append(value.lower())
+    text = " ".join(text_parts)
+    return bool(
+        re.search(r"\bbut\s+less\s+than\b", text)
+        or re.search(r"\bless\s+than\b", text)
+        or re.search(r"(?:^|_)(?:upper|maximum|max)(?:_|$)", name)
+    )
+
+
+def _max_structural_integer_table_key(values: dict[Any, Any]) -> Any | None:
+    keyed: list[tuple[int, Any]] = []
+    for key in values:
+        normalized = _structural_integer_key(key)
+        if normalized is None:
+            continue
+        with contextlib.suppress(ValueError):
+            keyed.append((int(normalized), key))
+    if not keyed:
+        return None
+    return max(keyed, key=lambda item: item[0])[1]
+
+
+def _is_generated_open_ended_bound_sentinel(
+    value: float,
+    source_numbers: set[float],
+) -> bool:
+    if abs(value) < 1_000_000:
+        return False
+    if source_numbers and numeric_value_is_grounded(value, source_numbers):
+        return False
+    return True
+
+
 def _is_source_table_structural_bound_parameter_name(name: str) -> bool:
     normalized = name.strip().lower()
     if not normalized:

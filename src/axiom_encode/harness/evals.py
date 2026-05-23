@@ -71,6 +71,8 @@ from .validator_pipeline import (
     find_unused_modifier_parameter_issues,
     numeric_value_is_grounded,
     repair_source_table_band_scalar_parameters,
+    repair_source_table_open_ended_bound_sentinels,
+    repair_unsupported_chained_conditionals,
 )
 
 EvalMode = Literal["cold", "repo-augmented"]
@@ -5871,6 +5873,13 @@ def _normalize_main_eval_content(
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
         normalized,
         source_text=source_text,
+    )
+    normalized, _bound_repairs = repair_source_table_open_ended_bound_sentinels(
+        normalized,
+        source_text=source_text,
+    )
+    normalized, _conditional_repairs = repair_unsupported_chained_conditionals(
+        normalized
     )
     return normalized
 

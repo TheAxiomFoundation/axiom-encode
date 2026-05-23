@@ -867,6 +867,84 @@ rules:
     assert "average_account_benefits_ratio_band" in test_content
 
 
+def test_materialize_eval_artifact_repairs_chained_conditionals_without_table_scalars(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "3241" / "b.yaml"
+    llm_response = """=== FILE: b.yaml ===
+format: rulespec/v1
+module:
+  summary: Section defines applicable percentages by benefits ratio.
+rules:
+  - name: average_account_benefits_ratio_at_least_threshold_by_band
+    kind: parameter
+    dtype: Decimal
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 2.5
+          2: 3.0
+  - name: average_account_benefits_ratio_but_less_than_threshold_by_band
+    kind: parameter
+    dtype: Decimal
+    indexed_by: average_account_benefits_ratio_band
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              corpus_citation_path: us/statute/26/3241
+              table:
+                header: Tax rate schedule
+                row_key: Average account benefits ratio band
+                column_key: But less than
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 3.0
+          2: 1000000.0
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < average_account_benefits_ratio_at_least_threshold_by_band[1]:
+            0
+          else if average_account_benefits_ratio >= average_account_benefits_ratio_at_least_threshold_by_band[2]:
+            2
+          else:
+            1
+=== FILE: b.test.yaml ===
+- name: selector_band
+  period: 2026
+  input:
+    average_account_benefits_ratio: 2.75
+  output:
+    average_account_benefits_ratio_band: 1
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="Tax rate schedule | Average account benefits ratio | 2.5 | 3.0",
+    )
+
+    assert wrote is True
+    content = output_file.read_text()
+    assert "elif" not in content
+    assert "else if" not in content
+    assert "1000000.0" not in content
+    payload = yaml.safe_load(content)
+    assert 2 not in payload["rules"][1]["versions"][0]["values"]
+    formula = payload["rules"][2]["versions"][0]["formula"]
+    assert formula.startswith("if average_account_benefits_ratio < ")
+    assert " else: if average_account_benefits_ratio >= " in formula
+
+
 def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_path):
     policy_repo_root = tmp_path / "axiom-rules-engine"
     policy_repo_root.mkdir()
