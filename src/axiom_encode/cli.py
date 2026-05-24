@@ -11495,6 +11495,9 @@ _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
 _PERSON_SCOPE_DEFINITION_ISSUE_PATTERN = re.compile(
     r"Person-scoped definition at unit scope: `([^`]+)`"
 )
+_SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN = re.compile(
+    r"Source scope mismatch: `([^`]+)` is declared on `(?:Household|SnapUnit|TaxUnit|Family|SPMUnit)`"
+)
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
 )
@@ -12083,9 +12086,15 @@ def _try_repair_generated_person_scoped_definition_for_apply(
 def _person_scoped_definition_issue_names(issues: list[str]) -> list[str]:
     names: list[str] = []
     for issue in issues:
-        match = _PERSON_SCOPE_DEFINITION_ISSUE_PATTERN.search(str(issue))
-        if match is not None:
-            names.append(match.group(1))
+        text = str(issue)
+        for pattern in (
+            _PERSON_SCOPE_DEFINITION_ISSUE_PATTERN,
+            _SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN,
+        ):
+            match = pattern.search(text)
+            if match is not None:
+                names.append(match.group(1))
+                break
     return names
 
 
