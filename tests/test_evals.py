@@ -1277,6 +1277,46 @@ rules:
     ) == formula
 
 
+def test_materialize_eval_artifact_repairs_python_ternary_formulas(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "164" / "f.yaml"
+    llm_response = """=== FILE: f.yaml ===
+format: rulespec/v1
+module:
+  summary: Section allows a self-employment tax deduction.
+rules:
+  - name: self_employment_tax_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          self_employment_tax_deduction_fraction * (
+            old_age_survivors_and_disability_insurance_tax
+            + self_employment_income_tax
+          ) if taxpayer_is_individual else 0
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="An individual may deduct one-half of self-employment taxes.",
+    )
+
+    assert wrote is True
+    payload = yaml.safe_load(output_file.read_text())
+    formula = payload["rules"][0]["versions"][0]["formula"]
+    assert (
+        "if taxpayer_is_individual: self_employment_tax_deduction_fraction * "
+        "( old_age_survivors_and_disability_insurance_tax + "
+        "self_employment_income_tax ) else: 0"
+    ) == formula
+
+
 def test_materialize_eval_artifact_preserves_open_interval_source_table_rows(
     tmp_path,
 ):
@@ -3686,6 +3726,9 @@ class TestEvalPrompt:
         assert "Never drop the jurisdiction prefix" in prompt
         assert "listed under invalid copied local inputs" in prompt
         assert "do not preserve, rename, or recreate" in prompt
+        assert "treated as attributable to" in prompt
+        assert "amount-level" in prompt
+        assert "boolean or `dtype: Judgment` predicate" in prompt
 
     def test_build_eval_prompt_for_broad_application_clause_discourages_passthrough_outputs(
         self, tmp_path

@@ -43,6 +43,12 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   the entity of the current amount, tax, credit, deduction, contribution, or
   limit. Encode the current result on the individual/person/employee first,
   even if the imported base definition or its tests are unit-scoped.
+- When a source says an amount, tax, credit, deduction, contribution, payment,
+  or other numeric result is "treated as attributable to" a trade, business,
+  category, period, purpose, or person, preserve that treated-as-attributable
+  result as the same numeric amount and dtype unless the source separately
+  defines an eligibility or applicability test. Do not turn an amount-level
+  attribution rule into a boolean or `dtype: Judgment` predicate.
 - Do not create a roll-up, top-level program output, or connection merely
   because downstream consumers want it, sibling/state files patched it, or the
   program conventionally has such a concept. The output must be directly
