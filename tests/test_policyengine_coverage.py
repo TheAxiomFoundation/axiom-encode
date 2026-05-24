@@ -482,6 +482,8 @@ rules:
             "nontrade_or_domestic_service_remuneration_excluded_from_wages",
         ),
         ("8", "agricultural_labor_remuneration_excluded_from_wages"),
+        ("10", "home_worker_low_cash_remuneration_exclusion_applies"),
+        ("10", "home_worker_low_cash_remuneration_excluded_from_wages"),
         ("13", "termination_plan_payment_excluded_from_wages"),
         ("14", "survivor_or_estate_post_death_year_payment_excluded_from_wages"),
         (
@@ -557,6 +559,30 @@ rules:
     assert (
         item["legal_id"]
         == "us:statutes/26/3121/a/8#agricultural_labor_cash_remuneration_employee_threshold"
+    )
+    assert item["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_classifies_3121_a_10_threshold_parameter(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3121/a/10.yaml",
+        """format: rulespec/v1
+rules:
+  - name: home_worker_cash_remuneration_annual_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 100
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3121/a/10#home_worker_cash_remuneration_annual_threshold"
     )
     assert item["status"] == "known_not_comparable"
 
