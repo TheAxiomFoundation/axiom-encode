@@ -11068,6 +11068,13 @@ def _qualify_deferred_output_subsection_paths(
         reason = str(record.get("reason") or "")
         match = re.search(r"\b[Ss]ubsection\s*\(([A-Za-z0-9]+)\)", reason)
         if match is None:
+            match = re.search(
+                r"\b(?:[0-9A-Za-z]+\s+USC\s+|section\s+)"
+                r"[0-9A-Za-z.-]+\s*\(([A-Za-z0-9]+)\)",
+                reason,
+                flags=re.IGNORECASE,
+            )
+        if match is None:
             continue
         subsection = match.group(1).strip()
         symbol = output.rsplit("#", 1)[1].strip()

@@ -3504,7 +3504,7 @@ module:
     corpus_citation_path: us/statute/26/3201
   deferred_outputs:
     - output: us:statutes/26/3201#a#tier_1_income_tax
-      reason: Subsection (a) depends on section 3101 rates.
+      reason: 26 USC 3201(a) depends on section 3101 rates.
       source_values: []
 rules:
   - name: tier_2_income_tax_rate
