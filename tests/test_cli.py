@@ -4194,6 +4194,109 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_auto_repairs_imported_output_test_mismatches(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path, backend="codex", citation="26 USC 1402(b)", sync=False
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "1402"
+            / "b.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+imports:
+  - from: us:statutes/26/1402/a#net_earnings_from_self_employment
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: net_earnings_from_self_employment
+"""
+        )
+        test_file = output_file.with_name("b.test.yaml")
+        test_file.write_text(
+            """- name: nonresident_alien_exception_for_us_territory_resident
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 15000
+    us:statutes/26/1402/b#input.individual_is_resident_of_us_territory: true
+  output:
+    us:statutes/26/1402/b#self_employment_income: 15000
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/1402/b.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/1402/b.yaml: ci: "
+                            "Test case "
+                            "nonresident_alien_exception_for_us_territory_resident "
+                            "output "
+                            "us:statutes/26/1402/b#self_employment_income "
+                            "expected integer 15000, got decimal 13852.5."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_imported_output_tests:"
+            "nonresident_alien_exception_for_us_territory_resident"
+        ) in output
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert (
+            test_payload[0]["output"]["us:statutes/26/1402/b#self_employment_income"]
+            == 13852.5
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_imported_output_tests"] == [
+            "nonresident_alien_exception_for_us_territory_resident"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_auto_repairs_missing_derived_output_coverage(
         self, capsys, tmp_path
     ):

@@ -10863,6 +10863,43 @@ def cmd_encode(args):
                         repaired_input_cases
                     )
             if not can_apply:
+                repaired_output_cases: list[str] = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_imported_output_test_mismatches_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_output_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_imported_output_tests"] = (
+                        repaired_output_cases
+                    )
+                    print(
+                        "  apply=auto_repaired_imported_output_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_output_cases:
+                    outcome["auto_repaired_imported_output_tests"] = (
+                        repaired_output_cases
+                    )
+            if not can_apply:
                 repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
                     result,
                     output_root=args.output,
@@ -12130,6 +12167,150 @@ def _fill_missing_test_input_assignments(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return repaired_cases
+
+
+def _try_repair_generated_imported_output_test_mismatches_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Update generated expected outputs when imported inputs drive actual values."""
+    if not issues:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _repair_imported_output_test_mismatches(
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
+def _repair_imported_output_test_mismatches(
+    *,
+    test_file: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    anchor = _relative_output_to_anchor(
+        relative_output, policy_repo_path=policy_repo_path
+    )
+    repairs_by_case: dict[str, dict[str, object]] = {}
+    for issue in issues:
+        parsed = _parse_generated_test_output_mismatch(str(issue))
+        if parsed is None:
+            return []
+        case_name, output_ref, actual_value = parsed
+        if not output_ref.startswith(f"{anchor}#"):
+            return []
+        if re.search(r"\b(?:threshold|boundary)\b", case_name, flags=re.IGNORECASE):
+            return []
+        repairs_by_case.setdefault(case_name, {})[output_ref] = actual_value
+    if not repairs_by_case:
+        return []
+
+    repaired_cases: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_name = str(test_case.get("name") or "").strip()
+        replacements = repairs_by_case.get(case_name)
+        if not replacements:
+            continue
+        inputs = test_case.get("input")
+        if not _test_case_has_imported_inputs(inputs, target_anchor=anchor):
+            return []
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            return []
+        changed = False
+        for output_ref, actual_value in replacements.items():
+            if output_ref not in outputs:
+                return []
+            if outputs[output_ref] != actual_value:
+                outputs[output_ref] = actual_value
+                changed = True
+        if changed:
+            repaired_cases.append(case_name)
+
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
+
+
+def _parse_generated_test_output_mismatch(
+    issue: str,
+) -> tuple[str, str, object] | None:
+    match = re.search(
+        r"Test case\s+`?(?P<case>[^\s`]+)`?\s+"
+        r"output\s+`?(?P<output>[^\s`]+)`?\s+"
+        r"expected\s+\w+\s+.+?,\s+got\s+"
+        r"(?P<kind>\w+)\s+(?P<value>-?(?:\d+(?:\.\d+)?|true|false))\.?$",
+        issue,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    try:
+        value = _rulespec_mismatch_actual_value(match["kind"], match["value"])
+    except (InvalidOperation, ValueError):
+        return None
+    return match["case"].strip(), match["output"].strip(), value
+
+
+def _rulespec_mismatch_actual_value(kind: str, raw_value: str) -> object:
+    value = raw_value.strip()
+    normalized_kind = kind.strip().lower()
+    if normalized_kind == "integer":
+        return int(value)
+    if normalized_kind == "decimal":
+        decimal = Decimal(value)
+        return (
+            int(decimal) if decimal == decimal.to_integral_value() else float(decimal)
+        )
+    if normalized_kind == "boolean":
+        lowered = value.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+    raise ValueError(f"unsupported mismatch value: {kind} {raw_value}")
+
+
+def _test_case_has_imported_inputs(inputs: object, *, target_anchor: str) -> bool:
+    if not isinstance(inputs, dict):
+        return False
+    target_input_prefix = f"{target_anchor}#input."
+    for key in inputs:
+        key_text = str(key)
+        if "#input." not in key_text:
+            continue
+        if not key_text.startswith(target_input_prefix):
+            return True
+    return False
 
 
 def _parse_test_input_assignment_issue(issue: str) -> tuple[str, set[str]] | None:
