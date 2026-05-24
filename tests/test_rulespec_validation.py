@@ -5157,6 +5157,58 @@ rules:
     assert "statutes/7/2015/b" in issues[0]
 
 
+def test_cross_reference_exception_placeholder_allows_category_label_boundary(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3121" / "b" / "7.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Paragraph (7) shall not apply in the case of service performed by any
+    individual as an employee included under section 5351(2) of title 5,
+    other than as a medical or dental intern or resident.
+rules:
+  - name: student_hospital_employee_exception_branch
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3121(b)(7)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: "by any individual as an employee included under section 5351(2) of title 5, United States Code (relating to certain interns, student nurses, and other student employees of hospitals)"
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: "other than as a medical or dental intern or as a medical or dental resident in training"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          individual_is_employee_included_under_section_5351_2_of_title_5_for_hospitals
+          and not service_performed_as_medical_or_dental_intern
+          and not service_performed_as_medical_or_dental_resident_in_training
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert issues == []
+
+
 def test_cross_reference_placeholder_uses_explicit_usc_title(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "2" / "a.yaml"

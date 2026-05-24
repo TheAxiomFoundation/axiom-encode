@@ -324,8 +324,11 @@ Hard requirements:
   not available as RuleSpec. If the citation appears in definition,
   same-meaning, treated-as, rules-similar, exception, exclusion, `unless`,
   `notwithstanding`, shall-not-apply, or not-treated-as logic and the cited
-  source is unavailable, do not invent a local cross-reference fact. If the
-  dependency is essential to the only requested executable concept, emit
+  source is unavailable, do not invent a local cross-reference fact for the
+  cited mechanics. If the requested source itself states the operative effect
+  and only uses the citation to label a category, encode a source-named boundary
+  predicate for that category instead of deferring. Otherwise, if the dependency
+  is essential to the only requested executable concept, emit
   `module.status: deferred` or `module.status: entity_not_supported` with
   `rules: []`. In a mixed provision, omit or defer only the affected executable
   surface and still encode independent source-backed outputs that do not require
@@ -435,8 +438,9 @@ Hard requirements:
   laws only to define those category labels, encode each source-stated category
   as its own boundary predicate and combine them into the final rule. Do not
   defer the final exported output solely because cited title, chapter, schedule,
-  appointment, office, retirement-system, or election definitions are not
-  encoded when the requested source states the exception's operative effect.
+  appointment, office, retirement-system, election, covered-service, or
+  treated-as-trade-or-business definitions are not encoded when the requested
+  source states the exception's operative effect.
 - If the copied target file is already executable, do not let its old surface
   force local placeholders or compatibility names. Rebuild, drop, or defer
   individual outputs as needed. Prefer retaining or replacing source-backed
@@ -583,6 +587,9 @@ Hard requirements:
 - For any negated exception predicate, include a paired positive case with the
   same output rule where only the exception input changes from `false` to
   `true`; do not combine the exception test with another branch change.
+- Validation fails if a direct local `#input.*_exception_applies` or
+  `#input.*_exception_*` predicate is negated by an exported Judgment rule
+  without this paired positive/negative companion.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into
   one aggregate fact such as `sections_..._do_not_preclude...`. Encode or
   import each cited exception separately, then combine them in a helper if

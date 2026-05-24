@@ -515,7 +515,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "model the source-stated\n  reasonable-belief condition" in prompt
     assert "enumerates exception categories" in prompt
     assert "cites other\n  laws only to define those category labels" in prompt
-    assert "appointment, office, retirement-system, or election definitions" in prompt
+    assert "only uses the citation to label a category" in prompt
+    assert "appointment, office, retirement-system, election" in prompt
+    assert "covered-service, or\n  treated-as-trade-or-business definitions" in prompt
+    assert "Validation fails if a direct local `#input.*_exception_applies`" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
     assert "never assign prohibited derived" in prompt

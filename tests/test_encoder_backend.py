@@ -97,9 +97,15 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "defer only that branch" in ENCODER_PROMPT
     assert "predicate for the excepted category" in ENCODER_PROMPT
     assert "enumerates exception categories" in ENCODER_PROMPT
-    assert "retirement-system, or election definitions" in ENCODER_PROMPT
+    assert "only uses the citation to label a category" in ENCODER_PROMPT
+    assert "retirement-system, election, covered-service" in ENCODER_PROMPT
+    assert "treated-as-trade-or-business definitions" in ENCODER_PROMPT
     assert "positive/nonzero" in ENCODER_PROMPT
     assert "toggle each gate at least once" in ENCODER_PROMPT
+    assert (
+        "Validation fails if a direct local `#input.*_exception_applies`"
+        in ENCODER_PROMPT
+    )
     assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT
     assert "unit-level placeholder or aggregate base by the rate" in ENCODER_PROMPT
     assert "Never drop the jurisdiction prefix" in ENCODER_PROMPT
