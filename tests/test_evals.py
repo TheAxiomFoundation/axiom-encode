@@ -6058,6 +6058,8 @@ class TestRepoAugmentedContext:
         assert "not as backward compatibility contracts" in prompt
         assert "Source-faithful RuleSpec with canonical legal pointers" in prompt
         assert "Never preserve, rename, or recreate a legacy local input" in prompt
+        assert "source-stated formula executable" in prompt
+        assert "defer only that branch" in prompt
 
     def test_prepare_eval_workspace_adds_same_section_subsection_context(
         self, tmp_path
