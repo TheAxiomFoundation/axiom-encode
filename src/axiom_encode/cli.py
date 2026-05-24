@@ -14178,6 +14178,31 @@ def _imported_input_refs_by_name(
     *,
     repo_path: Path,
 ) -> dict[str, list[str]]:
+    return _collect_imported_input_refs_by_name(
+        rules_file,
+        repo_path=repo_path,
+        seen=set(),
+        depth_remaining=4,
+    )
+
+
+def _collect_imported_input_refs_by_name(
+    rules_file: Path,
+    *,
+    repo_path: Path,
+    seen: set[Path],
+    depth_remaining: int,
+) -> dict[str, list[str]]:
+    if depth_remaining < 0:
+        return {}
+    try:
+        resolved_rules_file = rules_file.resolve()
+    except OSError:
+        resolved_rules_file = rules_file
+    if resolved_rules_file in seen:
+        return {}
+    seen.add(resolved_rules_file)
+
     try:
         payload = yaml.safe_load(rules_file.read_text()) or {}
     except (OSError, ValueError, yaml.YAMLError):
@@ -14187,27 +14212,77 @@ def _imported_input_refs_by_name(
         return {}
 
     refs_by_name: dict[str, list[str]] = {}
-    jurisdiction = _repo_jurisdiction_prefix(repo_path)
     for raw_import in imports:
         if not isinstance(raw_import, str):
             continue
-        import_base = raw_import.split("#", 1)[0].strip().strip("/")
-        if not import_base:
+        resolved_import = _same_repo_import_base_and_file(
+            raw_import,
+            repo_path=repo_path,
+        )
+        if resolved_import is None:
             continue
-        import_file = _import_base_to_repo_file(import_base, repo_path=repo_path)
+        canonical_base, import_file = resolved_import
         if import_file is None or not import_file.exists():
             continue
         input_names = _local_factual_input_names_from_rules_content(
             import_file.read_text()
         )
-        canonical_base = (
-            import_base if ":" in import_base else f"{jurisdiction}:{import_base}"
-        )
         for input_name in sorted(input_names):
-            refs_by_name.setdefault(input_name, []).append(
-                f"{canonical_base}#input.{input_name}"
+            _append_unique_input_ref(
+                refs_by_name,
+                input_name,
+                f"{canonical_base}#input.{input_name}",
             )
+        transitive_refs = _collect_imported_input_refs_by_name(
+            import_file,
+            repo_path=repo_path,
+            seen=seen,
+            depth_remaining=depth_remaining - 1,
+        )
+        for input_name, refs in transitive_refs.items():
+            for input_ref in refs:
+                _append_unique_input_ref(
+                    refs_by_name,
+                    input_name,
+                    input_ref,
+                )
     return refs_by_name
+
+
+def _same_repo_import_base_and_file(
+    raw_import: str,
+    *,
+    repo_path: Path,
+) -> tuple[str, Path] | None:
+    import_base = raw_import.split("#", 1)[0].strip().strip('"').strip("'").strip("/")
+    if not import_base:
+        return None
+    jurisdiction = _repo_jurisdiction_prefix(repo_path)
+    if ":" in import_base:
+        prefix, target = import_base.split(":", 1)
+        if prefix != jurisdiction:
+            return None
+        target = target.strip().strip("/")
+        canonical_base = f"{prefix}:{target}"
+    else:
+        target = import_base
+        canonical_base = f"{jurisdiction}:{target}"
+    if not target:
+        return None
+    import_file = _import_base_to_repo_file(canonical_base, repo_path=repo_path)
+    if import_file is None:
+        return None
+    return canonical_base, import_file
+
+
+def _append_unique_input_ref(
+    refs_by_name: dict[str, list[str]],
+    input_name: str,
+    input_ref: str,
+) -> None:
+    refs = refs_by_name.setdefault(input_name, [])
+    if input_ref not in refs:
+        refs.append(input_ref)
 
 
 def _import_base_to_repo_file(import_base: str, *, repo_path: Path) -> Path | None:

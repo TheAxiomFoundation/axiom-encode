@@ -6412,6 +6412,87 @@ rules: []
             updated.count("us:statutes/26/1/h#input.investment_income_amount: 0") == 2
         )
 
+    def test_complete_missing_imported_test_inputs_adds_transitive_import_defaults(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        leaf = policy_repo / "statutes/26/1402/b.yaml"
+        middle = policy_repo / "statutes/26/1401/a.yaml"
+        dependent = policy_repo / "statutes/26/164/f.yaml"
+        dependent_test = policy_repo / "statutes/26/164/f.test.yaml"
+        leaf.parent.mkdir(parents=True)
+        middle.parent.mkdir(parents=True, exist_ok=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        leaf.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_income_for_section_1401_a
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_is_nonresident_alien: 0
+          else: net_earnings_from_self_employment
+"""
+        )
+        middle.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/b#self_employment_income_for_section_1401_a
+rules:
+  - name: old_age_survivors_and_disability_insurance_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_income_for_section_1401_a * 0.124
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax
+rules: []
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:statutes/26/164/f#input.taxpayer_is_individual: true
+  output:
+    us:statutes/26/164/f#self_employment_tax_deduction: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: "
+                        "missing input `individual_is_nonresident_alien`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        updated = dependent_test.read_text()
+        assert (
+            "us:statutes/26/1402/b#input.individual_is_nonresident_alien: false"
+            in updated
+        )
+
     def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"
