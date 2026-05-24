@@ -981,6 +981,12 @@ mappings:
     comparison: money
     rationale: Same statutory other-case additional Medicare wage threshold, stored in PE as parameter data.
 
+  - legal_id: us:statutes/26/3201#tier_2_employee_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine models employee FICA payroll taxes and excess payroll tax withheld, but not Railroad Retirement Tax Act section 3201(b) tier 2 employee tax or the section 3241 applicable percentage as a comparable output.
+
   - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax_rate
     country: us
     program: tax
