@@ -1005,6 +1005,58 @@ rules:
     )
 
 
+def test_materialize_eval_artifact_repairs_multiline_else_if_conditions(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "1402" / "b.yaml"
+    llm_response = """=== FILE: b.yaml ===
+format: rulespec/v1
+module:
+  summary: Section defines self-employment income.
+rules:
+  - name: self_employment_income_for_section_1401_a
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if is_nonresident_alien_individual_for_chapter_1402:
+            0
+          else if church_employee_income
+              and apply_section_1402_j_2_special_rules_for_church_income:
+            self_employment_income_for_church_employee_under_section_1402_j_2
+          else if net_earnings_from_self_employment
+              < self_employment_income_small_amount_exclusion_threshold:
+            0
+          else:
+            net_earnings_from_self_employment
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="The special rules apply in the case of church employee income.",
+    )
+
+    assert wrote is True
+    payload = yaml.safe_load(output_file.read_text())
+    formula = payload["rules"][0]["versions"][0]["formula"]
+    assert "else if" not in formula
+    assert "elif" not in formula
+    assert (
+        "if church_employee_income and "
+        "apply_section_1402_j_2_special_rules_for_church_income: "
+        "self_employment_income_for_church_employee_under_section_1402_j_2"
+    ) in formula
+    assert (
+        "if net_earnings_from_self_employment "
+        "< self_employment_income_small_amount_exclusion_threshold: 0"
+    ) in formula
+
+
 def test_materialize_eval_artifact_preserves_open_interval_source_table_rows(
     tmp_path,
 ):
