@@ -10371,6 +10371,20 @@ def cmd_encode(args):
                     "  apply=auto_repaired_policyengine_oracle_inputs:"
                     + ",".join(repaired_policyengine_oracle_inputs)
                 )
+            repaired_nested_test_tables = (
+                _try_repair_generated_nested_test_tables_for_apply(
+                    result,
+                    output_root=args.output,
+                )
+            )
+            if repaired_nested_test_tables:
+                outcome["auto_repaired_nested_test_tables"] = (
+                    repaired_nested_test_tables
+                )
+                print(
+                    "  apply=auto_repaired_nested_test_tables:"
+                    + ",".join(repaired_nested_test_tables)
+                )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
                     result,
@@ -11126,6 +11140,64 @@ def _rulespec_rule_labels(rules: list[object]) -> list[str]:
         label = str(name).strip() if isinstance(name, str) and name.strip() else ""
         labels.append(label or f"rules[{index}]")
     return labels
+
+
+def _try_repair_generated_nested_test_tables_for_apply(
+    result,
+    *,
+    output_root: Path,
+) -> list[str]:
+    """Hoist model-emitted ``input.tables`` companion rows before apply."""
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _hoist_nested_test_tables(test_file)
+
+
+def _hoist_nested_test_tables(test_file: Path) -> list[str]:
+    if not test_file.exists():
+        return []
+
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+
+    if isinstance(payload, dict) and isinstance(payload.get("cases"), list):
+        cases = payload["cases"]
+    elif isinstance(payload, list):
+        cases = payload
+    else:
+        return []
+
+    repaired_cases: list[str] = []
+    for index, test_case in enumerate(cases, start=1):
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        nested_tables = inputs.get("tables")
+        if not isinstance(nested_tables, dict):
+            continue
+        existing_tables = test_case.get("tables")
+        if existing_tables not in (None, "") and existing_tables != {}:
+            continue
+        inputs.pop("tables")
+        test_case["tables"] = nested_tables
+        if not inputs:
+            test_case["input"] = {}
+        repaired_cases.append(str(test_case.get("name") or f"case {index}"))
+
+    if not repaired_cases:
+        return []
+
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired_cases
 
 
 def _try_repair_generated_proof_import_hashes_for_apply(
