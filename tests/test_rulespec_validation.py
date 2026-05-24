@@ -750,7 +750,7 @@ module:
   source_verification:
     corpus_citation_path: us/guidance/example/sua
 rules:
-  - name: snap_standard_utility_allowance_value
+  - name: standard_utility_allowance_value
     kind: parameter
     dtype: Money
     unit: USD
@@ -758,16 +758,16 @@ rules:
       - effective_from: '2024-01-01'
         formula: |-
           451
-  - name: snap_standard_utility_allowance
+  - name: standard_utility_allowance
     kind: derived
-    entity: SnapUnit
+    entity: Household
     dtype: Money
     period: Month
     unit: USD
     versions:
       - effective_from: '2024-01-01'
         formula: |-
-          snap_standard_utility_allowance_value
+          standard_utility_allowance_value
 """
     )
     rules_file.with_name("rules.test.yaml").write_text(
@@ -775,7 +775,7 @@ rules:
   period: 2024-01
   input: {}
   output:
-    snap_standard_utility_allowance: 451
+    standard_utility_allowance: 451
 """
     )
 
@@ -794,7 +794,7 @@ rules:
     assert [
         (item.name, item.value)
         for item in extract_named_scalar_occurrences(rules_file.read_text())
-    ] == [("snap_standard_utility_allowance_value", 451.0)]
+    ] == [("standard_utility_allowance_value", 451.0)]
 
 
 def test_rulespec_ci_rejects_repo_backed_friendly_output_keys(tmp_path):
@@ -8064,6 +8064,46 @@ rules:
     assert "`indexed_by`" in issues[0]
 
 
+def test_source_table_named_band_threshold_parameters_are_rejected():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+    | 3.0 | 3.5 | 4.9 |
+rules:
+  - name: average_account_benefits_ratio_band_threshold_2_5
+    kind: parameter
+    dtype: Float
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_band_threshold_3_0
+    kind: parameter
+    dtype: Float
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band_threshold_3_5
+    kind: parameter
+    dtype: Float
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.5
+"""
+
+    issues = find_source_table_row_scalar_parameter_issues(content)
+
+    assert len(issues) == 1
+    assert "Source table row/band scalar parameters" in issues[0]
+    assert "average_account_benefits_ratio_band_threshold_2_5" in issues[0]
+
+
 def test_scoped_exception_category_amount_requires_category_gate():
     content = """format: rulespec/v1
 module:
@@ -8847,6 +8887,64 @@ rules:
     assert "average_account_benefits_ratio < 2.5" in repaired
     assert "< 3.0" in repaired
     assert "else if" not in repaired
+    assert "average_account_benefits_ratio_band" in repaired_rules
+    assert find_source_table_row_scalar_parameter_issues(repaired) == []
+
+
+def test_repair_source_table_named_band_thresholds_inlines_selector_bounds():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+rules:
+  - name: average_account_benefits_ratio_band_threshold_2_5
+    kind: parameter
+    dtype: Float
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_band_threshold_3_0
+    kind: parameter
+    dtype: Float
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < average_account_benefits_ratio_band_threshold_2_5: 1
+          else: if average_account_benefits_ratio < average_account_benefits_ratio_band_threshold_3_0: 2
+          else: 3
+  - name: applicable_percentage_3201_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+          3: 0
+"""
+
+    repaired, repaired_rules = repair_source_table_band_scalar_parameters(content)
+
+    assert "average_account_benefits_ratio_band_threshold_2_5" not in repaired
+    assert "average_account_benefits_ratio_band_threshold_3_0" not in repaired
+    assert "average_account_benefits_ratio < 2.5" in repaired
+    assert "average_account_benefits_ratio < 3.0" in repaired
     assert "average_account_benefits_ratio_band" in repaired_rules
     assert find_source_table_row_scalar_parameter_issues(repaired) == []
 

@@ -2497,6 +2497,7 @@ def _is_source_table_structural_scalar_name(name: str) -> bool:
     return bool(
         re.search(r"(?:^|_)row_\d+(?:_|$)", name)
         or re.search(r"(?:^|_)(?:band|bracket)_\d+(?:_|$)", name)
+        or _is_source_table_structural_bound_parameter_name(name)
     )
 
 
@@ -3423,13 +3424,23 @@ def _is_source_table_structural_bound_parameter_name(name: str) -> bool:
         r"(?:^|_)(?:lower|upper)_(?:row|band|bracket)_\d+(?:_|$)",
         normalized,
     )
+    has_named_band_bound = re.search(
+        r"(?:^|_)(?:band|bracket)_(?:bound|threshold|limit)_\d",
+        normalized,
+    ) or re.search(
+        r"(?:^|_)(?:bound|threshold|limit)_(?:band|bracket)_\d",
+        normalized,
+    )
     return bool(
-        has_index
-        and (
-            (has_bound_word and has_structural_noun)
-            or has_adjacent_min_max
-            or has_adjacent_lower_upper
+        (
+            has_index
+            and (
+                (has_bound_word and has_structural_noun)
+                or has_adjacent_min_max
+                or has_adjacent_lower_upper
+            )
         )
+        or has_named_band_bound
     )
 
 
