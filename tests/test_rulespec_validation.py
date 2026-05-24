@@ -6445,6 +6445,66 @@ rules:
     assert pipeline._check_encoded_cross_reference_placeholders(rules_file) == []
 
 
+def test_encoded_cross_reference_placeholder_allows_local_helper_using_import(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "32" / "c" / "2.yaml"
+    imported_file = repo / "statutes" / "26" / "112.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: amount_excluded_from_gross_income_by_reason_of_section_112
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: combat_zone_compensation
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/112#amount_excluded_from_gross_income_by_reason_of_section_112
+module:
+  summary: |-
+    A taxpayer may elect to treat amounts excluded from gross income by reason
+    of section 112 as earned income.
+rules:
+  - name: section_112_excluded_amounts_treated_as_earned_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income:
+            amount_excluded_from_gross_income_by_reason_of_section_112
+          else: 0
+  - name: earned_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages + section_112_excluded_amounts_treated_as_earned_income
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_encoded_cross_reference_placeholders(rules_file) == []
+
+
 def test_validate_rulespec_proofs_can_require_policy_proofs_without_module_flag():
     content = """format: rulespec/v1
 module:

@@ -15173,10 +15173,14 @@ class ValidatorPipeline:
             return []
         current_section = self._infer_section_from_rulespec_path(rulespec_file)
         import_items = self._extract_import_items(content)
+        local_blocks = {
+            str(block["name"]): block
+            for block in self._extract_definition_blocks(content)
+        }
 
         issues: list[str] = []
         seen: set[tuple[str, str]] = set()
-        for block in self._extract_definition_blocks(content):
+        for block in local_blocks.values():
             formula = "\n".join(str(line) for line in block["body_lines"])
             for identifier in sorted(_formula_local_identifiers(formula)):
                 import_base = self._cross_reference_placeholder_import_base(
@@ -15200,17 +15204,27 @@ class ValidatorPipeline:
                     source_text
                 ):
                     continue
-                if self._imports_cover_placeholder_identifier(
-                    import_items,
-                    import_base,
-                    identifier,
-                    rulespec_file=rulespec_file,
-                ) or self._imports_cover_relation_field_placeholder(
-                    import_items,
-                    import_base,
-                    identifier,
-                    formula=formula,
-                    rulespec_file=rulespec_file,
+                if (
+                    self._imports_cover_placeholder_identifier(
+                        import_items,
+                        import_base,
+                        identifier,
+                        rulespec_file=rulespec_file,
+                    )
+                    or self._imports_cover_relation_field_placeholder(
+                        import_items,
+                        import_base,
+                        identifier,
+                        formula=formula,
+                        rulespec_file=rulespec_file,
+                    )
+                    or self._local_definition_resolves_cross_reference_placeholder(
+                        local_blocks,
+                        import_items,
+                        import_base,
+                        identifier,
+                        rulespec_file=rulespec_file,
+                    )
                 ):
                     continue
                 key = (str(block["name"]), identifier)
@@ -15236,6 +15250,56 @@ class ValidatorPipeline:
                     f"encoded or required cited source. {resolution}"
                 )
         return issues
+
+    def _local_definition_resolves_cross_reference_placeholder(
+        self,
+        local_blocks: dict[str, dict[str, object]],
+        import_items: list[str],
+        expected_path: str,
+        identifier: str,
+        *,
+        rulespec_file: Path,
+    ) -> bool:
+        """Return whether a local helper composes an imported cited source.
+
+        Section-looking local inputs are placeholders. A same-file derived helper
+        with a section-looking name can still be legitimate when it directly
+        references an imported output from that cited section and applies the
+        current source's own condition around it.
+        """
+        block = local_blocks.get(identifier)
+        if block is None:
+            return False
+
+        formula = "\n".join(str(line) for line in block["body_lines"])
+        formula_identifiers = _formula_local_identifiers(formula)
+        if not formula_identifiers:
+            return False
+
+        expected = expected_path.strip("/")
+        for import_item in import_items:
+            normalized = self._normalize_rulespec_import_path(import_item)
+            if not self._imports_cover_path({normalized}, expected):
+                continue
+
+            fragment = self._import_item_fragment(import_item)
+            if fragment and fragment in formula_identifiers:
+                return True
+
+            import_file = _resolve_rulespec_import_file_static(
+                import_item,
+                rules_file=rulespec_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+            if import_file is None:
+                continue
+            with contextlib.suppress(OSError):
+                imported_symbols = set(
+                    self._extract_defined_symbols(import_file.read_text())
+                )
+                if formula_identifiers & imported_symbols:
+                    return True
+        return False
 
     def _check_cross_reference_numeric_placeholders(
         self, rulespec_file: Path
