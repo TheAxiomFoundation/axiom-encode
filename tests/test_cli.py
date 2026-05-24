@@ -2264,6 +2264,119 @@ rules:
             assert roots[:2] == [str(repo.resolve()), str(repo.resolve().parent)]
             assert str(stale_repo) in roots
 
+    def test_executes_companion_tests_from_canonical_alias_checkout(
+        self, capsys, monkeypatch, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us-clean.abcd"
+        rules_file = repo / "statutes/1/alias.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: income + 1
+"""
+        )
+        rules_file.with_name("alias.test.yaml").write_text(
+            """- name: canonical_temp_checkout_output
+  period: 2026-01
+  input:
+    us:statutes/1/alias#input.income: 5
+  output:
+    us:statutes/1/alias#benefit: 6
+"""
+        )
+
+        engine_root = tmp_path / "axiom-rules-engine"
+        binary = engine_root / "target/debug/axiom-rules-engine"
+        compiled_ids: list[str] = []
+        compile_programs: list[Path] = []
+
+        def fake_binary(self):
+            return binary
+
+        def fake_run(cmd, **kwargs):
+            if len(cmd) >= 6 and cmd[:3] == ["git", "-C", str(repo)]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="https://github.com/TheAxiomFoundation/rulespec-us.git\n",
+                    stderr="",
+                )
+            if "compile" in cmd:
+                program_path = Path(cmd[cmd.index("--program") + 1])
+                compile_programs.append(program_path)
+                item_id = "us-clean.abcd:statutes/1/alias#benefit"
+                compiled_ids.append(item_id)
+                output_path = Path(cmd[cmd.index("--output") + 1])
+                output_path.write_text(
+                    json.dumps(
+                        {
+                            "program": {
+                                "parameters": [],
+                                "derived": [
+                                    {
+                                        "id": item_id,
+                                        "name": "benefit",
+                                        "entity": "Household",
+                                    }
+                                ],
+                            }
+                        }
+                    )
+                )
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if "run-compiled" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "results": [
+                                {
+                                    "outputs": {
+                                        "us:statutes/1/alias#benefit": {
+                                            "kind": "scalar",
+                                            "value": {"kind": "integer", "value": 6},
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ),
+                    stderr="",
+                )
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        args = MagicMock()
+        args.root = repo
+        args.paths = []
+        args.json = True
+        args.axiom_rules_path = engine_root
+
+        monkeypatch.setattr(
+            "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
+            fake_binary,
+        )
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(args)
+
+        assert exc_info.value.code == 0
+        assert json.loads(capsys.readouterr().out)["success"] is True
+        assert compiled_ids == ["us-clean.abcd:statutes/1/alias#benefit"]
+        assert len(compile_programs) == 1
+        assert "rulespec-us" in compile_programs[0].parts
+        assert "rulespec-us-clean.abcd" not in str(compile_programs[0])
+
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"
         valid_test = root / "statutes/1/1.test.yaml"

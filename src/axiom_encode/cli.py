@@ -66,6 +66,8 @@ from .harness.evals import (
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
     ValidatorPipeline,
+    _canonical_rulespec_compile_path,
+    _rulespec_public_item_keys,
     find_proof_import_reference_issues,
     find_tax_filing_status_local_input_issues,
     find_tax_status_component_local_input_issues,
@@ -1795,6 +1797,7 @@ def cmd_test(args):
                 env=rulespec_env,
                 tmp_path=tmp_path,
                 compiled_cache=compiled_cache,
+                policy_repo_path=root,
             )
             case_count += result["cases"]
             compiled_count += result["compiled"]
@@ -1897,6 +1900,7 @@ def _execute_rulespec_test_file(
     env: dict[str, str],
     tmp_path: Path,
     compiled_cache: dict[Path, tuple[Path, dict]],
+    policy_repo_path: Path | None = None,
 ) -> dict:
     failures: list[dict[str, str | None]] = []
     program_file = _rulespec_program_for_test_file(test_file)
@@ -1916,13 +1920,18 @@ def _execute_rulespec_test_file(
     compiled = compiled_cache.get(program_file)
     compiled_count = 0
     if compiled is None:
+        compile_file = (
+            _canonical_rulespec_compile_path(program_file, policy_repo_path)
+            if policy_repo_path is not None
+            else program_file
+        )
         compiled_path = tmp_path / (_safe_artifact_stem(program_file) + ".json")
         result = subprocess.run(
             [
                 str(binary),
                 "compile",
                 "--program",
-                str(program_file),
+                str(compile_file),
                 "--output",
                 str(compiled_path),
             ],
@@ -1951,21 +1960,28 @@ def _execute_rulespec_test_file(
 
     compiled_path, artifact = compiled
     cases = _load_rulespec_test_cases(test_file)
-    parameter_by_id = {
-        parameter.get("id"): parameter
-        for parameter in artifact.get("program", {}).get("parameters", [])
-        if isinstance(parameter, dict) and parameter.get("id")
-    }
-    derived_ids = {
-        derived.get("id")
-        for derived in artifact.get("program", {}).get("derived", [])
-        if isinstance(derived, dict) and derived.get("id")
-    }
-    derived_by_id = {
-        str(derived.get("id")): derived
-        for derived in artifact.get("program", {}).get("derived", [])
-        if isinstance(derived, dict) and derived.get("id")
-    }
+    item_policy_repo_path = (
+        policy_repo_path or find_policy_repo_root(program_file) or program_file.parent
+    )
+    parameter_by_id: dict[str, dict] = {}
+    for parameter in artifact.get("program", {}).get("parameters", []):
+        if not isinstance(parameter, dict) or not parameter.get("id"):
+            continue
+        for key in _rulespec_public_item_keys(
+            parameter,
+            policy_repo_path=item_policy_repo_path,
+        ):
+            parameter_by_id[key] = parameter
+    derived_by_id: dict[str, dict] = {}
+    for derived in artifact.get("program", {}).get("derived", []):
+        if not isinstance(derived, dict) or not derived.get("id"):
+            continue
+        for key in _rulespec_public_item_keys(
+            derived,
+            policy_repo_path=item_policy_repo_path,
+        ):
+            derived_by_id[key] = derived
+    derived_ids = set(derived_by_id)
 
     for index, case in enumerate(cases):
         case_name = str(case.get("name") or f"case_{index}")
@@ -2233,6 +2249,10 @@ def _execute_rulespec_test_case(
         )
         return failures
 
+    runtime_output_by_expected = {
+        output: str(derived_by_id.get(output, {}).get("id") or output)
+        for output in derived_expected
+    }
     request = {
         "mode": "explain",
         "dataset": {"inputs": inputs, "relations": relations},
@@ -2240,7 +2260,7 @@ def _execute_rulespec_test_case(
             {
                 "entity_id": entity_id,
                 "period": period,
-                "outputs": list(derived_expected.keys()),
+                "outputs": list(runtime_output_by_expected.values()),
             }
             for entity_id in query_entity_ids
         ],
@@ -2269,7 +2289,8 @@ def _execute_rulespec_test_case(
         if isinstance(expected_value, list):
             for row_index, row_expected_value in enumerate(expected_value):
                 outputs = results[row_index]["outputs"]
-                actual = outputs.get(output)
+                runtime_output = runtime_output_by_expected[output]
+                actual = outputs.get(output) or outputs.get(runtime_output)
                 if actual is None:
                     failures.append(
                         {
@@ -2293,7 +2314,8 @@ def _execute_rulespec_test_case(
                     )
             continue
         outputs = results[0]["outputs"]
-        actual = outputs.get(output)
+        runtime_output = runtime_output_by_expected[output]
+        actual = outputs.get(output) or outputs.get(runtime_output)
         if actual is None:
             failures.append(
                 {
@@ -8718,6 +8740,7 @@ def _rulespec_companion_test_failures(
             env=rulespec_env,
             tmp_path=Path(tmpdir),
             compiled_cache={},
+            policy_repo_path=root,
         )
     return list(result["failures"])
 
