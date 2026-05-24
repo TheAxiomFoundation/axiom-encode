@@ -343,10 +343,14 @@ Hard requirements:
   overriding rule makes the cited branch unreachable for the encoded effective
   period, encode only that overriding branch and leave the unresolved branch out
   of executable formulas.
-- Never introduce an import cycle. If a cited source already imports the current
-  target module, do not import that source back into the same module; keep a
-  source-named boundary predicate for that cyclic condition until the sources
-  are split into acyclic subsection modules.
+- Never introduce an import cycle. If a cited source directly or transitively
+  imports the current target module, do not import that source back into the
+  same module; keep a source-named boundary predicate or numeric boundary input
+  for that cyclic condition until the sources are split into acyclic subsection
+  modules. This applies to cross-referenced rates or parameters as well as
+  eligibility predicates: if importing a rate-bearing source would complete a
+  cycle with a foundational base definition, keep the rate as a source-named
+  boundary input and continue encoding the non-cyclic base formula.
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.

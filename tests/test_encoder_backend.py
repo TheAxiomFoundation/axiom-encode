@@ -85,6 +85,10 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Importing an adjacent upstream output only as proof" in ENCODER_PROMPT
     assert "does not satisfy the dependency" in ENCODER_PROMPT
     assert "is not an executable dependency" in ENCODER_PROMPT
+    assert "directly or transitively" in ENCODER_PROMPT
+    assert "numeric boundary input" in ENCODER_PROMPT
+    assert "rate-bearing source" in ENCODER_PROMPT
+    assert "cycle with a foundational base definition" in ENCODER_PROMPT
     assert "source-stated formula executable" in ENCODER_PROMPT
     assert "defer only that branch" in ENCODER_PROMPT
     assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT
