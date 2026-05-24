@@ -3330,6 +3330,189 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_promotes_module_imports(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "3201.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  imports:
+    - us:statutes/26/3241/b#section_3201_applicable_percentage_for_tax_unit
+  rules:
+    - name: tier_2_employee_tax
+      kind: derived
+      entity: TaxUnit
+      dtype: Money
+      period: Year
+      versions:
+        - effective_from: '2026-01-01'
+          formula: compensation * section_3201_applicable_percentage_for_tax_unit
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3201.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/3201.yaml: ci: Test input assignment "
+                            "missing: imported symbol was not available."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_module_imports:"
+            "us:statutes/26/3241/b#section_3201_applicable_percentage_for_tax_unit"
+            in output
+        )
+        assert "apply=auto_repaired_module_rules:tier_2_employee_tax" in output
+        repaired = yaml.safe_load(output_file.read_text())
+        assert repaired["imports"] == [
+            "us:statutes/26/3241/b#section_3201_applicable_percentage_for_tax_unit"
+        ]
+        assert [rule["name"] for rule in repaired["rules"]] == ["tier_2_employee_tax"]
+        assert "imports" not in repaired["module"]
+        assert "rules" not in repaired["module"]
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_module_imports"] == [
+            "us:statutes/26/3241/b#section_3201_applicable_percentage_for_tax_unit"
+        ]
+        assert run.outcome["auto_repaired_module_rules"] == ["tier_2_employee_tax"]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_repairs_person_scoped_rate_base(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "3201.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3241/b#section_3201_applicable_percentage_for_tax_unit
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3201
+  deferred_outputs:
+    - output: us:statutes/26/3201#a#tier_1_income_tax
+      reason: Subsection (a) depends on section 3101 rates.
+      source_values: []
+rules:
+  - name: tier_2_income_tax_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3201_applicable_percentage_for_tax_unit
+  - name: tier_2_income_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: compensation_received_for_services_rendered_during_calendar_year * tier_2_income_tax_rate
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3201.yaml"
+        person_scope_issue = (
+            "statutes/26/3201.yaml: ci: Person-scoped rate base at unit scope: "
+            "`tier_2_income_tax` is declared on `TaxUnit` and multiplies a "
+            "base by a rate, but the source text states the amount or tax for "
+            "each/every individual, person, member, employee, or similar "
+            "lower-entity subject."
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (False, [person_scope_issue], {}),
+                    (False, [person_scope_issue], {}),
+                    (False, [person_scope_issue], {}),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_empty_deferred_source_values:" in output
+        assert (
+            "apply=auto_repaired_deferred_output_paths:"
+            "us:statutes/26/3201/a#tier_1_income_tax"
+        ) in output
+        assert (
+            "apply=auto_repaired_person_scoped_rate_base:"
+            "tier_2_income_tax,tier_2_income_tax_rate"
+        ) in output
+        repaired = yaml.safe_load(output_file.read_text())
+        assert "source_values" not in repaired["module"]["deferred_outputs"][0]
+        assert (
+            repaired["module"]["deferred_outputs"][0]["output"]
+            == "us:statutes/26/3201/a#tier_1_income_tax"
+        )
+        assert [rule["entity"] for rule in repaired["rules"]] == ["Person", "Person"]
+        assert mock_overlay.call_count == 4
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_empty_deferred_source_values"] == [
+            "source_values[0]"
+        ]
+        assert run.outcome["auto_repaired_deferred_output_paths"] == [
+            "us:statutes/26/3201/a#tier_1_income_tax"
+        ]
+        assert run.outcome["auto_repaired_person_scoped_rate_base"] == [
+            "tier_2_income_tax",
+            "tier_2_income_tax_rate",
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_auto_repairs_generic_zero_branch_test(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True

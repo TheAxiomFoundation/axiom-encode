@@ -10330,11 +10330,47 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_module_layout = _try_repair_generated_module_layout_for_apply(
+                    result,
+                    output_root=args.output,
+                )
+                if repaired_module_layout:
+                    repaired_module_imports = repaired_module_layout.get(
+                        "imports",
+                        [],
+                    )
+                    if repaired_module_imports:
+                        outcome["auto_repaired_module_imports"] = (
+                            repaired_module_imports
+                        )
+                        print(
+                            "  apply=auto_repaired_module_imports:"
+                            + ",".join(repaired_module_imports)
+                        )
+                    repaired_module_rules = repaired_module_layout.get("rules", [])
+                    if repaired_module_rules:
+                        outcome["auto_repaired_module_rules"] = repaired_module_rules
+                        print(
+                            "  apply=auto_repaired_module_rules:"
+                            + ",".join(repaired_module_rules)
+                        )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_deferred_source_values = (
                     _try_repair_generated_empty_deferred_source_values_for_apply(
                         result,
                         output_root=args.output,
-                        issues=apply_issues,
                     )
                 )
                 if repaired_deferred_source_values:
@@ -10344,6 +10380,62 @@ def cmd_encode(args):
                     print(
                         "  apply=auto_repaired_empty_deferred_source_values:"
                         + ",".join(repaired_deferred_source_values)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_deferred_outputs = (
+                    _try_repair_generated_deferred_output_subsection_paths_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                    )
+                )
+                if repaired_deferred_outputs:
+                    outcome["auto_repaired_deferred_output_paths"] = (
+                        repaired_deferred_outputs
+                    )
+                    print(
+                        "  apply=auto_repaired_deferred_output_paths:"
+                        + ",".join(repaired_deferred_outputs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_person_scoped_rules = (
+                    _try_repair_generated_person_scoped_rate_base_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_person_scoped_rules:
+                    outcome["auto_repaired_person_scoped_rate_base"] = (
+                        repaired_person_scoped_rules
+                    )
+                    print(
+                        "  apply=auto_repaired_person_scoped_rate_base:"
+                        + ",".join(repaired_person_scoped_rules)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -10708,16 +10800,112 @@ def _can_attempt_apply(result) -> bool:
     }
 
 
+def _try_repair_generated_module_layout_for_apply(
+    result,
+    *,
+    output_root: Path,
+) -> dict[str, list[str]]:
+    """Promote model-emitted top-level RuleSpec members out of ``module``."""
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return {}
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _promote_module_layout_members(rules_file=rules_file)
+
+
+def _promote_module_layout_members(*, rules_file: Path) -> dict[str, list[str]]:
+    if not rules_file.exists():
+        return {}
+
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return {}
+
+    promoted: dict[str, list[str]] = {}
+    if "imports" in module:
+        module_imports = module.pop("imports")
+        if isinstance(module_imports, list):
+            import_refs = [
+                str(item).strip() for item in module_imports if str(item).strip()
+            ]
+            if import_refs:
+                existing_imports = payload.get("imports")
+                existing = (
+                    [
+                        str(item).strip()
+                        for item in existing_imports
+                        if str(item).strip()
+                    ]
+                    if isinstance(existing_imports, list)
+                    else []
+                )
+                merged_imports = [*import_refs]
+                merged_imports.extend(
+                    item for item in existing if item not in merged_imports
+                )
+                payload["imports"] = merged_imports
+                promoted["imports"] = import_refs
+
+    if "rules" in module:
+        module_rules = module.pop("rules")
+        if isinstance(module_rules, list):
+            rule_names = _rulespec_rule_labels(module_rules)
+            if rule_names:
+                existing_rules = payload.get("rules")
+                if isinstance(existing_rules, list):
+                    payload["rules"] = [*existing_rules, *module_rules]
+                else:
+                    payload["rules"] = module_rules
+                promoted["rules"] = rule_names
+
+    if not promoted:
+        return {}
+
+    reordered: dict[str, object] = {}
+    inserted: set[str] = set()
+    for key, value in payload.items():
+        if key in {"imports", "rules"}:
+            continue
+        reordered[key] = value
+        if key == "format":
+            for promoted_key in ("imports", "rules"):
+                if promoted_key in payload:
+                    reordered[promoted_key] = payload[promoted_key]
+                    inserted.add(promoted_key)
+    for promoted_key in ("imports", "rules"):
+        if promoted_key in payload and promoted_key not in inserted:
+            reordered[promoted_key] = payload[promoted_key]
+
+    rules_file.write_text(
+        yaml.safe_dump(reordered, sort_keys=False, allow_unicode=False)
+    )
+    return promoted
+
+
+def _rulespec_rule_labels(rules: list[object]) -> list[str]:
+    labels: list[str] = []
+    for index, rule in enumerate(rules):
+        name = rule.get("name") if isinstance(rule, dict) else None
+        label = str(name).strip() if isinstance(name, str) and name.strip() else ""
+        labels.append(label or f"rules[{index}]")
+    return labels
+
+
 def _try_repair_generated_empty_deferred_source_values_for_apply(
     result,
     *,
     output_root: Path,
-    issues: list[str],
 ) -> list[str]:
     """Remove empty optional deferred-output source_values emitted by the model."""
-    if not _only_pending_empty_deferred_source_values_issues(issues):
-        return []
-
     try:
         _relative_generated_output_path(result, output_root=output_root)
     except RuntimeError:
@@ -10757,6 +10945,224 @@ def _remove_empty_deferred_source_values(*, rules_file: Path) -> list[str]:
 
     rules_file.write_text("".join(repaired))
     return [f"source_values[{index}]" for index in range(removed)]
+
+
+def _try_repair_generated_deferred_output_subsection_paths_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Qualify parent-level deferred outputs with source subsection paths."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    base_parts = relative_output.with_suffix("").parts
+    if len(base_parts) != 3 or base_parts[0] != "statutes":
+        return []
+    return _qualify_deferred_output_subsection_paths(
+        rules_file=rules_file,
+        base_anchor=_relative_output_to_anchor(
+            relative_output,
+            policy_repo_path=policy_repo_path,
+        ),
+    )
+
+
+def _qualify_deferred_output_subsection_paths(
+    *,
+    rules_file: Path,
+    base_anchor: str,
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    deferred_outputs = module.get("deferred_outputs")
+    if not isinstance(deferred_outputs, list):
+        return []
+
+    repaired: list[str] = []
+    for record in deferred_outputs:
+        if not isinstance(record, dict):
+            continue
+        output = str(record.get("output") or "").strip()
+        if not output.startswith(f"{base_anchor}#"):
+            continue
+        reason = str(record.get("reason") or "")
+        match = re.search(r"\b[Ss]ubsection\s*\(([A-Za-z0-9]+)\)", reason)
+        if match is None:
+            continue
+        subsection = match.group(1).strip()
+        symbol = output.rsplit("#", 1)[1].strip()
+        if not subsection or not symbol:
+            continue
+        qualified = f"{base_anchor}/{subsection}#{symbol}"
+        record["output"] = qualified
+        repaired.append(qualified)
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+_PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
+    r"Person-scoped rate base at unit scope: `([^`]+)`"
+)
+_RULESPEC_IDENTIFIER_PATTERN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
+_RULESPEC_FORMULA_BUILTINS = {
+    "abs",
+    "all",
+    "and",
+    "any",
+    "ceil",
+    "count",
+    "count_where",
+    "else",
+    "false",
+    "floor",
+    "if",
+    "in",
+    "max",
+    "min",
+    "not",
+    "or",
+    "round",
+    "sum",
+    "sum_where",
+    "true",
+}
+_UNIT_ENTITY_NAMES = {
+    "benefitunit",
+    "business",
+    "family",
+    "filingunit",
+    "household",
+    "spmunit",
+    "taxunit",
+}
+
+
+def _try_repair_generated_person_scoped_rate_base_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Move generated rate-base formulas back to the source-stated person scope."""
+    target_names = _person_scoped_rate_base_issue_names(issues)
+    if not target_names:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_person_scoped_rate_base_entities(
+        rules_file=rules_file,
+        target_names=target_names,
+    )
+
+
+def _person_scoped_rate_base_issue_names(issues: list[str]) -> list[str]:
+    names: list[str] = []
+    for issue in issues:
+        match = _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            names.append(match.group(1))
+    return names
+
+
+def _repair_person_scoped_rate_base_entities(
+    *,
+    rules_file: Path,
+    target_names: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    by_name = {
+        str(rule.get("name")).strip(): rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and isinstance(rule.get("name"), str)
+        and str(rule.get("name")).strip()
+    }
+    repaired: list[str] = []
+    for target_name in target_names:
+        target_rule = by_name.get(target_name)
+        if not isinstance(target_rule, dict):
+            continue
+        if _set_rule_entity_to_person(target_rule):
+            repaired.append(target_name)
+        formula = _first_rule_formula(target_rule)
+        for identifier in sorted(_formula_identifiers(formula)):
+            helper = by_name.get(identifier)
+            if not isinstance(helper, dict):
+                continue
+            if str(helper.get("dtype") or "").strip().lower() != "rate":
+                continue
+            if _set_rule_entity_to_person(helper):
+                repaired.append(identifier)
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _set_rule_entity_to_person(rule: dict[str, object]) -> bool:
+    entity = str(rule.get("entity") or "").strip()
+    if entity.replace("_", "").lower() not in _UNIT_ENTITY_NAMES:
+        return False
+    rule["entity"] = "Person"
+    return True
+
+
+def _first_rule_formula(rule: dict[str, object]) -> str:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return ""
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            return formula
+    return ""
+
+
+def _formula_identifiers(formula: str) -> set[str]:
+    return (
+        set(_RULESPEC_IDENTIFIER_PATTERN.findall(formula)) - _RULESPEC_FORMULA_BUILTINS
+    )
 
 
 def _try_repair_generated_nonnegative_floors_for_apply(
