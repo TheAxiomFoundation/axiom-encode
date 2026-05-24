@@ -3409,13 +3409,22 @@ def _interval_derived_output_parameter_map(
         if str(rule.get("kind") or "").strip().lower() != "derived":
             continue
         name = str(rule.get("name") or "").strip()
-        formula = (_first_version_formula(rule) or "").strip()
-        lookup_match = re.fullmatch(
-            rf"([A-Za-z_][A-Za-z0-9_]*)\s*\[\s*{re.escape(spec.selector_name)}\s*\]",
-            formula,
+        formula = re.sub(r"\s+", " ", (_first_version_formula(rule) or "").strip())
+        lookup_pattern = (
+            rf"([A-Za-z_][A-Za-z0-9_]*)\s*"
+            rf"\[\s*{re.escape(spec.selector_name)}\s*\]"
         )
+        lookup_match = re.fullmatch(lookup_pattern, formula)
         if lookup_match and lookup_match.group(1) in output_names:
             direct[name] = lookup_match.group(1)
+            continue
+        guarded_lookup_match = re.fullmatch(
+            rf"if\s+{re.escape(spec.selector_name)}\s*(?:==|=)\s*0\s*:\s*"
+            rf"0(?:\.0)?\s+else:\s*{lookup_pattern}",
+            formula,
+        )
+        if guarded_lookup_match and guarded_lookup_match.group(1) in output_names:
+            direct[name] = guarded_lookup_match.group(1)
             continue
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", formula):
             aliases[name] = formula
