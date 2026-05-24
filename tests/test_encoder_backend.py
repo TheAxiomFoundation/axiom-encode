@@ -72,6 +72,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "increase before adding it to the base amount" in ENCODER_PROMPT
     assert "17300, not 17325" in ENCODER_PROMPT
     assert "Axiom formulas have no date literal type" in ENCODER_PROMPT
+    assert 'excess of" a cap' in ENCODER_PROMPT
+    assert "min(source_amount, cap)" in ENCODER_PROMPT
     assert (
         "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`"
         in ENCODER_PROMPT
@@ -114,6 +116,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "increase before adding it to the base amount" in prompt
     assert "17300, not 17325" in prompt
     assert "Axiom formulas have no date literal type" in prompt
+    assert 'excess of" a cap' in prompt
+    assert "min(source_amount, cap)" in prompt
     assert "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
     assert "overrides preservation of existing local input names" in prompt
     assert "module.summary` or the rule's proof excerpt" in prompt
