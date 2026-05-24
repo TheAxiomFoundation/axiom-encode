@@ -407,6 +407,12 @@ Hard requirements:
   final exported amount must apply that limitation. If a copied sibling/context
   file already encodes the limitation, import it and compose with it instead of
   duplicating or ignoring it.
+- When an exception or carve-out applies only to a source-stated category of an
+  otherwise qualifying payment, person, household, expense, or amount, gate that
+  exception with a predicate for the excepted category or use an input amount
+  whose name is explicitly scoped to that category. Do not subtract, disallow,
+  or reduce all qualifying branches merely because an exception amount input is
+  nonzero.
 - If the copied target file is already executable, do not let its old surface
   force local placeholders or compatibility names. Rebuild, drop, or defer
   individual outputs as needed. Prefer retaining or replacing source-backed
@@ -534,6 +540,13 @@ Hard requirements:
 - For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
   companion tests for the positive path and the carve-out path so exclusions
   cannot be silently dropped.
+- For scoped exceptions, include a control case proving a non-excepted
+  qualifying item is not reduced or blocked by the exception amount, plus a case
+  where the same exception applies to the source-stated excepted category.
+- When a local formula has five or fewer independent source-stated boolean
+  gates joined by `and`, include one all-gates-positive case and enough negative
+  cases to toggle each gate at least once. Do not leave a source-stated gate
+  untested just because another negative case toggles a different gate.
 - If a formula negates multiple exception predicates, include a separate
   companion test for each predicate that sets that exception input true and
   expects the directly affected Judgment rule to be `not_holds`.
