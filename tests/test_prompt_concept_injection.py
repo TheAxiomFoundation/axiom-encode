@@ -179,3 +179,33 @@ def test_build_rulespec_eval_prompt_omits_section_when_no_match(tmp_path: Path):
     )
 
     assert "Canonical concept names:" not in prompt
+
+
+def test_build_rulespec_eval_prompt_includes_scoped_exception_test_guidance(
+    tmp_path: Path,
+):
+    source_text = (
+        "Any qualifying expense is excluded except that this paragraph does "
+        "not apply to expenses for a nonqualified service to the extent paid."
+    )
+    workspace = _minimal_workspace(tmp_path, source_text)
+
+    prompt = _build_rulespec_eval_prompt(
+        citation="7 CFR 273.9(d)(1)",
+        mode="cold",
+        workspace=workspace,
+        context_files=[],
+        target_file_name="regulations/7-cfr/273/9/d/1.yaml",
+        target_ref_prefix="us:regulations/7-cfr/273/9/d/1",
+        include_tests=True,
+        runner_backend="codex",
+        policyengine_rule_hint=None,
+    )
+
+    assert "predicate for the excepted category" in prompt
+    test_file_rules = prompt.split("Test file rules:", maxsplit=1)[1].split(
+        "Do not respond with summaries",
+        maxsplit=1,
+    )[0]
+    assert "non-excepted" in test_file_rules
+    assert "toggle each gate at least once" in test_file_rules

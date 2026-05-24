@@ -95,6 +95,9 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "source-named numeric boundary input" in ENCODER_PROMPT
     assert "source-stated formula executable" in ENCODER_PROMPT
     assert "defer only that branch" in ENCODER_PROMPT
+    assert "predicate for the excepted category" in ENCODER_PROMPT
+    assert "non-excepted" in ENCODER_PROMPT
+    assert "toggle each gate at least once" in ENCODER_PROMPT
     assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT
     assert "unit-level placeholder or aggregate base by the rate" in ENCODER_PROMPT
     assert "Never drop the jurisdiction prefix" in ENCODER_PROMPT
@@ -135,6 +138,9 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "is not an executable dependency" in prompt
     assert "source-stated formula executable" in prompt
     assert "defer only that branch" in prompt
+    assert "predicate for the excepted category" in prompt
+    assert "non-excepted" in prompt
+    assert "toggle each gate at least once" in prompt
     assert "rate-applied result at the source-stated lower entity" in prompt
     assert "unit-level placeholder or aggregate base by the rate" in prompt
     assert "Never drop the jurisdiction prefix" in prompt

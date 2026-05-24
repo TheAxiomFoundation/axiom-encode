@@ -3073,6 +3073,13 @@ Test file rules:
 - For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
   companion tests for the positive path and the carve-out path so exclusions
   cannot be silently dropped.
+- For scoped exceptions, include a control case proving a non-excepted
+  qualifying item is not reduced or blocked by the exception amount, plus a case
+  where the same exception applies to the source-stated excepted category.
+- When a local formula has five or fewer independent source-stated boolean
+  gates joined by `and`, include one all-gates-positive case and enough negative
+  cases to toggle each gate at least once. Do not leave a source-stated gate
+  untested just because another negative case toggles a different gate.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
 - For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
@@ -3369,6 +3376,12 @@ RuleSpec requirements:
   final exported amount must apply that limitation. If a copied sibling/context
   file already encodes the limitation, import it and compose with it instead of
   duplicating or ignoring it.
+- When an exception or carve-out applies only to a source-stated category of an
+  otherwise qualifying payment, person, household, expense, or amount, gate that
+  exception with a predicate for the excepted category or use an input amount
+  whose name is explicitly scoped to that category. Do not subtract, disallow,
+  or reduce all qualifying branches merely because an exception amount input is
+  nonzero.
 - If the copied target file is already executable, do not let its old surface
   force local placeholders or compatibility names. Rebuild, drop, or defer
   individual outputs as needed. Prefer retaining or replacing source-backed
@@ -3550,6 +3563,13 @@ RuleSpec requirements:
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.
+- For scoped exceptions, include a control case proving a non-excepted
+  qualifying item is not reduced or blocked by the exception amount, plus a case
+  where the same exception applies to the source-stated excepted category.
+- When a local formula has five or fewer independent source-stated boolean
+  gates joined by `and`, include one all-gates-positive case and enough negative
+  cases to toggle each gate at least once. Do not leave a source-stated gate
+  untested just because another negative case toggles a different gate.
 - If a formula negates multiple exception predicates, include a separate companion test for each predicate that sets that exception input true and expects the directly affected Judgment rule to be `not_holds`.
 - For any negated exception predicate, include a paired positive case with the same output rule where only the exception input changes from `false` to `true`; do not combine the exception test with another branch change.
 - Every local executable `kind: parameter` and `kind: derived` rule must appear
