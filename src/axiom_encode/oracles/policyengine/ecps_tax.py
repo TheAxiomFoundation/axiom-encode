@@ -26,9 +26,9 @@ except ImportError:  # pragma: no cover - exercised only without optional oracle
     np = None
 
 
-POLICYENGINE_VERSION = "4.4.4"
-POLICYENGINE_CORE_VERSION = "3.26.0"
-POLICYENGINE_US_VERSION = "1.691.3"
+POLICYENGINE_VERSION = "4.11.0"
+POLICYENGINE_CORE_VERSION = "3.26.11"
+POLICYENGINE_US_VERSION = "1.700.0"
 DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
 
 CTC_PROGRAM_PATH = Path("statutes/26/24.yaml")
@@ -54,8 +54,8 @@ OASDI_WAGE_BASE_EXCLUSION_OUTPUT = (
 )
 AXIOM_3121_TAXABLE_OASDI_WAGES = "axiom_3121_taxable_oasdi_wages"
 FICA_EMPLOYMENT_INCOME_COLUMNS = (
-    "employment_income_before_lsr",
     "employment_income",
+    "employment_income_before_lsr",
     "payroll_tax_gross_wages",
 )
 FICA_PRE_TAX_CONTRIBUTION_COLUMNS = (
@@ -286,6 +286,11 @@ PE_PERSON_VARIABLES = tuple(
         }
     )
 )
+PAYROLL_PE_PERSON_SUPPORT_VARIABLES = (
+    "employment_income",
+    "payroll_tax_gross_wages",
+    *FICA_PRE_TAX_CONTRIBUTION_COLUMNS,
+)
 
 FILING_STATUS_CODES = {
     "SINGLE": 0,
@@ -495,6 +500,11 @@ def compare_tax_ecps(
     resolved_axiom_rules_path = (
         axiom_rules_path or workspace_root / "axiom-rules-engine"
     ).resolve()
+    surfaces = list(SURFACE_OUTPUTS) if surface == "all" else [surface]
+    tax_unit_variables, person_variables = policyengine_variables_for_surfaces(
+        surfaces,
+        positive_ctc_only=positive_ctc_only,
+    )
     pe_data = load_policyengine_tax_data(
         year=year,
         sample_size=sample_size,
@@ -502,8 +512,9 @@ def compare_tax_ecps(
         tax_unit_ids=tax_unit_ids,
         data_folder=data_folder,
         allow_uncertified_policyengine_data=allow_uncertified_policyengine_data,
+        tax_unit_variables=tax_unit_variables,
+        person_variables=person_variables,
     )
-    surfaces = list(SURFACE_OUTPUTS) if surface == "all" else [surface]
     surface_results: dict[str, list[dict[str, Any]]] = {}
     oasdi_wage_base_results: list[dict[str, Any]] | None = None
     contribution_base: float | None = None
@@ -577,6 +588,8 @@ def load_policyengine_tax_data(
     data_folder: Path,
     tax_unit_ids: tuple[int, ...] = (),
     allow_uncertified_policyengine_data: bool = False,
+    tax_unit_variables: tuple[str, ...] = PE_TAX_UNIT_VARIABLES,
+    person_variables: tuple[str, ...] = PE_PERSON_VARIABLES,
 ) -> dict[str, Any]:
     if allow_uncertified_policyengine_data:
         _install_policyengine_data_certification_override()
@@ -597,8 +610,8 @@ def load_policyengine_tax_data(
         dataset=dataset,
         tax_benefit_model_version=us_latest,
         extra_variables={
-            "person": list(PE_PERSON_VARIABLES),
-            "tax_unit": list(PE_TAX_UNIT_VARIABLES),
+            "person": list(person_variables),
+            "tax_unit": list(tax_unit_variables),
         },
     )
     log("Running PolicyEngine tax outputs...")
@@ -606,10 +619,10 @@ def load_policyengine_tax_data(
 
     tax_units = sim.output_dataset.data.tax_unit
     raw_tax_units = dataset.data.tax_unit
-    tax_unit_outputs = tax_units[["tax_unit_id", *PE_TAX_UNIT_VARIABLES]].copy()
+    tax_unit_outputs = tax_units[["tax_unit_id", *tax_unit_variables]].copy()
     raw_persons = dataset.data.person
     person_outputs = sim.output_dataset.data.person[
-        ["person_id", *PE_PERSON_VARIABLES]
+        ["person_id", *person_variables]
     ].copy()
     indices = select_tax_unit_indices(
         raw_tax_units=raw_tax_units,
@@ -641,6 +654,31 @@ def load_policyengine_tax_data(
         "tax_unit_ids": [int(value) for value in selected["tax_unit_id"]],
         "person_ids": [int(value) for value in selected_persons["person_id"]],
     }
+
+
+def policyengine_variables_for_surfaces(
+    surfaces: list[str],
+    *,
+    positive_ctc_only: bool = False,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the minimal PolicyEngine outputs needed for selected surfaces.
+
+    The non-payroll projections still rely on several tax-unit support outputs
+    besides the compared variables, so keep their long-standing broad request.
+    Payroll projections are person-only and should not depend on EITC/CTC
+    variables that may be absent on a pinned PolicyEngine oracle version.
+    """
+
+    if not surfaces or any(surface not in PAYROLL_SURFACES for surface in surfaces):
+        return PE_TAX_UNIT_VARIABLES, PE_PERSON_VARIABLES
+
+    tax_unit_variables = {"ctc"} if positive_ctc_only else set()
+    person_variables = set(PAYROLL_PE_PERSON_SUPPORT_VARIABLES)
+    for surface in surfaces:
+        person_variables.update(
+            spec["pe"] for spec in PAYROLL_SURFACES[surface]["outputs"].values()
+        )
+    return tuple(sorted(tax_unit_variables)), tuple(sorted(person_variables))
 
 
 def select_tax_unit_indices(
@@ -691,8 +729,8 @@ def select_tax_unit_indices(
 def _install_policyengine_data_certification_override() -> None:
     """Allow ECPS oracle runs against a local policyengine-us fix branch.
 
-    policyengine.py 4.4.4 certifies the bundled ECPS data against
-    policyengine-us 1.691.3. When validating a local policyengine-us PR, the
+    policyengine.py 4.11.0 certifies the bundled ECPS data against
+    policyengine-us 1.700.0. When validating a local policyengine-us PR, the
     installed model version can intentionally differ while the ECPS data is
     still the desired oracle input. This override is intentionally reachable
     only through an explicit CLI flag paired with --allow-policyengine-us-version.
@@ -1242,7 +1280,13 @@ def project_fica_wages(person: Any) -> float:
     Traditional 401(k) and 403(b) deferrals reduce income-tax wages, but not
     FICA wages.
     """
-    gross_wages = first_available_money(person, FICA_EMPLOYMENT_INCOME_COLUMNS)
+    gross_wages_source, gross_wages = first_available_money_with_source(
+        person,
+        FICA_EMPLOYMENT_INCOME_COLUMNS,
+    )
+    if gross_wages_source == "payroll_tax_gross_wages":
+        return gross_wages
+
     fica_pre_tax_contributions = sum(
         money(row_value(person, column, 0))
         for column in FICA_PRE_TAX_CONTRIBUTION_COLUMNS
@@ -2031,6 +2075,13 @@ def money(value: Any) -> float:
 
 
 def first_available_money(row: Any, columns: tuple[str, ...]) -> float:
+    return first_available_money_with_source(row, columns)[1]
+
+
+def first_available_money_with_source(
+    row: Any,
+    columns: tuple[str, ...],
+) -> tuple[str | None, float]:
     for column in columns:
         value = row_value(row, column, None)
         if value is None:
@@ -2040,8 +2091,8 @@ def first_available_money(row: Any, columns: tuple[str, ...]) -> float:
                 continue
         except TypeError:
             pass
-        return money(value)
-    return 0.0
+        return column, money(value)
+    return None, 0.0
 
 
 def row_value(row: Any, column: str, default: Any = None) -> Any:
