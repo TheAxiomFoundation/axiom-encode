@@ -3376,6 +3376,41 @@ rules:
         assert "pre_effective_zero" not in test_text
         assert "period: 2026-01" in test_text
 
+    def test_normalize_test_periods_repairs_misindented_period_end(self):
+        rulespec_text = """format: rulespec/v1
+module:
+  summary: Section defines an annual table.
+rules:
+  - name: annual_rate
+    kind: parameter
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.05
+"""
+        test_text = _normalize_test_periods_to_effective_dates(
+            """- name: ratio_at_9_0
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+  end: '2026-12-31'
+  input: {}
+  output:
+    annual_rate: 0.05
+""",
+            rulespec_content=rulespec_text,
+        )
+
+        cases = yaml.safe_load(test_text)
+
+        assert cases[0]["period"] == {
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        }
+        assert "end" not in cases[0]
+
     def test_materialize_eval_artifact_normalizes_mapping_style_tests_to_list(
         self, tmp_path
     ):
