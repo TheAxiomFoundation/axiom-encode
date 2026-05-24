@@ -13643,7 +13643,6 @@ def _repair_generated_import_symbol_near_misses(
         repo_path=repo_path,
         replacements=replacements,
     )
-    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
     local_rule_names = _rulespec_rule_names_from_payload(payload)
     old_to_new: dict[str, str] = {}
     ambiguous_formula_symbols: set[str] = set()
@@ -13659,11 +13658,12 @@ def _repair_generated_import_symbol_near_misses(
     for old_symbol, new_symbol in sorted(old_to_new.items()):
         if old_symbol in local_rule_names:
             continue
-        content = _replace_formula_identifier(
-            content,
+        _replace_formula_identifier_in_payload(
+            payload,
             old=old_symbol,
             new=new_symbol,
         )
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
     rules_file.write_text(content)
     return repaired
 
@@ -13739,6 +13739,31 @@ def _rulespec_rule_names_from_payload(payload: dict[str, object]) -> set[str]:
     return names
 
 
+def _replace_formula_identifier_in_payload(
+    payload: dict[str, object],
+    *,
+    old: str,
+    new: str,
+) -> None:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return
+    token = re.compile(rf"\b{re.escape(old)}\b")
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            version["formula"] = token.sub(new, formula)
+
+
 def _closest_rulespec_exported_symbol(
     symbol: str,
     exported_symbols: set[str],
@@ -13794,7 +13819,15 @@ def _repair_import_proof_atom_symbols(
             if not isinstance(target, str):
                 continue
             parsed = _parse_same_repo_rulespec_import_ref(target, repo_path=repo_path)
-            if parsed is None or parsed.symbol is None:
+            if parsed is None:
+                continue
+            if parsed.symbol is None:
+                output = str(import_payload.get("output") or "").strip()
+                replacement = replacements.get((parsed.relative_path, output))
+                if replacement is None:
+                    continue
+                import_payload["target"] = parsed.canonical_base
+                import_payload["output"] = replacement
                 continue
             replacement = replacements.get((parsed.relative_path, parsed.symbol))
             if replacement is None:
