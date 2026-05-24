@@ -31,6 +31,7 @@ from axiom_encode.cli import (
     _find_rulespec_dependents,
     _has_zero_output_test,
     _hoist_nested_test_tables,
+    _infer_missing_input_default,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _repair_employer_scoped_entities,
@@ -6703,7 +6704,8 @@ rules: []
   input:
     us:statutes/26/1401#input.self_employment_income: 1000
     us:statutes/26/32/c/2#input.taxpayer_is_individual: true
-  output: {}
+  output:
+    us:statutes/26/32/c/2#self_employment_earned_income_component: 900
 """
         )
         args = SimpleNamespace(
@@ -6730,7 +6732,7 @@ rules: []
                                 error=(
                                     "Test case `transitive_case` execution failed: "
                                     "dataset input "
-                                    "`us:statutes/26/1401#input.self_employment_income` "
+                                    "`tmp-rulespec:statutes/26/1401#input.self_employment_income` "
                                     "must use an absolute legal RuleSpec reference "
                                     "that resolves to an input slot, derived rule, "
                                     "or parameter in the compiled program"
@@ -6746,6 +6748,19 @@ rules: []
                                 error=(
                                     "Test case `transitive_case` execution failed: "
                                     "missing input `self_employment_income`"
+                                )
+                            )
+                        },
+                    )
+                if FakePipeline.calls == 3:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` output "
+                                    "`tmp-rulespec:statutes/26/32/c/2#self_employment_earned_income_component` "
+                                    "expected decimal 900, got decimal 1000."
                                 )
                             )
                         },
@@ -6769,6 +6784,10 @@ rules: []
         assert "us:statutes/26/1401#input.self_employment_income" not in updated
         assert "us:statutes/26/32/c/2#input.taxpayer_is_individual: true" in updated
         assert "us:statutes/26/1401/b/1#input.self_employment_income: 0" in updated
+        assert (
+            "us:statutes/26/32/c/2#self_employment_earned_income_component: 1000"
+            in updated
+        )
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "imported-test-inputs-v1"
@@ -9651,6 +9670,164 @@ rules:
             "statutes/26/22.yaml",
             "statutes/26/22.test.yaml",
         ]
+
+    def test_repair_proof_import_hashes_removes_stale_invalid_test_inputs(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/1401/b/1.yaml"
+        target = policy_repo / "statutes/26/32/c/2.yaml"
+        test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
+        imported.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_income_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_income * 0.029
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401/b/1#self_employment_income_tax
+rules:
+  - name: self_employment_earned_income_component
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1401/b/1#self_employment_income_tax
+              output: self_employment_income_tax
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_income_tax
+"""
+        )
+        test_file.write_text(
+            """- name: transitive_case
+  input:
+    us:statutes/26/1401#input.self_employment_income: 1000
+    us:statutes/26/32/c/2#input.taxpayer_is_individual: true
+  output:
+    us:statutes/26/32/c/2#self_employment_earned_income_component: 900
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/32/c/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                FakePipeline.calls += 1
+                if FakePipeline.calls == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` execution failed: "
+                                    "dataset input "
+                                    "`tmp-rulespec:statutes/26/1401#input.self_employment_income` "
+                                    "must use an absolute legal RuleSpec reference "
+                                    "that resolves to an input slot, derived rule, "
+                                    "or parameter in the compiled program"
+                                )
+                            )
+                        },
+                    )
+                if FakePipeline.calls == 2:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` execution failed: "
+                                    "missing input `self_employment_income`"
+                                )
+                            )
+                        },
+                    )
+                if FakePipeline.calls == 3:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` output "
+                                    "`tmp-rulespec:statutes/26/32/c/2#self_employment_earned_income_component` "
+                                    "expected decimal 900, got decimal 1000."
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_proof_import_hashes(args)
+
+        target_content = target.read_text()
+        assert "sha256:old" not in target_content
+        updated_test = test_file.read_text()
+        assert "us:statutes/26/1401#input.self_employment_income" not in updated_test
+        assert "us:statutes/26/1401/b/1#input.self_employment_income: 0" in updated_test
+        assert (
+            "us:statutes/26/32/c/2#self_employment_earned_income_component: 1000"
+            in updated_test
+        )
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "proof-import-hash-v1"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/32/c/2.yaml",
+            "statutes/26/32/c/2.test.yaml",
+        ]
+
+    def test_missing_input_default_treats_base_as_numeric(self):
+        assert (
+            _infer_missing_input_default(
+                "contribution_and_benefit_base_under_section_230_of_social_security_act"
+            )
+            == 999999999
+        )
+
+    def test_missing_input_default_does_not_treat_taxpayer_as_tax_numeric(self):
+        assert (
+            _infer_missing_input_default("is_dependent_under_section_152_of_taxpayer")
+            is False
+        )
 
     def test_repair_imported_proof_hashes_writes_target_file_hash(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"

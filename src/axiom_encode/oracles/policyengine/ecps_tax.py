@@ -73,6 +73,7 @@ SECTION_152_C_BASE = "us:statutes/26/152/c"
 SECTION_164_F_BASE = "us:statutes/26/164/f"
 SECTION_1401_BASE = "us:statutes/26/1401"
 SECTION_1402_A_BASE = "us:statutes/26/1402/a"
+SECTION_1402_B_BASE = "us:statutes/26/1402/b"
 SECTION_7703_BASE = "us:statutes/26/7703"
 
 
@@ -523,7 +524,9 @@ def compare_tax_ecps(
         program = resolved_rulespec_root / SURFACE_PROGRAM_PATHS[selected_surface]
         if not program.exists():
             raise SystemExit(f"{selected_surface} RuleSpec not found: {program}")
-        if payroll_surface_uses_axiom_3121(selected_surface):
+        if selected_surface == "eitc" or payroll_surface_uses_axiom_3121(
+            selected_surface
+        ):
             if contribution_base is None:
                 contribution_base_program = (
                     resolved_rulespec_root
@@ -566,6 +569,7 @@ def compare_tax_ecps(
             year=year,
             surface=selected_surface,
             oasdi_wage_base_results=oasdi_wage_base_results,
+            contribution_base=contribution_base,
         )
         surface_results[selected_surface] = run_axiom_program(
             program=program,
@@ -777,6 +781,7 @@ def build_axiom_request(
     year: int,
     surface: str = "ctc",
     oasdi_wage_base_results: list[dict[str, Any]] | None = None,
+    contribution_base: float | None = None,
 ) -> dict[str, Any]:
     if surface == "ctc":
         return build_ctc_request(pe_data=pe_data, year=year)
@@ -785,7 +790,13 @@ def build_axiom_request(
     if surface == "capital-gain-definitions":
         return build_capital_gain_definitions_request(pe_data=pe_data, year=year)
     if surface == "eitc":
-        return build_eitc_request(pe_data=pe_data, year=year)
+        if contribution_base is None:
+            raise ValueError("EITC comparison requires a contribution-and-benefit base")
+        return build_eitc_request(
+            pe_data=pe_data,
+            year=year,
+            contribution_base=contribution_base,
+        )
     if surface in PAYROLL_SURFACES:
         return build_payroll_request(
             pe_data=pe_data,
@@ -952,7 +963,9 @@ def build_capital_gain_definitions_request(
     }
 
 
-def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+def build_eitc_request(
+    *, pe_data: dict[str, Any], year: int, contribution_base: float
+) -> dict[str, Any]:
     interval = {
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
@@ -1011,6 +1024,19 @@ def build_eitc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
             inputs.append(
                 input_record(
                     f"{SECTION_1402_A_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        for name, value in project_section_1402_b_tax_unit_inputs(
+            persons=tax_unit_persons,
+            contexts=contexts,
+            contribution_base=contribution_base,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_1402_B_BASE}#input.{name}",
                     entity_id,
                     interval,
                     value,
@@ -1505,31 +1531,37 @@ def project_section_164_f_tax_unit_inputs() -> dict[str, Any]:
     return {"taxpayer_is_individual": True}
 
 
+def project_section_1402_b_tax_unit_inputs(
+    *,
+    persons: list[Any],
+    contexts: list[PersonProjectionContext],
+    contribution_base: float,
+) -> dict[str, Any]:
+    wages_paid = sum(
+        project_fica_wages(person)
+        for person, context in zip(persons, contexts, strict=True)
+        if context.is_head or context.is_spouse
+    )
+    return {
+        "individual_is_nonresident_alien": False,
+        "social_security_agreement_under_section_233_applies_to_nonresident_alien": False,
+        "individual_is_noncitizen_territory_resident": False,
+        "contribution_and_benefit_base_under_section_230_of_social_security_act": (
+            contribution_base
+        ),
+        "wages_paid_to_individual_for_section_1401_a": money(wages_paid),
+    }
+
+
 def project_section_1401_tax_unit_inputs(
     *,
     row: Any,
     persons: list[Any],
     contexts: list[PersonProjectionContext],
 ) -> dict[str, Any]:
-    section_1402_inputs = project_section_1402_a_tax_unit_inputs(
-        persons=persons,
-        contexts=contexts,
-    )
-    net_earnings_before_paragraph_12 = (
-        section_1402_inputs["self_employment_trade_or_business_gross_income"]
-        - section_1402_inputs["self_employment_trade_or_business_deductions"]
-        + section_1402_inputs["partnership_section_702_a_8_income_or_loss"]
-    )
-    net_earnings_after_paragraph_12 = net_earnings_before_paragraph_12 * (1 - 0.0765)
-    self_employment_income = (
-        0
-        if net_earnings_after_paragraph_12 < 400
-        else max(0, net_earnings_after_paragraph_12)
-    )
     return {
         "international_social_security_agreement_under_section_233_in_effect": False,
         "filing_status": filing_status_code(str(row["filing_status"])),
-        "self_employment_income": money(self_employment_income),
         "wages_taken_into_account_for_additional_medicare_tax": 0,
     }
 
