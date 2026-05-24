@@ -10730,6 +10730,23 @@ def _title_qualified_reference_for_section(
     return None
 
 
+def _section_reference_to_named_act_without_title(
+    section: str,
+    source_text: str,
+) -> bool:
+    """Return whether source cites `section X of the Some Act` without USC title."""
+    return (
+        re.search(
+            rf"\bsection\s+{re.escape(section)}(?:\([^)]+\))*\s+of\s+"
+            r"(?:the\s+)?(?!title\s+\d+\b)"
+            r"[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+Act\b",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
 def _is_exception_identifier(identifier: str) -> bool:
     normalized = identifier.lower()
     return any(
@@ -14553,6 +14570,8 @@ class ValidatorPipeline:
                 continue
             break
         section = match.group("section")
+        if _section_reference_to_named_act_without_title(section, source_text):
+            return None
         target_title = (
             _title_qualified_reference_for_section(section, source_text) or title
         )
@@ -14614,6 +14633,8 @@ class ValidatorPipeline:
             )
             and citation.lower() not in source_text.lower()
         ):
+            return None
+        if _section_reference_to_named_act_without_title(section, source_text):
             return None
         target_title = (
             _title_qualified_reference_for_section(section, source_text) or title
