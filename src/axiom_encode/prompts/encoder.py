@@ -541,8 +541,9 @@ Hard requirements:
   companion tests for the positive path and the carve-out path so exclusions
   cannot be silently dropped.
 - For scoped exceptions, include a control case proving a non-excepted
-  qualifying item is not reduced or blocked by the exception amount, plus a case
-  where the same exception applies to the source-stated excepted category.
+  qualifying item is not reduced or blocked even when the exception amount or
+  exception fact is positive/nonzero, plus a case where the same exception
+  applies to the source-stated excepted category.
 - When a local formula has five or fewer independent source-stated boolean
   gates joined by `and`, include one all-gates-positive case and enough negative
   cases to toggle each gate at least once. Do not leave a source-stated gate

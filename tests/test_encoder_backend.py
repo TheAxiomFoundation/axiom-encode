@@ -96,7 +96,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "source-stated formula executable" in ENCODER_PROMPT
     assert "defer only that branch" in ENCODER_PROMPT
     assert "predicate for the excepted category" in ENCODER_PROMPT
-    assert "non-excepted" in ENCODER_PROMPT
+    assert "positive/nonzero" in ENCODER_PROMPT
     assert "toggle each gate at least once" in ENCODER_PROMPT
     assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT
     assert "unit-level placeholder or aggregate base by the rate" in ENCODER_PROMPT
@@ -139,7 +139,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "source-stated formula executable" in prompt
     assert "defer only that branch" in prompt
     assert "predicate for the excepted category" in prompt
-    assert "non-excepted" in prompt
+    assert "positive/nonzero" in prompt
     assert "toggle each gate at least once" in prompt
     assert "rate-applied result at the source-stated lower entity" in prompt
     assert "unit-level placeholder or aggregate base by the rate" in prompt
