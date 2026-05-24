@@ -1161,6 +1161,30 @@ def test_fica_wage_projection_does_not_subtract_retirement_deferrals():
     assert projected == 94_350
 
 
+def test_fica_wage_projection_prefers_policyengine_employment_income():
+    projected = project_fica_wages(
+        {
+            "employment_income": 100_000,
+            "employment_income_before_lsr": 110_000,
+            "pre_tax_health_insurance_premiums": 5_000,
+        }
+    )
+
+    assert projected == 95_000
+
+
+def test_fica_wage_projection_does_not_double_subtract_payroll_wage_fallback():
+    projected = project_fica_wages(
+        {
+            "payroll_tax_gross_wages": 94_350,
+            "pre_tax_health_insurance_premiums": 5_606,
+            "health_savings_account_payroll_contributions": 6_750,
+        }
+    )
+
+    assert projected == 94_350
+
+
 def test_fica_wage_projection_falls_back_to_payroll_wages_for_unit_fixtures():
     assert project_fica_wages({"payroll_tax_gross_wages": 80_000}) == 80_000
 
@@ -1289,6 +1313,43 @@ def test_build_medicare_payroll_request_uses_projected_fica_wages():
     assert input_values["us:statutes/26/3101/b/1#input.wages"] == "94350.0"
 
 
+def test_policyengine_variables_for_payroll_surface_are_person_scoped():
+    tax_unit_variables, person_variables = ecps_tax.policyengine_variables_for_surfaces(
+        ["employee-medicare"]
+    )
+
+    assert tax_unit_variables == ()
+    assert person_variables == (
+        "employee_medicare_tax",
+        "employment_income",
+        "health_savings_account_payroll_contributions",
+        "payroll_tax_gross_wages",
+        "pre_tax_health_insurance_premiums",
+    )
+
+
+def test_policyengine_variables_for_positive_ctc_payroll_surface_selects_ctc():
+    tax_unit_variables, person_variables = ecps_tax.policyengine_variables_for_surfaces(
+        ["employee-oasdi"],
+        positive_ctc_only=True,
+    )
+
+    assert tax_unit_variables == ("ctc",)
+    assert "employee_social_security_tax" in person_variables
+    assert "pre_tax_health_insurance_premiums" in person_variables
+
+
+def test_policyengine_variables_for_non_payroll_surfaces_use_legacy_sets():
+    assert ecps_tax.policyengine_variables_for_surfaces(["ctc"]) == (
+        ecps_tax.PE_TAX_UNIT_VARIABLES,
+        ecps_tax.PE_PERSON_VARIABLES,
+    )
+    assert ecps_tax.policyengine_variables_for_surfaces(["employee-oasdi", "ctc"]) == (
+        ecps_tax.PE_TAX_UNIT_VARIABLES,
+        ecps_tax.PE_PERSON_VARIABLES,
+    )
+
+
 def test_taxable_oasdi_wages_come_from_axiom_3121_results():
     pd = pytest.importorskip("pandas")
     pe_data = {
@@ -1397,7 +1458,21 @@ def test_compare_oasdi_stage_runs_encoded_ssa_base_before_3121(
     }
     monkeypatch.setattr(ecps_tax, "require_numpy", lambda: None)
     monkeypatch.setattr(ecps_tax, "require_policyengine_versions", lambda **_: None)
-    monkeypatch.setattr(ecps_tax, "load_policyengine_tax_data", lambda **_: pe_data)
+
+    def fake_load_policyengine_tax_data(**kwargs):
+        assert kwargs["tax_unit_variables"] == ()
+        assert kwargs["person_variables"] == (
+            "employee_social_security_tax",
+            "employment_income",
+            "health_savings_account_payroll_contributions",
+            "payroll_tax_gross_wages",
+            "pre_tax_health_insurance_premiums",
+        )
+        return pe_data
+
+    monkeypatch.setattr(
+        ecps_tax, "load_policyengine_tax_data", fake_load_policyengine_tax_data
+    )
 
     calls = []
 
@@ -1496,7 +1571,7 @@ def test_policyengine_version_guard_rejects_unpinned_core_version(monkeypatch):
         if package == "policyengine-core":
             return "999.0.0"
         if package == "policyengine-us":
-            return "1.691.3"
+            return "1.700.0"
         raise AssertionError(package)
 
     monkeypatch.setattr(ecps_tax, "version", fake_version)
