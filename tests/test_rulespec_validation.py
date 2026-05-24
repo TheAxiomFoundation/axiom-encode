@@ -55,6 +55,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
+    find_scoped_exception_category_gate_issues,
     find_shared_statutory_rate_entity_suffix_name_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
@@ -8061,6 +8062,265 @@ rules:
     assert "Source table row/band scalar parameters" in issues[0]
     assert "avg_ratio_threshold_row_0_upper_2_5" in issues[0]
     assert "`indexed_by`" in issues[0]
+
+
+def test_scoped_exception_category_amount_requires_category_gate():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_plan_payment_qualifies_for_wage_exclusion
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_qualifies
+  - name: employer_plan_benefit_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph does not apply to a payment for group-term life insurance to the extent that such payment is includible in gross income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employer_plan_payment_qualifies_for_wage_exclusion: max(0, payment_amount - group_term_life_insurance_payment_amount_includible_in_employee_gross_income) else: 0
+"""
+
+    issues = find_scoped_exception_category_gate_issues(content)
+
+    assert len(issues) == 1
+    assert "Scoped exception category not gated" in issues[0]
+    assert "group-term life insurance" in issues[0]
+
+
+def test_scoped_exception_category_amount_allows_helper_gate():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_plan_payment_qualifies_for_wage_exclusion
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_qualifies
+  - name: group_term_life_insurance_includible_carveout_from_exclusion
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if payment_is_for_group_term_life_insurance: min(payment_amount, group_term_life_insurance_payment_amount_includible_in_employee_gross_income) else: 0
+  - name: employer_plan_benefit_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph does not apply to a payment for group-term life insurance to the extent that such payment is includible in gross income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employer_plan_payment_qualifies_for_wage_exclusion: max(0, payment_amount - group_term_life_insurance_includible_carveout_from_exclusion) else: 0
+"""
+
+    issues = find_scoped_exception_category_gate_issues(content)
+
+    assert issues == []
+
+
+def test_scoped_exception_category_amount_name_with_for_is_not_predicate():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_plan_benefit_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph does not apply to a payment for group-term life insurance to the extent that such payment is includible in gross income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employer_plan_payment_qualifies_for_wage_exclusion: max(0, payment_amount - payment_for_group_term_life_insurance_amount_includible_in_employee_gross_income) else: 0
+"""
+
+    issues = find_scoped_exception_category_gate_issues(content)
+
+    assert len(issues) == 1
+    assert "Scoped exception category not gated" in issues[0]
+
+
+def test_scoped_exception_category_predicate_must_gate_amount_branch():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_plan_benefit_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph does not apply to a payment for group-term life insurance to the extent that such payment is includible in gross income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employer_plan_payment_qualifies_for_wage_exclusion: max(0, payment_amount - group_term_life_insurance_payment_amount_includible_in_employee_gross_income) else: 0 * payment_is_for_group_term_life_insurance
+"""
+
+    issues = find_scoped_exception_category_gate_issues(content)
+
+    assert len(issues) == 1
+    assert "Scoped exception category not gated" in issues[0]
+
+
+def test_scoped_exception_category_amount_rejects_wrong_polarity_branch():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_plan_benefit_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph does not apply to a payment for group-term life insurance to the extent that such payment is includible in gross income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if payment_is_for_group_term_life_insurance: payment_amount else: max(0, payment_amount - group_term_life_insurance_payment_amount_includible_in_employee_gross_income)
+"""
+
+    issues = find_scoped_exception_category_gate_issues(content)
+
+    assert len(issues) == 1
+    assert "Scoped exception category not gated" in issues[0]
+
+
+def test_scoped_exception_category_amount_allows_positive_polarity_branch():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_plan_benefit_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph does not apply to a payment for group-term life insurance to the extent that such payment is includible in gross income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if payment_is_for_group_term_life_insurance: max(0, payment_amount - group_term_life_insurance_payment_amount_includible_in_employee_gross_income) else: payment_amount
+"""
+
+    issues = find_scoped_exception_category_gate_issues(content)
+
+    assert issues == []
+
+
+def test_scoped_exception_category_amount_rejects_wrong_polarity_helper():
+    content = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: group_term_life_insurance_includible_carveout_from_exclusion
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if payment_is_for_group_term_life_insurance: 0 else: group_term_life_insurance_payment_amount_includible_in_employee_gross_income
+  - name: employer_plan_benefit_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph does not apply to a payment for group-term life insurance to the extent that such payment is includible in gross income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employer_plan_payment_qualifies_for_wage_exclusion: max(0, payment_amount - group_term_life_insurance_includible_carveout_from_exclusion) else: 0
+"""
+
+    issues = find_scoped_exception_category_gate_issues(content)
+
+    assert len(issues) == 1
+    assert "Scoped exception category not gated" in issues[0]
 
 
 def test_source_table_band_bound_scalar_parameters_are_rejected():

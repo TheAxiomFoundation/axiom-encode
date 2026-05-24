@@ -8984,6 +8984,450 @@ def find_partial_extent_zeroing_issues(content: str) -> list[str]:
     return issues
 
 
+_SCOPED_EXCEPTION_CATEGORY_PATTERN = re.compile(
+    r"\b(?:does\s+not\s+apply\s+to|shall\s+not\s+apply\s+to|except(?:\s+that)?|other\s+than)\b"
+    r"[^.;]{0,180}?\b(?:a|an|any|the)?\s*"
+    r"(?:payment|amount|expense|benefit|item|income|compensation|wages?)\s+for\s+"
+    r"(?P<category>[a-z0-9][a-z0-9\s'/-]{2,100}?)"
+    r"(?:\s+to\s+the\s+extent|\s+which\b|\s+that\b|[,.;]|$)",
+    flags=re.IGNORECASE,
+)
+_SCOPED_EXCEPTION_TOKEN_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "any",
+    "for",
+    "in",
+    "of",
+    "or",
+    "the",
+    "to",
+}
+_SCOPED_EXCEPTION_AMOUNT_TOKENS = {
+    "amount",
+    "amounts",
+    "benefit",
+    "benefits",
+    "compensation",
+    "cost",
+    "costs",
+    "expense",
+    "expenses",
+    "income",
+    "includable",
+    "included",
+    "includible",
+    "payment",
+    "payments",
+    "value",
+    "wage",
+    "wages",
+}
+_SCOPED_EXCEPTION_PREDICATE_TOKENS = {
+    "applies",
+    "apply",
+    "category",
+    "condition",
+    "eligible",
+    "is",
+    "kind",
+    "qualified",
+    "qualifies",
+    "status",
+    "type",
+}
+_SCOPED_EXCEPTION_STRONG_PREDICATE_TOKENS = {
+    "applies",
+    "apply",
+    "category",
+    "condition",
+    "eligible",
+    "is",
+    "kind",
+    "qualifies",
+    "status",
+    "type",
+}
+
+
+def find_scoped_exception_category_gate_issues(content: str) -> list[str]:
+    """Require source-scoped exception amounts to be gated by category predicates."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    formula_records = _rulespec_rule_formula_rule_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source, _rule in formula_records
+        if kind == "derived" and name
+    }
+    issues: list[str] = []
+    for name, kind, formula, _source, rule in formula_records:
+        if kind != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype in {"judgment", "boolean", "bool"}:
+            continue
+        categories = _rule_scoped_exception_categories(rule)
+        if not categories:
+            continue
+        for category in categories:
+            category_tokens = _scoped_exception_category_tokens(category)
+            if not category_tokens:
+                continue
+            if not _formula_or_referenced_helpers_have_ungated_category_amount(
+                formula,
+                category_tokens=category_tokens,
+                formula_by_name=formula_by_name,
+                current_name=name,
+            ):
+                continue
+            issues.append(
+                "Scoped exception category not gated: "
+                f"`{name}` applies the `{category}` exception amount without a "
+                "category predicate. Add a source-stated predicate such as "
+                f"`*_is_for_{_normalize_identifier(category)}` and gate the "
+                "carve-out through that predicate so non-excepted qualifying "
+                "items are not reduced by a positive exception amount."
+            )
+    return issues
+
+
+def _rule_scoped_exception_categories(rule: dict[str, Any]) -> list[str]:
+    proof = _rule_proof_payload(rule)
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if not isinstance(atoms, list):
+        return []
+    categories: list[str] = []
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        if str(atom.get("kind") or "").strip().lower() != "exception":
+            continue
+        source = atom.get("source")
+        excerpt = ""
+        if isinstance(source, dict):
+            excerpt = str(source.get("excerpt") or "").strip()
+        if not excerpt:
+            continue
+        for match in _SCOPED_EXCEPTION_CATEGORY_PATTERN.finditer(excerpt):
+            category = " ".join(match.group("category").split())
+            if category and category not in categories:
+                categories.append(category)
+    return categories
+
+
+def _scoped_exception_category_tokens(category: str) -> tuple[str, ...]:
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+", category.lower())
+        if len(token) > 1 and token not in _SCOPED_EXCEPTION_TOKEN_STOPWORDS
+    ]
+    return tuple(tokens)
+
+
+def _identifier_contains_category(
+    identifier: str, category_tokens: tuple[str, ...]
+) -> bool:
+    if not category_tokens:
+        return False
+    identifier_tokens = set(re.findall(r"[a-z0-9]+", identifier.lower()))
+    return all(token in identifier_tokens for token in category_tokens)
+
+
+def _identifier_is_scoped_exception_amount(
+    identifier: str,
+    category_tokens: tuple[str, ...],
+) -> bool:
+    if not _identifier_contains_category(identifier, category_tokens):
+        return False
+    identifier_tokens = set(re.findall(r"[a-z0-9]+", identifier.lower()))
+    return bool(identifier_tokens & _SCOPED_EXCEPTION_AMOUNT_TOKENS)
+
+
+def _identifier_is_scoped_exception_predicate(
+    identifier: str,
+    category_tokens: tuple[str, ...],
+) -> bool:
+    if not _identifier_contains_category(identifier, category_tokens):
+        return False
+    identifier_tokens = set(re.findall(r"[a-z0-9]+", identifier.lower()))
+    predicate_tokens = identifier_tokens & _SCOPED_EXCEPTION_PREDICATE_TOKENS
+    if not predicate_tokens:
+        return False
+    if (identifier_tokens & _SCOPED_EXCEPTION_AMOUNT_TOKENS) and not (
+        identifier_tokens & _SCOPED_EXCEPTION_STRONG_PREDICATE_TOKENS
+    ):
+        return False
+    return True
+
+
+def _formula_or_referenced_helpers_have_ungated_category_amount(
+    formula: str,
+    *,
+    category_tokens: tuple[str, ...],
+    formula_by_name: dict[str, str],
+    current_name: str,
+    gate_context: bool = False,
+    seen: set[str] | None = None,
+) -> bool:
+    visited = set(seen or set())
+    visited.add(current_name)
+
+    conditional = _split_rulespec_inline_conditional(formula)
+    if conditional is not None:
+        condition, then_formula, else_formula = conditional
+        then_has_category_gate, else_has_category_gate = _formula_category_branch_gates(
+            condition,
+            category_tokens=category_tokens,
+        )
+        return _formula_or_referenced_helpers_have_ungated_category_amount(
+            then_formula,
+            category_tokens=category_tokens,
+            formula_by_name=formula_by_name,
+            current_name=current_name,
+            gate_context=gate_context or then_has_category_gate,
+            seen=visited,
+        ) or _formula_or_referenced_helpers_have_ungated_category_amount(
+            else_formula,
+            category_tokens=category_tokens,
+            formula_by_name=formula_by_name,
+            current_name=current_name,
+            gate_context=gate_context or else_has_category_gate,
+            seen=visited,
+        )
+
+    for identifier in _formula_local_identifiers(formula):
+        is_category_amount = _identifier_is_scoped_exception_amount(
+            identifier,
+            category_tokens,
+        )
+        if identifier in formula_by_name and identifier not in visited:
+            helper_formula = formula_by_name[identifier]
+            if is_category_amount:
+                if gate_context or _formula_output_is_category_gated(
+                    helper_formula,
+                    category_tokens=category_tokens,
+                ):
+                    continue
+                return True
+            if _formula_or_referenced_helpers_have_ungated_category_amount(
+                helper_formula,
+                category_tokens=category_tokens,
+                formula_by_name=formula_by_name,
+                current_name=identifier,
+                gate_context=gate_context,
+                seen=visited,
+            ):
+                return True
+            continue
+        if is_category_amount and not gate_context:
+            return True
+    return False
+
+
+def _formula_output_is_category_gated(
+    formula: str,
+    *,
+    category_tokens: tuple[str, ...],
+) -> bool:
+    stripped = formula.strip()
+    if not stripped:
+        return False
+    if re.fullmatch(r"0(?:\.0+)?", stripped):
+        return True
+
+    conditional = _split_rulespec_inline_conditional(stripped)
+    if conditional is None:
+        return False
+
+    condition, then_formula, else_formula = conditional
+    then_has_category_gate, else_has_category_gate = _formula_category_branch_gates(
+        condition,
+        category_tokens=category_tokens,
+    )
+    return (
+        then_has_category_gate
+        or _formula_output_is_category_gated(
+            then_formula,
+            category_tokens=category_tokens,
+        )
+    ) and (
+        else_has_category_gate
+        or _formula_output_is_category_gated(
+            else_formula,
+            category_tokens=category_tokens,
+        )
+    )
+
+
+def _formula_category_branch_gates(
+    formula: str,
+    *,
+    category_tokens: tuple[str, ...],
+) -> tuple[bool, bool]:
+    occurrences = _formula_category_predicate_occurrences(
+        formula,
+        category_tokens=category_tokens,
+    )
+    has_positive = any(not negated for _identifier, negated in occurrences)
+    has_negative = any(negated for _identifier, negated in occurrences)
+    if has_positive == has_negative:
+        return False, False
+    return has_positive, has_negative
+
+
+def _formula_category_predicate_occurrences(
+    formula: str,
+    *,
+    category_tokens: tuple[str, ...],
+) -> list[tuple[str, bool]]:
+    occurrences: list[tuple[str, bool]] = []
+    for match in _RULESPEC_IDENTIFIER.finditer(formula):
+        identifier = match.group(0)
+        if identifier in _RULESPEC_FORMULA_BUILTINS:
+            continue
+        if not _identifier_is_scoped_exception_predicate(
+            identifier,
+            category_tokens,
+        ):
+            continue
+        occurrences.append(
+            (
+                identifier,
+                _formula_identifier_reference_is_negated(formula, match),
+            )
+        )
+    return occurrences
+
+
+def _formula_identifier_reference_is_negated(
+    formula: str,
+    match: re.Match[str],
+) -> bool:
+    prefix = formula[: match.start()].rstrip()
+    if re.search(r"(?:^|[^A-Za-z0-9_])not\s*$", prefix, flags=re.IGNORECASE):
+        return True
+    suffix = formula[match.end() :].lstrip().lower()
+    return suffix.startswith("== false") or suffix.startswith("!= true")
+
+
+def _split_rulespec_inline_conditional(formula: str) -> tuple[str, str, str] | None:
+    text = formula.strip()
+    head = re.match(r"^(?:if|elif)\b", text, flags=re.IGNORECASE)
+    if head is None:
+        return None
+
+    colon_index = _find_rulespec_top_level_colon(text, head.end())
+    if colon_index is None:
+        return None
+
+    else_match = _find_rulespec_top_level_else(text, colon_index + 1)
+    if else_match is None:
+        return None
+    else_index, else_colon_index = else_match
+    condition = text[head.end() : colon_index].strip()
+    then_formula = text[colon_index + 1 : else_index].strip()
+    else_formula = text[else_colon_index + 1 :].strip()
+    return condition, then_formula, else_formula
+
+
+def _find_rulespec_top_level_colon(text: str, start: int) -> int | None:
+    depth = 0
+    quote: str | None = None
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == quote and (index == 0 or text[index - 1] != "\\"):
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}" and depth:
+            depth -= 1
+        elif char == ":" and depth == 0:
+            return index
+        index += 1
+    return None
+
+
+def _find_rulespec_top_level_else(text: str, start: int) -> tuple[int, int] | None:
+    depth = 0
+    quote: str | None = None
+    nested_conditionals = 0
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == quote and text[index - 1] != "\\":
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            if depth:
+                depth -= 1
+            index += 1
+            continue
+        if depth != 0:
+            index += 1
+            continue
+        if _rulespec_word_at(text, index, "if"):
+            nested_conditionals += 1
+            index += 2
+            continue
+        if _rulespec_word_at(text, index, "elif"):
+            nested_conditionals += 1
+            index += 4
+            continue
+        if _rulespec_word_at(text, index, "else"):
+            colon_index = _find_rulespec_else_colon(text, index + len("else"))
+            if colon_index is None:
+                index += 1
+                continue
+            if nested_conditionals:
+                nested_conditionals -= 1
+                index = colon_index + 1
+                continue
+            return index, colon_index
+        index += 1
+    return None
+
+
+def _rulespec_word_at(text: str, index: int, word: str) -> bool:
+    end = index + len(word)
+    if text[index:end].lower() != word:
+        return False
+    before = text[index - 1] if index > 0 else ""
+    after = text[end] if end < len(text) else ""
+    return not (
+        (before and re.match(r"[A-Za-z0-9_]", before))
+        or (after and re.match(r"[A-Za-z0-9_]", after))
+    )
+
+
+def _find_rulespec_else_colon(text: str, start: int) -> int | None:
+    index = start
+    while index < len(text) and text[index].isspace():
+        index += 1
+    if index < len(text) and text[index] == ":":
+        return index
+    return None
+
+
 def _rulespec_rule_dtype_by_name(payload: dict[str, Any]) -> dict[str, str]:
     rules = payload.get("rules")
     if not isinstance(rules, list):
@@ -13761,6 +14205,7 @@ class ValidatorPipeline:
         issues.extend(find_entity_limited_aggregation_order_issues(content))
         issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_partial_extent_zeroing_issues(content))
+        issues.extend(find_scoped_exception_category_gate_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(find_import_shape_issues(content))
