@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.proof_validator import (
@@ -81,6 +82,7 @@ from axiom_encode.harness.validator_pipeline import (
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
+    repair_source_table_interval_row_alignment,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -8947,6 +8949,104 @@ rules:
     assert "average_account_benefits_ratio < 3.0" in repaired
     assert "average_account_benefits_ratio_band" in repaired_rules
     assert find_source_table_row_scalar_parameter_issues(repaired) == []
+
+
+def test_repair_source_table_interval_alignment_parses_compact_rows():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tax rate schedule | Average account benefits ratio | Applicable percentage for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b) | | | ------------------------------ | ------------------------------------------------------ | ----------------------------------------- | --- | | At least | But less than | | | | .............. | 2.5 | 22.1 | 4.9 | | 2.5 | 3.0 | 18.1 | 4.9 | | 3.0 | 3.5 | 15.1 | 4.9 | | 3.5 | 4.0 | 14.1 | 4.9 | | 4.0 | 6.1 | 13.1 | 4.9 | | 6.1 | 6.5 | 12.6 | 4.4 | | 6.5 | 7.0 | 12.1 | 3.9 | | 7.0 | 7.5 | 11.6 | 3.4 | | 7.5 | 8.0 | 11.1 | 2.9 | | 8.0 | 8.5 | 10.1 | 1.9 | | 8.5 | 9.0 | 9.1 | 0.9 | | 9.0 | .............. | 8.2 | 0 |
+rules:
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if average_account_benefits_ratio >= 2.5 and average_account_benefits_ratio < 3.0: 1
+          else: if average_account_benefits_ratio >= 3.0 and average_account_benefits_ratio < 3.5: 2
+          else: if average_account_benefits_ratio >= 3.5 and average_account_benefits_ratio < 4.0: 3
+          else: if average_account_benefits_ratio >= 4.0 and average_account_benefits_ratio < 6.1: 4
+          else: if average_account_benefits_ratio >= 6.1 and average_account_benefits_ratio < 6.5: 5
+          else: if average_account_benefits_ratio >= 6.5 and average_account_benefits_ratio < 7.0: 6
+          else: if average_account_benefits_ratio >= 7.0 and average_account_benefits_ratio < 7.5: 7
+          else: if average_account_benefits_ratio >= 7.5 and average_account_benefits_ratio < 8.0: 8
+          else: if average_account_benefits_ratio >= 8.0 and average_account_benefits_ratio < 8.5: 9
+          else: if average_account_benefits_ratio >= 8.5 and average_account_benefits_ratio < 9.0: 10
+          else: if average_account_benefits_ratio >= 9.0: 11 else: 0
+  - name: applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          1: 0.221
+          2: 0.181
+          3: 0.151
+          4: 0.141
+          5: 0.131
+          6: 0.126
+          7: 0.121
+          8: 0.116
+          9: 0.111
+          10: 0.101
+          11: 0.082
+  - name: applicable_percentage_for_section_3201_b_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+          3: 0.049
+          4: 0.049
+          5: 0.044
+          6: 0.039
+          7: 0.034
+          8: 0.029
+          9: 0.019
+          10: 0.009
+          11: 0.0
+"""
+
+    repaired, repaired_rules = repair_source_table_interval_row_alignment(content)
+
+    assert "average_account_benefits_ratio_band" in repaired_rules
+    payload = yaml.safe_load(repaired)
+    selector = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band"
+    )
+    assert selector["versions"][0]["formula"].startswith(
+        "if average_account_benefits_ratio < 2.5: 1 else: "
+        "if average_account_benefits_ratio >= 2.5"
+    )
+    assert selector["versions"][0]["formula"].endswith(
+        "if average_account_benefits_ratio >= 8.5 and "
+        "average_account_benefits_ratio < 9.0: 11 else: 12"
+    )
+    sections_3211_3221 = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"]
+        == "applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band"
+    )
+    section_3201 = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "applicable_percentage_for_section_3201_b_by_ratio_band"
+    )
+    assert sections_3211_3221["versions"][0]["values"][11] == 0.091
+    assert sections_3211_3221["versions"][0]["values"][12] == 0.082
+    assert section_3201["versions"][0]["values"][5] == 0.049
+    assert section_3201["versions"][0]["values"][11] == 0.009
+    assert section_3201["versions"][0]["values"][12] == 0.0
 
 
 def test_repair_source_table_band_bound_scalars_inlines_adjacent_min_max():
