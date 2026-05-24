@@ -30,6 +30,7 @@ from axiom_encode.cli import (
     _ensure_generated_dependency_files_safe,
     _find_rulespec_dependents,
     _has_zero_output_test,
+    _hoist_nested_test_tables,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _repair_employer_scoped_entities,
@@ -4471,6 +4472,160 @@ rules:
             "single_senior_after_2017_exemption_zero_and_senior_deduction_allowed"
         ]
         assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_hoist_nested_test_tables_normalizes_entity_rows(self, tmp_path):
+        test_file = tmp_path / "3121" / "a" / "2.test.yaml"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(
+            """- name: sickness_disability_payment_received_under_workmans_compensation_law_excluded
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    tables:
+      Payment:
+      - us:statutes/26/3121/a/2#input.payment_amount: 1000
+        us:statutes/26/3121/a/2#input.payment_received_under_workmans_compensation_law: true
+  output:
+    us:statutes/26/3121/a/2#employer_plan_sickness_medical_death_payment_excluded_from_wages:
+    - 1000
+"""
+        )
+
+        repaired = _hoist_nested_test_tables(test_file)
+
+        assert repaired == [
+            "sickness_disability_payment_received_under_workmans_compensation_law_excluded"
+        ]
+        payload = yaml.safe_load(test_file.read_text())
+        assert payload[0]["input"] == {}
+        assert payload[0]["tables"] == {
+            "Payment": [
+                {
+                    "us:statutes/26/3121/a/2#input.payment_amount": 1000,
+                    "us:statutes/26/3121/a/2#input.payment_received_under_workmans_compensation_law": True,
+                }
+            ]
+        }
+
+    def test_hoist_nested_test_tables_replaces_empty_existing_tables(self, tmp_path):
+        test_file = tmp_path / "3121" / "a" / "2.test.yaml"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(
+            """- name: existing_empty_tables
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  tables: {}
+  input:
+    tables:
+      Payment:
+      - us:statutes/26/3121/a/2#input.payment_amount: 1000
+  output:
+    us:statutes/26/3121/a/2#employer_plan_sickness_medical_death_payment_excluded_from_wages:
+    - 1000
+"""
+        )
+
+        repaired = _hoist_nested_test_tables(test_file)
+
+        assert repaired == ["existing_empty_tables"]
+        payload = yaml.safe_load(test_file.read_text())
+        assert payload[0]["input"] == {}
+        assert payload[0]["tables"] == {
+            "Payment": [{"us:statutes/26/3121/a/2#input.payment_amount": 1000}]
+        }
+
+    def test_encode_apply_auto_repairs_nested_test_tables(self, capsys, tmp_path):
+        args = self._make_args(
+            tmp_path, backend="codex", citation="26 USC 3121(a)(2)", sync=False
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.citation = "26 USC 3121(a)(2)"
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3121"
+            / "a"
+            / "2.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_plan_sickness_medical_death_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_amount
+"""
+        )
+        test_file = output_file.with_name("2.test.yaml")
+        test_file.write_text(
+            """- name: sickness_disability_payment_received_under_workmans_compensation_law_excluded
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    tables:
+      Payment:
+      - us:statutes/26/3121/a/2#input.payment_amount: 1000
+  output:
+    us:statutes/26/3121/a/2#employer_plan_sickness_medical_death_payment_excluded_from_wages:
+    - 1000
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3121/a/2.yaml"
+
+        def validate_after_repair(*args_, **kwargs):
+            payload = yaml.safe_load(test_file.read_text())
+            assert payload[0]["input"] == {}
+            assert "Payment" in payload[0]["tables"]
+            return True, [], {}
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=validate_after_repair,
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_nested_test_tables:"
+            "sickness_disability_payment_received_under_workmans_compensation_law_excluded"
+        ) in output
+        assert mock_overlay.call_count == 1
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_nested_test_tables"] == [
+            "sickness_disability_payment_received_under_workmans_compensation_law_excluded"
+        ]
         assert run.outcome["status"] == "apply_applied"
 
     def test_encode_apply_auto_repairs_imported_output_test_mismatches(
