@@ -15574,6 +15574,10 @@ class ValidatorPipeline:
                 for match in pattern.finditer(segment_text):
                     label = _normalize_identifier(match.group("label"))
                     section = match.group("section")
+                    if _section_reference_to_named_act_without_title(
+                        section, source_text
+                    ):
+                        continue
                     target_title = (
                         _title_qualified_reference_for_section(section, source_text)
                         or title
