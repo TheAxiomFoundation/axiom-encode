@@ -264,6 +264,68 @@ rules:
     assert medicare_rate["tested"] is True
 
 
+def test_policyengine_coverage_maps_section_1401_child_tax_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: old_age_survivors_and_disability_insurance_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/a.test.yaml",
+        """- name: section_1401_a_tax
+  output:
+    us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/b/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: self_employment_income_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/b/1.test.yaml",
+        """- name: section_1401_b_1_tax
+  output:
+    us:statutes/26/1401/b/1#self_employment_income_tax: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 2
+    assert report["status_counts"] == {"comparable": 2}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    oasdi_tax = items_by_id[
+        "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax"
+    ]
+    assert oasdi_tax["status"] == "comparable"
+    assert oasdi_tax["policyengine_variable"] == "self_employment_social_security_tax"
+    assert oasdi_tax["tested"] is True
+    medicare_tax = items_by_id["us:statutes/26/1401/b/1#self_employment_income_tax"]
+    assert medicare_tax["status"] == "comparable"
+    assert medicare_tax["policyengine_variable"] == "self_employment_medicare_tax"
+    assert medicare_tax["tested"] is True
+
+
 def test_policyengine_coverage_maps_section_32_earned_income_to_adjusted_earnings(
     tmp_path,
 ):

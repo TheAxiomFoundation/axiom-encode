@@ -1672,6 +1672,15 @@ def test_policyengine_registry_is_legal_id_keyed():
         self_employment_oasdi_rate_mapping.policyengine_parameter
         == "gov.irs.self_employment.rate.social_security"
     )
+    self_employment_oasdi_tax_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax",
+        country="us",
+    )
+    assert self_employment_oasdi_tax_mapping.mapping_type == "direct_variable"
+    assert (
+        self_employment_oasdi_tax_mapping.policyengine_variable
+        == "self_employment_social_security_tax"
+    )
     employee_medicare_rate_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate",
         country="us",
@@ -1689,6 +1698,15 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert (
         self_employment_medicare_rate_mapping.policyengine_parameter
         == "gov.irs.self_employment.rate.medicare"
+    )
+    self_employment_medicare_tax_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1401/b/1#self_employment_income_tax",
+        country="us",
+    )
+    assert self_employment_medicare_tax_mapping.mapping_type == "direct_variable"
+    assert (
+        self_employment_medicare_tax_mapping.policyengine_variable
+        == "self_employment_medicare_tax"
     )
     rrta_tier_2_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3201#tier_2_employee_tax",
@@ -2056,6 +2074,105 @@ def test_policyengine_oracle_has_no_issue_noise_for_unsupported_only(tmp_path):
     assert result.issues == []
     assert result.details["coverage"]["unsupported"] == 1
     assert result.details["coverage"]["unmapped"] == 0
+
+
+def test_policyengine_oracle_uses_policyengine_only_inputs_for_legal_facts(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: section_1401_a_oracle_case
+  period: 2024
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1200
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+    us:statutes/26/1402/b#input.contribution_and_benefit_base_under_section_230_of_social_security_act: 5000
+    us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a: 100
+  oracle_inputs:
+    policyengine:
+      self_employment_income: 1000
+      employment_income: 100
+  output:
+    us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax: 114.514
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax": PolicyEngineMapping(
+                legal_id="us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax",
+                country="us",
+                mapping_type="direct_variable",
+                policyengine_variable="self_employment_social_security_tax",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        return OracleSubprocessResult(returncode=0, stdout="RESULT:114.514\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score == 1.0
+    assert result.passed is True
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 1
+    assert result.details["coverage"]["passed"] == 1
+    assert "'self_employment_income': {'2024': 1000}" in scripts[0]
+    assert "'employment_income': {'2024': 100}" in scripts[0]
+
+
+def test_policyengine_oracle_rejects_untranslated_legal_facts(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\n")
+    rules_file.with_name("rules.test.yaml").write_text(
+        """- name: section_1401_a_untranslated_case
+  period: 2024
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1200
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
+  output:
+    us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax: 114.514
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    pipeline.policyengine_registry = PolicyEngineOracleRegistry(
+        {
+            "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax": PolicyEngineMapping(
+                legal_id="us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax",
+                country="us",
+                mapping_type="direct_variable",
+                policyengine_variable="self_employment_social_security_tax",
+            )
+        }
+    )
+    pipeline._detect_policyengine_country = lambda *_args, **_kwargs: "us"
+    pipeline._find_pe_python = lambda _country: Path("python")
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.score is None
+    assert result.passed is True
+    assert result.details["coverage"]["unsupported"] == 1
+    assert result.details["coverage"]["comparable"] == 0
+    assert "unprojectable RuleSpec legal input" in result.issues[0]
 
 
 def test_policyengine_oracle_compares_parameter_value_mapping(tmp_path):

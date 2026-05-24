@@ -15763,10 +15763,12 @@ Output ONLY valid JSON:
             expected = test.get("expect")
             raw_inputs = test.get("inputs", {})
             inputs = dict(raw_inputs) if isinstance(raw_inputs, dict) else raw_inputs
+            policyengine_inputs = {}
             oracle_inputs = test.get("oracle_inputs", {})
             if isinstance(inputs, dict) and isinstance(oracle_inputs, dict):
-                policyengine_inputs = oracle_inputs.get("policyengine", {})
-                if isinstance(policyengine_inputs, dict):
+                raw_policyengine_inputs = oracle_inputs.get("policyengine", {})
+                if isinstance(raw_policyengine_inputs, dict):
+                    policyengine_inputs = dict(raw_policyengine_inputs)
                     inputs.update(policyengine_inputs)
             period = (
                 test.get("period")
@@ -15793,10 +15795,11 @@ Output ONLY valid JSON:
                 coverage.unsupported += 1
                 continue
 
+            mappability_inputs = policyengine_inputs or inputs
             mappable, reason = self._is_pe_test_mappable(
                 country,
                 raw_test_rule_name,
-                inputs,
+                mappability_inputs,
                 expected,
                 pe_var=pe_var,
                 mapping=mapping,
@@ -17120,6 +17123,10 @@ print("BENCHMARK:" + json.dumps(result))
         "rental_income": "rental_income",
         "employee_social_security_tax": "employee_social_security_tax",
         "employee_medicare_tax": "employee_medicare_tax",
+        "self_employment_income": "self_employment_income",
+        "sstb_self_employment_income": "sstb_self_employment_income",
+        "farm_operations_income": "farm_operations_income",
+        "partnership_se_income": "partnership_se_income",
         "pension_annuity_disability_benefits_received": "pension_income",
         "taxable_pension_annuity_disability_benefits_included": (
             "taxable_pension_income"
