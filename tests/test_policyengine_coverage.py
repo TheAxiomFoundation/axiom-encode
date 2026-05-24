@@ -469,6 +469,14 @@ rules:
     [
         ("2", "employer_plan_sickness_medical_death_payment_excluded_from_wages"),
         ("4", "post_work_sickness_disability_medical_payment_excluded_from_wages"),
+        (
+            "6",
+            "state_unemployment_domestic_or_agricultural_payment_exclusion_applies",
+        ),
+        (
+            "6",
+            "state_unemployment_domestic_or_agricultural_payment_excluded_from_wages",
+        ),
         ("13", "termination_plan_payment_excluded_from_wages"),
         ("14", "survivor_or_estate_post_death_year_payment_excluded_from_wages"),
         (
