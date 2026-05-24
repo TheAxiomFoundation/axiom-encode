@@ -83,6 +83,7 @@ from axiom_encode.harness.validator_pipeline import (
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
     repair_source_table_interval_row_alignment,
+    repair_source_table_interval_tests,
 )
 from axiom_encode.oracles.policyengine.registry import (
     PolicyEngineMapping,
@@ -9047,6 +9048,91 @@ rules:
     assert section_3201["versions"][0]["values"][5] == 0.049
     assert section_3201["versions"][0]["values"][11] == 0.009
     assert section_3201["versions"][0]["values"][12] == 0.0
+
+
+def test_repair_source_table_interval_tests_updates_guarded_lookup_outputs():
+    rulespec_content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tax rate schedule | Average account benefits ratio | Applicable percentage for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b) | | | ------------------------------ | ------------------------------------------------------ | ----------------------------------------- | --- | | At least | But less than | | | | .............. | 2.5 | 22.1 | 4.9 | | 2.5 | .............. | 18.1 | 4.9 |
+rules:
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if average_account_benefits_ratio < 2.5: 1 else: 2
+  - name: applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          1: 0.221
+          2: 0.181
+  - name: applicable_percentage_for_section_3201_b_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+  - name: applicable_percentage_for_sections_3211_b_and_3221_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if average_account_benefits_ratio_band == 0: 0 else: applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band[average_account_benefits_ratio_band]
+  - name: applicable_percentage_for_section_3201_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if average_account_benefits_ratio_band == 0: 0 else: applicable_percentage_for_section_3201_b_by_ratio_band[average_account_benefits_ratio_band]
+"""
+    test_content = """- name: ratio_under_first_band
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3241/b#input.average_account_benefits_ratio: 2.4
+  output:
+    us:statutes/26/3241/b#average_account_benefits_ratio_band: 1
+    us:statutes/26/3241/b#applicable_percentage_for_sections_3211_b_and_3221_b: 0
+    us:statutes/26/3241/b#applicable_percentage_for_section_3201_b: 0
+"""
+
+    repaired, repaired_cases = repair_source_table_interval_tests(
+        test_content,
+        rulespec_content=rulespec_content,
+    )
+
+    assert repaired_cases == ["ratio_under_first_band"]
+    cases = yaml.safe_load(repaired)
+    outputs = cases[0]["output"]
+    assert (
+        outputs[
+            "us:statutes/26/3241/b#applicable_percentage_for_sections_3211_b_and_3221_b"
+        ]
+        == 0.221
+    )
+    assert (
+        outputs["us:statutes/26/3241/b#applicable_percentage_for_section_3201_b"]
+        == 0.049
+    )
 
 
 def test_repair_source_table_band_bound_scalars_inlines_adjacent_min_max():
