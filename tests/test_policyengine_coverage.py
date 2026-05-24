@@ -500,6 +500,8 @@ rules:
         ("16", "qualifying_exempt_organization_for_low_remuneration_exclusion"),
         ("16", "exempt_organization_low_remuneration_exclusion_applies"),
         ("16", "exempt_organization_low_remuneration_excluded_from_wages"),
+        ("18", "employee_benefit_income_exclusion_reasonable_belief_applies"),
+        ("18", "employee_benefit_income_exclusion_excluded_from_wages"),
     ],
 )
 def test_policyengine_coverage_classifies_3121_wage_exclusions(
