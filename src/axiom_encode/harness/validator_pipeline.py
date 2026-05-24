@@ -3534,7 +3534,7 @@ def _parse_multiline_else_if_formula(
         while index < len(lines):
             stripped = lines[index].strip()
             if result_lines and re.fullmatch(
-                r"(?:if|elif|else\s+if)\s+.+?:|else:",
+                r"(?:if|elif|else\s+if)\b.*|else:",
                 stripped,
             ):
                 break
@@ -3551,7 +3551,10 @@ def _parse_multiline_else_if_formula(
     branches: list[tuple[str | None, str]] = []
     index = 0
     while index < len(lines):
-        header = lines[index].strip()
+        collected_header = _collect_multiline_conditional_header(lines, index)
+        if collected_header is None:
+            return None
+        header, next_index = collected_header
         inline_if_match = re.fullmatch(
             r"(?:if|elif|else\s+if)\s+(.+?):\s*(.+)",
             header,
@@ -3561,7 +3564,7 @@ def _parse_multiline_else_if_formula(
             if not result or re.match(r"(?:elif|else\b)", result):
                 return None
             branches.append((inline_if_match.group(1).strip(), result))
-            index += 1
+            index = next_index
             continue
         inline_else_match = re.fullmatch(r"else:\s*(.+)", header)
         if inline_else_match is not None:
@@ -3569,18 +3572,18 @@ def _parse_multiline_else_if_formula(
             if not result or re.match(r"(?:if|elif|else\b)", result):
                 return None
             branches.append((None, result))
-            index += 1
+            index = next_index
             break
         if_match = re.fullmatch(r"(?:if|elif|else\s+if)\s+(.+):", header)
         if if_match is not None:
-            collected = collect_block_result(index + 1)
+            collected = collect_block_result(next_index)
             if collected is None:
                 return None
             result, index = collected
             branches.append((if_match.group(1).strip(), result))
             continue
         if header == "else:":
-            collected = collect_block_result(index + 1)
+            collected = collect_block_result(next_index)
             if collected is None:
                 return None
             result, index = collected
@@ -3595,6 +3598,27 @@ def _parse_multiline_else_if_formula(
     if not any(condition is not None for condition, _result in branches):
         return None
     return branches
+
+
+def _collect_multiline_conditional_header(
+    lines: list[str],
+    index: int,
+) -> tuple[str, int] | None:
+    header = lines[index].strip()
+    if not re.match(r"(?:if|elif|else\s+if)\b", header) or ":" in header:
+        return header, index + 1
+
+    parts = [header]
+    cursor = index + 1
+    while cursor < len(lines):
+        part = lines[cursor].strip()
+        if re.match(r"(?:if|elif|else\s+if)\b|else:", part):
+            return None
+        parts.append(part)
+        cursor += 1
+        if ":" in part:
+            return " ".join(parts), cursor
+    return None
 
 
 def _formula_has_unsupported_chained_conditional(formula: str) -> bool:
