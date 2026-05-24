@@ -24,6 +24,25 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   those lower-entity results through an explicit relation; it must not multiply
   a unit-level placeholder or aggregate base by the rate unless the source
   defines the base on that unit.
+- Imported definitions do not override the current source's legal subject. If
+  the current source imposes a rate-applied amount on each/every individual,
+  person, employee, member, claimant, child, dependent, or spouse, declare this
+  file's rate-applied result at that lower entity even when the imported base
+  definition is currently encoded at a filing-unit, tax-unit, household, or
+  other unit boundary. Only add a unit-level roll-up when this source text
+  itself states that aggregate.
+- Treat legal subject nouns as stronger evidence than nearby repository
+  context. In particular, "individual", "person", "employee", "member",
+  "claimant", "child", "dependent", and "spouse" usually require
+  `entity: Person` for the current source's own amount, tax, credit,
+  deduction, contribution, limit, or eligibility result. Do not choose
+  `entity: TaxUnit`, `Household`, `Family`, or another aggregate entity merely
+  because an imported base amount or companion test is currently declared at
+  that aggregate entity.
+- Phrases like "on the [base] of every individual/person/employee" identify
+  the entity of the current amount, tax, credit, deduction, contribution, or
+  limit. Encode the current result on the individual/person/employee first,
+  even if the imported base definition or its tests are unit-scoped.
 - Do not create a roll-up, top-level program output, or connection merely
   because downstream consumers want it, sibling/state files patched it, or the
   program conventionally has such a concept. The output must be directly
@@ -154,6 +173,12 @@ Hard requirements:
   formula must reference the imported child output by name rather than copying
   the child literal, even when the parent source excerpt includes the child
   subsection text.
+- If context contains a more specific child file under the current target path
+  that exports the exact scalar needed by this source, such as a `/rate`,
+  `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
+  the canonical home for the scalar. Import the exact child export and use it
+  in the current formula; do not emit a duplicate local `parameter` with the
+  same value or name in the parent/composition file.
 - Treat any existing copied target file as context, not as a backward
   compatibility contract. You may drop, rename, rebuild, or defer existing
   executable rules, tests, imports, and local factual inputs when the source
@@ -713,9 +738,11 @@ Hard requirements:
   semantic scalars for those occurrences and use them in the branch conditions.
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
-     or limit has a named `parameter`, and derived formulas reference the name
-     rather than an inline literal, except structural interval-table row labels
-     used only by the band selector.
+     or limit has a named local `parameter` or an exact imported parameter from
+     context, and derived formulas reference that local or imported name rather
+     than an inline literal, except structural interval-table row labels used
+     only by the band selector. If an exact same-path child scalar is available
+     in context, import it instead of duplicating it locally.
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
