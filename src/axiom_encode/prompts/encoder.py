@@ -408,6 +408,12 @@ Hard requirements:
   `<jurisdiction>:<repo-path>#input.<fact>`.
 - If an upstream output is already executable, do not replace it with a local
   placeholder fact or compatibility alias.
+- If the current source computes an amount by reference to an ancestor section
+  but expressly excludes one child paragraph, subparagraph, or clause, and
+  copied RuleSpec context includes child files for the included branches, import
+  the included child outputs and compose them. Do not import the ancestor
+  aggregate output when that aggregate may include the excluded branch or stale
+  mechanics from sibling branches.
 - If the requested source text includes a limitation, cap, exception, or
   cross-referenced subparagraph that changes the final exported amount, the
   final exported amount must apply that limitation. If a copied sibling/context

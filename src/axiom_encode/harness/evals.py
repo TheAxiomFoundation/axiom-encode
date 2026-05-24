@@ -2962,6 +2962,10 @@ import or re-export that exact canonical concept instead of duplicating it local
             source_text,
             context_files,
         )
+        excluded_child_context_section = _format_excluded_child_context_guidance(
+            source_text,
+            context_files,
+        )
         unavailable_cited_context_section = _format_unavailable_cited_context_guidance(
             source_text, context_files
         )
@@ -3007,6 +3011,7 @@ Context files are precedent and dependency context, not independent legal author
 {existing_target_valid_input_section}
 {branch_child_naming_section}
 {cited_context_imports_section}
+{excluded_child_context_section}
 {unavailable_cited_context_section}
 {partial_extent_child_schema_section}
 {child_exception_import_section}
@@ -4413,6 +4418,127 @@ input, or a local `_provided_in_section_...`, `_allowed_under_section_...`,
 `_deduction_under_section_...`, or `_credit_allowed_under_section_...` input,
 for an already copied RuleSpec context target.
 """
+
+
+def _format_excluded_child_context_guidance(
+    source_text: str,
+    context_files: list[EvalContextFile],
+) -> str:
+    """Guide ancestor/child import choice when the source excludes a child branch."""
+    if not re.search(
+        r"\b(?:other\s+than|except(?:ing)?|excluding)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        return ""
+
+    contexts: list[tuple[EvalContextFile, _StatuteCitation, list[str]]] = []
+    for item in context_files:
+        if item.kind.endswith("_test_context"):
+            continue
+        citation = _import_target_to_statute_citation(item.import_path)
+        if citation is None or not _source_text_cites_statute(source_text, citation):
+            continue
+        exports = _context_file_exports(item.source_path)
+        if not exports:
+            continue
+        contexts.append((item, citation, exports))
+
+    parent_by_section = {
+        citation.section: (item, exports)
+        for item, citation, exports in contexts
+        if not citation.fragments
+    }
+    child_by_section: dict[
+        str, list[tuple[EvalContextFile, _StatuteCitation, list[str]]]
+    ] = defaultdict(list)
+    for item, citation, exports in contexts:
+        if citation.fragments:
+            child_by_section[citation.section].append((item, citation, exports))
+
+    lines: list[str] = []
+    for excluded in _excluded_child_citations(source_text):
+        parent = parent_by_section.get(excluded.section)
+        children = child_by_section.get(excluded.section, [])
+        if parent is None or not children:
+            continue
+        included_children = [
+            (item, citation, exports)
+            for item, citation, exports in children
+            if not _citation_is_same_or_descendant(citation, excluded)
+        ]
+        if not included_children:
+            continue
+
+        parent_item, _parent_exports = parent
+        child_summary = "; ".join(
+            f"`{item.import_path}` exports "
+            + ", ".join(f"`{item.import_path}#{name}`" for name in exports[:4])
+            for item, _citation, exports in included_children[:4]
+        )
+        lines.append(
+            f"- Source cites ancestor section `{excluded.section}` but excludes "
+            f"`{excluded.label}`. Copied context includes ancestor "
+            f"`{parent_item.import_path}` and more specific included child "
+            f"targets: {child_summary}."
+        )
+
+    if not lines:
+        return ""
+
+    return f"""
+Excluded cited child branch guidance:
+{chr(10).join(lines)}
+For an amount that excludes a child branch, do not import an ancestor aggregate
+output from the cited section when more specific copied child outputs are
+available for the included branches. Import the exact included child outputs and
+compose them directly; omit the excluded child branch unless the current source
+adds it back.
+"""
+
+
+def _excluded_child_citations(source_text: str) -> list[_StatuteCitation]:
+    """Return child citations that appear in an exclusion phrase."""
+    excluded: list[_StatuteCitation] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for cited_parts, start, end in _iter_cited_usc_sections(source_text):
+        if not cited_parts.fragments:
+            continue
+        window_start = max(0, start - 120)
+        window_end = min(len(source_text), end + 40)
+        window = source_text[window_start:window_end]
+        if not re.search(
+            r"\b(?:other\s+than|except(?:ing)?|excluding)\b",
+            window,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        key = (cited_parts.section, cited_parts.fragments)
+        if key in seen:
+            continue
+        seen.add(key)
+        label = cited_parts.section + "".join(
+            f"({fragment})" for fragment in cited_parts.fragments
+        )
+        excluded.append(
+            _StatuteCitation(
+                label=label,
+                section=cited_parts.section,
+                fragments=cited_parts.fragments,
+            )
+        )
+    return excluded
+
+
+def _citation_is_same_or_descendant(
+    citation: _StatuteCitation,
+    ancestor: _StatuteCitation,
+) -> bool:
+    """Return whether citation is the excluded citation or nested under it."""
+    return (
+        citation.section == ancestor.section
+        and citation.fragments[: len(ancestor.fragments)] == ancestor.fragments
+    )
 
 
 def _format_unavailable_cited_context_guidance(

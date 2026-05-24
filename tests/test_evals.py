@@ -5183,6 +5183,86 @@ rules:
         assert "`us:statutes/26/1211#other_taxpayer_capital_losses_allowed`" in prompt
         assert "Do not keep a local `_under_section_...`" in prompt
 
+    def test_build_eval_prompt_guides_excluded_child_branch_imports(self, tmp_path):
+        policy_repo_root = tmp_path / "rulespec-us"
+        parent_file = policy_repo_root / "statutes" / "26" / "1401.yaml"
+        child_a_file = policy_repo_root / "statutes" / "26" / "1401" / "a.yaml"
+        child_b1_file = policy_repo_root / "statutes" / "26" / "1401" / "b" / "1.yaml"
+        parent_file.parent.mkdir(parents=True, exist_ok=True)
+        child_a_file.parent.mkdir(parents=True, exist_ok=True)
+        child_b1_file.parent.mkdir(parents=True, exist_ok=True)
+        parent_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: old_age_survivors_and_disability_insurance_tax + self_employment_income_tax + additional_tax
+"""
+        )
+        child_a_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: old_age_survivors_and_disability_insurance_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: limited_income * rate
+"""
+        )
+        child_b1_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_income_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income * rate
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 164(f)",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "There shall be allowed a deduction equal to one-half of the "
+                "taxes imposed by section 1401 (other than the taxes imposed by "
+                "section 1401(b)(2))."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[parent_file, child_a_file, child_b1_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 164(f)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="f.yaml",
+            target_ref_prefix="us:statutes/26/164/f",
+            include_tests=True,
+        )
+
+        assert "Excluded cited child branch guidance" in prompt
+        assert "excludes `1401(b)(2)`" in prompt
+        assert (
+            "`us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax`"
+            in prompt
+        )
+        assert "`us:statutes/26/1401/b/1#self_employment_income_tax`" in prompt
+        assert "do not import an ancestor aggregate" in prompt
+
     def test_build_eval_prompt_highlights_terminal_child_exports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         child_file = policy_repo_root / "statutes" / "26" / "3101" / "b" / "2.yaml"
