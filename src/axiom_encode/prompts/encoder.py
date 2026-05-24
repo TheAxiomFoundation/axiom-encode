@@ -39,6 +39,12 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   `entity: TaxUnit`, `Household`, `Family`, or another aggregate entity merely
   because an imported base amount or companion test is currently declared at
   that aggregate entity.
+- When a definition uses "taxpayer" but also says the amount is "of an
+  individual" or applies exclusions for services, income, payments, or statuses
+  of an individual/person/employee/member, encode those components on `Person`.
+  Add an aggregate rule only when the same source defines how those person
+  amounts roll up to a tax unit, household, family, or other unit. Do not let
+  the word "taxpayer" erase a source-stated individual/person subject.
 - Phrases like "on the [base] of every individual/person/employee" identify
   the entity of the current amount, tax, credit, deduction, contribution, or
   limit. Encode the current result on the individual/person/employee first,
