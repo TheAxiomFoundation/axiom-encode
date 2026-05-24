@@ -466,6 +466,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "same-named local input such as `x`" in prompt
     assert "export matching the requested source's clause" in prompt
     assert "trailing commas in calls" in prompt
+    assert "do not assume one upstream raw input equals that imported output" in prompt
     assert "For IRC section 151 repairs" not in prompt
     assert (
         "Do not create named `parameter` rules for structural table row labels"

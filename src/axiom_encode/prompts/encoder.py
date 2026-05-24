@@ -458,6 +458,12 @@ Hard requirements:
   imported output true, false, or equal a value, mirror the imported file's
   companion test pattern by setting its underlying `#input.<fact>` and
   `#relation.<name>` keys.
+- When a test is meant to exercise a threshold, cap, or boundary on an imported
+  derived output, do not assume one upstream raw input equals that imported
+  output. First compute the imported formula from the upstream inputs you set;
+  if the upstream formula has deductions, rates, or offsets that make the exact
+  boundary awkward, choose clearly below/above-boundary inputs instead of an
+  exact boundary case.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
   key. For example, use
   `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not
