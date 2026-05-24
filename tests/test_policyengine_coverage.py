@@ -504,6 +504,8 @@ rules:
         ("18", "employee_benefit_income_exclusion_excluded_from_wages"),
         ("19", "meals_or_lodging_section_119_reasonable_belief_exclusion_applies"),
         ("19", "meals_or_lodging_section_119_reasonable_belief_excluded_from_wages"),
+        ("20", "benefit_income_exclusion_reasonable_belief_applies"),
+        ("20", "benefit_income_exclusion_reasonable_belief_excluded_from_wages"),
     ],
 )
 def test_policyengine_coverage_classifies_3121_wage_exclusions(

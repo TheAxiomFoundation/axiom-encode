@@ -9303,6 +9303,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(a)(19) employer-furnished meals or lodging reasonable-belief section 119 exclusion predicates or excluded amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/a/20#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(20) benefit reasonable-belief income-exclusion predicates or excluded amounts under sections 74(c), 108(f)(4), 117, or 132 as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/225#
     country: us
     program: tax
