@@ -3791,7 +3791,6 @@ rules:
             test_file=test_file,
             relative_output=Path("statutes/26/3241/b.yaml"),
             target_names=[
-                "section_3211_3221_applicable_percentage_by_ratio_band",
                 "section_3211_and_3221_applicable_percentage_for_tax_unit",
             ],
         )

@@ -11273,9 +11273,14 @@ def _repair_shared_statutory_rate_names(
         if not isinstance(rule, dict):
             continue
         name = str(rule.get("name") or "").strip()
-        if name not in targets:
-            continue
         new_name = _neutral_shared_statutory_rate_name(name, rule=rule, payload=payload)
+        if name not in targets and not _is_canonicalizable_shared_rate_name(
+            name,
+            new_name,
+            rule=rule,
+            payload=payload,
+        ):
+            continue
         if not new_name or new_name == name or new_name in replacements:
             continue
         rule["name"] = new_name
@@ -11302,6 +11307,26 @@ def _repair_shared_statutory_rate_names(
         )
 
     return [f"{old}->{new}" for old, new in replacements.items()]
+
+
+def _is_canonicalizable_shared_rate_name(
+    name: str,
+    new_name: str | None,
+    *,
+    rule: dict[str, object],
+    payload: dict[str, object],
+) -> bool:
+    if not new_name or new_name == name:
+        return False
+    dtype = str(rule.get("dtype") or "").strip().lower()
+    if dtype not in {"rate", "decimal"}:
+        return False
+    return bool(
+        _section_refs_for_rate_name(
+            name,
+            _shared_statutory_rate_source_text(rule=rule, payload=payload),
+        )
+    )
 
 
 def _neutral_shared_statutory_rate_name(
