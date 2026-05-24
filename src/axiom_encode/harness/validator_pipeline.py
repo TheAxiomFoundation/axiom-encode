@@ -5308,6 +5308,67 @@ def find_person_scoped_rate_base_unit_issues(content: str) -> list[str]:
     return issues
 
 
+_PERSON_SCOPED_DEFINITION_SOURCE_PATTERN = re.compile(
+    r"\bterm\b[\s\S]{0,120}\bmeans\b[\s\S]{0,260}\bnet\s+earnings?\b"
+    r"[\s\S]{0,180}\bderived\s+by\s+(?:an?|the|such)\s+"
+    r"(?:individual|person|employee|member)\b"
+    r"|"
+    r"\bnet\s+earnings?\b[\s\S]{0,220}\bwages\s+paid\s+to\s+"
+    r"(?:an?|the|such)\s+(?:individual|person|employee|member)\b"
+    r"|"
+    r"\bremuneration\b[\s\S]{0,220}\bpaid\s+to\s+"
+    r"(?:an?|the|such)\s+"
+    r"(?:individual|person|employee|member)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
+    """Flag unit-level derived definitions for person-scoped legal amounts."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    source_text = extract_embedded_source_text(content)
+    if not source_text:
+        source_text = _extract_source_verification_text(content)
+    if not source_text:
+        return []
+
+    formula_records = _rulespec_rule_formula_rule_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source, _rule in formula_records
+        if kind == "derived"
+    }
+    issues: list[str] = []
+    for name, kind, formula, rule_source, rule in formula_records:
+        if kind != "derived":
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
+            continue
+        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        if not scoped_source_text:
+            scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(scoped_source_text):
+            continue
+        if _formula_or_referenced_helpers_use_relation_aggregate(
+            formula,
+            formula_by_name=formula_by_name,
+        ):
+            continue
+        issues.append(
+            "Person-scoped definition at unit scope: "
+            f"`{name}` is declared on `{entity}`, but the source text defines "
+            "an amount, income, earnings, wage, tax, deduction, credit, or "
+            "benefit for an individual, person, employee, or member. Encode "
+            "that definition at the lower entity first, then aggregate only "
+            "through an explicit relation when the source states a unit-level "
+            "roll-up."
+        )
+    return issues
+
+
 def find_employer_scoped_entity_issues(content: str) -> list[str]:
     """Flag employer-imposed rules that are broadened to tax/business units."""
     payload = _rulespec_payload(content)
@@ -14646,6 +14707,7 @@ class ValidatorPipeline:
         issues.extend(find_employer_scoped_entity_issues(content))
         issues.extend(find_shared_statutory_rate_entity_suffix_name_issues(content))
         issues.extend(find_person_scoped_rate_base_unit_issues(content))
+        issues.extend(find_person_scoped_definition_unit_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         issues.extend(

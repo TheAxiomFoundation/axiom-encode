@@ -10725,6 +10725,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_person_scoped_definitions = (
+                    _try_repair_generated_person_scoped_definition_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_person_scoped_definitions:
+                    outcome["auto_repaired_person_scoped_definition"] = (
+                        repaired_person_scoped_definitions
+                    )
+                    print(
+                        "  apply=auto_repaired_person_scoped_definition:"
+                        + ",".join(repaired_person_scoped_definitions)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_rules = _try_repair_generated_nonnegative_floors_for_apply(
                     result,
                     output_root=args.output,
@@ -11464,6 +11492,9 @@ def _qualify_deferred_output_subsection_paths(
 _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
     r"Person-scoped rate base at unit scope: `([^`]+)`"
 )
+_PERSON_SCOPE_DEFINITION_ISSUE_PATTERN = re.compile(
+    r"Person-scoped definition at unit scope: `([^`]+)`"
+)
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
 )
@@ -12019,6 +12050,110 @@ def _repair_person_scoped_rate_base_entities(
                 continue
             if _set_rule_entity_to_person(helper):
                 repaired.append(identifier)
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _try_repair_generated_person_scoped_definition_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Move generated person-scoped definitions back to the Person entity."""
+    target_names = _person_scoped_definition_issue_names(issues)
+    if not target_names:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_person_scoped_definition_entities(
+        rules_file=rules_file,
+        target_names=target_names,
+    )
+
+
+def _person_scoped_definition_issue_names(issues: list[str]) -> list[str]:
+    names: list[str] = []
+    for issue in issues:
+        match = _PERSON_SCOPE_DEFINITION_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            names.append(match.group(1))
+    return names
+
+
+def _repair_person_scoped_definition_entities(
+    *,
+    rules_file: Path,
+    target_names: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    by_name = {
+        str(rule.get("name")).strip(): rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and isinstance(rule.get("name"), str)
+        and str(rule.get("name")).strip()
+    }
+    reverse_dependencies: dict[str, list[str]] = {}
+    for rule_name, rule in by_name.items():
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        for identifier in _formula_identifiers(_first_rule_formula(rule)):
+            reverse_dependencies.setdefault(identifier, []).append(rule_name)
+
+    repaired: list[str] = []
+    pending = list(dict.fromkeys(target_names))
+    seen: set[str] = set()
+    while pending:
+        target_name = pending.pop(0)
+        if target_name in seen:
+            continue
+        seen.add(target_name)
+        target_rule = by_name.get(target_name)
+        if not isinstance(target_rule, dict):
+            continue
+        if _set_rule_entity_to_person(target_rule):
+            repaired.append(target_name)
+        formula = _first_rule_formula(target_rule)
+        for identifier in sorted(_formula_identifiers(formula)):
+            helper = by_name.get(identifier)
+            if not isinstance(helper, dict):
+                continue
+            if str(helper.get("kind") or "").strip().lower() != "derived":
+                continue
+            helper_entity = str(helper.get("entity") or "").replace("_", "").lower()
+            if helper_entity not in _UNIT_ENTITY_NAMES:
+                continue
+            pending.append(identifier)
+        for dependent_name in sorted(reverse_dependencies.get(target_name, [])):
+            dependent = by_name.get(dependent_name)
+            if not isinstance(dependent, dict):
+                continue
+            dependent_entity = (
+                str(dependent.get("entity") or "").replace("_", "").lower()
+            )
+            if dependent_entity not in _UNIT_ENTITY_NAMES:
+                continue
+            pending.append(dependent_name)
 
     if not repaired:
         return []

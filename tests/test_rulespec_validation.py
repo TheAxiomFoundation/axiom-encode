@@ -49,6 +49,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_missing_same_section_subsection_import_issues,
     find_nonnegative_amount_reduction_issues,
     find_partial_extent_zeroing_issues,
+    find_person_scoped_definition_unit_issues,
     find_person_scoped_rate_base_unit_issues,
     find_proof_import_hash_consistency_issues,
     find_proof_import_reference_issues,
@@ -10220,6 +10221,74 @@ rules:
 """
 
     assert find_person_scoped_rate_base_unit_issues(content) == []
+
+
+def test_person_scoped_definition_unit_rejects_individual_income_definition():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The term self-employment income means the net earnings from self-employment
+    derived by an individual during any taxable year; except that such term
+    shall not include net earnings below $400.
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if net_earnings_from_self_employment < 400:
+            0
+          else:
+            net_earnings_from_self_employment
+"""
+
+    issues = find_person_scoped_definition_unit_issues(content)
+
+    assert any("Person-scoped definition at unit scope" in issue for issue in issues)
+    assert "self_employment_income" in issues[0]
+    assert "TaxUnit" in issues[0]
+
+
+def test_person_scoped_definition_unit_accepts_relation_rollup():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Each employee's covered wages are wages paid to such employee. The tax unit
+    amount is the sum of covered wages for members of the tax unit.
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_tax_unit
+      arity: 2
+  - name: covered_wages
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: source
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages_paid_to_employee
+  - name: tax_unit_covered_wages
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: source
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(member_of_tax_unit, covered_wages, member_has_wages)
+"""
+
+    assert find_person_scoped_definition_unit_issues(content) == []
 
 
 def test_employer_scoped_entity_rejects_tax_unit():

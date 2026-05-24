@@ -39,6 +39,7 @@ from axiom_encode.cli import (
     _repair_input_field_accesses_in_formulas,
     _repair_missing_source_proof_atoms,
     _repair_mixed_scalar_output_tests,
+    _repair_person_scoped_definition_entities,
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
@@ -3711,6 +3712,47 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_repair_person_scoped_definition_entities_moves_helpers(self, tmp_path):
+        rules_file = tmp_path / "statutes/26/1402/b.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_income_excluded_for_taxpayer
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_is_nonresident_alien
+  - name: self_employment_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if self_employment_income_excluded_for_taxpayer:
+            0
+          else:
+            net_earnings_from_self_employment
+"""
+        )
+
+        repaired = _repair_person_scoped_definition_entities(
+            rules_file=rules_file,
+            target_names=["self_employment_income_excluded_for_taxpayer"],
+        )
+
+        assert repaired == [
+            "self_employment_income_excluded_for_taxpayer",
+            "self_employment_income",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["entity"] for rule in payload["rules"]] == ["Person", "Person"]
 
     def test_encode_apply_auto_repairs_section_1401_policyengine_oracle_inputs(
         self, capsys, tmp_path
