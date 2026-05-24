@@ -11177,7 +11177,7 @@ _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
 )
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
-    r"Shared statutory rate name uses consumer entity suffix: `([^`]+)`"
+    r"Shared statutory rate name [^:]+: `([^`]+)`"
 )
 _RULESPEC_IDENTIFIER_PATTERN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 _RULESPEC_FORMULA_BUILTINS = {
@@ -11314,7 +11314,13 @@ def _neutral_shared_statutory_rate_name(
     section_refs = _section_refs_for_rate_name(name, source_text)
     if section_refs:
         prefix = "sections" if len(section_refs) > 1 else "section"
-        return "applicable_percentage_for_" + prefix + "_" + "_and_".join(section_refs)
+        return (
+            "applicable_percentage_for_"
+            + prefix
+            + "_"
+            + "_and_".join(section_refs)
+            + _shared_statutory_rate_helper_suffix(name)
+        )
     for suffix in (
         "_for_tax_unit",
         "_for_person",
@@ -11327,6 +11333,17 @@ def _neutral_shared_statutory_rate_name(
         if name.endswith(suffix):
             return name[: -len(suffix)]
     return None
+
+
+def _shared_statutory_rate_helper_suffix(name: str) -> str:
+    for suffix in (
+        "_by_average_account_benefits_ratio_band",
+        "_by_ratio_band",
+        "_by_band",
+    ):
+        if name.endswith(suffix):
+            return suffix
+    return ""
 
 
 def _shared_statutory_rate_source_text(
