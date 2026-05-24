@@ -2632,7 +2632,8 @@ def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str
             formula = version.get("formula")
             if not isinstance(formula, str):
                 continue
-            repaired = _repair_else_if_formula(formula)
+            repaired = _repair_then_conditional_formula(formula)
+            repaired = _repair_else_if_formula(repaired)
             if repaired == formula:
                 continue
             if _formula_has_unsupported_chained_conditional(repaired):
@@ -3519,6 +3520,25 @@ def _repair_else_if_formula(formula: str) -> str:
     for condition, result in reversed(branches[:-1]):
         tail = f"if {condition}: {result} else: {tail}"
     return tail
+
+
+def _repair_then_conditional_formula(formula: str) -> str:
+    compact = " ".join(line.strip() for line in formula.strip().splitlines())
+    match = re.fullmatch(
+        r"if\s+(?P<condition>.+?)\s+then:\s+"
+        r"(?P<true_result>.+?)\s+else:\s+(?P<false_result>.+)",
+        compact,
+    )
+    if match is None:
+        return formula
+
+    true_result = match["true_result"].strip()
+    false_result = match["false_result"].strip()
+    if re.match(r"(?:if|elif|else\b)", true_result) or re.match(
+        r"(?:elif|else\b)", false_result
+    ):
+        return formula
+    return f"if {match['condition'].strip()}: {true_result} else: {false_result}"
 
 
 def _parse_multiline_else_if_formula(

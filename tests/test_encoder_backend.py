@@ -78,6 +78,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     )
     assert "overrides preservation of existing local input names" in ENCODER_PROMPT
     assert "Do not write `else if` or `elif`" in ENCODER_PROMPT
+    assert "then:" in ENCODER_PROMPT
     assert "module.summary` or the rule's proof excerpt" in ENCODER_PROMPT
     assert "Importing an adjacent upstream output only as proof" in ENCODER_PROMPT
     assert "does not satisfy the dependency" in ENCODER_PROMPT
@@ -116,6 +117,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
     assert "overrides preservation of existing local input names" in prompt
     assert "module.summary` or the rule's proof excerpt" in prompt
+    assert "then:" in prompt
     assert "Importing an adjacent upstream output only as proof" in prompt
     assert "does not satisfy the dependency" in prompt
     assert "is not an executable dependency" in prompt
