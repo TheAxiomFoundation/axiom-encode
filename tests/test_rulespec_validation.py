@@ -184,6 +184,86 @@ def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp
     assert str(stale_root) in roots
 
 
+def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
+    monkeypatch, tmp_path
+):
+    repo_parent = tmp_path / "repos"
+    policy_repo = repo_parent / "rulespec-us"
+    policy_repo.mkdir(parents=True)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=repo_parent / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+    captured_request: dict[str, object] | None = None
+
+    def fake_run(cmd, **kwargs):
+        nonlocal captured_request
+        if "input" not in kwargs:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        captured_request = json.loads(kwargs["input"])
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps(
+                {
+                    "results": [
+                        {
+                            "outputs": {
+                                "excluded_from_wages": {
+                                    "kind": "scalar",
+                                    "id": "us:statutes/26/3121/a/6#excluded_from_wages",
+                                    "value": {"kind": "money", "value": 300},
+                                }
+                            }
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case={
+            "input": {},
+            "tables": {
+                "Payment": [
+                    {
+                        "payment_amount": 300,
+                    }
+                ]
+            },
+            "output": {
+                "us:statutes/26/3121/a/6#excluded_from_wages": [300],
+            },
+        },
+        case_name="excluded_payment",
+        case_index=1,
+        period={
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        output_names=["excluded_from_wages"],
+        output_runtime_keys={
+            "us:statutes/26/3121/a/6#excluded_from_wages": "excluded_from_wages",
+        },
+        derived_by_key={"excluded_from_wages": {"entity": "Payment"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        module_target=None,
+    )
+
+    assert issues == []
+    assert outputs is not None
+    assert captured_request is not None
+    assert captured_request["queries"][0]["entity_id"] == "payment-1"
+
+
 def test_cross_statute_definition_import_check_uses_cited_title_and_existing_targets(
     tmp_path,
 ):
