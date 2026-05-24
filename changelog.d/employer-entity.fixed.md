@@ -1,0 +1,1 @@
+Added `Employer` as a supported RuleSpec entity for encoder prompts, repaired employer-imposed generated rules away from tax/business unit scope, and classified 26 USC 3221(b) RRTA tier 2 employer tax as not comparable to PolicyEngine.

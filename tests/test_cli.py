@@ -31,6 +31,7 @@ from axiom_encode.cli import (
     _has_zero_output_test,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
+    _repair_employer_scoped_entities,
     _repair_missing_source_proof_atoms,
     _repair_mixed_scalar_output_tests,
     _repair_section_151_imports,
@@ -3701,6 +3702,42 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_repair_employer_scoped_entities_sets_rate_helpers(self, tmp_path):
+        rules_file = tmp_path / "3221.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: tier_2_employer_tax_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3211_and_3221_applicable_percentage_for_tax_unit
+  - name: tier_2_employer_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: compensation_paid * tier_2_employer_tax_rate
+"""
+        )
+
+        repaired = _repair_employer_scoped_entities(
+            rules_file=rules_file,
+            target_names=["tier_2_employer_tax"],
+        )
+
+        assert repaired == ["tier_2_employer_tax", "tier_2_employer_tax_rate"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["entity"] for rule in payload["rules"]] == [
+            "Employer",
+            "Employer",
+        ]
 
     def test_encode_apply_auto_repairs_generic_zero_branch_test(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)

@@ -33,6 +33,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_current_year_final_amount_table_issues,
     find_deferred_output_issues,
     find_deprecated_source_url_issues,
+    find_employer_scoped_entity_issues,
     find_empty_rules_module_issues,
     find_entity_limited_aggregation_order_issues,
     find_exception_test_coverage_issues,
@@ -1680,6 +1681,11 @@ def test_policyengine_registry_is_legal_id_keyed():
         country="us",
     )
     assert rrta_employee_representative_tier_2_mapping.mapping_type == "not_comparable"
+    rrta_employer_tier_2_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3221#tier_2_employer_tax",
+        country="us",
+    )
+    assert rrta_employer_tier_2_mapping.mapping_type == "not_comparable"
     employer_medicare_rate_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3111/b#hospital_insurance_employer_tax_rate",
         country="us",
@@ -9014,6 +9020,56 @@ rules:
 """
 
     assert find_person_scoped_rate_base_unit_issues(content) == []
+
+
+def test_employer_scoped_entity_rejects_tax_unit():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tier 2 tax In addition to other taxes, there is hereby imposed on every
+    employer an excise tax equal to the percentage determined under section 3241.
+rules:
+  - name: tier_2_employer_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3221(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: compensation_paid * applicable_percentage
+"""
+
+    issues = find_employer_scoped_entity_issues(content)
+
+    assert any(
+        "Employer-scoped rule at non-employer scope" in issue for issue in issues
+    )
+    assert "tier_2_employer_tax" in issues[0]
+    assert "TaxUnit" in issues[0]
+
+
+def test_employer_scoped_entity_accepts_employer():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tier 2 tax In addition to other taxes, there is hereby imposed on every
+    employer an excise tax equal to the percentage determined under section 3241.
+rules:
+  - name: tier_2_employer_tax
+    kind: derived
+    entity: Employer
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3221(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: compensation_paid * applicable_percentage
+"""
+
+    assert find_employer_scoped_entity_issues(content) == []
 
 
 def test_source_scope_consistency_checks_each_rule_independently():
