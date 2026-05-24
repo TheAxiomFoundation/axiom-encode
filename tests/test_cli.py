@@ -34,6 +34,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _repair_employer_scoped_entities,
+    _repair_generated_import_symbol_near_misses,
     _repair_input_field_accesses_in_formulas,
     _repair_missing_source_proof_atoms,
     _repair_mixed_scalar_output_tests,
@@ -6117,6 +6118,119 @@ class TestGuardGenerated:
 
 
 class TestApplyDependencyValidation:
+    def test_repair_generated_import_symbol_near_miss_updates_imports_and_formulas(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/1401/a.yaml"
+        generated = policy_repo / "statutes/26/164/f.yaml"
+        imported.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: old_age_survivors_and_disability_insurance_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: 0
+"""
+        )
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401/a#old_age_survivors_and_disability_tax
+rules:
+  - name: self_employment_tax_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: old_age_survivors_and_disability_tax * 0.5
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/26/1401/a#old_age_survivors_and_disability_tax
+              output: old_age_survivors_and_disability_tax
+              hash: sha256:abc123
+"""
+        )
+
+        repaired = _repair_generated_import_symbol_near_misses(
+            rules_file=generated,
+            repo_path=policy_repo,
+        )
+
+        content = generated.read_text()
+        assert repaired == [
+            "old_age_survivors_and_disability_tax"
+            "->old_age_survivors_and_disability_insurance_tax"
+        ]
+        assert "old_age_survivors_and_disability_tax" not in content
+        assert (
+            "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax"
+            in content
+        )
+        assert "formula: old_age_survivors_and_disability_insurance_tax * 0.5" in (
+            content
+        )
+        assert "output: old_age_survivors_and_disability_insurance_tax" in content
+
+    def test_repair_generated_import_symbol_near_miss_requires_clear_match(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/9999.yaml"
+        generated = policy_repo / "statutes/26/8888.yaml"
+        imported.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: foo_a_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: 0
+  - name: foo_b_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: 0
+"""
+        )
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/9999#foo_tax
+rules: []
+"""
+        )
+        original = generated.read_text()
+
+        repaired = _repair_generated_import_symbol_near_misses(
+            rules_file=generated,
+            repo_path=policy_repo,
+        )
+
+        assert repaired == []
+        assert generated.read_text() == original
+
     def test_source_relation_preservation_rejects_dropped_existing_edge(self):
         existing = """format: rulespec/v1
 rules:

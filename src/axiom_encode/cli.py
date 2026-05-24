@@ -15,6 +15,7 @@ import argparse
 import contextlib
 import copy
 import csv
+import difflib
 import hashlib
 import hmac
 import json
@@ -31,7 +32,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 
@@ -13397,6 +13398,14 @@ def _validate_generated_encoding_in_policy_overlay(
                 relative_output,
             )
 
+        supplemental_files: dict[Path, str] = {}
+        repaired_import_symbols = _repair_generated_import_symbol_near_misses(
+            rules_file=overlay_target,
+            repo_path=overlay_repo,
+        )
+        if repaired_import_symbols:
+            supplemental_files[relative_output] = overlay_target.read_text()
+
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_repo,
             axiom_rules_path=axiom_rules_path,
@@ -13418,7 +13427,6 @@ def _validate_generated_encoding_in_policy_overlay(
             if dependents
             else pipeline
         )
-        supplemental_files: dict[Path, str] = {}
         changed_proof_hash_files = _repair_dependent_proof_import_hashes(
             overlay_repo=overlay_repo,
             dependents=dependents,
@@ -13583,6 +13591,217 @@ def _same_repo_imported_rulespec_paths(
             continue
         imported_paths.add(relative)
     return imported_paths
+
+
+def _repair_generated_import_symbol_near_misses(
+    *,
+    rules_file: Path,
+    repo_path: Path,
+) -> list[str]:
+    """Repair generated imports whose file exists but exported symbol nearly matches."""
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return []
+
+    replacements: dict[tuple[Path, str], str] = {}
+    repaired: list[str] = []
+    for index, raw_import in enumerate(imports):
+        if not isinstance(raw_import, str):
+            continue
+        parsed = _parse_same_repo_rulespec_import_ref(
+            raw_import,
+            repo_path=repo_path,
+        )
+        if parsed is None or parsed.symbol is None:
+            continue
+        exported_symbols = _rulespec_exported_rule_names(parsed.path)
+        if parsed.symbol in exported_symbols:
+            continue
+        replacement = _closest_rulespec_exported_symbol(
+            parsed.symbol,
+            exported_symbols,
+        )
+        if replacement is None:
+            continue
+        imports[index] = f"{parsed.canonical_base}#{replacement}"
+        replacements[(parsed.relative_path, parsed.symbol)] = replacement
+        repaired.append(f"{parsed.symbol}->{replacement}")
+
+    if not replacements:
+        return []
+
+    _repair_import_proof_atom_symbols(
+        payload,
+        repo_path=repo_path,
+        replacements=replacements,
+    )
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    local_rule_names = _rulespec_rule_names_from_payload(payload)
+    old_to_new: dict[str, str] = {}
+    ambiguous_formula_symbols: set[str] = set()
+    for (_, old_symbol), new_symbol in replacements.items():
+        if old_symbol in ambiguous_formula_symbols:
+            continue
+        existing = old_to_new.get(old_symbol)
+        if existing is not None and existing != new_symbol:
+            old_to_new.pop(old_symbol, None)
+            ambiguous_formula_symbols.add(old_symbol)
+            continue
+        old_to_new[old_symbol] = new_symbol
+    for old_symbol, new_symbol in sorted(old_to_new.items()):
+        if old_symbol in local_rule_names:
+            continue
+        content = _replace_formula_identifier(
+            content,
+            old=old_symbol,
+            new=new_symbol,
+        )
+    rules_file.write_text(content)
+    return repaired
+
+
+class _RulespecImportRef(NamedTuple):
+    path: Path
+    relative_path: Path
+    symbol: str | None
+    canonical_base: str
+
+
+def _parse_same_repo_rulespec_import_ref(
+    raw_ref: str,
+    *,
+    repo_path: Path,
+) -> _RulespecImportRef | None:
+    reference = str(raw_ref).strip().strip('"').strip("'")
+    if not reference:
+        return None
+    base, _, symbol = reference.partition("#")
+    base = base.strip().strip("/")
+    symbol = symbol.strip() or None
+    if not base:
+        return None
+
+    jurisdiction = _repo_jurisdiction_prefix(repo_path)
+    if ":" in base:
+        prefix, base = base.split(":", 1)
+        if prefix != jurisdiction:
+            return None
+        base = base.strip().strip("/")
+    if not base:
+        return None
+
+    relative_path = Path(base if base.endswith((".yaml", ".yml")) else f"{base}.yaml")
+    if relative_path.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative_path.parts
+    ):
+        return None
+    resolved = repo_path / relative_path
+    if not resolved.exists() or not resolved.is_file():
+        return None
+    import_target = relative_path.with_suffix("").as_posix()
+    return _RulespecImportRef(
+        path=resolved,
+        relative_path=relative_path,
+        symbol=symbol,
+        canonical_base=f"{jurisdiction}:{import_target}",
+    )
+
+
+def _rulespec_exported_rule_names(rules_file: Path) -> set[str]:
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    return _rulespec_rule_names_from_payload(payload)
+
+
+def _rulespec_rule_names_from_payload(payload: dict[str, object]) -> set[str]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _closest_rulespec_exported_symbol(
+    symbol: str,
+    exported_symbols: set[str],
+) -> str | None:
+    scores = sorted(
+        (
+            (
+                difflib.SequenceMatcher(None, symbol, candidate).ratio(),
+                candidate,
+            )
+            for candidate in exported_symbols
+        ),
+        reverse=True,
+    )
+    if not scores:
+        return None
+    best_score, best_candidate = scores[0]
+    if best_score < 0.86:
+        return None
+    if len(scores) > 1 and best_score - scores[1][0] < 0.03:
+        return None
+    return best_candidate
+
+
+def _repair_import_proof_atom_symbols(
+    payload: dict[str, object],
+    *,
+    repo_path: Path,
+    replacements: dict[tuple[Path, str], str],
+) -> None:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        metadata = rule.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        proof = metadata.get("proof")
+        if not isinstance(proof, dict):
+            continue
+        atoms = proof.get("atoms")
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            if not isinstance(atom, dict) or atom.get("kind") != "import":
+                continue
+            import_payload = atom.get("import")
+            if not isinstance(import_payload, dict):
+                continue
+            target = import_payload.get("target")
+            if not isinstance(target, str):
+                continue
+            parsed = _parse_same_repo_rulespec_import_ref(target, repo_path=repo_path)
+            if parsed is None or parsed.symbol is None:
+                continue
+            replacement = replacements.get((parsed.relative_path, parsed.symbol))
+            if replacement is None:
+                continue
+            import_payload["target"] = f"{parsed.canonical_base}#{replacement}"
+            if import_payload.get("output") == parsed.symbol:
+                import_payload["output"] = replacement
 
 
 def _rulespec_ancestor_target_paths(relative_output: Path) -> list[Path]:
