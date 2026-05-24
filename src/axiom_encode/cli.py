@@ -10475,6 +10475,31 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_hashes = _try_repair_generated_proof_import_hashes_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_hashes:
+                    outcome["auto_repaired_proof_import_hashes"] = repaired_hashes
+                    print(
+                        "  apply=auto_repaired_proof_import_hashes:"
+                        + ",".join(repaired_hashes)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
                     result,
                     output_root=args.output,
@@ -10898,6 +10923,43 @@ def _rulespec_rule_labels(rules: list[object]) -> list[str]:
         label = str(name).strip() if isinstance(name, str) and name.strip() else ""
         labels.append(label or f"rules[{index}]")
     return labels
+
+
+def _try_repair_generated_proof_import_hashes_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Refresh stale proof import hashes in the generated target itself."""
+    if not any("Proof import hash mismatch" in str(issue) for issue in issues):
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    target_base = (
+        f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    original = rules_file.read_text()
+    repaired, repair_count = _repair_proof_import_hashes(
+        original,
+        target_base=target_base,
+        rules_file=rules_file,
+        repo_path=policy_repo_path,
+    )
+    if repair_count <= 0 or repaired == original:
+        return []
+    rules_file.write_text(repaired)
+    return [f"hash[{index}]" for index in range(repair_count)]
 
 
 def _try_repair_generated_empty_deferred_source_values_for_apply(
