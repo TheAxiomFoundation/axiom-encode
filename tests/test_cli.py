@@ -35,6 +35,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _person_scoped_definition_issue_names,
+    _remove_cross_module_dependent_test_outputs,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
     _repair_input_field_accesses_in_formulas,
@@ -3765,6 +3766,49 @@ rules:
         ]
 
         assert _person_scoped_definition_issue_names(issues) == ["earned_income"]
+
+    def test_remove_cross_module_dependent_test_outputs_drops_imported_output(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes/26/24/d.yaml"
+        test_file = repo / "statutes/26/24/d.test.yaml"
+        target_file = repo / "statutes/26/32/c/2.yaml"
+        rules_file.parent.mkdir(parents=True)
+        target_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        target_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: mixed_case
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    us:statutes/26/24/d#refundable_ctc: 2550
+    us:statutes/26/32/c/2#self_employment_earned_income_component: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error="Test case `mixed_case` mixes derived output entities "
+                    "(Person, TaxUnit); put outputs for each entity in separate "
+                    "test cases."
+                )
+            }
+        )
+
+        changed = _remove_cross_module_dependent_test_outputs(
+            overlay_repo=repo,
+            relative_output=Path("statutes/26/32/c/2.yaml"),
+            validations=[(rules_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = yaml.safe_load(test_file.read_text())
+        assert repaired[0]["output"] == {"us:statutes/26/24/d#refundable_ctc": 2550}
 
     def test_encode_apply_auto_repairs_section_1401_policyengine_oracle_inputs(
         self, capsys, tmp_path

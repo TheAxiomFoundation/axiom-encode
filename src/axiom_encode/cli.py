@@ -13740,6 +13740,23 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
+            removed_cross_module_outputs = _remove_cross_module_dependent_test_outputs(
+                overlay_repo=overlay_repo,
+                relative_output=relative_output,
+                validations=validations,
+            )
+            if removed_cross_module_outputs:
+                for path in removed_cross_module_outputs:
+                    supplemental_files[path.relative_to(overlay_repo)] = (
+                        path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             changed_tests = _complete_missing_dependent_test_inputs(
                 overlay_repo=overlay_repo,
                 relative_output=relative_output,
@@ -14252,6 +14269,10 @@ _MISSING_INPUT_RE = re.compile(
 _INVALID_INPUT_REF_RE = re.compile(
     r"input `(?P<input>[^`]+)` does not resolve to an input slot"
 )
+_ABSOLUTE_RULESPEC_REF_RE = re.compile(r"^[a-z][a-z0-9_-]*:[^\s]+$")
+_MIXED_DERIVED_OUTPUT_ENTITIES_RE = re.compile(
+    r"Test case `(?P<case>[^`]+)` mixes derived output entities \([^)]+\)"
+)
 
 
 def _remove_invalid_dependent_test_inputs(
@@ -14290,6 +14311,72 @@ def _remove_invalid_dependent_test_inputs(
         if updated == content:
             continue
         test_path.write_text(updated)
+        changed.append(test_path)
+    return changed
+
+
+def _remove_cross_module_dependent_test_outputs(
+    *,
+    overlay_repo: Path,
+    relative_output: Path,
+    validations: list[tuple[Path, object]],
+) -> list[Path]:
+    """Remove imported output assertions that make dependent tests entity-mixed."""
+    changed: list[Path] = []
+    jurisdiction = _repo_jurisdiction_prefix(overlay_repo)
+    target_path = overlay_repo / relative_output
+    for validated_file, validation in validations:
+        if validated_file == target_path:
+            continue
+        test_path = _rulespec_test_path(validated_file)
+        if not test_path.exists():
+            continue
+        mixed_cases: set[str] = set()
+        for validator_result in validation.results.values():
+            error = validator_result.error or ""
+            mixed_cases.update(
+                match.group("case")
+                for match in _MIXED_DERIVED_OUTPUT_ENTITIES_RE.finditer(error)
+            )
+        if not mixed_cases:
+            continue
+
+        try:
+            test_cases = yaml.safe_load(test_path.read_text()) or []
+            relative_validated = validated_file.relative_to(overlay_repo)
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        if not isinstance(test_cases, list):
+            continue
+
+        local_ref = (
+            f"{jurisdiction}:{_relative_rulespec_import_target(relative_validated)}#"
+        )
+        file_changed = False
+        for test_case in test_cases:
+            if not isinstance(test_case, dict):
+                continue
+            if str(test_case.get("name") or "") not in mixed_cases:
+                continue
+            output = test_case.get("output")
+            if not isinstance(output, dict) or len(output) <= 1:
+                continue
+            removable = [
+                key
+                for key in output
+                if _ABSOLUTE_RULESPEC_REF_RE.match(str(key))
+                and not str(key).startswith(local_ref)
+            ]
+            if not removable or len(removable) == len(output):
+                continue
+            for key in removable:
+                output.pop(key, None)
+            file_changed = True
+        if not file_changed:
+            continue
+        test_path.write_text(
+            yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=False)
+        )
         changed.append(test_path)
     return changed
 
