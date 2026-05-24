@@ -74,6 +74,7 @@ from .harness.validator_pipeline import (
     find_unused_import_issues,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
+    repair_source_table_band_scalar_parameters,
 )
 from .oracles.policyengine.coverage import (
     build_policyengine_candidate_report,
@@ -10473,6 +10474,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_table_band_scalars = (
+                    _try_repair_generated_source_table_band_scalars_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_table_band_scalars:
+                    outcome["auto_repaired_source_table_band_scalars"] = (
+                        repaired_table_band_scalars
+                    )
+                    print(
+                        "  apply=auto_repaired_source_table_band_scalars:"
+                        + ",".join(repaired_table_band_scalars)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_shared_rate_names = (
                     _try_repair_generated_shared_statutory_rate_names_for_apply(
                         result,
@@ -11211,6 +11240,41 @@ _UNIT_ENTITY_NAMES = {
     "spmunit",
     "taxunit",
 }
+
+
+def _try_repair_generated_source_table_band_scalars_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Inline generated structural table bounds and remove public scalars."""
+    if not any(
+        "Source table row/band scalar parameters" in str(issue) for issue in issues
+    ):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+
+    try:
+        original_content = rules_file.read_text()
+    except OSError:
+        return []
+
+    repaired_content, repaired_rules = repair_source_table_band_scalar_parameters(
+        original_content
+    )
+    if repaired_content == original_content:
+        return []
+
+    rules_file.write_text(repaired_content)
+    return repaired_rules
 
 
 def _try_repair_generated_shared_statutory_rate_names_for_apply(

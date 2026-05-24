@@ -44,6 +44,7 @@ from axiom_encode.cli import (
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_source_table_band_scalars_for_apply,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
     cmd_calibration,
@@ -3816,6 +3817,72 @@ rules:
         assert test_payload[0]["output"] == {
             "us:statutes/26/3241/b#applicable_percentage_for_sections_3211_b_and_3221_b": 0.181
         }
+
+    def test_apply_repair_source_table_band_scalars_inlines_bounds(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "statutes" / "26" / "3241" / "b.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+rules:
+  - name: average_account_benefits_ratio_band_1_upper
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_band_2_lower
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: average_account_benefits_ratio_band_1_upper
+  - name: average_account_benefits_ratio_band_2_upper
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < average_account_benefits_ratio_band_1_upper: 1
+          elif average_account_benefits_ratio >= average_account_benefits_ratio_band_2_lower and average_account_benefits_ratio < average_account_benefits_ratio_band_2_upper: 2
+          else: 3
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_source_table_band_scalars_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "Source table row/band scalar parameters: "
+                "`average_account_benefits_ratio_band_1_upper`"
+            ],
+        )
+
+        content = rules_file.read_text()
+        assert "average_account_benefits_ratio_band_1_upper" not in content
+        assert "average_account_benefits_ratio_band_2_upper" not in content
+        assert "average_account_benefits_ratio < 2.5" in content
+        assert "average_account_benefits_ratio < 3.0" in content
+        assert "average_account_benefits_ratio_band" in repaired
 
     def test_encode_apply_auto_repairs_generic_zero_branch_test(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)

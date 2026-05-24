@@ -2518,7 +2518,8 @@ def repair_source_table_band_scalar_parameters(
     if not isinstance(rules, list):
         return content, []
 
-    bound_values: dict[str, str] = {}
+    direct_bound_values: dict[str, str] = {}
+    bound_aliases: dict[str, str] = {}
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -2530,6 +2531,22 @@ def repair_source_table_band_scalar_parameters(
         if not _is_source_table_structural_bound_parameter_name(name):
             continue
         value = _single_version_numeric_formula(rule)
+        if value is not None:
+            direct_bound_values[name] = value
+            continue
+        alias = _single_version_identifier_formula(rule)
+        if alias is not None:
+            bound_aliases[name] = alias
+
+    bound_values: dict[str, str] = {}
+    bound_names = set(direct_bound_values) | set(bound_aliases)
+    for name in bound_names:
+        value = _resolve_bound_parameter_value(
+            name,
+            direct_values=direct_bound_values,
+            aliases=bound_aliases,
+            bound_names=bound_names,
+        )
         if value is not None:
             bound_values[name] = value
 
@@ -3397,8 +3414,20 @@ def _is_source_table_structural_bound_parameter_name(name: str) -> bool:
         r"(?:^|_)(?:min|max|minimum|maximum)_(?:row|band|bracket)_\d+(?:_|$)",
         normalized,
     )
+    has_adjacent_lower_upper = re.search(
+        r"(?:^|_)(?:row|band|bracket)_\d+_(?:lower|upper)(?:_|$)",
+        normalized,
+    ) or re.search(
+        r"(?:^|_)(?:lower|upper)_(?:row|band|bracket)_\d+(?:_|$)",
+        normalized,
+    )
     return bool(
-        has_index and ((has_bound_word and has_structural_noun) or has_adjacent_min_max)
+        has_index
+        and (
+            (has_bound_word and has_structural_noun)
+            or has_adjacent_min_max
+            or has_adjacent_lower_upper
+        )
     )
 
 
@@ -3418,6 +3447,42 @@ def _single_version_numeric_formula(rule: dict[str, Any]) -> str | None:
         return str(formula)
     if isinstance(formula, str) and re.fullmatch(r"-?\d+(?:\.\d+)?", formula.strip()):
         return formula.strip()
+    return None
+
+
+def _single_version_identifier_formula(rule: dict[str, Any]) -> str | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict):
+        return None
+    formula = version.get("formula")
+    if not isinstance(formula, str):
+        return None
+    stripped = formula.strip()
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", stripped):
+        return stripped
+    return None
+
+
+def _resolve_bound_parameter_value(
+    name: str,
+    *,
+    direct_values: dict[str, str],
+    aliases: dict[str, str],
+    bound_names: set[str],
+) -> str | None:
+    seen: set[str] = set()
+    current = name
+    while current not in seen:
+        seen.add(current)
+        if current in direct_values:
+            return direct_values[current]
+        alias = aliases.get(current)
+        if alias is None or alias not in bound_names:
+            return None
+        current = alias
     return None
 
 
@@ -3460,13 +3525,32 @@ def _parse_multiline_else_if_formula(
     formula: str,
 ) -> list[tuple[str | None, str]] | None:
     lines = [line.rstrip() for line in formula.strip().splitlines() if line.strip()]
-    if len(lines) < 4:
+    if len(lines) < 2:
         return None
 
     branches: list[tuple[str | None, str]] = []
     index = 0
     while index < len(lines):
         header = lines[index].strip()
+        inline_if_match = re.fullmatch(
+            r"(?:if|elif|else\s+if)\s+(.+?):\s*(.+)",
+            header,
+        )
+        if inline_if_match is not None:
+            result = inline_if_match.group(2).strip()
+            if not result or re.match(r"(?:elif|else\b)", result):
+                return None
+            branches.append((inline_if_match.group(1).strip(), result))
+            index += 1
+            continue
+        inline_else_match = re.fullmatch(r"else:\s*(.+)", header)
+        if inline_else_match is not None:
+            result = inline_else_match.group(1).strip()
+            if not result or re.match(r"(?:if|elif|else\b)", result):
+                return None
+            branches.append((None, result))
+            index += 1
+            break
         if_match = re.fullmatch(r"(?:if|elif|else\s+if)\s+(.+):", header)
         if if_match is not None:
             if index + 1 >= len(lines):
