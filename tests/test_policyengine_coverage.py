@@ -484,6 +484,8 @@ rules:
         ("8", "agricultural_labor_remuneration_excluded_from_wages"),
         ("10", "home_worker_low_cash_remuneration_exclusion_applies"),
         ("10", "home_worker_low_cash_remuneration_excluded_from_wages"),
+        ("11", "moving_expense_deduction_reasonable_belief_exclusion_applies"),
+        ("11", "moving_expense_deduction_reasonable_belief_excluded_from_wages"),
         ("13", "termination_plan_payment_excluded_from_wages"),
         ("14", "survivor_or_estate_post_death_year_payment_excluded_from_wages"),
         (
