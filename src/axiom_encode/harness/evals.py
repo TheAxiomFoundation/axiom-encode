@@ -3463,6 +3463,11 @@ RuleSpec requirements:
   To count two boolean conditions over the same relation, write two
   `count_where(...)` calls and add them.
 - If a conditional is embedded inside arithmetic or another larger expression, wrap the whole conditional in parentheses, such as `amount + (if condition: extra else: 0)`. Do not write `amount + if condition: extra else: 0`.
+- When source text says an amount "shall not include" or excludes "the part in
+  excess of" a cap, the included amount is capped at that limit:
+  `min(source_amount, cap)`. The excluded excess is
+  `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
+  `source_amount - remaining_cap` as the included amount.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
