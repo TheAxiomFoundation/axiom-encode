@@ -60,6 +60,7 @@ from .validator_pipeline import (
     _candidate_local_corpus_provision_files,
     _fetch_supabase_corpus_source_text,
     _read_local_corpus_provision_file,
+    _source_text_looks_like_table,
     extract_embedded_source_text,
     extract_grounding_values,
     extract_named_scalar_occurrences,
@@ -80,6 +81,10 @@ from .validator_pipeline import (
 EvalMode = Literal["cold", "repo-augmented"]
 EvalOracleMode = Literal["none", "policyengine", "all"]
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
+TABLE_BOUND_COMPARATOR_NUMBER_PATTERN = re.compile(
+    r"(?:(?:<=|>=|<|>|==)\s*(-?[\d,]+(?:\.\d+)?)"
+    r"|(-?[\d,]+(?:\.\d+)?)\s*(?:<=|>=|<|>|==))"
+)
 SUPPORTED_EVAL_ENTITIES = (
     "Payment",
     "Person",
@@ -2264,6 +2269,14 @@ def evaluate_artifact(
     named_scalar_occurrences.update(
         _imported_named_scalar_occurrences(content, policy_repo_root)
     )
+    source_is_table = _source_text_looks_like_table(
+        numeric_validation_source_text or ""
+    )
+    inline_table_formula_occurrences = (
+        _inline_table_formula_numeric_occurrences(content)
+        if source_is_table
+        else Counter()
+    )
 
     grounding_metrics: list[GroundingMetric] = []
     for line, raw, value in extract_grounding_values(content):
@@ -2284,6 +2297,8 @@ def evaluate_artifact(
             expected_count,
             _matching_numeric_occurrence_count(named_scalar_occurrences, value),
         )
+        if inline_table_formula_occurrences.get(value):
+            covered_count = max(covered_count, expected_count)
         covered_source_numeric_occurrence_count += covered_count
         if covered_count < expected_count:
             missing_count = expected_count - covered_count
@@ -2375,6 +2390,45 @@ def _imported_named_scalar_occurrences(
                 )
             break
     return occurrences
+
+
+def _inline_table_formula_numeric_occurrences(content: str) -> Counter[float]:
+    """Count inline formula literals that are allowed as structural table bounds."""
+    occurrences: Counter[float] = Counter()
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if not (
+            isinstance(payload, dict)
+            and payload.get("format") == "rulespec/v1"
+            and isinstance(payload.get("rules"), list)
+        ):
+            return occurrences
+        for rule in payload["rules"]:
+            if not isinstance(rule, dict):
+                continue
+            versions = rule.get("versions")
+            if not isinstance(versions, list):
+                continue
+            for version in versions:
+                if not isinstance(version, dict):
+                    continue
+                formula = version.get("formula")
+                if not isinstance(formula, str):
+                    continue
+                occurrences.update(_formula_comparator_numeric_values(formula))
+    return occurrences
+
+
+def _formula_comparator_numeric_values(formula_text: str) -> list[float]:
+    """Return numeric literals used as comparison bounds in a formula."""
+    values: list[float] = []
+    for line in formula_text.splitlines():
+        cleaned = line.split("#", 1)[0]
+        for match in TABLE_BOUND_COMPARATOR_NUMBER_PATTERN.finditer(cleaned):
+            raw = (match.group(1) or match.group(2) or "").replace(",", "")
+            with contextlib.suppress(ValueError):
+                values.append(float(raw))
+    return values
 
 
 def _candidate_import_rule_files(

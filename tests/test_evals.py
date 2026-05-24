@@ -975,6 +975,84 @@ rules:
     assert "average_account_benefits_ratio_band" in test_content
 
 
+def test_materialize_eval_artifact_repairs_named_band_threshold_scalars(tmp_path):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "3241" / "b.yaml"
+    llm_response = """=== FILE: b.yaml ===
+format: rulespec/v1
+module:
+  summary: Section defines applicable percentages by benefits ratio.
+rules:
+  - name: average_account_benefits_ratio_band_threshold_2_5
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_band_threshold_3_0
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < average_account_benefits_ratio_band_threshold_2_5: 1
+          else: if average_account_benefits_ratio < average_account_benefits_ratio_band_threshold_3_0: 2
+          else: 3
+  - name: applicable_percentage_3201_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+          3: 0
+=== FILE: b.test.yaml ===
+- name: selector_band
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3241/b#input.average_account_benefits_ratio: 2.75
+  output:
+    us:statutes/26/3241/b#average_account_benefits_ratio_band_threshold_2_5: 2.5
+    us:statutes/26/3241/b#applicable_percentage_3201_by_average_account_benefits_ratio_band:
+      1: 0.049
+      2: 0.049
+      3: 0
+    us:statutes/26/3241/b#average_account_benefits_ratio_band: 2
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="Tax rate schedule | Average account benefits ratio | 2.5 | 3.0",
+    )
+
+    assert wrote is True
+    content = output_file.read_text()
+    assert "average_account_benefits_ratio_band_threshold_2_5" not in content
+    assert "average_account_benefits_ratio_band_threshold_3_0" not in content
+    assert "average_account_benefits_ratio < 2.5" in content
+    assert "average_account_benefits_ratio < 3.0" in content
+    test_content = output_file.with_name("b.test.yaml").read_text()
+    assert "average_account_benefits_ratio_band_threshold_2_5" not in test_content
+    assert (
+        "applicable_percentage_3201_by_average_account_benefits_ratio_band"
+        not in test_content
+    )
+    assert "average_account_benefits_ratio_band" in test_content
+
+
 def test_materialize_eval_artifact_repairs_chained_conditionals_without_table_scalars(
     tmp_path,
 ):
@@ -2038,6 +2116,67 @@ rules:
 
         assert metrics.ci_pass
         assert metrics.source_numeric_occurrence_count == 0
+        assert metrics.numeric_occurrence_issues == []
+
+    def test_numeric_occurrence_check_counts_inline_source_table_bounds(self, tmp_path):
+        rulespec_file = tmp_path / "statutes" / "26" / "3241" / "b.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+rules:
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < 2.5: 1
+          else: if average_account_benefits_ratio < 3.0: 2
+          else: 3
+  - name: section_3201_applicable_percentage_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+          3: 0
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=(
+                    "Tax rate schedule | Average account benefits ratio | Applicable percentage\n"
+                    "| At least | But less than | Section 3201(b) |\n"
+                    "| .............. | 2.5 | 4.9 |\n"
+                    "| 2.5 | 3.0 | 4.9 |"
+                ),
+            )
+
+        assert metrics.ci_pass
+        assert metrics.missing_source_numeric_occurrence_count == 0
         assert metrics.numeric_occurrence_issues == []
 
     def test_numeric_occurrence_check_skips_empty_deferred_artifact(self, tmp_path):
