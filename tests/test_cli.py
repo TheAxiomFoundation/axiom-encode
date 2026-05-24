@@ -6153,13 +6153,14 @@ rules:
     unit: USD
     versions:
       - effective_from: '2024-01-01'
-        formula: old_age_survivors_and_disability_tax * 0.5
+        formula: 'if taxpayer_is_individual: self_employment_tax_deduction_fraction *
+          (old_age_survivors_and_disability_tax + self_employment_income_tax) else: 0'
     metadata:
       proof:
         atoms:
           - kind: import
             import:
-              target: us:statutes/26/1401/a#old_age_survivors_and_disability_tax
+              target: us:statutes/26/1401/a
               output: old_age_survivors_and_disability_tax
               hash: sha256:abc123
 """
@@ -6180,8 +6181,9 @@ rules:
             "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax"
             in content
         )
-        assert "formula: old_age_survivors_and_disability_insurance_tax * 0.5" in (
-            content
+        assert (
+            "old_age_survivors_and_disability_insurance_tax + "
+            "self_employment_income_tax" in content
         )
         assert "output: old_age_survivors_and_disability_insurance_tax" in content
 
