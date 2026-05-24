@@ -3410,6 +3410,82 @@ module:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_repairs_generated_proof_import_hashes(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        imported_file = args.policy_repo_path / "statutes/26/3241/b.yaml"
+        imported_file.parent.mkdir(parents=True)
+        imported_file.write_text("format: rulespec/v1\nrules: []\n")
+        expected_hash = _sha256_file(imported_file)
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "3211.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+- us:statutes/26/3241/b#section_3211_and_3221_applicable_percentage_for_tax_unit
+rules:
+- name: employee_representative_tier_2_tax
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:statutes/26/3241/b#section_3211_and_3221_applicable_percentage_for_tax_unit
+          output: section_3211_and_3221_applicable_percentage_for_tax_unit
+          hash: sha256:old
+  versions:
+  - effective_from: '2026-01-01'
+    formula: compensation * section_3211_and_3221_applicable_percentage_for_tax_unit
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3211.yaml"
+        hash_issue = (
+            "statutes/26/3211.yaml: ci: Proof import hash mismatch: "
+            "`employee_representative_tier_2_tax` proof atom 0 imports "
+            "`us:statutes/26/3241/b#section_3211_and_3221_applicable_percentage_for_tax_unit` "
+            "with `hash: sha256:old`."
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (False, [hash_issue], {}),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_proof_import_hashes:hash[0]" in output
+        assert "hash: sha256:old" not in output_file.read_text()
+        assert f"hash: sha256:{expected_hash}" in output_file.read_text()
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_proof_import_hashes"] == ["hash[0]"]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_repairs_person_scoped_rate_base(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True

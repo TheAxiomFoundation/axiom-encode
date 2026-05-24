@@ -6082,6 +6082,60 @@ rules:
     assert any("statutes/26/3241" in issue for issue in issues)
 
 
+def test_cross_reference_numeric_placeholder_accepts_top_level_import_sequence(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3211.yaml"
+    imported_file = repo / "statutes" / "26" / "3241" / "b.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: section_3211_and_3221_applicable_percentage_for_tax_unit
+  kind: derived
+  entity: TaxUnit
+  dtype: Rate
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 0.181
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+- us:statutes/26/3241/b#section_3211_and_3221_applicable_percentage_for_tax_unit
+module:
+  summary: |-
+    (b) Tier 2 tax In addition to other taxes, there is hereby imposed on the
+    income of each employee representative a tax equal to the percentage
+    determined under section 3241 for any calendar year of the compensation
+    received during such calendar year by such employee representative.
+rules:
+- name: employee_representative_tier_2_tax
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  source: 26 USC 3211(b)
+  versions:
+  - effective_from: '2026-01-01'
+    formula: compensation * section_3211_and_3221_applicable_percentage_for_tax_unit
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_numeric_placeholders(rules_file)
+
+    assert issues == []
+
+
 def test_encoded_cross_reference_placeholder_allows_under_section_when_unencoded(
     tmp_path,
 ):

@@ -9787,7 +9787,10 @@ def _extract_import_paths_from_content(content: str) -> list[str]:
             continue
 
         indent = len(line) - len(line.lstrip())
-        if indent <= imports_indent:
+        top_level_sequence_item = (
+            indent == imports_indent and IMPORT_ITEM_PATTERN.match(line)
+        )
+        if indent <= imports_indent and not top_level_sequence_item:
             in_imports = False
             continue
 
@@ -13744,7 +13747,10 @@ class ValidatorPipeline:
                 continue
 
             indent = len(line) - len(line.lstrip())
-            if indent <= imports_indent:
+            top_level_sequence_item = (
+                indent == imports_indent and IMPORT_ITEM_PATTERN.match(line)
+            )
+            if indent <= imports_indent and not top_level_sequence_item:
                 in_imports = False
                 continue
 
