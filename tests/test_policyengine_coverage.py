@@ -506,6 +506,8 @@ rules:
         ("19", "meals_or_lodging_section_119_reasonable_belief_excluded_from_wages"),
         ("20", "benefit_income_exclusion_reasonable_belief_applies"),
         ("20", "benefit_income_exclusion_reasonable_belief_excluded_from_wages"),
+        ("21", "indian_fishing_rights_remuneration_exclusion_applies"),
+        ("21", "indian_fishing_rights_remuneration_excluded_from_wages"),
     ],
 )
 def test_policyengine_coverage_classifies_3121_wage_exclusions(
