@@ -3049,6 +3049,10 @@ Test file rules:
 - For annual tax tests, use an explicit tax-year mapping such as `period: {{period_kind: tax_year, start: '2024-01-01', end: '2024-12-31'}}`.
 - For non-tax annual periods, use `period: {{period_kind: custom, name: calendar_year, start: '2024-01-01', end: '2024-12-31'}}`.
 - For `period: Day` outputs, use a custom day mapping such as `period: {{period_kind: custom, name: day, start: '2024-01-15', end: '2024-01-15'}}`; never use bare `YYYY-MM-DD` shorthand.
+- If an external oracle uses different public scenario inputs from the legal
+  RuleSpec facts needed under `input:`, keep the legal facts in `input:` and add
+  `oracle_inputs.<oracle>` with equivalent oracle-native inputs. Do not put
+  oracle-only scenario keys directly in `input:`.
 - Emit 1-4 cases unless a source-driven coverage rule below requires more. If
   `module.status` is `deferred` or `entity_not_supported`, the test file may be
   empty.
@@ -3095,6 +3099,10 @@ Preferred principal output:
 - Name the main derived rule `{policyengine_rule_hint}` unless the source clearly defines a different canonical concept.
 - Keep oracle-comparable tests at that named semantic level; do not assert only helper parameters or documentary scalars.
 - Keep `.test.yaml` inputs oracle-comparable: prefer the oracle's direct component facts over inverted household proxy inputs, preserve direct component surfaces when available, and assert the canonical RuleSpec output whose local name is `{policyengine_rule_hint}` in every non-empty `output:` mapping.
+- When PolicyEngine can compare the output but cannot consume the source-level
+  legal facts directly, add `oracle_inputs.policyengine` with equivalent
+  PolicyEngine-native scenario inputs instead of weakening the RuleSpec `input:`
+  coverage.
 - Prefer a contemporary monthly `.test.yaml` period like `2022-01` or `2024-01` when the source is current-effective and lacks a better effective date; avoid pre-2015 historical periods that PolicyEngine US cannot evaluate.
 - If that output has a durable `jurisdiction:path#rule` id, key the test by that id rather than the friendly local name.
 - Key inputs by their resolving legal RuleSpec target too, e.g. `jurisdiction:path#input.fact`, `jurisdiction:path#relation.name`, or `jurisdiction:path#upstream_rule`.

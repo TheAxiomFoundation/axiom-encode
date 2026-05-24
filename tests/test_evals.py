@@ -7303,6 +7303,9 @@ class TestSourceEval:
             "prefer the oracle's direct component facts over inverted household proxy inputs"
             in prompt
         )
+        assert "oracle_inputs.policyengine" in prompt
+        assert "equivalent" in prompt
+        assert "PolicyEngine-native scenario inputs" in prompt
         assert "assert that canonical copied output" in prompt
         assert "key the test by that id rather than the friendly local name" in prompt
         assert "Key inputs by their resolving legal RuleSpec target too" in prompt
