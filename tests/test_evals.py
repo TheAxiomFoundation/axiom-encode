@@ -950,6 +950,60 @@ rules:
     assert " else: if average_account_benefits_ratio >= " in formula
 
 
+def test_materialize_eval_artifact_repairs_multiline_conditional_branch(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "1402" / "b.yaml"
+    llm_response = """=== FILE: b.yaml ===
+format: rulespec/v1
+module:
+  summary: Section defines self-employment income.
+rules:
+  - name: self_employment_income_for_section_1401_a
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if self_employment_income_excluded_as_nonresident_alien:
+            0
+          else if net_earnings_from_self_employment < minimum_self_employment_income_threshold:
+            0
+          else:
+            min(
+              max(0, net_earnings_from_self_employment),
+              max(
+                0,
+                contribution_and_benefit_base_under_section_230_of_social_security_act
+                  - wages_paid_to_individual_during_taxable_year
+              )
+            )
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="The OASDI base is reduced by wages paid during the year.",
+    )
+
+    assert wrote is True
+    payload = yaml.safe_load(output_file.read_text())
+    formula = payload["rules"][0]["versions"][0]["formula"]
+    assert "else if" not in formula
+    assert "elif" not in formula
+    assert (
+        "else: if net_earnings_from_self_employment "
+        "< minimum_self_employment_income_threshold: 0 else: min("
+    ) in formula
+    assert (
+        "contribution_and_benefit_base_under_section_230_of_social_security_act"
+        in formula
+    )
+
+
 def test_materialize_eval_artifact_preserves_open_interval_source_table_rows(
     tmp_path,
 ):
