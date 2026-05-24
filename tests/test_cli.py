@@ -36,6 +36,7 @@ from axiom_encode.cli import (
     _local_factual_input_names_from_rules_content,
     _person_scoped_definition_issue_names,
     _remove_cross_module_dependent_test_outputs,
+    _remove_invalid_dependent_test_inputs,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
     _repair_input_field_accesses_in_formulas,
@@ -3809,6 +3810,61 @@ rules:
         assert changed == [test_file]
         repaired = yaml.safe_load(test_file.read_text())
         assert repaired[0]["output"] == {"us:statutes/26/24/d#refundable_ctc": 2550}
+
+    def test_remove_invalid_dependent_test_inputs_drops_cross_module_stale_ref(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = repo / "statutes/26/24/d.yaml"
+        test_file = repo / "statutes/26/24/d.test.yaml"
+        target_file = repo / "statutes/26/32/c/2.yaml"
+        rules_file.parent.mkdir(parents=True)
+        target_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        target_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: stale_cross_module_input
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/24/d#input.qualifying_children_count: 2
+    us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income: 20000
+    us:statutes/26/1401#input.self_employment_income: 0
+  output:
+    us:statutes/26/24/d#refundable_ctc: 2550
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `stale_cross_module_input` execution failed: "
+                        "dataset input "
+                        "`tmp-rulespec:statutes/26/1401#input.self_employment_income` "
+                        "must use an absolute legal RuleSpec reference that resolves "
+                        "to an input slot, derived rule, or parameter in the compiled "
+                        "program"
+                    )
+                )
+            }
+        )
+
+        changed = _remove_invalid_dependent_test_inputs(
+            overlay_repo=repo,
+            relative_output=Path("statutes/26/32/c/2.yaml"),
+            validations=[(rules_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = test_file.read_text()
+        assert "us:statutes/26/1401#input.self_employment_income" not in repaired
+        assert "us:statutes/26/24/d#input.qualifying_children_count" in repaired
+        assert (
+            "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
+            in repaired
+        )
 
     def test_encode_apply_auto_repairs_section_1401_policyengine_oracle_inputs(
         self, capsys, tmp_path
