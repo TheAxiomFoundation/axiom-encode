@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from axiom_encode.oracles.policyengine.coverage import (
     build_policyengine_candidate_report,
     build_policyengine_coverage_report,
@@ -460,6 +462,42 @@ rules:
         ]
         == "comparable"
     )
+
+
+@pytest.mark.parametrize(
+    ("subsection", "rule_name"),
+    [
+        ("2", "employer_plan_sickness_medical_death_payment_excluded_from_wages"),
+        ("4", "post_work_sickness_disability_medical_payment_excluded_from_wages"),
+        ("13", "termination_plan_payment_excluded_from_wages"),
+        ("14", "survivor_or_estate_post_death_year_payment_excluded_from_wages"),
+        (
+            "15",
+            "social_security_disability_insurance_prior_year_no_services_payment_excluded_from_wages",
+        ),
+    ],
+)
+def test_policyengine_coverage_classifies_3121_wage_exclusions(
+    tmp_path, subsection, rule_name
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / f"statutes/26/3121/a/{subsection}.yaml",
+        f"""format: rulespec/v1
+rules:
+  - name: {rule_name}
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_amount
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == f"us:statutes/26/3121/a/{subsection}#{rule_name}"
+    assert item["status"] == "known_not_comparable"
 
 
 def test_policyengine_coverage_tracks_comparable_test_outputs(tmp_path):

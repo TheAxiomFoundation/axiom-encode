@@ -9219,6 +9219,36 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 224 qualified-tips deduction outputs are new statutory caps, phaseouts, eligibility predicates, and formula intermediates that PolicyEngine does not yet expose as one-to-one variables.
 
+  - legal_id_prefix: us:statutes/26/3121/a/2#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(2) employer-plan sickness, disability, medical, death, or group-term-life wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/3121/a/4#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(4) post-work sickness, disability, or medical payment wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/3121/a/13#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(13) death or disability-retirement termination-plan wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/3121/a/14#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(14) survivor or estate post-death-year payment wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/3121/a/15#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(15) Social Security disability-insurance no-services wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/225#
     country: us
     program: tax
