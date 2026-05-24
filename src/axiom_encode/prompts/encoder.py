@@ -388,6 +388,16 @@ Hard requirements:
   amount but depends on externally determined classifications, official
   designations, statuses, event facts, or source-document categories, encode
   the amount with boundary inputs for those facts instead of deferring.
+- If the requested source itself states a cap, threshold, exclusion, or base
+  formula that uses an externally determined official base, wage amount,
+  compensation amount, rate, status, or special-case fact that is not available
+  as copied RuleSpec context, keep the source-stated formula executable with
+  semantic local boundary inputs named for those legal values or facts instead
+  of deferring the whole output.
+- If a missing special rule or unavailable cited definition affects only one
+  subtype, carve-out, or branch, defer only that branch or expose a
+  source-named boundary input for that branch. Do not defer an unrelated
+  source-stated cap/base computation that can be executed from the source text.
 - Do not create parallel statutory-dollar executable parameters when a copied
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the
