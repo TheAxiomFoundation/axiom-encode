@@ -446,6 +446,15 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "then cap the aggregate" in prompt
     assert "rate-applied result at the source-stated lower entity" in prompt
     assert "unit-level placeholder or aggregate base by the rate" in prompt
+    assert (
+        "Imported definitions do not override the current source's legal subject"
+        in prompt
+    )
+    assert "rate-applied result at that lower entity" in prompt
+    assert "Treat legal subject nouns as stronger evidence" in prompt
+    assert "usually require\n  `entity: Person`" in prompt
+    assert "on the [base] of every individual/person/employee" in prompt
+    assert "even if the imported base definition or its tests are unit-scoped" in prompt
     assert "Do not narrate your plan" in prompt
     assert "snap_standard_utility_allowance" in prompt
     assert "Do not use bare year periods like `2024`" in prompt
@@ -481,6 +490,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "not strings such as `2_5_to_less_than_3_0`" in prompt
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
+    assert "exact imported parameter from\n     context" in prompt
+    assert "import it instead of duplicating it locally" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
     assert "Do not assert raw `kind: parameter` rules directly" in prompt
     assert "assert derived outputs that consume the parameters" in prompt
@@ -790,6 +801,9 @@ rules:
     assert "`us:statutes/26/999#input.existing_fact`" in prompt
     assert "Cycle-prone context imports:" in prompt
     assert "`us:statutes/26/7703` already imports `us:statutes/26/999`" in prompt
+    assert "more specific child file under the current target path" in prompt
+    assert "such as a `/rate`" in prompt
+    assert "do not emit a duplicate local `parameter`" in prompt
 
 
 def test_build_eval_prompt_lists_existing_target_validation_failures(tmp_path):
@@ -4728,7 +4742,7 @@ rules:
         assert (
             concept_files[0].workspace_path == "context/statutes/crs/26-2-703/12.yaml"
         )
-        assert concept_files[0].import_path == "statutes/crs/26-2-703/12"
+        assert concept_files[0].import_path == "us-co:statutes/crs/26-2-703/12"
         copied_path = workspace.root / concept_files[0].workspace_path
         assert copied_path.exists()
         assert "is_individual_responsibility_contract" in copied_path.read_text()
@@ -6162,6 +6176,74 @@ class TestRepoAugmentedContext:
             workspace.root / copied_sources[str(context_test)]["workspace_path"]
         )
         assert copied_test.read_text() == "- name: context_case\n  period: 2026-01\n"
+
+    def test_prepare_eval_workspace_canonical_concepts_use_absolute_imports_and_tests(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        statute_root = policy_repo_root / "statutes" / "26" / "1402"
+        statute_root.mkdir(parents=True)
+        context_file = statute_root / "b.yaml"
+        context_test = statute_root / "b.test.yaml"
+        context_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    (b) Self-employment income The term "self-employment income" means the net earnings from self-employment; except that the section 1401(a) cap applies.
+rules:
+  - name: self_employment_income_for_section_1401_a
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: net_earnings_from_self_employment
+"""
+        )
+        context_test.write_text(
+            "- name: context_case\n"
+            "  input:\n"
+            "    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1000\n"
+            "  output:\n"
+            "    us:statutes/26/1402/b#self_employment_income_for_section_1401_a: 923.5\n"
+        )
+
+        workspace = prepare_eval_workspace(
+            citation="26 USC 1401(a)",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "There shall be imposed on the self-employment income of every "
+                "individual a tax equal to 12.4 percent."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            (item["source_path"], item["kind"]): item
+            for item in manifest["context_files"]
+        }
+        canonical_item = copied_sources[(str(context_file), "canonical_concept")]
+        assert canonical_item["import_path"] == "us:statutes/26/1402/b"
+        assert (
+            "`self-employment income` -> import "
+            "`us:statutes/26/1402/b#self_employment_income_for_section_1401_a`"
+            in canonical_item["label"]
+        )
+        companion_item = copied_sources[
+            (str(context_test), "implementation_test_context")
+        ]
+        assert companion_item["import_path"] == "us:statutes/26/1402/b.test"
+        copied_test = workspace.root / companion_item["workspace_path"]
+        assert copied_test.read_text() == context_test.read_text()
+        assert not any(
+            item["import_path"] == "statutes/26/1402/b"
+            for item in manifest["context_files"]
+        )
 
     def test_prepare_eval_workspace_copies_existing_target_file_as_context(
         self, tmp_path

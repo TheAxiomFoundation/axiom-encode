@@ -1481,13 +1481,19 @@ def prepare_eval_workspace(
         axiom_rules_path,
         current_file=current_file,
     ):
-        context_files.append(
-            _materialize_resolved_canonical_concept(
-                context_root=context_root,
-                resolved_concept=resolved_concept,
-                workspace_root=workspace_root,
-            )
+        context_item = _materialize_resolved_canonical_concept(
+            context_root=context_root,
+            resolved_concept=resolved_concept,
+            workspace_root=workspace_root,
         )
+        context_files.append(context_item)
+        companion_item = _materialize_resolved_canonical_concept_companion_test(
+            context_item=context_item,
+            resolved_concept=resolved_concept,
+            workspace_root=workspace_root,
+        )
+        if companion_item is not None:
+            context_files.append(companion_item)
 
     context_corpus_root = _repo_augmented_context_root(axiom_rules_path)
 
@@ -1866,14 +1872,39 @@ def _materialize_resolved_canonical_concept(
     target = workspace_root / relative_target
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(resolved_concept.rulespec_file, target)
+    import_path = resolved_concept.import_target.split("#", 1)[0]
     return EvalContextFile(
         source_path=str(resolved_concept.rulespec_file),
         workspace_path=str(relative_target),
-        import_path=_relative_rulespec_path_to_import_target(
-            relative_target.relative_to("context")
-        ),
+        import_path=import_path,
         kind="canonical_concept",
         label=resolved_concept.label,
+    )
+
+
+def _materialize_resolved_canonical_concept_companion_test(
+    *,
+    context_item: EvalContextFile,
+    resolved_concept: ResolvedCanonicalConcept,
+    workspace_root: Path,
+) -> EvalContextFile | None:
+    """Copy the companion test for a resolved canonical concept when available."""
+    test_source = _rulespec_test_path(resolved_concept.rulespec_file)
+    if not test_source.exists():
+        return None
+
+    test_import_path = f"{context_item.import_path}.test"
+    relative_target = Path("context") / import_target_to_relative_rulespec_path(
+        test_import_path
+    )
+    target = workspace_root / relative_target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(test_source, target)
+    return EvalContextFile(
+        source_path=str(test_source),
+        workspace_path=str(relative_target),
+        import_path=test_import_path,
+        kind="implementation_test_context",
     )
 
 
@@ -2957,6 +2988,12 @@ Import and context rules:
   already encode subparagraphs, import those child outputs and compose them.
   Do not redefine the child parameters, helper rules, or copied executable
   outputs in the parent file.
+- If context contains a more specific child file under the current target path
+  that exports the exact scalar needed by this source, such as a `/rate`,
+  `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
+  the canonical home for the scalar. Import the exact child export and use it
+  in the current formula; do not emit a duplicate local `parameter` with the
+  same value or name in the parent/composition file.
 - If a copied context file for this target or a same-program sibling contains a `kind: source_relation` record, preserve the legal/provenance edge unless `./source.txt` proves it wrong; executable formula changes are not a reason to drop source graph context.
 - Do not fabricate same-instrument imports or `statutes/...#symbol` paths unless that exact `path#symbol` import target is listed.
 - do not fabricate sibling-file imports for uncopied same-instrument provisions.
@@ -3547,8 +3584,10 @@ RuleSpec requirements:
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
-     or limit has a named `parameter`, and derived formulas reference the name
-     rather than an inline literal.
+     or limit has a named local `parameter` or an exact imported parameter from
+     context, and derived formulas reference that local or imported name rather
+     than an inline literal. If an exact same-path child scalar is available in
+     context, import it instead of duplicating it locally.
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit

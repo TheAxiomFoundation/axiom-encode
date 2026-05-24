@@ -12,6 +12,8 @@ from typing import Sequence
 
 import yaml
 
+from axiom_encode.repo_routing import canonical_rulespec_repo_name
+
 
 @dataclass(frozen=True)
 class ResolvedDefinedTerm:
@@ -160,6 +162,10 @@ def find_registered_stub_specs(
 def import_target_to_relative_rulespec_path(import_target: str) -> Path:
     """Convert an import target like legislation/...#name into a .yaml path."""
     normalized = import_target.strip().strip('"').strip("'").split("#", 1)[0]
+    if ":" in normalized:
+        prefix, rest = normalized.split(":", 1)
+        if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) and rest:
+            normalized = rest
     if normalized.endswith((".yaml", ".yml")):
         return Path(normalized)
     return Path(f"{normalized}.yaml")
@@ -500,6 +506,9 @@ def _build_canonical_concept_candidate(
 
     citation = _first_nonempty_line(source_text) or relative.as_posix()
     import_base = relative.with_suffix("").as_posix()
+    repo_name = canonical_rulespec_repo_name(candidate_file)
+    if repo_name and len(repo_name) > len("rulespec-"):
+        import_base = f"{repo_name.removeprefix('rulespec-')}:{import_base}"
     return ResolvedCanonicalConcept(
         term="",
         import_target=f"{import_base}#{symbol}",
