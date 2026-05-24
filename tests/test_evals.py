@@ -513,6 +513,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "exclusions conditioned on a reasonable belief" in prompt
     assert "Do not defer solely because" in prompt
     assert "model the source-stated\n  reasonable-belief condition" in prompt
+    assert "enumerates exception categories" in prompt
+    assert "cites other\n  laws only to define those category labels" in prompt
+    assert "appointment, office, retirement-system, or election definitions" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
     assert "never assign prohibited derived" in prompt
