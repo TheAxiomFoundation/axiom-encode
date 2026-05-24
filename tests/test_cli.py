@@ -47,6 +47,7 @@ from axiom_encode.cli import (
     _source_relation_preservation_issues,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
+    _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
@@ -3880,6 +3881,108 @@ rules:
         test_payload = yaml.safe_load(test_file.read_text())
         assert test_payload[0]["oracle_inputs"]["policyengine"] == {
             "self_employment_income": 1000,
+        }
+
+    def test_apply_repair_uses_uncapped_1402b_income_for_section_1401_b_1(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        imported_file = policy_repo / "statutes" / "26" / "1402" / "b.yaml"
+        imported_file.parent.mkdir(parents=True)
+        imported_file.write_text("format: rulespec/v1\nrules: []\n")
+        imported_hash = _sha256_file(imported_file)
+        output_file = (
+            output_root
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "1401"
+            / "b"
+            / "1.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate
+  - us:statutes/26/1402/b#self_employment_income_for_section_1401_a
+rules:
+  - name: self_employment_income_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/1402/b#self_employment_income_for_section_1401_a
+              output: self_employment_income_for_section_1401_a
+              hash: sha256:old
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_income_tax_rate * self_employment_income_for_section_1401_a
+"""
+        )
+        test_file = output_file.with_name("1.test.yaml")
+        test_file.write_text(
+            """- name: self_employment_income_tax_applies_2_9_percent_to_self_employment_income
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1200
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+  output:
+    us:statutes/26/1401/b/1#self_employment_income_tax: 26.7815
+"""
+        )
+        result = SimpleNamespace(
+            output_file=str(output_file),
+            runner="codex-test-model",
+        )
+
+        repaired = (
+            _try_repair_generated_section_1401_b_1_self_employment_income_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+            )
+        )
+
+        assert repaired == [
+            "import:self_employment_income",
+            "formula:self_employment_income_tax",
+            "proof:self_employment_income",
+            "test:self_employment_income_tax_ignores_section_1401_a_cap",
+        ]
+        rules_payload = yaml.safe_load(output_file.read_text())
+        assert rules_payload["imports"] == [
+            "us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate",
+            "us:statutes/26/1402/b#self_employment_income",
+        ]
+        rule = rules_payload["rules"][0]
+        assert (
+            rule["versions"][0]["formula"]
+            == "self_employment_income_tax_rate * self_employment_income"
+        )
+        import_atom = rule["metadata"]["proof"]["atoms"][0]["import"]
+        assert import_atom == {
+            "target": "us:statutes/26/1402/b#self_employment_income",
+            "output": "self_employment_income",
+            "hash": f"sha256:{imported_hash}",
+        }
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[-1]["name"] == (
+            "self_employment_income_tax_ignores_section_1401_a_cap"
+        )
+        assert test_payload[-1]["output"] == {
+            "us:statutes/26/1401/b/1#self_employment_income_tax": 61.59745
         }
 
     def test_repair_employer_scoped_entities_sets_rate_helpers(self, tmp_path):

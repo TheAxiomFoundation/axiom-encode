@@ -10342,6 +10342,21 @@ def cmd_encode(args):
             outcome["final_success"] = False
             print(f"  apply=blocked_generation:{detail}")
         else:
+            repaired_section_1401_b_1_income = (
+                _try_repair_generated_section_1401_b_1_self_employment_income_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                )
+            )
+            if repaired_section_1401_b_1_income:
+                outcome["auto_repaired_section_1401_b_1_self_employment_income"] = (
+                    repaired_section_1401_b_1_income
+                )
+                print(
+                    "  apply=auto_repaired_section_1401_b_1_self_employment_income:"
+                    + ",".join(repaired_section_1401_b_1_income)
+                )
             repaired_policyengine_oracle_inputs = (
                 _try_repair_generated_policyengine_oracle_inputs_for_apply(
                     result,
@@ -12086,6 +12101,12 @@ _SECTION_1401_A_OUTPUT = (
     "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax"
 )
 _SECTION_1401_B_1_OUTPUT = "us:statutes/26/1401/b/1#self_employment_income_tax"
+_SECTION_1402_B_SELF_EMPLOYMENT_INCOME_OUTPUT = (
+    "us:statutes/26/1402/b#self_employment_income"
+)
+_SECTION_1402_B_SELF_EMPLOYMENT_INCOME_FOR_1401_A_OUTPUT = (
+    "us:statutes/26/1402/b#self_employment_income_for_section_1401_a"
+)
 _SECTION_1401_TAXABLE_SELF_EMPLOYMENT_RATE = Decimal("0.9235")
 _SECTION_1401_SELF_EMPLOYMENT_THRESHOLD = Decimal("400")
 _SECTION_1401_OASDI_BASE_BY_YEAR = {
@@ -12094,6 +12115,190 @@ _SECTION_1401_OASDI_BASE_BY_YEAR = {
     2025: Decimal("176100"),
     2026: Decimal("184500"),
 }
+
+
+def _try_repair_generated_section_1401_b_1_self_employment_income_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Use uncapped 1402(b) self-employment income for 1401(b)(1) Medicare tax."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+    if relative_output.as_posix() != "statutes/26/1401/b/1.yaml":
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    repaired = _repair_section_1401_b_1_self_employment_income_import(
+        rules_file=rules_file,
+        policy_repo_path=policy_repo_path,
+    )
+    repaired.extend(
+        _append_section_1401_b_1_uncapped_self_employment_income_test(
+            test_file=test_file,
+        )
+    )
+    return repaired
+
+
+def _repair_section_1401_b_1_self_employment_income_import(
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    repaired: list[str] = []
+    imports = payload.get("imports")
+    if isinstance(imports, list):
+        changed_imports = False
+        for index, item in enumerate(imports):
+            if item == _SECTION_1402_B_SELF_EMPLOYMENT_INCOME_FOR_1401_A_OUTPUT:
+                imports[index] = _SECTION_1402_B_SELF_EMPLOYMENT_INCOME_OUTPUT
+                changed_imports = True
+        if changed_imports:
+            repaired.append("import:self_employment_income")
+
+    imported_file = policy_repo_path / "statutes/26/1402/b.yaml"
+    imported_hash = _sha256_file(imported_file) if imported_file.exists() else None
+    rules = payload.get("rules")
+    if isinstance(rules, list):
+        for rule in rules:
+            if (
+                not isinstance(rule, dict)
+                or rule.get("name") != "self_employment_income_tax"
+            ):
+                continue
+            if _repair_section_1401_b_1_rule_formula(rule):
+                repaired.append("formula:self_employment_income_tax")
+            if _repair_section_1401_b_1_rule_proof_import(
+                rule,
+                imported_hash=imported_hash,
+            ):
+                repaired.append("proof:self_employment_income")
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _repair_section_1401_b_1_rule_formula(rule: dict[str, object]) -> bool:
+    changed = False
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str):
+            continue
+        repaired_formula = re.sub(
+            r"\bself_employment_income_for_section_1401_a\b",
+            "self_employment_income",
+            formula,
+        )
+        if repaired_formula != formula:
+            version["formula"] = repaired_formula
+            changed = True
+    return changed
+
+
+def _repair_section_1401_b_1_rule_proof_import(
+    rule: dict[str, object],
+    *,
+    imported_hash: str | None,
+) -> bool:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return False
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return False
+
+    changed = False
+    for atom in atoms:
+        if not isinstance(atom, dict) or atom.get("kind") != "import":
+            continue
+        import_payload = atom.get("import")
+        if not isinstance(import_payload, dict):
+            continue
+        if (
+            import_payload.get("target")
+            != _SECTION_1402_B_SELF_EMPLOYMENT_INCOME_FOR_1401_A_OUTPUT
+        ):
+            continue
+        import_payload["target"] = _SECTION_1402_B_SELF_EMPLOYMENT_INCOME_OUTPUT
+        import_payload["output"] = "self_employment_income"
+        if imported_hash is not None:
+            import_payload["hash"] = f"sha256:{imported_hash}"
+        changed = True
+    return changed
+
+
+def _append_section_1401_b_1_uncapped_self_employment_income_test(
+    *,
+    test_file: Path,
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    case_name = "self_employment_income_tax_ignores_section_1401_a_cap"
+    if any(
+        isinstance(test_case, dict) and test_case.get("name") == case_name
+        for test_case in test_payload
+    ):
+        return []
+    test_payload.append(
+        {
+            "name": case_name,
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2024-01-01",
+                "end": "2024-12-31",
+            },
+            "input": {
+                "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income": 2500,
+                "us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions": 200,
+                "us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss": 0,
+                "us:statutes/26/1402/b#input.contribution_and_benefit_base_under_section_230_of_social_security_act": 1200,
+                "us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a": 500,
+                "us:statutes/26/1402/b#input.individual_is_nonresident_alien": False,
+                "us:statutes/26/1402/b#input.social_security_agreement_under_section_233_applies_to_nonresident_alien": False,
+                "us:statutes/26/1402/b#input.individual_is_noncitizen_territory_resident": False,
+            },
+            "output": {
+                _SECTION_1401_B_1_OUTPUT: 61.59745,
+            },
+        }
+    )
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return [f"test:{case_name}"]
 
 
 def _try_repair_generated_policyengine_oracle_inputs_for_apply(
