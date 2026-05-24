@@ -29,6 +29,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -10341,6 +10342,20 @@ def cmd_encode(args):
             outcome["final_success"] = False
             print(f"  apply=blocked_generation:{detail}")
         else:
+            repaired_policyengine_oracle_inputs = (
+                _try_repair_generated_policyengine_oracle_inputs_for_apply(
+                    result,
+                    output_root=args.output,
+                )
+            )
+            if repaired_policyengine_oracle_inputs:
+                outcome["auto_repaired_policyengine_oracle_inputs"] = (
+                    repaired_policyengine_oracle_inputs
+                )
+                print(
+                    "  apply=auto_repaired_policyengine_oracle_inputs:"
+                    + ",".join(repaired_policyengine_oracle_inputs)
+                )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
                     result,
@@ -12065,6 +12080,242 @@ def _try_repair_generated_invalid_test_inputs_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _remove_invalid_test_input_refs(test_file=test_file, issues=issues)
+
+
+_SECTION_1401_A_OUTPUT = (
+    "us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax"
+)
+_SECTION_1401_B_1_OUTPUT = "us:statutes/26/1401/b/1#self_employment_income_tax"
+_SECTION_1401_TAXABLE_SELF_EMPLOYMENT_RATE = Decimal("0.9235")
+_SECTION_1401_SELF_EMPLOYMENT_THRESHOLD = Decimal("400")
+_SECTION_1401_OASDI_BASE_BY_YEAR = {
+    2023: Decimal("160200"),
+    2024: Decimal("168600"),
+    2025: Decimal("176100"),
+    2026: Decimal("184500"),
+}
+
+
+def _try_repair_generated_policyengine_oracle_inputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+) -> list[str]:
+    """Add PE-native oracle inputs for generated section 1401 child tax tests."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+    if relative_output.as_posix() not in {
+        "statutes/26/1401/a.yaml",
+        "statutes/26/1401/b/1.yaml",
+    }:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _add_section_1401_policyengine_oracle_inputs(test_file=test_file)
+
+
+def _add_section_1401_policyengine_oracle_inputs(*, test_file: Path) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    repaired_cases: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        outputs = test_case.get("output")
+        if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+            continue
+
+        policyengine_inputs = _section_1401_policyengine_oracle_inputs(test_case)
+        if not policyengine_inputs:
+            continue
+
+        oracle_inputs = test_case.get("oracle_inputs")
+        if oracle_inputs is None:
+            oracle_inputs = {}
+            test_case["oracle_inputs"] = oracle_inputs
+        if not isinstance(oracle_inputs, dict):
+            continue
+        raw_policyengine_inputs = oracle_inputs.get("policyengine")
+        if raw_policyengine_inputs is None:
+            raw_policyengine_inputs = {}
+            oracle_inputs["policyengine"] = raw_policyengine_inputs
+        if not isinstance(raw_policyengine_inputs, dict):
+            continue
+
+        changed = False
+        for name, value in policyengine_inputs.items():
+            if name in raw_policyengine_inputs:
+                continue
+            raw_policyengine_inputs[name] = value
+            changed = True
+        if changed:
+            repaired_cases.append(str(test_case.get("name") or "").strip())
+
+    repaired_cases = [case for case in repaired_cases if case]
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
+
+
+def _section_1401_policyengine_oracle_inputs(
+    test_case: dict[str, object],
+) -> dict[str, int | float] | None:
+    inputs = test_case.get("input")
+    outputs = test_case.get("output")
+    if not isinstance(inputs, dict) or not isinstance(outputs, dict):
+        return None
+
+    output_refs = {str(key) for key in outputs}
+    if (
+        _SECTION_1401_A_OUTPUT not in output_refs
+        and _SECTION_1401_B_1_OUTPUT not in output_refs
+    ):
+        return None
+
+    net_self_employment_income = _section_1401_net_self_employment_income(inputs)
+    if net_self_employment_income is None:
+        return None
+
+    policyengine_inputs: dict[str, int | float] = {
+        "self_employment_income": _decimal_to_yaml_number(net_self_employment_income)
+    }
+    if _SECTION_1401_A_OUTPUT in output_refs:
+        employment_income = _section_1401_policyengine_employment_income(
+            inputs,
+            test_case=test_case,
+            net_self_employment_income=net_self_employment_income,
+        )
+        if employment_income is not None:
+            policyengine_inputs["employment_income"] = _decimal_to_yaml_number(
+                employment_income
+            )
+    return policyengine_inputs
+
+
+def _section_1401_net_self_employment_income(
+    inputs: dict[object, object],
+) -> Decimal | None:
+    gross = _rulespec_test_numeric_input(
+        inputs, "self_employment_trade_or_business_gross_income"
+    )
+    if gross is None:
+        return None
+    deductions = _rulespec_test_numeric_input(
+        inputs, "self_employment_trade_or_business_deductions"
+    ) or Decimal("0")
+    partnership = _rulespec_test_numeric_input(
+        inputs, "partnership_section_702_a_8_income_or_loss"
+    ) or Decimal("0")
+    return gross - deductions + partnership
+
+
+def _section_1401_policyengine_employment_income(
+    inputs: dict[object, object],
+    *,
+    test_case: dict[str, object],
+    net_self_employment_income: Decimal,
+) -> Decimal | None:
+    wages = _rulespec_test_numeric_input(
+        inputs, "wages_paid_to_individual_for_section_1401_a"
+    ) or Decimal("0")
+    contribution_base = _rulespec_test_numeric_input(
+        inputs, "contribution_and_benefit_base_under_section_230_of_social_security_act"
+    )
+    if contribution_base is None:
+        return wages
+
+    taxable_self_employment_income = (
+        Decimal("0")
+        if net_self_employment_income < _SECTION_1401_SELF_EMPLOYMENT_THRESHOLD
+        else net_self_employment_income * _SECTION_1401_TAXABLE_SELF_EMPLOYMENT_RATE
+    )
+    remaining_base = max(Decimal("0"), contribution_base - wages)
+    if taxable_self_employment_income <= remaining_base:
+        return wages
+
+    year = _rulespec_test_case_year(test_case)
+    real_base = _policyengine_us_oasdi_base_for_year(year) if year is not None else None
+    if real_base is None and year is not None:
+        real_base = _SECTION_1401_OASDI_BASE_BY_YEAR.get(year)
+    if real_base is None:
+        return None
+    return max(Decimal("0"), real_base - remaining_base)
+
+
+@lru_cache(maxsize=16)
+def _policyengine_us_oasdi_base_for_year(year: int) -> Decimal | None:
+    try:
+        from policyengine_us import CountryTaxBenefitSystem
+
+        params = CountryTaxBenefitSystem().parameters(str(year))
+        return Decimal(str(params.gov.irs.payroll.social_security.cap))
+    except Exception:
+        return None
+
+
+def _rulespec_test_numeric_input(
+    inputs: dict[object, object],
+    name: str,
+) -> Decimal | None:
+    value = _rulespec_test_case_input_value(inputs, name)
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _rulespec_test_case_input_value(
+    inputs: dict[object, object],
+    name: str,
+) -> object | None:
+    if name in inputs:
+        return inputs[name]
+    for key, value in inputs.items():
+        key_text = str(key)
+        if (
+            key_text.endswith(f"#input.{name}")
+            or key_text.endswith(f"#{name}")
+            or key_text.endswith(f".{name}")
+        ):
+            return value
+    return None
+
+
+def _rulespec_test_case_year(test_case: dict[str, object]) -> int | None:
+    period = test_case.get("period") or test_case.get("date")
+    raw_year: object | None = None
+    if isinstance(period, dict):
+        raw_year = period.get("start") or period.get("date") or period.get("year")
+    elif period is not None:
+        raw_year = period
+    if raw_year is None:
+        return None
+    match = re.match(r"\s*(\d{4})", str(raw_year))
+    return int(match.group(1)) if match else None
+
+
+def _decimal_to_yaml_number(value: Decimal) -> int | float:
+    if value == value.to_integral_value():
+        return int(value)
+    return float(value)
 
 
 def _try_repair_generated_test_input_assignments_for_apply(

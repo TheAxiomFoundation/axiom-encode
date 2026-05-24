@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import tempfile
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -45,6 +46,7 @@ from axiom_encode.cli import (
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
@@ -3705,6 +3707,180 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_auto_repairs_section_1401_policyengine_oracle_inputs(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path, backend="codex", citation="26 USC 1401(a)", sync=False
+        )
+        args.apply = True
+        result = self._make_eval_result(True)
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "1401"
+            / "a.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: old_age_survivors_and_disability_insurance_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: taxable_self_employment_income_for_section_1401_a * 0.124
+"""
+        )
+        test_file = output_file.with_name("a.test.yaml")
+        test_file.write_text(
+            """- name: section_1401_a_uncapped
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1200
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+    us:statutes/26/1402/b#input.contribution_and_benefit_base_under_section_230_of_social_security_act: 5000
+    us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a: 100
+  output:
+    us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax: 114.514
+- name: section_1401_a_cap
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 2500
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+    us:statutes/26/1402/b#input.contribution_and_benefit_base_under_section_230_of_social_security_act: 1200
+    us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a: 500
+  output:
+    us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax: 86.8
+- name: section_1401_a_2026_cap_uses_policyengine_base
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 2500
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+    us:statutes/26/1402/b#input.contribution_and_benefit_base_under_section_230_of_social_security_act: 1200
+    us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a: 500
+  output:
+    us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax: 86.8
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/1401/a.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._policyengine_us_oasdi_base_for_year",
+                side_effect=lambda year: {
+                    2024: Decimal("168600"),
+                    2026: Decimal("186000"),
+                }.get(year),
+            ),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_policyengine_oracle_inputs:"
+            "section_1401_a_uncapped,section_1401_a_cap,"
+            "section_1401_a_2026_cap_uses_policyengine_base"
+        ) in output
+        assert mock_overlay.call_count == 1
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["oracle_inputs"]["policyengine"] == {
+            "self_employment_income": 1000,
+            "employment_income": 100,
+        }
+        assert test_payload[1]["oracle_inputs"]["policyengine"] == {
+            "self_employment_income": 2300,
+            "employment_income": 167900,
+        }
+        assert test_payload[2]["oracle_inputs"]["policyengine"] == {
+            "self_employment_income": 2300,
+            "employment_income": 185300,
+        }
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_policyengine_oracle_inputs"] == [
+            "section_1401_a_uncapped",
+            "section_1401_a_cap",
+            "section_1401_a_2026_cap_uses_policyengine_base",
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_apply_repair_adds_section_1401_b_policyengine_oracle_inputs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        output_file = (
+            output_root
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "1401"
+            / "b"
+            / "1.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file = output_file.with_name("1.test.yaml")
+        test_file.write_text(
+            """- name: section_1401_b_1_medicare
+  period: 2024
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1200
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
+    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+    us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a: 100
+  output:
+    us:statutes/26/1401/b/1#self_employment_income_tax: 26.7815
+"""
+        )
+        result = SimpleNamespace(
+            output_file=str(output_file),
+            runner="codex-test-model",
+        )
+
+        repaired = _try_repair_generated_policyengine_oracle_inputs_for_apply(
+            result,
+            output_root=output_root,
+        )
+
+        assert repaired == ["section_1401_b_1_medicare"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["oracle_inputs"]["policyengine"] == {
+            "self_employment_income": 1000,
+        }
 
     def test_repair_employer_scoped_entities_sets_rate_helpers(self, tmp_path):
         rules_file = tmp_path / "3221.yaml"
