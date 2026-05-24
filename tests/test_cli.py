@@ -32,6 +32,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _repair_employer_scoped_entities,
+    _repair_input_field_accesses_in_formulas,
     _repair_missing_source_proof_atoms,
     _repair_mixed_scalar_output_tests,
     _repair_section_151_imports,
@@ -3883,6 +3884,30 @@ rules:
         assert "average_account_benefits_ratio < 2.5" in content
         assert "average_account_benefits_ratio < 3.0" in content
         assert "average_account_benefits_ratio_band" in repaired
+
+    def test_repair_input_field_accesses_in_formulas(self, tmp_path):
+        rules_file = tmp_path / "statutes" / "26" / "3221.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: tier_2_employer_tax
+    kind: derived
+    entity: Employer
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: applicable_percentage * max(0, input.compensation_paid)
+"""
+        )
+
+        repaired = _repair_input_field_accesses_in_formulas(rules_file=rules_file)
+
+        content = rules_file.read_text()
+        assert repaired == ["tier_2_employer_tax:versions[0].formula"]
+        assert "input.compensation_paid" not in content
+        assert "max(0, compensation_paid)" in content
 
     def test_encode_apply_auto_repairs_generic_zero_branch_test(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
