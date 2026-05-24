@@ -224,6 +224,80 @@ rules:
     assert item["policyengine_variable"] == "filer_adjusted_earnings"
 
 
+def test_policyengine_coverage_classifies_section_1402_b_self_employment_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1402/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: self_employment_income_inclusion_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '400'
+  - name: self_employment_income
+    kind: derived
+    entity: TaxUnit
+    versions:
+      - effective_from: '1990-01-01'
+        formula: net_earnings_from_self_employment
+  - name: self_employment_income_for_section_1401_a
+    kind: derived
+    entity: TaxUnit
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(net_earnings_from_self_employment, contribution_base - wages)
+  - name: self_employment_income_excluded_for_taxpayer
+    kind: derived
+    entity: TaxUnit
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_is_nonresident_alien
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1402/b.test.yaml",
+        """- name: section_1402_b
+  output:
+    us:statutes/26/1402/b#self_employment_income_inclusion_threshold: 400
+    us:statutes/26/1402/b#self_employment_income: 923.5
+    us:statutes/26/1402/b#self_employment_income_for_section_1401_a: 923.5
+    us:statutes/26/1402/b#self_employment_income_excluded_for_taxpayer: false
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 3,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    threshold = items_by_id[
+        "us:statutes/26/1402/b#self_employment_income_inclusion_threshold"
+    ]
+    assert threshold["status"] == "comparable"
+    assert (
+        threshold["policyengine_parameter"]
+        == "gov.irs.self_employment.net_earnings_exemption"
+    )
+    assert threshold["tested"] is True
+    assert (
+        items_by_id["us:statutes/26/1402/b#self_employment_income"][
+            "policyengine_variable"
+        ]
+        == "taxable_self_employment_income"
+    )
+    assert (
+        items_by_id["us:statutes/26/1402/b#self_employment_income_for_section_1401_a"][
+            "policyengine_variable"
+        ]
+        == "social_security_taxable_self_employment_income"
+    )
+
+
 def test_policyengine_coverage_treats_ssa_policy_parameters_as_tax(tmp_path):
     _write_rulespec_file(
         tmp_path

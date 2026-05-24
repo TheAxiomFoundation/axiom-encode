@@ -857,6 +857,38 @@ mappings:
     comparison: rate
     rationale: Same section 1402(a)(12)(B) one-half factor used in PE to compute the employer-share deduction from net earnings.
 
+  - legal_id: us:statutes/26/1402/b#self_employment_income_inclusion_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.self_employment.net_earnings_exemption
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same section 1402(b)(2) minimum net-earnings threshold, stored in PE as the self-employment net earnings exemption.
+
+  - legal_id: us:statutes/26/1402/b#self_employment_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_self_employment_income
+    candidate_priority: P2
+    rationale: Section 1402(b) self-employment income is adjacent to PE taxable_self_employment_income, but this RuleSpec output is a tax-unit statutory boundary with nonresident-alien exclusions and imported section 1402(a) source components. Use a section-specific adapter before treating it as an exact PE oracle target.
+
+  - legal_id: us:statutes/26/1402/b#self_employment_income_for_section_1401_a
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: social_security_taxable_self_employment_income
+    candidate_priority: P2
+    rationale: Section 1402(b)(1) wage-base-limited self-employment income is adjacent to PE social_security_taxable_self_employment_income, but the generated RuleSpec tests can supply source-specific wage-base inputs and nonresident-alien exclusions that PE does not expose as direct scenario inputs. Compare through an explicit SECA adapter.
+
+  - legal_id: us:statutes/26/1402/b#self_employment_income_excluded_for_taxpayer
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 1402(b) nonresident-alien, agreement, and territory-resident exclusion predicate as a one-to-one variable.
+
   - legal_id: us:statutes/26/164/f#self_employment_tax_deduction_fraction
     country: us
     program: tax
