@@ -16,6 +16,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     OASDI_WAGE_BASE_PROGRAM_PATH,
     POLICYENGINE_CORE_VERSION,
+    POLICYENGINE_US_VERSION,
     POLICYENGINE_VERSION,
     SECTION_32_C_2_BASE,
     SECTION_112_BASE,
@@ -40,6 +41,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     individual_is_unmarried_and_not_surviving_spouse,
     output_number,
     person_entity_id,
+    policyengine_data_certification_override_required,
     project_capital_gain_definition_inputs,
     project_ctc_h_person_inputs,
     project_ctc_person_inputs,
@@ -1571,7 +1573,7 @@ def test_policyengine_version_guard_rejects_unpinned_core_version(monkeypatch):
         if package == "policyengine-core":
             return "999.0.0"
         if package == "policyengine-us":
-            return "1.700.0"
+            return POLICYENGINE_US_VERSION
         raise AssertionError(package)
 
     monkeypatch.setattr(ecps_tax, "version", fake_version)
@@ -1593,6 +1595,38 @@ def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
     monkeypatch.setattr(ecps_tax, "version", fake_version)
 
     require_policyengine_versions(allow_policyengine_us_version=True)
+
+
+def test_policyengine_data_certification_override_is_required_for_pinned_us_bump():
+    assert policyengine_data_certification_override_required() is True
+
+
+def test_policyengine_data_certification_override_runs_on_default_pinned_bump(
+    monkeypatch, tmp_path
+):
+    def fake_install_override():
+        raise RuntimeError("certification override installed")
+
+    monkeypatch.setattr(
+        ecps_tax,
+        "policyengine_data_certification_override_required",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        ecps_tax,
+        "_install_policyengine_data_certification_override",
+        fake_install_override,
+    )
+
+    with pytest.raises(RuntimeError, match="certification override installed"):
+        ecps_tax.load_policyengine_tax_data(
+            year=2026,
+            sample_size=1,
+            positive_ctc_only=False,
+            data_folder=tmp_path,
+            tax_unit_variables=(),
+            person_variables=(),
+        )
 
 
 def test_uncertified_policyengine_data_requires_local_us_override(tmp_path):

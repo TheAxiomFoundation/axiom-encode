@@ -28,7 +28,8 @@ except ImportError:  # pragma: no cover - exercised only without optional oracle
 
 POLICYENGINE_VERSION = "4.11.0"
 POLICYENGINE_CORE_VERSION = "3.26.11"
-POLICYENGINE_US_VERSION = "1.700.0"
+POLICYENGINE_DATA_MANIFEST_US_VERSION = "1.700.0"
+POLICYENGINE_US_VERSION = "1.705.16"
 DATASET = "hf://policyengine/policyengine-us-data/enhanced_cps_2024.h5"
 
 CTC_PROGRAM_PATH = Path("statutes/26/24.yaml")
@@ -591,7 +592,10 @@ def load_policyengine_tax_data(
     tax_unit_variables: tuple[str, ...] = PE_TAX_UNIT_VARIABLES,
     person_variables: tuple[str, ...] = PE_PERSON_VARIABLES,
 ) -> dict[str, Any]:
-    if allow_uncertified_policyengine_data:
+    if (
+        allow_uncertified_policyengine_data
+        or policyengine_data_certification_override_required()
+    ):
         _install_policyengine_data_certification_override()
     try:
         from policyengine.core import Simulation
@@ -729,11 +733,12 @@ def select_tax_unit_indices(
 def _install_policyengine_data_certification_override() -> None:
     """Allow ECPS oracle runs against a local policyengine-us fix branch.
 
-    policyengine.py 4.11.0 certifies the bundled ECPS data against
-    policyengine-us 1.700.0. When validating a local policyengine-us PR, the
-    installed model version can intentionally differ while the ECPS data is
-    still the desired oracle input. This override is intentionally reachable
-    only through an explicit CLI flag paired with --allow-policyengine-us-version.
+    policyengine.py 4.11.0 currently certifies the bundled ECPS data against
+    its manifest-pinned policyengine-us release. When validating a local
+    policyengine-us PR, the installed model version can intentionally differ
+    while the ECPS data is still the desired oracle input. This override is
+    also used when Axiom deliberately pins the oracle to a newer policyengine-us
+    release than policyengine.py's bundled manifest.
     """
     os.environ.setdefault("POLICYENGINE_SKIP_COUNTRY_IMPORTS", "1")
     try:
@@ -759,6 +764,11 @@ def _install_policyengine_data_certification_override() -> None:
     except ImportError:  # pragma: no cover - optional runtime dependency
         return
     model_version.certify_data_release_compatibility = _allow_local_oracle_data
+
+
+def policyengine_data_certification_override_required() -> bool:
+    """Return whether the pinned PE-US oracle intentionally exceeds the manifest."""
+    return POLICYENGINE_US_VERSION != POLICYENGINE_DATA_MANIFEST_US_VERSION
 
 
 def build_axiom_request(
