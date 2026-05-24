@@ -446,7 +446,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "then cap the aggregate" in prompt
     assert "rate-applied result at the source-stated lower entity" in prompt
     assert "unit-level placeholder or aggregate base by the rate" in prompt
-    assert "Imported definitions do not override the current source's legal subject" in prompt
+    assert (
+        "Imported definitions do not override the current source's legal subject"
+        in prompt
+    )
     assert "rate-applied result at that lower entity" in prompt
     assert "Treat legal subject nouns as stronger evidence" in prompt
     assert "usually require\n  `entity: Person`" in prompt
