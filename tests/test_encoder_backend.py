@@ -96,6 +96,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "source-stated formula executable" in ENCODER_PROMPT
     assert "defer only that branch" in ENCODER_PROMPT
     assert "predicate for the excepted category" in ENCODER_PROMPT
+    assert "enumerates exception categories" in ENCODER_PROMPT
+    assert "retirement-system, or election definitions" in ENCODER_PROMPT
     assert "positive/nonzero" in ENCODER_PROMPT
     assert "toggle each gate at least once" in ENCODER_PROMPT
     assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT

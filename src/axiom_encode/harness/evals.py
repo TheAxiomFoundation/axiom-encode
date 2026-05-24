@@ -3442,6 +3442,12 @@ RuleSpec requirements:
   whose name is explicitly scoped to that category. Do not subtract, disallow,
   or reduce all qualifying branches merely because an exception amount input is
   nonzero.
+- If the requested source itself enumerates exception categories and cites other
+  laws only to define those category labels, encode each source-stated category
+  as its own boundary predicate and combine them into the final rule. Do not
+  defer the final exported output solely because cited title, chapter, schedule,
+  appointment, office, retirement-system, or election definitions are not
+  encoded when the requested source states the exception's operative effect.
 - If the copied target file is already executable, do not let its old surface
   force local placeholders or compatibility names. Rebuild, drop, or defer
   individual outputs as needed. Prefer retaining or replacing source-backed
