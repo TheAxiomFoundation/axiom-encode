@@ -4721,6 +4721,11 @@ _SHARED_STATUTORY_RATE_ENTITY_SUFFIX_PATTERN = re.compile(
     r"(?P<entity>tax_unit|person|employer|household|family|business|corporation)$",
     flags=re.IGNORECASE,
 )
+_SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
+    r"^section_\d{3,4}(?:_and_\d{3,4})*_applicable_percentage"
+    r"(?:_by_[A-Za-z0-9_]+)?$",
+    flags=re.IGNORECASE,
+)
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
     r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b",
@@ -5097,18 +5102,28 @@ def find_shared_statutory_rate_entity_suffix_name_issues(content: str) -> list[s
         if dtype not in {"rate", "decimal"}:
             continue
         name = str(rule.get("name") or "").strip()
-        match = _SHARED_STATUTORY_RATE_ENTITY_SUFFIX_PATTERN.match(name)
-        if match is None:
+        suffix_match = _SHARED_STATUTORY_RATE_ENTITY_SUFFIX_PATTERN.match(name)
+        section_prefix_match = _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN.match(name)
+        if suffix_match is None and section_prefix_match is None:
             continue
-        entity = match.group("entity").lower()
-        entity_label = entity.replace("_", " ")
-        if re.search(rf"\b{re.escape(entity_label)}s?\b", source_text, re.IGNORECASE):
-            continue
+        detail = (
+            "is framed as a section-prefixed local cross-reference name"
+            if section_prefix_match is not None
+            else ""
+        )
+        if suffix_match is not None:
+            entity = suffix_match.group("entity").lower()
+            entity_label = entity.replace("_", " ")
+            if re.search(
+                rf"\b{re.escape(entity_label)}s?\b", source_text, re.IGNORECASE
+            ):
+                continue
+            detail = f"ends with `_for_{entity}`"
         issues.append(
-            "Shared statutory rate name uses consumer entity suffix: "
-            f"`{name}` ends with `_for_{entity}`, but the source names a "
+            "Shared statutory rate name should use source-stated application: "
+            f"`{name}` {detail}, but the source names a "
             "statutory rate or percentage by section rather than by that "
-            "consumer entity. Name the output after the source-stated legal "
+            "local consumer or cross-reference. Name the output after the source-stated legal "
             "application, such as `applicable_percentage_for_section_...` or "
             "`applicable_percentage_for_sections_...`."
         )

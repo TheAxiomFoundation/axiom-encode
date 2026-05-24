@@ -9094,10 +9094,36 @@ rules:
     issues = find_shared_statutory_rate_entity_suffix_name_issues(content)
 
     assert any(
-        "Shared statutory rate name uses consumer entity suffix" in issue
+        "Shared statutory rate name should use source-stated application" in issue
         for issue in issues
     )
     assert "section_3211_and_3221_applicable_percentage_for_tax_unit" in issues[0]
+
+
+def test_shared_statutory_rate_name_rejects_section_prefix_name():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tax rate schedule | Average account benefits ratio | Applicable percentage
+    for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b)
+rules:
+  - name: section_3201_applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3201_applicable_percentage_by_ratio_band[average_account_benefits_ratio_band]
+"""
+
+    issues = find_shared_statutory_rate_entity_suffix_name_issues(content)
+
+    assert any(
+        "section-prefixed local cross-reference name" in issue for issue in issues
+    )
+    assert "section_3201_applicable_percentage" in issues[0]
 
 
 def test_shared_statutory_rate_name_accepts_source_stated_section_name():

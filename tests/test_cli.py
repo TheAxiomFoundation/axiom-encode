@@ -3759,6 +3759,14 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: 2
+  - name: section_3211_3221_applicable_percentage_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          2: 0.181
   - name: section_3211_and_3221_applicable_percentage_for_tax_unit
     kind: derived
     entity: TaxUnit
@@ -3782,16 +3790,28 @@ rules:
             rules_file=rules_file,
             test_file=test_file,
             relative_output=Path("statutes/26/3241/b.yaml"),
-            target_names=["section_3211_and_3221_applicable_percentage_for_tax_unit"],
+            target_names=[
+                "section_3211_3221_applicable_percentage_by_ratio_band",
+                "section_3211_and_3221_applicable_percentage_for_tax_unit",
+            ],
         )
 
         assert repaired == [
+            "section_3211_3221_applicable_percentage_by_ratio_band"
+            "->applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band",
             "section_3211_and_3221_applicable_percentage_for_tax_unit"
-            "->applicable_percentage_for_sections_3211_b_and_3221_b"
+            "->applicable_percentage_for_sections_3211_b_and_3221_b",
         ]
         payload = yaml.safe_load(rules_file.read_text())
         assert payload["rules"][1]["name"] == (
+            "applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band"
+        )
+        assert payload["rules"][2]["name"] == (
             "applicable_percentage_for_sections_3211_b_and_3221_b"
+        )
+        assert (
+            "applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band"
+            in payload["rules"][2]["versions"][0]["formula"]
         )
         test_payload = yaml.safe_load(test_file.read_text())
         assert test_payload[0]["output"] == {
