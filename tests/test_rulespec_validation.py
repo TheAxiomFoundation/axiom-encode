@@ -55,6 +55,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_role_limited_relation_scope_issues,
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
+    find_shared_statutory_rate_entity_suffix_name_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
     find_source_condition_coverage_issues,
@@ -9070,6 +9071,54 @@ rules:
 """
 
     assert find_employer_scoped_entity_issues(content) == []
+
+
+def test_shared_statutory_rate_name_rejects_tax_unit_suffix():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tax rate schedule | Average account benefits ratio | Applicable percentage
+    for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b)
+rules:
+  - name: section_3211_and_3221_applicable_percentage_for_tax_unit
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3211_3221_applicable_percentage_by_ratio_band[average_account_benefits_ratio_band]
+"""
+
+    issues = find_shared_statutory_rate_entity_suffix_name_issues(content)
+
+    assert any(
+        "Shared statutory rate name uses consumer entity suffix" in issue
+        for issue in issues
+    )
+    assert "section_3211_and_3221_applicable_percentage_for_tax_unit" in issues[0]
+
+
+def test_shared_statutory_rate_name_accepts_source_stated_section_name():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tax rate schedule | Average account benefits ratio | Applicable percentage
+    for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b)
+rules:
+  - name: applicable_percentage_for_sections_3211_b_and_3221_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band[average_account_benefits_ratio_band]
+"""
+
+    assert find_shared_statutory_rate_entity_suffix_name_issues(content) == []
 
 
 def test_source_scope_consistency_checks_each_rule_independently():

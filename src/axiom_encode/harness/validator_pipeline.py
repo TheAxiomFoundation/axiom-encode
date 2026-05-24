@@ -4712,6 +4712,15 @@ _EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
     r"any\s+employer|an?\s+employer)\b",
     flags=re.IGNORECASE,
 )
+_SHARED_STATUTORY_RATE_SOURCE_PATTERN = re.compile(
+    r"\b(?:applicable\s+percentage|rate)\s+for\s+sections?\s+\d",
+    flags=re.IGNORECASE,
+)
+_SHARED_STATUTORY_RATE_ENTITY_SUFFIX_PATTERN = re.compile(
+    r"^(?P<name>.+(?:applicable_percentage|rate))_for_"
+    r"(?P<entity>tax_unit|person|employer|household|family|business|corporation)$",
+    flags=re.IGNORECASE,
+)
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
     r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b",
@@ -5057,6 +5066,51 @@ def find_employer_scoped_entity_issues(content: str) -> list[str]:
             "the amount, tax, credit, or limitation on an employer. Use "
             "`entity: Employer` instead of broadening it to a tax, business, "
             "or corporate unit."
+        )
+    return issues
+
+
+def find_shared_statutory_rate_entity_suffix_name_issues(content: str) -> list[str]:
+    """Flag neutral statutory rate outputs named after a consumer entity."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    source_text = extract_embedded_source_text(content)
+    if not source_text:
+        source_text = _extract_source_verification_text(content)
+    if not source_text:
+        return []
+    if not _SHARED_STATUTORY_RATE_SOURCE_PATTERN.search(source_text):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        kind = str(rule.get("kind") or "").strip().lower()
+        if kind not in {"derived", "parameter"}:
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"rate", "decimal"}:
+            continue
+        name = str(rule.get("name") or "").strip()
+        match = _SHARED_STATUTORY_RATE_ENTITY_SUFFIX_PATTERN.match(name)
+        if match is None:
+            continue
+        entity = match.group("entity").lower()
+        entity_label = entity.replace("_", " ")
+        if re.search(rf"\b{re.escape(entity_label)}s?\b", source_text, re.IGNORECASE):
+            continue
+        issues.append(
+            "Shared statutory rate name uses consumer entity suffix: "
+            f"`{name}` ends with `_for_{entity}`, but the source names a "
+            "statutory rate or percentage by section rather than by that "
+            "consumer entity. Name the output after the source-stated legal "
+            "application, such as `applicable_percentage_for_section_...` or "
+            "`applicable_percentage_for_sections_...`."
         )
     return issues
 
@@ -13504,6 +13558,7 @@ class ValidatorPipeline:
         issues.extend(find_filtered_entity_dependency_issues(content))
         issues.extend(find_source_scope_consistency_issues(content))
         issues.extend(find_employer_scoped_entity_issues(content))
+        issues.extend(find_shared_statutory_rate_entity_suffix_name_issues(content))
         issues.extend(find_person_scoped_rate_base_unit_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))

@@ -36,6 +36,7 @@ from axiom_encode.cli import (
     _repair_mixed_scalar_output_tests,
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
+    _repair_shared_statutory_rate_names,
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
     _sha256_file,
@@ -3738,6 +3739,64 @@ rules:
             "Employer",
             "Employer",
         ]
+
+    def test_repair_shared_statutory_rate_names_updates_tests(self, tmp_path):
+        rules_file = tmp_path / "statutes" / "26" / "3241" / "b.yaml"
+        test_file = tmp_path / "statutes" / "26" / "3241" / "b.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    (b) Tax rate schedule | Average account benefits ratio | Applicable percentage
+    for sections 3211(b) and 3221(b) | Applicable percentage for section 3201(b)
+rules:
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2
+  - name: section_3211_and_3221_applicable_percentage_for_tax_unit
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: section_3211_3221_applicable_percentage_by_ratio_band[average_account_benefits_ratio_band]
+"""
+        )
+        test_file.write_text(
+            """- name: rate
+  period: '2026'
+  input: {}
+  output:
+    us:statutes/26/3241/b#section_3211_and_3221_applicable_percentage_for_tax_unit: 0.181
+"""
+        )
+
+        repaired = _repair_shared_statutory_rate_names(
+            rules_file=rules_file,
+            test_file=test_file,
+            relative_output=Path("statutes/26/3241/b.yaml"),
+            target_names=["section_3211_and_3221_applicable_percentage_for_tax_unit"],
+        )
+
+        assert repaired == [
+            "section_3211_and_3221_applicable_percentage_for_tax_unit"
+            "->applicable_percentage_for_sections_3211_b_and_3221_b"
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][1]["name"] == (
+            "applicable_percentage_for_sections_3211_b_and_3221_b"
+        )
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["output"] == {
+            "us:statutes/26/3241/b#applicable_percentage_for_sections_3211_b_and_3221_b": 0.181
+        }
 
     def test_encode_apply_auto_repairs_generic_zero_branch_test(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
