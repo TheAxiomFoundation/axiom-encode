@@ -230,6 +230,15 @@ Hard requirements:
   rather than applying a helper-only definition. This overrides the usual
   mixed-provision instruction to keep independent helpers: a `Definition of X`
   artifact without executable X is misleading and must be cleanly deferred.
+- If a definition applies an exclusion, cap, threshold, exception, or special
+  rule only "for purposes of", "in the case of", "with respect to", or "for the
+  tax imposed by" a specific downstream provision, do not collapse that
+  purpose-specific branch into one generic output for all downstream uses. Emit
+  source-backed purpose-specific outputs such as `x_for_section_1234_a` and keep
+  any broader `x` output free of that limited branch when the source supports a
+  broader meaning. Downstream provisions must import the output that matches
+  their cited purpose rather than using a stale local input or an over-broad
+  generic output.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
   `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
@@ -316,6 +325,12 @@ Hard requirements:
   not import an unrelated output from that file as a stand-in; encode the proper
   upstream source slice first, split the unresolved branch, or emit a deferred
   status when the requested file cannot compute faithfully without it.
+- When the requested source imposes a rate, tax, deduction, credit, cap, or
+  threshold on a legal term that is defined by an available upstream RuleSpec
+  file, import that upstream definition and use it in the formula. Do not leave
+  a same-named local input such as `x` merely because a copied target file used
+  `#input.x`. If the upstream definition has purpose-specific exports, select
+  the export matching the requested source's clause.
 - Every proof import must correspond to a symbol actually used by that rule's
   formula. Do not add an import atom merely because the source text mentions an
   exception or cross-reference that the formula excludes, subtracts around, or
@@ -598,6 +613,9 @@ Hard requirements:
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar
   formulas may use `if condition: value else: other`; do not use Python ternary
   syntax, `else if`, or `elif`.
+- Function calls in formulas are expression syntax, not Python syntax. Do not
+  include trailing commas in calls such as `min(a, b)` or `max(0, x)`, and do
+  not write tuple-style expressions.
 - `dtype: Judgment` formulas must not use `if ... else ...`. Write them as
   boolean expressions using `and`, `or`, `not`, comparisons, and parentheses.
   For example, encode `if exempt: net_ok else: net_ok and gross_ok` as

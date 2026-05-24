@@ -461,6 +461,11 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`" in prompt
     assert "overrides preservation of existing local input names" in prompt
     assert "Never introduce an import cycle" in prompt
+    assert "purpose-specific outputs such as `x_for_section_1234_a`" in prompt
+    assert "purpose-specific branch into one generic output" in prompt
+    assert "same-named local input such as `x`" in prompt
+    assert "export matching the requested source's clause" in prompt
+    assert "trailing commas in calls" in prompt
     assert "For IRC section 151 repairs" not in prompt
     assert (
         "Do not create named `parameter` rules for structural table row labels"
