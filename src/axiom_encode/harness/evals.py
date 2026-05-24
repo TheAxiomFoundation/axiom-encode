@@ -3459,6 +3459,11 @@ RuleSpec requirements:
   amount but depends on externally determined classifications, official
   designations, statuses, event facts, or source-document categories, encode
   the amount with boundary inputs for those facts instead of deferring.
+- This includes exclusions conditioned on a reasonable belief that an item can
+  be excluded from income under another section. Do not defer solely because
+  the cited exclusion section is not encoded; model the source-stated
+  reasonable-belief condition as a local factual predicate and gate the
+  source-stated excluded amount with it.
 - If the requested source itself states a cap, threshold, exclusion, or base
   formula that uses an externally determined official base, wage amount,
   compensation amount, rate, status, or special-case fact that is not available
