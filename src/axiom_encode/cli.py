@@ -3798,16 +3798,28 @@ def cmd_repair_proof_import_hashes(args):
                     issues=issues,
                 )
             )
+            removed_invalid_refs = _remove_invalid_test_input_refs(
+                test_file=test_file,
+                issues=issues,
+            )
             completed_missing_inputs = _complete_missing_imported_test_inputs(
                 rules_file=rules_file,
                 test_file=test_file,
                 repo_path=repo_path,
                 validation=validation,
             )
+            repaired_output_cases = _repair_imported_output_test_mismatches(
+                test_file=test_file,
+                policy_repo_path=repo_path,
+                relative_output=relative_output,
+                issues=issues,
+            )
             if (
                 not removed_refs
                 and not repaired_exclusion_refs
+                and not removed_invalid_refs
                 and not completed_missing_inputs
+                and not repaired_output_cases
             ):
                 break
             validation = ValidatorPipeline(
@@ -4023,11 +4035,18 @@ def cmd_repair_imported_test_inputs(args):
             repo_path=repo_path,
             validation=validation,
         )
+        repaired_output_cases = _repair_imported_output_test_mismatches(
+            test_file=test_file,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            issues=issues,
+        )
         if (
             not removed_invalid_refs
             and not removed_refs
             and not repaired_exclusion_refs
             and not completed_missing_inputs
+            and not repaired_output_cases
         ):
             break
         repaired = True
@@ -9347,19 +9366,24 @@ def _remove_invalid_test_input_refs(
     if not isinstance(test_payload, list):
         return []
 
+    removable_refs = _expand_refs_with_matching_test_input_keys(
+        test_payload,
+        invalid_refs,
+    )
+
     changed = False
     for test_case in test_payload:
         if not isinstance(test_case, dict):
             continue
         inputs = test_case.get("input")
-        if _remove_mapping_keys_recursive(inputs, invalid_refs):
+        if _remove_mapping_keys_recursive(inputs, removable_refs):
             changed = True
     if not changed:
         return []
     test_file.write_text(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
-    return sorted(invalid_refs)
+    return sorted(removable_refs)
 
 
 def _remove_invalid_import_output_test_input_refs(
@@ -9612,6 +9636,71 @@ def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
             for match in re.finditer(pattern, text):
                 refs.add(match.group("input").strip())
     return refs
+
+
+def _expand_refs_with_matching_test_input_keys(
+    value: object,
+    refs: set[str],
+) -> set[str]:
+    if not refs:
+        return set()
+    tails = {_rulespec_ref_without_jurisdiction(ref) for ref in refs}
+    expanded = set(refs)
+    for key in _mapping_keys_recursive(value):
+        key_text = str(key)
+        if "#input." not in key_text:
+            continue
+        if _rulespec_ref_without_jurisdiction(key_text) in tails:
+            expanded.add(key_text)
+    return expanded
+
+
+def _mapping_keys_recursive(value: object) -> list[object]:
+    keys: list[object] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            keys.append(key)
+            keys.extend(_mapping_keys_recursive(child))
+    elif isinstance(value, list):
+        for item in value:
+            keys.extend(_mapping_keys_recursive(item))
+    return keys
+
+
+def _rulespec_ref_without_jurisdiction(ref: str) -> str:
+    if ":" not in ref:
+        return ref
+    prefix, tail = ref.split(":", 1)
+    if "/" in prefix or "#" in prefix or not tail:
+        return ref
+    return tail
+
+
+def _rulespec_ref_base_without_jurisdiction(ref: str) -> str:
+    return _rulespec_ref_without_jurisdiction(ref.split("#", 1)[0].strip())
+
+
+def _rulespec_ref_matches_base(ref: str, base: str) -> bool:
+    ref_base = ref.split("#", 1)[0].strip()
+    base = base.strip()
+    return ref_base == base or (
+        _rulespec_ref_base_without_jurisdiction(ref)
+        == _rulespec_ref_base_without_jurisdiction(base)
+    )
+
+
+def _matching_mapping_key_by_rulespec_ref(
+    mapping: dict[object, object],
+    ref: str,
+) -> object | None:
+    if ref in mapping:
+        return ref
+    ref_tail = _rulespec_ref_without_jurisdiction(ref)
+    for key in mapping:
+        key_text = str(key)
+        if _rulespec_ref_without_jurisdiction(key_text) == ref_tail:
+            return key
+    return None
 
 
 def _remove_mapping_keys_recursive(value: object, keys: set[str]) -> bool:
@@ -12757,7 +12846,7 @@ def _repair_imported_output_test_mismatches(
         if parsed is None:
             return []
         case_name, output_ref, actual_value = parsed
-        if not output_ref.startswith(f"{anchor}#"):
+        if not _rulespec_ref_matches_base(output_ref, anchor):
             return []
         if re.search(r"\b(?:threshold|boundary)\b", case_name, flags=re.IGNORECASE):
             return []
@@ -12781,10 +12870,11 @@ def _repair_imported_output_test_mismatches(
             return []
         changed = False
         for output_ref, actual_value in replacements.items():
-            if output_ref not in outputs:
+            output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_ref)
+            if output_key is None:
                 return []
-            if outputs[output_ref] != actual_value:
-                outputs[output_ref] = actual_value
+            if outputs[output_key] != actual_value:
+                outputs[output_key] = actual_value
                 changed = True
         if changed:
             repaired_cases.append(case_name)
@@ -12837,12 +12927,11 @@ def _rulespec_mismatch_actual_value(kind: str, raw_value: str) -> object:
 def _test_case_has_imported_inputs(inputs: object, *, target_anchor: str) -> bool:
     if not isinstance(inputs, dict):
         return False
-    target_input_prefix = f"{target_anchor}#input."
     for key in inputs:
         key_text = str(key)
         if "#input." not in key_text:
             continue
-        if not key_text.startswith(target_input_prefix):
+        if not _rulespec_ref_matches_base(key_text, target_anchor):
             return True
     return False
 
@@ -14340,17 +14429,32 @@ def _default_refs_for_missing_input(
 
 def _infer_missing_input_default(input_name: str) -> object:
     normalized = input_name.lower()
+    if "contribution_and_benefit_base" in normalized:
+        return 999999999
+    tokens = set(re.split(r"[^a-z0-9]+", normalized))
     numeric_markers = (
         "amount",
+        "base",
         "count",
+        "credit",
         "deduction",
+        "expense",
+        "gross",
         "income",
+        "limit",
+        "net",
         "number",
-        "num_",
+        "num",
+        "rate",
+        "tax",
+        "threshold",
+        "value",
         "wage",
+        "wages",
         "earning",
+        "earnings",
     )
-    if any(marker in normalized for marker in numeric_markers):
+    if tokens.intersection(numeric_markers):
         return 0
     return False
 

@@ -24,6 +24,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     SECTION_164_F_BASE,
     SECTION_1401_BASE,
     SECTION_1402_A_BASE,
+    SECTION_1402_B_BASE,
     SECTION_7703_BASE,
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
@@ -56,6 +57,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_section_164_f_tax_unit_inputs,
     project_section_1401_tax_unit_inputs,
     project_section_1402_a_tax_unit_inputs,
+    project_section_1402_b_tax_unit_inputs,
     project_section_7703_tax_unit_inputs,
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
@@ -664,6 +666,17 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
     assert project_section_164_f_tax_unit_inputs() == {
         "taxpayer_is_individual": True,
     }
+    assert project_section_1402_b_tax_unit_inputs(
+        persons=persons,
+        contexts=contexts,
+        contribution_base=184_500,
+    ) == {
+        "individual_is_nonresident_alien": False,
+        "social_security_agreement_under_section_233_applies_to_nonresident_alien": False,
+        "individual_is_noncitizen_territory_resident": False,
+        "contribution_and_benefit_base_under_section_230_of_social_security_act": 184_500.0,
+        "wages_paid_to_individual_for_section_1401_a": 23_000,
+    }
     assert project_section_1401_tax_unit_inputs(
         row=row,
         persons=persons,
@@ -671,7 +684,6 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
     ) == {
         "international_social_security_agreement_under_section_233_in_effect": False,
         "filing_status": 0,
-        "self_employment_income": 3647.825,
         "wages_taken_into_account_for_additional_medicare_tax": 0,
     }
 
@@ -816,7 +828,11 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         "person_ids": [7, 8],
     }
 
-    request = build_eitc_request(pe_data=pe_data, year=2026)
+    request = build_eitc_request(
+        pe_data=pe_data,
+        year=2026,
+        contribution_base=184_500.0,
+    )
 
     assert request["queries"] == [
         {
@@ -888,7 +904,19 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         ]
         is False
     )
-    assert input_values[f"{SECTION_1401_BASE}#input.self_employment_income"] == "0.0"
+    assert f"{SECTION_1401_BASE}#input.self_employment_income" not in input_values
+    assert (
+        input_values[
+            f"{SECTION_1402_B_BASE}#input.contribution_and_benefit_base_under_section_230_of_social_security_act"
+        ]
+        == "184500.0"
+    )
+    assert (
+        input_values[
+            f"{SECTION_1402_B_BASE}#input.wages_paid_to_individual_for_section_1401_a"
+        ]
+        == "18000.0"
+    )
     assert (
         input_values[
             f"{SECTION_152_C_BASE}#input.individual_is_child_of_taxpayer_or_descendant_of_such_child"
