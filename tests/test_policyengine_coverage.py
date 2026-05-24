@@ -540,6 +540,44 @@ rules:
     assert item["status"] == "known_not_comparable"
 
 
+@pytest.mark.parametrize(
+    ("path", "legal_id", "rule_name"),
+    [
+        (
+            "statutes/26/3121/b.yaml",
+            "us:statutes/26/3121/b#service_excluded_from_employment",
+            "service_excluded_from_employment",
+        ),
+        (
+            "statutes/26/3121/b/1.yaml",
+            "us:statutes/26/3121/b/1#foreign_agricultural_worker_service_excluded_from_employment",
+            "foreign_agricultural_worker_service_excluded_from_employment",
+        ),
+    ],
+)
+def test_policyengine_coverage_classifies_3121_employment_exclusions(
+    tmp_path, path, legal_id, rule_name
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / path,
+        f"""format: rulespec/v1
+rules:
+  - name: {rule_name}
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: service_condition
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == legal_id
+    assert item["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_classifies_3121_a_7_threshold_parameter(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3121/a/7.yaml",
