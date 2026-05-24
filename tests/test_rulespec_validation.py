@@ -10908,6 +10908,31 @@ rules: []
     ]
 
 
+def test_source_subparagraph_coverage_allows_repealed_empty_slice(tmp_path):
+    source_text = """Wages
+(a) Wages means all remuneration for employment.
+"""
+    content = """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/26/3121
+  summary: |-
+    (3) Repealed. Pub. L. 98-21, title III, section 324(a)(3)(B).
+rules: []
+"""
+    rules_file = tmp_path / "rulespec-us" / "statutes" / "26" / "3121" / "a" / "3.yaml"
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            rules_file=rules_file,
+            source_texts={"us/statute/26/3121": source_text},
+        )
+        == []
+    )
+
+
 def test_source_subparagraph_coverage_allows_rule_citing_child():
     source_text = """Definitions
 (a) Benefit means the amount payable under this program.

@@ -5893,6 +5893,8 @@ def find_source_subparagraph_coverage_issues(
     ) or extract_embedded_source_text(content)
     if not source_text:
         return []
+    if _empty_deferred_editorial_source_slice(payload, content):
+        return []
 
     source_children = _high_signal_top_level_subparagraphs(source_text)
     coverage_scope_prefix = _source_subparagraph_coverage_scope_prefix(
@@ -5927,6 +5929,35 @@ def find_source_subparagraph_coverage_issues(
             f"`source: {citation}` or add a deferred_outputs entry naming the blocker."
         )
     return issues
+
+
+def _empty_deferred_editorial_source_slice(
+    payload: dict[str, Any],
+    content: str,
+) -> bool:
+    """Allow explicitly deferred empty modules for repealed/editorial slices."""
+    rules = payload.get("rules")
+    if not isinstance(rules, list) or rules:
+        return False
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    status = str(module.get("status") or "").strip().lower()
+    if status not in {"deferred", "entity_not_supported"}:
+        return False
+    summary = extract_embedded_source_text(content)
+    return _source_slice_is_editorial_omission(summary)
+
+
+def _source_slice_is_editorial_omission(source_text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", source_text).strip()
+    if not normalized:
+        return False
+    if re.match(r"^\([A-Za-z0-9]+\)\s+Repealed\b", normalized):
+        return True
+    if re.fullmatch(r"\(?[A-Za-z0-9]+\)?\s*(?:\[?\s*)?\.{3,}(?:\s*\]?)?", normalized):
+        return True
+    return False
 
 
 def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, str]]:
