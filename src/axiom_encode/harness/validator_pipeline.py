@@ -14,6 +14,7 @@ Oracles run BEFORE LLM reviewers because:
 Uses Claude Code CLI (subprocess) for reviewer agents - cheaper than direct API.
 """
 
+import ast
 import contextlib
 import functools
 import hashlib
@@ -9030,12 +9031,60 @@ _SCOPED_EXCEPTION_PREDICATE_TOKENS = {
     "category",
     "condition",
     "eligible",
+    "for",
     "is",
     "kind",
     "qualified",
     "qualifies",
     "status",
     "type",
+}
+_SCOPED_EXCEPTION_PREDICATE_BLOCKING_AMOUNT_TOKENS = _SCOPED_EXCEPTION_AMOUNT_TOKENS - {
+    "payment",
+    "payments",
+}
+_SCOPED_EXCEPTION_FOR_PREDICATE_SUBJECT_TOKENS = {
+    "item",
+    "items",
+    "payment",
+    "payments",
+}
+_SCOPED_EXCEPTION_NONPREDICATE_QUANTITY_TOKENS = {
+    "base",
+    "bases",
+    "cap",
+    "caps",
+    "ceiling",
+    "ceilings",
+    "count",
+    "counts",
+    "dollar",
+    "dollars",
+    "fraction",
+    "fractions",
+    "limit",
+    "limits",
+    "number",
+    "numbers",
+    "percent",
+    "percentage",
+    "percentages",
+    "percents",
+    "quantity",
+    "quantities",
+    "rate",
+    "rates",
+    "ratio",
+    "ratios",
+    "share",
+    "shares",
+    "sum",
+    "sums",
+    "threshold",
+    "thresholds",
+    "total",
+    "totals",
+    "usd",
 }
 _SCOPED_EXCEPTION_STRONG_PREDICATE_TOKENS = {
     "applies",
@@ -9157,9 +9206,15 @@ def _identifier_is_scoped_exception_predicate(
     predicate_tokens = identifier_tokens & _SCOPED_EXCEPTION_PREDICATE_TOKENS
     if not predicate_tokens:
         return False
-    if (identifier_tokens & _SCOPED_EXCEPTION_AMOUNT_TOKENS) and not (
-        identifier_tokens & _SCOPED_EXCEPTION_STRONG_PREDICATE_TOKENS
+    if (
+        identifier_tokens & _SCOPED_EXCEPTION_PREDICATE_BLOCKING_AMOUNT_TOKENS
+    ) and not (identifier_tokens & _SCOPED_EXCEPTION_STRONG_PREDICATE_TOKENS):
+        return False
+    if predicate_tokens == {"for"} and not (
+        identifier_tokens & _SCOPED_EXCEPTION_FOR_PREDICATE_SUBJECT_TOKENS
     ):
+        return False
+    if identifier_tokens & _SCOPED_EXCEPTION_NONPREDICATE_QUANTITY_TOKENS:
         return False
     return True
 
@@ -9175,6 +9230,39 @@ def _formula_or_referenced_helpers_have_ungated_category_amount(
 ) -> bool:
     visited = set(seen or set())
     visited.add(current_name)
+
+    conditional_spans = _rulespec_inline_conditional_spans(formula)
+    if conditional_spans:
+        remaining_formula = formula
+        for start, end, condition, then_formula, else_formula in reversed(
+            conditional_spans
+        ):
+            then_has_category_gate, else_has_category_gate = (
+                _formula_category_branch_gates(
+                    condition,
+                    category_tokens=category_tokens,
+                )
+            )
+            if _formula_or_referenced_helpers_have_ungated_category_amount(
+                then_formula,
+                category_tokens=category_tokens,
+                formula_by_name=formula_by_name,
+                current_name=current_name,
+                gate_context=gate_context or then_has_category_gate,
+                seen=visited,
+            ) or _formula_or_referenced_helpers_have_ungated_category_amount(
+                else_formula,
+                category_tokens=category_tokens,
+                formula_by_name=formula_by_name,
+                current_name=current_name,
+                gate_context=gate_context or else_has_category_gate,
+                seen=visited,
+            ):
+                return True
+            remaining_formula = (
+                f"{remaining_formula[:start]} 0 {remaining_formula[end:]}"
+            )
+        formula = remaining_formula
 
     conditional = _split_rulespec_inline_conditional(formula)
     if conditional is not None:
@@ -9207,9 +9295,12 @@ def _formula_or_referenced_helpers_have_ungated_category_amount(
         if identifier in formula_by_name and identifier not in visited:
             helper_formula = formula_by_name[identifier]
             if is_category_amount:
-                if gate_context or _formula_output_is_category_gated(
+                if gate_context or _formula_expression_is_category_gated(
                     helper_formula,
                     category_tokens=category_tokens,
+                    formula_by_name=formula_by_name,
+                    current_name=identifier,
+                    seen=visited,
                 ):
                     continue
                 return True
@@ -9225,6 +9316,144 @@ def _formula_or_referenced_helpers_have_ungated_category_amount(
             continue
         if is_category_amount and not gate_context:
             return True
+    return False
+
+
+def _formula_expression_is_category_gated(
+    formula: str,
+    *,
+    category_tokens: tuple[str, ...],
+    formula_by_name: dict[str, str],
+    current_name: str,
+    seen: set[str] | None = None,
+) -> bool:
+    visited = set(seen or set())
+    visited.add(current_name)
+    if _formula_output_is_category_gated(
+        formula,
+        category_tokens=category_tokens,
+    ):
+        return True
+    remaining_formula = formula
+    for _start, _end, condition, then_formula, else_formula in reversed(
+        _rulespec_inline_conditional_spans(formula)
+    ):
+        then_has_category_gate, else_has_category_gate = _formula_category_branch_gates(
+            condition,
+            category_tokens=category_tokens,
+        )
+        if then_has_category_gate and _formula_expression_is_zero(else_formula):
+            remaining_formula = (
+                f"{remaining_formula[:_start]} 0 {remaining_formula[_end:]}"
+            )
+            continue
+        if else_has_category_gate and _formula_expression_is_zero(then_formula):
+            remaining_formula = (
+                f"{remaining_formula[:_start]} 0 {remaining_formula[_end:]}"
+            )
+            continue
+
+    for identifier in sorted(
+        _formula_local_identifiers(remaining_formula),
+        key=len,
+        reverse=True,
+    ):
+        if identifier in visited or identifier not in formula_by_name:
+            continue
+        if _formula_expression_is_category_gated(
+            formula_by_name[identifier],
+            category_tokens=category_tokens,
+            formula_by_name=formula_by_name,
+            current_name=identifier,
+            seen=visited,
+        ):
+            remaining_formula = re.sub(
+                rf"\b{re.escape(identifier)}\b",
+                "0",
+                remaining_formula,
+            )
+    return _formula_expression_is_zero(remaining_formula)
+
+
+def _formula_expression_is_zero(formula: str) -> bool:
+    stripped = formula.strip()
+    if re.fullmatch(r"0(?:\.0+)?", stripped):
+        return True
+    return _formula_expression_is_statically_zero(stripped)
+
+
+def _formula_expression_is_statically_zero(formula: str) -> bool:
+    try:
+        expression = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        return False
+    return _formula_ast_node_is_zero(expression.body)
+
+
+def _formula_ast_node_is_zero(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
+        return float(node.value) == 0
+    if isinstance(node, ast.UnaryOp):
+        return _formula_ast_node_is_zero(node.operand)
+    if isinstance(node, ast.BinOp):
+        if isinstance(node.op, ast.Add | ast.Sub):
+            return _formula_ast_node_is_zero(node.left) and _formula_ast_node_is_zero(
+                node.right
+            )
+        if isinstance(node.op, ast.Mult):
+            return _formula_ast_node_is_zero(node.left) or _formula_ast_node_is_zero(
+                node.right
+            )
+        if isinstance(node.op, ast.Div | ast.FloorDiv):
+            return _formula_ast_node_is_zero(node.left)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        function_name = node.func.id.lower()
+        if function_name in {"abs", "ceil", "floor", "round"} and len(node.args) == 1:
+            return _formula_ast_node_is_zero(node.args[0])
+        if function_name == "max":
+            return bool(node.args) and all(
+                _formula_ast_node_is_zero(argument) for argument in node.args
+            )
+        if function_name == "min":
+            return bool(node.args) and (
+                all(_formula_ast_node_is_zero(argument) for argument in node.args)
+                or (
+                    any(_formula_ast_node_is_zero(argument) for argument in node.args)
+                    and all(
+                        _formula_ast_node_is_nonnegative(argument)
+                        for argument in node.args
+                    )
+                )
+            )
+    return False
+
+
+def _formula_ast_node_is_nonnegative(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
+        return float(node.value) >= 0
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return False
+    if _formula_ast_node_is_zero(node):
+        return True
+    if isinstance(node, ast.BinOp):
+        if isinstance(node.op, ast.Add):
+            return _formula_ast_node_is_nonnegative(
+                node.left
+            ) and _formula_ast_node_is_nonnegative(node.right)
+        if isinstance(node.op, ast.Mult):
+            return _formula_ast_node_is_nonnegative(
+                node.left
+            ) and _formula_ast_node_is_nonnegative(node.right)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        function_name = node.func.id.lower()
+        if function_name == "abs":
+            return True
+        if function_name == "max":
+            return any(_formula_ast_node_is_zero(argument) for argument in node.args)
+        if function_name == "min":
+            return bool(node.args) and all(
+                _formula_ast_node_is_nonnegative(argument) for argument in node.args
+            )
     return False
 
 
@@ -9316,26 +9545,78 @@ def _formula_identifier_reference_is_negated(
 
 def _split_rulespec_inline_conditional(formula: str) -> tuple[str, str, str] | None:
     text = formula.strip()
-    head = re.match(r"^(?:if|elif)\b", text, flags=re.IGNORECASE)
-    if head is None:
+    span = _split_rulespec_inline_conditional_at(text, 0)
+    if span is None or span[1] != len(text):
         return None
-
-    colon_index = _find_rulespec_top_level_colon(text, head.end())
-    if colon_index is None:
-        return None
-
-    else_match = _find_rulespec_top_level_else(text, colon_index + 1)
-    if else_match is None:
-        return None
-    else_index, else_colon_index = else_match
-    condition = text[head.end() : colon_index].strip()
-    then_formula = text[colon_index + 1 : else_index].strip()
-    else_formula = text[else_colon_index + 1 :].strip()
+    _start, _end, condition, then_formula, else_formula = span
     return condition, then_formula, else_formula
 
 
-def _find_rulespec_top_level_colon(text: str, start: int) -> int | None:
-    depth = 0
+def _rulespec_inline_conditional_spans(
+    formula: str,
+) -> list[tuple[int, int, str, str, str]]:
+    spans: list[tuple[int, int, str, str, str]] = []
+    index = 0
+    while index < len(formula):
+        if not (
+            _rulespec_word_at(formula, index, "if")
+            or _rulespec_word_at(formula, index, "elif")
+        ):
+            index += 1
+            continue
+        span = _split_rulespec_inline_conditional_at(formula, index)
+        if span is not None:
+            spans.append(span)
+            index = span[1]
+            continue
+        index += 1
+    return spans
+
+
+def _split_rulespec_inline_conditional_at(
+    text: str,
+    start: int,
+) -> tuple[int, int, str, str, str] | None:
+    head = re.match(r"(?:if|elif)\b", text[start:], flags=re.IGNORECASE)
+    if head is None:
+        return None
+
+    base_depth = _rulespec_bracket_depth_before(text, start)
+    head_end = start + head.end()
+    colon_index = _find_rulespec_top_level_colon(
+        text,
+        head_end,
+        base_depth=base_depth,
+    )
+    if colon_index is None:
+        return None
+
+    else_match = _find_rulespec_top_level_else(
+        text,
+        colon_index + 1,
+        base_depth=base_depth,
+    )
+    if else_match is None:
+        return None
+    else_index, else_colon_index = else_match
+    end = _find_rulespec_conditional_end(
+        text,
+        else_colon_index + 1,
+        base_depth=base_depth,
+    )
+    condition = text[head_end:colon_index].strip()
+    then_formula = text[colon_index + 1 : else_index].strip()
+    else_formula = text[else_colon_index + 1 : end].strip()
+    return start, end, condition, then_formula, else_formula
+
+
+def _find_rulespec_top_level_colon(
+    text: str,
+    start: int,
+    *,
+    base_depth: int = 0,
+) -> int | None:
+    depth = base_depth
     quote: str | None = None
     index = start
     while index < len(text):
@@ -9351,14 +9632,19 @@ def _find_rulespec_top_level_colon(text: str, start: int) -> int | None:
             depth += 1
         elif char in ")]}" and depth:
             depth -= 1
-        elif char == ":" and depth == 0:
+        elif char == ":" and depth == base_depth:
             return index
         index += 1
     return None
 
 
-def _find_rulespec_top_level_else(text: str, start: int) -> tuple[int, int] | None:
-    depth = 0
+def _find_rulespec_top_level_else(
+    text: str,
+    start: int,
+    *,
+    base_depth: int = 0,
+) -> tuple[int, int] | None:
+    depth = base_depth
     quote: str | None = None
     nested_conditionals = 0
     index = start
@@ -9382,7 +9668,7 @@ def _find_rulespec_top_level_else(text: str, start: int) -> tuple[int, int] | No
                 depth -= 1
             index += 1
             continue
-        if depth != 0:
+        if depth != base_depth:
             index += 1
             continue
         if _rulespec_word_at(text, index, "if"):
@@ -9405,6 +9691,63 @@ def _find_rulespec_top_level_else(text: str, start: int) -> tuple[int, int] | No
             return index, colon_index
         index += 1
     return None
+
+
+def _find_rulespec_conditional_end(
+    text: str,
+    start: int,
+    *,
+    base_depth: int,
+) -> int:
+    depth = base_depth
+    quote: str | None = None
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == quote and text[index - 1] != "\\":
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            index += 1
+            continue
+        if char in "([{":
+            depth += 1
+            index += 1
+            continue
+        if char in ")]}":
+            if depth == base_depth:
+                return index
+            depth -= 1
+            index += 1
+            continue
+        if char == "," and depth == base_depth:
+            return index
+        index += 1
+    return len(text)
+
+
+def _rulespec_bracket_depth_before(text: str, end: int) -> int:
+    depth = 0
+    quote: str | None = None
+    index = 0
+    while index < min(end, len(text)):
+        char = text[index]
+        if quote is not None:
+            if char == quote and (index == 0 or text[index - 1] != "\\"):
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}" and depth:
+            depth -= 1
+        index += 1
+    return depth
 
 
 def _rulespec_word_at(text: str, index: int, word: str) -> bool:
