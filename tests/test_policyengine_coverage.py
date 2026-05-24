@@ -477,6 +477,10 @@ rules:
             "6",
             "state_unemployment_domestic_or_agricultural_payment_excluded_from_wages",
         ),
+        (
+            "7",
+            "nontrade_or_domestic_service_remuneration_excluded_from_wages",
+        ),
         ("13", "termination_plan_payment_excluded_from_wages"),
         ("14", "survivor_or_estate_post_death_year_payment_excluded_from_wages"),
         (
@@ -505,6 +509,30 @@ rules:
     assert report["status_counts"] == {"known_not_comparable": 1}
     item = report["items"][0]
     assert item["legal_id"] == f"us:statutes/26/3121/a/{subsection}#{rule_name}"
+    assert item["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_classifies_3121_a_7_threshold_parameter(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3121/a/7.yaml",
+        """format: rulespec/v1
+rules:
+  - name: cash_nontrade_service_annual_remuneration_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 100
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3121/a/7#cash_nontrade_service_annual_remuneration_threshold"
+    )
     assert item["status"] == "known_not_comparable"
 
 

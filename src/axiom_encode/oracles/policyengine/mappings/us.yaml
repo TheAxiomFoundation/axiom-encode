@@ -9237,6 +9237,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(a)(6) employer-paid employee FICA or state unemployment contribution wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/a/7#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(7) noncash, domestic-service, and nontrade-service wage-exclusion predicates, thresholds, and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/a/13#
     country: us
     program: tax
