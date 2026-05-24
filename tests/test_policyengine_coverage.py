@@ -486,6 +486,11 @@ rules:
         ("10", "home_worker_low_cash_remuneration_excluded_from_wages"),
         ("11", "moving_expense_deduction_reasonable_belief_exclusion_applies"),
         ("11", "moving_expense_deduction_reasonable_belief_excluded_from_wages"),
+        ("12", "noncash_tip_exclusion_applies"),
+        ("12", "noncash_tips_excluded_from_wages"),
+        ("12", "low_monthly_cash_tip_exclusion_applies"),
+        ("12", "low_monthly_cash_tips_excluded_from_wages"),
+        ("12", "tips_excluded_from_wages"),
         ("13", "termination_plan_payment_excluded_from_wages"),
         ("14", "survivor_or_estate_post_death_year_payment_excluded_from_wages"),
         (
@@ -586,6 +591,27 @@ rules:
         item["legal_id"]
         == "us:statutes/26/3121/a/10#home_worker_cash_remuneration_annual_threshold"
     )
+    assert item["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_classifies_3121_a_12_tip_threshold_parameter(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3121/a/12.yaml",
+        """format: rulespec/v1
+rules:
+  - name: monthly_cash_tip_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 20
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us:statutes/26/3121/a/12#monthly_cash_tip_threshold"
     assert item["status"] == "known_not_comparable"
 
 
