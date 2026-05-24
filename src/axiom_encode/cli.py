@@ -13677,7 +13677,7 @@ def _validate_generated_encoding_in_policy_overlay(
             overlay_target=overlay_target,
             dependents=dependents,
         )
-        for _ in range(10):
+        for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
             mixed_scalar_repairs = _repair_mixed_scalar_output_tests(
@@ -14265,6 +14265,7 @@ def _repair_dependent_proof_import_hashes(
 _MISSING_INPUT_RE = re.compile(
     r"Test case `(?P<case>[^`]+)` execution failed: missing input `(?P<input>[^`]+)`"
 )
+_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT = 50
 
 _INVALID_INPUT_REF_RE = re.compile(
     r"input `(?P<input>[^`]+)` does not resolve to an input slot"
@@ -14456,6 +14457,10 @@ def _complete_missing_dependent_test_inputs(
     baseline_inputs = _load_test_input_baseline(
         _rulespec_test_path(overlay_repo / relative_output)
     )
+    imported_inputs = _imported_input_refs_by_name(
+        overlay_repo / relative_output,
+        repo_path=overlay_repo,
+    )
     changed: list[Path] = []
     for validated_file, validation in validations:
         if validated_file == overlay_repo / relative_output:
@@ -14477,6 +14482,7 @@ def _complete_missing_dependent_test_inputs(
                 input_name,
                 target_ref=target_ref,
                 baseline_inputs=baseline_inputs,
+                imported_inputs=imported_inputs,
             ):
                 updated = _insert_input_default_in_test_cases(
                     updated,
@@ -14679,6 +14685,7 @@ def _default_refs_for_missing_input(
     *,
     target_ref: str,
     baseline_inputs: dict[str, object],
+    imported_inputs: dict[str, list[str]] | None = None,
 ) -> list[tuple[str, object]]:
     suffix = f"#input.{input_name}"
     matches = [
@@ -14688,6 +14695,12 @@ def _default_refs_for_missing_input(
     ]
     if matches:
         return matches
+    imported_matches = [
+        (reference, _infer_missing_input_default(input_name))
+        for reference in (imported_inputs or {}).get(input_name, [])
+    ]
+    if imported_matches:
+        return imported_matches
     return [
         (f"{target_ref}#input.{input_name}", _infer_missing_input_default(input_name))
     ]

@@ -23,6 +23,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _append_generated_derived_output_tests_if_missing,
     _apply_generated_encoding_result,
+    _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
@@ -3864,6 +3865,101 @@ rules:
         assert (
             "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
             in repaired
+        )
+
+    def test_complete_missing_dependent_test_inputs_uses_transitive_import_ref(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        target_file = repo / "statutes/26/32/c/2.yaml"
+        dependent_file = repo / "statutes/26/24/d.yaml"
+        imported_file = repo / "statutes/26/164/f.yaml"
+        transitive_file = repo / "statutes/26/1402/b.yaml"
+        test_file = repo / "statutes/26/24/d.test.yaml"
+        target_file.parent.mkdir(parents=True)
+        dependent_file.parent.mkdir(parents=True, exist_ok=True)
+        imported_file.parent.mkdir(parents=True, exist_ok=True)
+        transitive_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/164/f#self_employment_tax_deduction
+rules:
+  - name: self_employment_component
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_tax_deduction
+"""
+        )
+        imported_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/b#self_employment_income
+rules:
+  - name: self_employment_tax_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_income / 2
+"""
+        )
+        transitive_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if individual_is_nonresident_alien: 0 else: net_earnings
+"""
+        )
+        dependent_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: dependent_case
+  input:
+    us:statutes/26/24/d#input.qualifying_children_count: 2
+  output:
+    us:statutes/26/24/d#refundable_ctc: 2550
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `dependent_case` execution failed: missing input "
+                        "`individual_is_nonresident_alien` for entity `case-1` over "
+                        "2026-01-01..2026-12-31"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_dependent_test_inputs(
+            overlay_repo=repo,
+            relative_output=Path("statutes/26/32/c/2.yaml"),
+            validations=[(dependent_file, validation)],
+        )
+
+        assert changed == [test_file]
+        repaired = test_file.read_text()
+        assert (
+            "us:statutes/26/1402/b#input.individual_is_nonresident_alien: false"
+            in repaired
+        )
+        assert (
+            "us:statutes/26/32/c/2#input.individual_is_nonresident_alien"
+            not in repaired
         )
 
     def test_encode_apply_auto_repairs_section_1401_policyengine_oracle_inputs(
