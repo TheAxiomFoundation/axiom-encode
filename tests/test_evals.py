@@ -1057,6 +1057,46 @@ rules:
     ) in formula
 
 
+def test_materialize_eval_artifact_repairs_then_conditionals(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "26" / "1402" / "b.yaml"
+    llm_response = """=== FILE: b.yaml ===
+format: rulespec/v1
+module:
+  summary: Section defines self-employment income.
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if net_earnings_from_self_employment >= self_employment_income_minimum_amount
+              and not individual_is_nonresident_alien_individual
+              then: net_earnings_from_self_employment else: 0
+"""
+
+    wrote = _materialize_eval_artifact(
+        llm_response,
+        output_file,
+        source_text="Self-employment income excludes net earnings below $400.",
+    )
+
+    assert wrote is True
+    payload = yaml.safe_load(output_file.read_text())
+    formula = payload["rules"][0]["versions"][0]["formula"]
+    assert "then:" not in formula
+    assert (
+        "if net_earnings_from_self_employment >= self_employment_income_minimum_amount "
+        "and not individual_is_nonresident_alien_individual: "
+        "net_earnings_from_self_employment else: 0"
+    ) == formula
+
+
 def test_materialize_eval_artifact_preserves_open_interval_source_table_rows(
     tmp_path,
 ):

@@ -628,7 +628,7 @@ Hard requirements:
   reference `example_rule` inside formula text.
 - Axiom conditionals are expression syntax, not YAML syntax. Money/scalar
   formulas may use `if condition: value else: other`; do not use Python ternary
-  syntax, `else if`, or `elif`.
+  syntax, `then:`, `else if`, or `elif`.
 - Function calls in formulas are expression syntax, not Python syntax. Do not
   include trailing commas in calls such as `min(a, b)` or `max(0, x)`, and do
   not write tuple-style expressions.
