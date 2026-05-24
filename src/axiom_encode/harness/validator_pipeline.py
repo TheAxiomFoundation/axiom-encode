@@ -2985,6 +2985,20 @@ def _parse_interval_source_table(text: str | None) -> _IntervalSourceTable | Non
                 candidate_headers
             ):
                 output_headers = candidate_headers
+            elif candidate_headers:
+                compact_headers = _compact_interval_output_headers(
+                    cells,
+                    row_key_index,
+                )
+                compact_rows = _compact_interval_rows_from_cells(
+                    candidate_headers,
+                    output_count=len(compact_headers) or None,
+                )
+                if compact_rows:
+                    if compact_headers:
+                        output_headers = compact_headers
+                    rows.extend(compact_rows)
+                    continue
         row_cells = _interval_row_cells_from_cells(cells)
         if row_cells is None:
             continue
@@ -3004,6 +3018,64 @@ def _source_table_cells(line: str) -> list[str]:
     if "|" not in line:
         return []
     return [cell.strip() for cell in line.split("|") if cell.strip()]
+
+
+def _compact_interval_output_headers(
+    cells: list[str],
+    row_key_index: int,
+) -> tuple[str, ...]:
+    prefix = cells[:row_key_index]
+    separator_index = next(
+        (
+            index
+            for index, cell in enumerate(prefix)
+            if _is_markdown_separator_cell(cell)
+        ),
+        None,
+    )
+    if separator_index is not None:
+        prefix = prefix[:separator_index]
+    prefix = [cell for cell in prefix if not _is_markdown_separator_cell(cell)]
+    return tuple(prefix[2:]) if len(prefix) > 2 else ()
+
+
+def _compact_interval_rows_from_cells(
+    cells: tuple[str, ...],
+    *,
+    output_count: int | None,
+) -> list[_IntervalSourceRow]:
+    output_counts = [output_count] if output_count else list(range(1, 8))
+    for candidate_output_count in output_counts:
+        group_size = candidate_output_count + 2
+        if group_size <= 2 or len(cells) % group_size != 0:
+            continue
+        rows: list[_IntervalSourceRow] = []
+        valid = True
+        for start in range(0, len(cells), group_size):
+            group = cells[start : start + group_size]
+            lower = _parse_interval_bound_cell(group[0])
+            upper = _parse_interval_bound_cell(group[1])
+            if lower is _UNPARSED_BOUND or upper is _UNPARSED_BOUND:
+                valid = False
+                break
+            outputs = tuple(group[2:])
+            if any(_parse_source_numeric_cell(output) is None for output in outputs):
+                valid = False
+                break
+            rows.append(
+                _IntervalSourceRow(
+                    lower=lower,
+                    upper=upper,
+                    outputs=outputs,
+                )
+            )
+        if valid and len(rows) > 1:
+            return rows
+    return []
+
+
+def _is_markdown_separator_cell(cell: str) -> bool:
+    return bool(re.fullmatch(r":?-{2,}:?", cell.strip()))
 
 
 def _find_interval_row_key_header_index(cells: list[str]) -> int | None:
@@ -3234,9 +3306,15 @@ def _coerce_interval_source_output_value(
         return 0.0
     dtype = str(rule.get("dtype") or "").strip().lower()
     name = str(rule.get("name") or "").strip().lower()
-    if (dtype == "rate" or "percentage" in name or "percent" in name) and abs(
-        value
-    ) > 1:
+    parameter_text = _interval_parameter_text(rule)
+    percentage_labeled = (
+        "percentage" in name
+        or "percent" in name
+        or re.search(r"\bpercent(?:age)?\b", parameter_text) is not None
+    )
+    if percentage_labeled and value != 0:
+        value = value / 100
+    elif dtype == "rate" and abs(value) > 1:
         value = value / 100
     return round(value, 12)
 
