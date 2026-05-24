@@ -813,6 +813,15 @@ mappings:
     comparison: rate
     rationale: Same statutory self-employment Medicare tax rate, stored in PE as parameter data.
 
+  - legal_id: us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.self_employment.rate.medicare
+    period: year
+    comparison: rate
+    rationale: Same statutory section 1401(b)(1) self-employment Medicare tax rate, stored in PE as parameter data.
+
   - legal_id: us:statutes/26/1401#self_employment_hospital_insurance_tax
     country: us
     program: tax
@@ -827,6 +836,15 @@ mappings:
     period: year
     comparison: rate
     rationale: Same statutory self-employment OASDI tax rate, stored in PE as parameter data.
+
+  - legal_id: us:statutes/26/1401/a/rate#old_age_survivors_and_disability_insurance_tax_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.self_employment.rate.social_security
+    period: year
+    comparison: rate
+    rationale: Same statutory section 1401(a) self-employment OASDI tax rate, stored in PE as parameter data.
 
   - legal_id: us:statutes/26/1401#self_employment_oasdi_tax
     country: us
