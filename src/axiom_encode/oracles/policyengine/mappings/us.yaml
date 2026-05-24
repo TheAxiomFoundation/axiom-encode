@@ -9261,6 +9261,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(a)(11) moving-expense reasonable-belief wage-exclusion predicates or excluded amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/a/12#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(12) noncash-tip or low-monthly-cash-tip wage-exclusion predicates, thresholds, or excluded amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/a/13#
     country: us
     program: tax
