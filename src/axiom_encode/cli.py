@@ -10474,6 +10474,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_input_field_accesses = (
+                    _try_repair_generated_input_field_access_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_input_field_accesses:
+                    outcome["auto_repaired_input_field_access"] = (
+                        repaired_input_field_accesses
+                    )
+                    print(
+                        "  apply=auto_repaired_input_field_access:"
+                        + ",".join(repaired_input_field_accesses)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_table_band_scalars = (
                     _try_repair_generated_source_table_band_scalars_for_apply(
                         result,
@@ -11208,6 +11236,9 @@ _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"
 )
+_INPUT_FIELD_ACCESS_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])input\.([A-Za-z_][A-Za-z0-9_]*)"
+)
 _RULESPEC_IDENTIFIER_PATTERN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 _RULESPEC_FORMULA_BUILTINS = {
     "abs",
@@ -11240,6 +11271,66 @@ _UNIT_ENTITY_NAMES = {
     "spmunit",
     "taxunit",
 }
+
+
+def _try_repair_generated_input_field_access_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite generated `input.foo` formula accesses to local fact names."""
+    if not any(
+        "bare field access in scalar position" in str(issue) for issue in issues
+    ):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_input_field_accesses_in_formulas(rules_file=rules_file)
+
+
+def _repair_input_field_accesses_in_formulas(*, rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip() or "<unknown>"
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version_index, version in enumerate(versions):
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            new_formula = _INPUT_FIELD_ACCESS_PATTERN.sub(r"\1", formula)
+            if new_formula == formula:
+                continue
+            version["formula"] = new_formula
+            repaired.append(f"{rule_name}:versions[{version_index}].formula")
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
 
 
 def _try_repair_generated_source_table_band_scalars_for_apply(
