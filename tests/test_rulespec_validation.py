@@ -1670,6 +1670,11 @@ def test_policyengine_registry_is_legal_id_keyed():
         employee_medicare_rate_mapping.policyengine_parameter
         == "gov.irs.payroll.medicare.rate.employee"
     )
+    rrta_tier_2_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3201#tier_2_employee_tax",
+        country="us",
+    )
+    assert rrta_tier_2_mapping.mapping_type == "not_comparable"
     employer_medicare_rate_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3111/b#hospital_insurance_employer_tax_rate",
         country="us",
