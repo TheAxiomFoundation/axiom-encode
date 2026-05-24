@@ -207,5 +207,5 @@ def test_build_rulespec_eval_prompt_includes_scoped_exception_test_guidance(
         "Do not respond with summaries",
         maxsplit=1,
     )[0]
-    assert "non-excepted" in test_file_rules
+    assert "positive/nonzero" in test_file_rules
     assert "toggle each gate at least once" in test_file_rules
