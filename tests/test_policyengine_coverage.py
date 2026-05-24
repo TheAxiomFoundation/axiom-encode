@@ -497,6 +497,9 @@ rules:
             "15",
             "social_security_disability_insurance_prior_year_no_services_payment_excluded_from_wages",
         ),
+        ("16", "qualifying_exempt_organization_for_low_remuneration_exclusion"),
+        ("16", "exempt_organization_low_remuneration_exclusion_applies"),
+        ("16", "exempt_organization_low_remuneration_excluded_from_wages"),
     ],
 )
 def test_policyengine_coverage_classifies_3121_wage_exclusions(
@@ -612,6 +615,30 @@ rules:
     assert report["status_counts"] == {"known_not_comparable": 1}
     item = report["items"][0]
     assert item["legal_id"] == "us:statutes/26/3121/a/12#monthly_cash_tip_threshold"
+    assert item["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_classifies_3121_a_16_threshold_parameter(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3121/a/16.yaml",
+        """format: rulespec/v1
+rules:
+  - name: exempt_organization_remuneration_annual_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 100
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3121/a/16#exempt_organization_remuneration_annual_threshold"
+    )
     assert item["status"] == "known_not_comparable"
 
 
