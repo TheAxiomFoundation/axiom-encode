@@ -10445,6 +10445,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_employer_scoped_rules = (
+                    _try_repair_generated_employer_scope_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_employer_scoped_rules:
+                    outcome["auto_repaired_employer_scope"] = (
+                        repaired_employer_scoped_rules
+                    )
+                    print(
+                        "  apply=auto_repaired_employer_scope:"
+                        + ",".join(repaired_employer_scoped_rules)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_person_scoped_rules = (
                     _try_repair_generated_person_scoped_rate_base_for_apply(
                         result,
@@ -11117,6 +11145,9 @@ def _qualify_deferred_output_subsection_paths(
 _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
     r"Person-scoped rate base at unit scope: `([^`]+)`"
 )
+_EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
+    r"Employer-scoped rule at non-employer scope: `([^`]+)`"
+)
 _RULESPEC_IDENTIFIER_PATTERN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 _RULESPEC_FORMULA_BUILTINS = {
     "abs",
@@ -11149,6 +11180,95 @@ _UNIT_ENTITY_NAMES = {
     "spmunit",
     "taxunit",
 }
+
+
+def _try_repair_generated_employer_scope_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Move generated employer-imposed rules to the Employer entity."""
+    target_names = _employer_scope_issue_names(issues)
+    if not target_names:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_employer_scoped_entities(
+        rules_file=rules_file,
+        target_names=target_names,
+    )
+
+
+def _employer_scope_issue_names(issues: list[str]) -> list[str]:
+    names: list[str] = []
+    for issue in issues:
+        match = _EMPLOYER_SCOPE_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            names.append(match.group(1))
+    return names
+
+
+def _repair_employer_scoped_entities(
+    *,
+    rules_file: Path,
+    target_names: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    by_name = {
+        str(rule.get("name")).strip(): rule
+        for rule in rules
+        if isinstance(rule, dict)
+        and isinstance(rule.get("name"), str)
+        and str(rule.get("name")).strip()
+    }
+    repaired: list[str] = []
+    for target_name in target_names:
+        target_rule = by_name.get(target_name)
+        if not isinstance(target_rule, dict):
+            continue
+        if _set_rule_entity_to_employer(target_rule):
+            repaired.append(target_name)
+        formula = _first_rule_formula(target_rule)
+        for identifier in sorted(_formula_identifiers(formula)):
+            helper = by_name.get(identifier)
+            if not isinstance(helper, dict):
+                continue
+            if str(helper.get("dtype") or "").strip().lower() != "rate":
+                continue
+            if _set_rule_entity_to_employer(helper):
+                repaired.append(identifier)
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _set_rule_entity_to_employer(rule: dict[str, object]) -> bool:
+    entity = str(rule.get("entity") or "").strip()
+    if entity == "Employer":
+        return False
+    if entity.replace("_", "").lower() not in {*_UNIT_ENTITY_NAMES, "corporation"}:
+        return False
+    rule["entity"] = "Employer"
+    return True
 
 
 def _try_repair_generated_person_scoped_rate_base_for_apply(

@@ -4704,6 +4704,14 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
     ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
     ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
 )
+_EMPLOYER_SCOPED_ENTITY_NAMES = {"business", "corporation", "taxunit"}
+_EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
+    r"\b(?:each|every|any|an?|the)\s+employer\b"
+    r"|"
+    r"\bwith\s+respect\s+to\s+(?:having\s+individuals\s+in\s+his\s+employ|"
+    r"any\s+employer|an?\s+employer)\b",
+    flags=re.IGNORECASE,
+)
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
     r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b",
@@ -5014,6 +5022,41 @@ def find_person_scoped_rate_base_unit_issues(content: str) -> list[str]:
             "subject. Encode the rate-applied amount at that lower entity "
             "first, then aggregate through an explicit relation; do not "
             "multiply a unit-level placeholder or aggregate base by the rate."
+        )
+    return issues
+
+
+def find_employer_scoped_entity_issues(content: str) -> list[str]:
+    """Flag employer-imposed rules that are broadened to tax/business units."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    source_text = extract_embedded_source_text(content)
+    if not source_text:
+        source_text = _extract_source_verification_text(content)
+    if not source_text:
+        return []
+
+    issues: list[str] = []
+    for name, kind, _formula, rule_source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if entity.lower() not in _EMPLOYER_SCOPED_ENTITY_NAMES:
+            continue
+        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        if not scoped_source_text:
+            scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if not _EMPLOYER_SCOPED_SOURCE_PATTERN.search(scoped_source_text):
+            continue
+        issues.append(
+            "Employer-scoped rule at non-employer scope: "
+            f"`{name}` is declared on `{entity}`, but the source text imposes "
+            "the amount, tax, credit, or limitation on an employer. Use "
+            "`entity: Employer` instead of broadening it to a tax, business, "
+            "or corporate unit."
         )
     return issues
 
@@ -13460,6 +13503,7 @@ class ValidatorPipeline:
         issues.extend(find_source_condition_coverage_issues(content))
         issues.extend(find_filtered_entity_dependency_issues(content))
         issues.extend(find_source_scope_consistency_issues(content))
+        issues.extend(find_employer_scoped_entity_issues(content))
         issues.extend(find_person_scoped_rate_base_unit_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))

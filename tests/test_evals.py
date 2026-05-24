@@ -3336,7 +3336,7 @@ class TestEvalPrompt:
         assert (
             "Allowed `entity:` values are `Payment`, `Person`, `TaxUnit`, `Household`, "
             "`Family`, `TanfUnit`, `SnapUnit`, `SPMUnit`, `Corporation`, `Business`, "
-            "`Asset`."
+            "`Employer`, `Asset`."
         ) in prompt
         assert "Allowed `period:` values are `Year`, `Month`, `Week`, `Day`." in prompt
         assert (

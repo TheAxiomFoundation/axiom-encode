@@ -110,9 +110,12 @@ Hard requirements:
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering a source relation through a
   stated predicate. "This source is about SNAP" is not enough. If the source
-  uses an existing structural entity such as `Household`, `TaxUnit`, or
-  `Person`, and merely references a program-specific concept without defining
+  uses an existing structural entity such as `Household`, `TaxUnit`, `Employer`,
+  or `Person`, and merely references a program-specific concept without defining
   who belongs to it, stay on the source-stated structural entity.
+- For source text that imposes an amount, tax, credit, or limitation on each,
+  every, or any employer, use `entity: Employer`. Do not default to `TaxUnit`
+  merely because the output is tax-related.
 - Keep the membership predicate as an ordinary source-backed rule, then define
   the filtered entity under `derived_relation:` with `arity`, `source_relation`,
   `entity`, `member_relation`, `slot_entities`, and a `versions[].formula` that
