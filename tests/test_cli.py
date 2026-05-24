@@ -6669,6 +6669,110 @@ rules: []
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "imported-test-inputs-v1"
 
+    def test_repair_imported_test_inputs_removes_stale_invalid_refs_then_fills_missing_imports(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/1401/b/1.yaml"
+        target = policy_repo / "statutes/26/32/c/2.yaml"
+        test_file = policy_repo / "statutes/26/32/c/2.test.yaml"
+        imported.parent.mkdir(parents=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_income_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_income * 0.029
+"""
+        )
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401/b/1#self_employment_income_tax
+rules: []
+"""
+        )
+        test_file.write_text(
+            """- name: transitive_case
+  input:
+    us:statutes/26/1401#input.self_employment_income: 1000
+    us:statutes/26/32/c/2#input.taxpayer_is_individual: true
+  output: {}
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/32/c/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is False
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                FakePipeline.calls += 1
+                if FakePipeline.calls == 1:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` execution failed: "
+                                    "dataset input "
+                                    "`us:statutes/26/1401#input.self_employment_income` "
+                                    "must use an absolute legal RuleSpec reference "
+                                    "that resolves to an input slot, derived rule, "
+                                    "or parameter in the compiled program"
+                                )
+                            )
+                        },
+                    )
+                if FakePipeline.calls == 2:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                error=(
+                                    "Test case `transitive_case` execution failed: "
+                                    "missing input `self_employment_income`"
+                                )
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_imported_test_inputs(args)
+
+        updated = test_file.read_text()
+        assert "us:statutes/26/1401#input.self_employment_income" not in updated
+        assert "us:statutes/26/32/c/2#input.taxpayer_is_individual: true" in updated
+        assert "us:statutes/26/1401/b/1#input.self_employment_income: 0" in updated
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/32/c/2.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["model"] == "imported-test-inputs-v1"
+
     def test_repair_imported_test_inputs_rewrites_stale_exclusion_inputs(
         self, tmp_path
     ):

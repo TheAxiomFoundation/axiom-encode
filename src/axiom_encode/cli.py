@@ -4013,6 +4013,10 @@ def cmd_repair_imported_test_inputs(args):
             test_file=test_file,
             issues=issues,
         )
+        removed_invalid_refs = _remove_invalid_test_input_refs(
+            test_file=test_file,
+            issues=issues,
+        )
         completed_missing_inputs = _complete_missing_imported_test_inputs(
             rules_file=rules_file,
             test_file=test_file,
@@ -4020,7 +4024,8 @@ def cmd_repair_imported_test_inputs(args):
             validation=validation,
         )
         if (
-            not removed_refs
+            not removed_invalid_refs
+            and not removed_refs
             and not repaired_exclusion_refs
             and not completed_missing_inputs
         ):
