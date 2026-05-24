@@ -14281,7 +14281,7 @@ def _remove_invalid_dependent_test_inputs(
     relative_output: Path,
     validations: list[tuple[Path, object]],
 ) -> list[Path]:
-    """Remove obsolete generated-target input refs from dependent tests."""
+    """Remove obsolete input refs from dependent tests."""
     target_ref = (
         f"{_repo_jurisdiction_prefix(overlay_repo)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
@@ -14293,26 +14293,61 @@ def _remove_invalid_dependent_test_inputs(
         test_path = _rulespec_test_path(validated_file)
         if not test_path.exists():
             continue
+        try:
+            relative_validated = validated_file.relative_to(overlay_repo)
+        except ValueError:
+            continue
+        dependent_ref = (
+            f"{_repo_jurisdiction_prefix(overlay_repo)}:"
+            f"{_relative_rulespec_import_target(relative_validated)}"
+        )
         invalid_refs: set[str] = set()
         for validator_result in validation.results.values():
             error = validator_result.error or ""
             for input_ref in _invalid_input_refs_from_issues([error]):
-                if input_ref.startswith(
-                    f"{target_ref}#input."
-                ) or _input_ref_is_import_output_placeholder(
+                if _invalid_dependent_test_input_ref_is_removable(
                     input_ref,
+                    target_ref=target_ref,
+                    dependent_ref=dependent_ref,
                     repo_path=overlay_repo,
                 ):
                     invalid_refs.add(input_ref)
         if not invalid_refs:
             continue
         content = test_path.read_text()
-        updated = _remove_input_refs_from_test_cases(content, invalid_refs)
+        try:
+            test_payload = yaml.safe_load(content) or []
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        removable_refs = _expand_refs_with_matching_test_input_keys(
+            test_payload,
+            invalid_refs,
+        )
+        updated = _remove_input_refs_from_test_cases(content, removable_refs)
         if updated == content:
             continue
         test_path.write_text(updated)
         changed.append(test_path)
     return changed
+
+
+def _invalid_dependent_test_input_ref_is_removable(
+    input_ref: str,
+    *,
+    target_ref: str,
+    dependent_ref: str,
+    repo_path: Path,
+) -> bool:
+    if "#input." not in input_ref:
+        return False
+    if _rulespec_ref_matches_base(input_ref, target_ref):
+        return True
+    if _input_ref_is_import_output_placeholder(input_ref, repo_path=repo_path):
+        return True
+    return bool(
+        _ABSOLUTE_RULESPEC_REF_RE.match(input_ref)
+        and not _rulespec_ref_matches_base(input_ref, dependent_ref)
+    )
 
 
 def _remove_cross_module_dependent_test_outputs(
