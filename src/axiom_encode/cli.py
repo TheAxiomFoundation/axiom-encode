@@ -14166,7 +14166,9 @@ def _repair_mixed_scalar_output_tests(
             repaired_cases.append(case)
             continue
         scalar_items = {
-            key: value for key, value in output.items() if str(key) in scalar_outputs
+            key: _scalar_parameter_test_expected_value(value)
+            for key, value in output.items()
+            if str(key) in scalar_outputs
         }
         if not scalar_items or len(scalar_items) == len(output):
             repaired_cases.append(case)
@@ -14200,6 +14202,16 @@ def _repair_mixed_scalar_output_tests(
         return []
     test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
     return repaired_names
+
+
+def _scalar_parameter_test_expected_value(value: Any) -> Any:
+    """Normalize accidental row-shaped expectations for scalar parameters."""
+    if not isinstance(value, list) or not value:
+        return value
+    first = value[0]
+    if all(item == first for item in value):
+        return first
+    return value
 
 
 def _unique_test_case_name(base: str, existing_names: set[str]) -> str:

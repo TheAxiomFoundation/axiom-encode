@@ -6113,6 +6113,72 @@ rules:
             },
         ]
 
+    def test_mixed_scalar_output_test_repair_unwraps_row_shaped_parameter_output(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        rules_file = policy_repo / "statutes/26/3121/a/7.yaml"
+        test_file = policy_repo / "statutes/26/3121/a/7.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: cash_nontrade_service_annual_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 100
+  - name: private_or_nontrade_service_remuneration_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_amount
+"""
+        )
+        test_file.write_text(
+            """- name: cash_nontrade_service_below_one_hundred_dollars_is_excluded
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  tables:
+    Payment:
+      - us:statutes/26/3121/a/7#input.payment_amount: 75
+  output:
+    us:statutes/26/3121/a/7#cash_nontrade_service_annual_threshold:
+      - 100
+    us:statutes/26/3121/a/7#private_or_nontrade_service_remuneration_excluded_from_wages:
+      - 75
+"""
+        )
+
+        repaired = _repair_mixed_scalar_output_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/3121/a/7.yaml"),
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "cash_nontrade_service_below_one_hundred_dollars_is_excluded"
+        ]
+        assert cases[0]["output"] == {
+            "us:statutes/26/3121/a/7#private_or_nontrade_service_remuneration_excluded_from_wages": [
+                75
+            ]
+        }
+        assert cases[1]["name"] == (
+            "cash_nontrade_service_below_one_hundred_dollars_is_excluded_scalar_outputs"
+        )
+        assert cases[1]["output"] == {
+            "us:statutes/26/3121/a/7#cash_nontrade_service_annual_threshold": 100
+        }
+
 
 class TestGuardGenerated:
     def test_rejects_rulespec_change_without_encoder_manifest(self, tmp_path):
