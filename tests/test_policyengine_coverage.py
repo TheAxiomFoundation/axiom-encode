@@ -200,6 +200,70 @@ rules:
     )
 
 
+def test_policyengine_coverage_maps_section_1401_rate_leaf_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/a/rate.yaml",
+        """format: rulespec/v1
+rules:
+  - name: old_age_survivors_and_disability_insurance_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.124'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/a/rate.test.yaml",
+        """- name: section_1401_a_rate
+  output:
+    us:statutes/26/1401/a/rate#old_age_survivors_and_disability_insurance_tax_rate: 0.124
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/b/1/rate.yaml",
+        """format: rulespec/v1
+rules:
+  - name: self_employment_income_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.029'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/1401/b/1/rate.test.yaml",
+        """- name: section_1401_b_1_rate
+  output:
+    us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate: 0.029
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 2
+    assert report["status_counts"] == {"comparable": 2}
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    oasdi_rate = items_by_id[
+        "us:statutes/26/1401/a/rate#old_age_survivors_and_disability_insurance_tax_rate"
+    ]
+    assert oasdi_rate["status"] == "comparable"
+    assert (
+        oasdi_rate["policyengine_parameter"]
+        == "gov.irs.self_employment.rate.social_security"
+    )
+    assert oasdi_rate["tested"] is True
+    medicare_rate = items_by_id[
+        "us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate"
+    ]
+    assert medicare_rate["status"] == "comparable"
+    assert (
+        medicare_rate["policyengine_parameter"]
+        == "gov.irs.self_employment.rate.medicare"
+    )
+    assert medicare_rate["tested"] is True
+
+
 def test_policyengine_coverage_maps_section_32_earned_income_to_adjusted_earnings(
     tmp_path,
 ):

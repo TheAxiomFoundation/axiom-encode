@@ -1663,6 +1663,15 @@ def test_policyengine_registry_is_legal_id_keyed():
         == "gov.irs.payroll.social_security.rate.employee"
     )
     assert oasdi_rate_mapping.comparable is True
+    self_employment_oasdi_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1401/a/rate#old_age_survivors_and_disability_insurance_tax_rate",
+        country="us",
+    )
+    assert self_employment_oasdi_rate_mapping.mapping_type == "parameter_value"
+    assert (
+        self_employment_oasdi_rate_mapping.policyengine_parameter
+        == "gov.irs.self_employment.rate.social_security"
+    )
     employee_medicare_rate_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate",
         country="us",
@@ -1671,6 +1680,15 @@ def test_policyengine_registry_is_legal_id_keyed():
     assert (
         employee_medicare_rate_mapping.policyengine_parameter
         == "gov.irs.payroll.medicare.rate.employee"
+    )
+    self_employment_medicare_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate",
+        country="us",
+    )
+    assert self_employment_medicare_rate_mapping.mapping_type == "parameter_value"
+    assert (
+        self_employment_medicare_rate_mapping.policyengine_parameter
+        == "gov.irs.self_employment.rate.medicare"
     )
     rrta_tier_2_mapping = registry.mapping_for_legal_id(
         "us:statutes/26/3201#tier_2_employee_tax",
