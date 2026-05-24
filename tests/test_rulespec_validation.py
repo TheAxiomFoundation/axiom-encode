@@ -10690,6 +10690,39 @@ rules:
     assert find_tax_status_component_local_input_issues(content) == []
 
 
+def test_tax_status_component_local_input_allows_3121_b_3_family_service_context():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (3) domestic service in a private home of the employer, except that the
+    provisions of this subparagraph shall not be applicable to such domestic
+    service performed by an individual in the employ of his son or daughter if
+    the employer is a surviving spouse or a divorced individual and has not
+    remarried.
+rules:
+  - name: family_employment_service_excluded_from_employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3121(b)(3)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              excerpt: "the employer is a surviving spouse or a divorced individual and has not remarried"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          domestic_service_in_private_home_of_employer
+          and employer_is_surviving_spouse_or_divorced_individual_and_has_not_remarried
+"""
+
+    assert find_tax_status_component_local_input_issues(content) == []
+
+
 def test_unused_modifier_parameter_rejects_ignored_substitution_amount():
     content = """format: rulespec/v1
 rules:

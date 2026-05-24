@@ -5738,19 +5738,32 @@ def find_tax_status_component_local_input_issues(content: str) -> list[str]:
     if payload is None:
         return []
 
+    module_source_text = extract_embedded_source_text(content) or content
     available_symbols = _rulespec_executable_names_from_payload(payload)
     available_symbols.update(_rulespec_import_symbol_names(payload))
 
     issues: list[str] = []
-    for name, _kind, formula in _rulespec_rule_formulas(payload):
+    for name, _kind, formula, source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
         protected_identifiers = {
             identifier
             for identifier in _formula_local_identifiers(formula)
             if identifier in _US_TAX_STATUS_COMPONENT_NAMES
             or _US_TAX_STATUS_COMPONENT_FRAGMENT_PATTERN.search(identifier)
         }
+        source_context = _filing_status_rule_source_context(
+            content=content,
+            module_source_text=module_source_text,
+            rule=rule,
+            source=source,
+        )
         for identifier in sorted(protected_identifiers):
             if identifier in available_symbols:
+                continue
+            if _source_context_allows_local_tax_status_component(
+                identifier, source_context
+            ):
                 continue
             issues.append(
                 "Tax filing-status component is a derived legal classification, "
@@ -5761,6 +5774,24 @@ def find_tax_status_component_local_input_issues(content: str) -> list[str]:
             )
 
     return issues
+
+
+def _source_context_allows_local_tax_status_component(
+    identifier: str, source_context: str
+) -> bool:
+    """Allow non-tax-status uses of words that overlap filing-status vocabulary."""
+    if "surviving_spouse" not in identifier.lower():
+        return False
+
+    return bool(
+        re.search(
+            r"\bemployer\s+is\s+a\s+surviving\s+spouse\s+or\s+a\s+divorced\s+individual\b",
+            source_context,
+            flags=re.IGNORECASE,
+        )
+        and re.search(r"\bdomestic\s+service\b", source_context, flags=re.IGNORECASE)
+        and re.search(r"\bhas\s+not\s+remarried\b", source_context, flags=re.IGNORECASE)
+    )
 
 
 _MODIFIER_PARAMETER_SOURCE_PATTERN = re.compile(
