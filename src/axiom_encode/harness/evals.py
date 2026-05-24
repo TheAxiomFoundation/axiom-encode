@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Iterator, Literal, Sequence
+from typing import Any, Iterator, Literal, Sequence
 
 import requests
 import yaml
@@ -6719,7 +6719,7 @@ def _normalize_test_periods_to_effective_dates(
     def normalize_case(case: object) -> object:
         if not isinstance(case, dict):
             return case
-        normalized_case = dict(case)
+        normalized_case = _repair_misindented_period_mapping_fields(case)
         if granularity == "Year" and effective_date is not None:
             normalized_case["period"] = _normalize_annual_test_period_value(
                 normalized_case.get("period"),
@@ -6773,6 +6773,26 @@ def _normalize_test_periods_to_effective_dates(
         )
 
     return normalized
+
+
+def _repair_misindented_period_mapping_fields(case: dict[str, Any]) -> dict[str, Any]:
+    """Move generated top-level period fields back under `period` when unambiguous."""
+    normalized_case = dict(case)
+    period = normalized_case.get("period")
+    if not isinstance(period, dict):
+        return normalized_case
+
+    repaired_period = dict(period)
+    for key in ("period_kind", "start", "end"):
+        if key not in normalized_case:
+            continue
+        if key not in repaired_period:
+            repaired_period[key] = normalized_case.pop(key)
+            continue
+        if normalized_case[key] == repaired_period[key]:
+            normalized_case.pop(key)
+    normalized_case["period"] = repaired_period
+    return normalized_case
 
 
 def _parse_simple_rulespec_literal(value: str) -> object | None:
