@@ -106,6 +106,12 @@ Hard requirements:
   and not dropped rows. Omit the open side of the predicate; for example an
   open-lower row ending at `2.5` is `if x < 2.5: <that row key>`, and an
   open-upper row starting at `9.0` is the final row key for `x >= 9.0`.
+- For source-stated rate or percentage tables whose column header names a legal
+  application such as "applicable percentage for section 3201(b)" or
+  "applicable percentage for sections 3211(b) and 3221(b)", name the exported
+  output after that statutory application. Do not append a consumer entity
+  suffix like `_for_tax_unit`, `_for_person`, or `_for_employer` unless the
+  source header itself states that entity.
 - Use `kind: derived` for entity-scoped outputs.
 - Use `kind: derived_relation` only when the source text explicitly defines
   membership in a derived legal unit by filtering a source relation through a

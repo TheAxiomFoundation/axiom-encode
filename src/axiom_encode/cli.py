@@ -10473,6 +10473,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_shared_rate_names = (
+                    _try_repair_generated_shared_statutory_rate_names_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_shared_rate_names:
+                    outcome["auto_repaired_shared_statutory_rate_names"] = (
+                        repaired_shared_rate_names
+                    )
+                    print(
+                        "  apply=auto_repaired_shared_statutory_rate_names:"
+                        + ",".join(repaired_shared_rate_names)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_person_scoped_rules = (
                     _try_repair_generated_person_scoped_rate_base_for_apply(
                         result,
@@ -11148,6 +11176,9 @@ _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
 )
+_SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
+    r"Shared statutory rate name uses consumer entity suffix: `([^`]+)`"
+)
 _RULESPEC_IDENTIFIER_PATTERN = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 _RULESPEC_FORMULA_BUILTINS = {
     "abs",
@@ -11180,6 +11211,221 @@ _UNIT_ENTITY_NAMES = {
     "spmunit",
     "taxunit",
 }
+
+
+def _try_repair_generated_shared_statutory_rate_names_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rename generated shared statutory rates away from consumer entity names."""
+    target_names = _shared_statutory_rate_name_issue_names(issues)
+    if not target_names:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_shared_statutory_rate_names(
+        rules_file=rules_file,
+        test_file=_rulespec_test_path(rules_file),
+        relative_output=relative_output,
+        target_names=target_names,
+    )
+
+
+def _shared_statutory_rate_name_issue_names(issues: list[str]) -> list[str]:
+    names: list[str] = []
+    for issue in issues:
+        match = _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            names.append(match.group(1))
+    return names
+
+
+def _repair_shared_statutory_rate_names(
+    *,
+    rules_file: Path,
+    test_file: Path | None = None,
+    relative_output: Path | None = None,
+    target_names: list[str],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    replacements: dict[str, str] = {}
+    targets = set(target_names)
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name not in targets:
+            continue
+        new_name = _neutral_shared_statutory_rate_name(name, rule=rule, payload=payload)
+        if not new_name or new_name == name or new_name in replacements:
+            continue
+        rule["name"] = new_name
+        replacements[name] = new_name
+
+    if not replacements:
+        return []
+
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    for old, new in replacements.items():
+        content = _replace_formula_identifier(content, old=old, new=new)
+        content = re.sub(
+            rf"(?P<prefix>\bindexed_by:\s*){re.escape(old)}\b",
+            rf"\g<prefix>{new}",
+            content,
+        )
+    rules_file.write_text(content)
+
+    if test_file is not None and test_file.exists():
+        _repair_shared_statutory_rate_test_refs(
+            test_file=test_file,
+            relative_output=relative_output,
+            replacements=replacements,
+        )
+
+    return [f"{old}->{new}" for old, new in replacements.items()]
+
+
+def _neutral_shared_statutory_rate_name(
+    name: str,
+    *,
+    rule: dict[str, object],
+    payload: dict[str, object],
+) -> str | None:
+    source_text = _shared_statutory_rate_source_text(rule=rule, payload=payload)
+    section_refs = _section_refs_for_rate_name(name, source_text)
+    if section_refs:
+        prefix = "sections" if len(section_refs) > 1 else "section"
+        return "applicable_percentage_for_" + prefix + "_" + "_and_".join(section_refs)
+    for suffix in (
+        "_for_tax_unit",
+        "_for_person",
+        "_for_employer",
+        "_for_household",
+        "_for_family",
+        "_for_business",
+        "_for_corporation",
+    ):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return None
+
+
+def _shared_statutory_rate_source_text(
+    *,
+    rule: dict[str, object],
+    payload: dict[str, object],
+) -> str:
+    parts: list[str] = []
+    metadata = rule.get("metadata")
+    if isinstance(metadata, dict):
+        proof = metadata.get("proof")
+        if isinstance(proof, dict):
+            atoms = proof.get("atoms")
+            if isinstance(atoms, list):
+                for atom in atoms:
+                    if not isinstance(atom, dict):
+                        continue
+                    source = atom.get("source")
+                    if not isinstance(source, dict):
+                        continue
+                    source_text = source.get("source_text") or source.get("excerpt")
+                    if isinstance(source_text, str) and source_text.strip():
+                        parts.append(source_text.strip())
+                    table = source.get("table")
+                    if isinstance(table, dict):
+                        for key in ("header", "column_key", "column"):
+                            value = table.get(key)
+                            if isinstance(value, str) and value.strip():
+                                parts.append(value.strip())
+                    corpus_span = source.get("corpus_span")
+                    if isinstance(corpus_span, str) and corpus_span.strip():
+                        parts.append(corpus_span.strip())
+    module = payload.get("module")
+    if isinstance(module, dict):
+        summary = module.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            parts.append(summary.strip())
+    return "\n".join(parts)
+
+
+def _section_refs_for_rate_name(name: str, source_text: str) -> list[str]:
+    name_sections = set(re.findall(r"(?<!\d)\d{3,4}(?!\d)", name))
+    candidates: list[list[str]] = []
+    for match in re.finditer(
+        r"\bsections?\s+"
+        r"(?P<first>\d{3,4})\((?P<first_subsection>[A-Za-z0-9]+)\)"
+        r"(?P<rest>(?:\s*(?:,|and)\s*"
+        r"\d{3,4}\([A-Za-z0-9]+\))*)",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        refs = [
+            _format_section_ref(
+                match.group("first"),
+                match.group("first_subsection"),
+            )
+        ]
+        rest = match.group("rest") or ""
+        for section, subsection in re.findall(
+            r"(\d{3,4})\(([A-Za-z0-9]+)\)",
+            rest,
+            flags=re.IGNORECASE,
+        ):
+            refs.append(_format_section_ref(section, subsection))
+        candidates.append(refs)
+
+    for refs in candidates:
+        sections = {ref.split("_", 1)[0] for ref in refs}
+        if sections and sections <= name_sections:
+            return refs
+    return []
+
+
+def _format_section_ref(section: str, subsection: str) -> str:
+    return f"{section}_{subsection.lower()}"
+
+
+def _repair_shared_statutory_rate_test_refs(
+    *,
+    test_file: Path,
+    relative_output: Path | None,
+    replacements: dict[str, str],
+) -> None:
+    if not replacements:
+        return
+    try:
+        payload = yaml.safe_load(test_file.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(payload, list):
+        return
+    key_replacements = dict(replacements)
+    if relative_output is not None:
+        anchor = "us:" + relative_output.with_suffix("").as_posix()
+        for old, new in replacements.items():
+            key_replacements[f"{anchor}#{old}"] = f"{anchor}#{new}"
+    if not _replace_mapping_keys_recursive(payload, key_replacements):
+        return
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
 
 
 def _try_repair_generated_employer_scope_for_apply(
