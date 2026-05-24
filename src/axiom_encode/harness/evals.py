@@ -3065,6 +3065,8 @@ Preferred principal output:
 """
 
     guidance_parts = [render_uk_legislation_guidance()]
+    if _source_identifier_requests_percentage_rate_boundary(citation, source_text):
+        guidance_parts.append(render_rate_only_source_boundary_guidance())
     if _is_single_amount_table_slice(source_text):
         guidance_parts.append(render_single_amount_row_guidance())
     if not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text) and not scaffold_dates:
@@ -3550,9 +3552,9 @@ RuleSpec requirements:
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
-     defaults. Do not assert raw `kind: parameter` rules directly in companion
-     test `output:` blocks; assert derived outputs that consume the parameters
-     instead.
+     defaults. Explicit rate-only source-boundary artifacts that contain only
+     scalar parameters may assert those canonical parameter outputs directly.
+     Do not assert raw `kind: parameter` rules directly in companion test `output:` blocks for other artifacts; assert derived outputs that consume the parameters instead.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived
@@ -3712,6 +3714,38 @@ def _is_single_amount_table_slice(source_text: str) -> bool:
         if re.search(r"[£$€]\s*\d[\d,]*(?:\.\d+)?", line)
     ]
     return len(money_lines) == 1
+
+
+def _source_identifier_requests_percentage_rate_boundary(
+    citation: str, source_text: str
+) -> bool:
+    parts = [part for part in citation.strip().strip("/").split("/") if part]
+    if not parts or parts[-1].lower() != "rate":
+        return False
+    return bool(re.search(r"(?i)(?:\bper\s+cent\b|\bpercent(?:age)?\b|%)", source_text))
+
+
+def render_rate_only_source_boundary_guidance() -> str:
+    return """
+Rate-only source boundary:
+- The requested source id ends in `/rate`, and this source states a percentage
+  rate, so this artifact must expose only source-stated rate or percentage
+  parameters anchored in `./source.txt` for that branch.
+- Do not encode the downstream tax, contribution, credit, deduction, wage
+  base, income base, exemption, exception, or other non-rate output merely
+  because the broader source text mentions it.
+- Prefer `kind: parameter`, `dtype: Rate`, and one scalar output per
+  source-stated rate. Use a `derived` rate only when the source itself states
+  the rate as an expression of other rates.
+- Name each output after the legal application stated in the source text, such
+  as `<tax_or_application>_rate`, not after the path fragment alone.
+- Do not import a consumer or base source solely to compute a rate. A rate-only
+  boundary must stay acyclic and reusable by base definitions that cite the
+  rate.
+- Because this is a pure rate boundary, companion tests may assert the
+  canonical parameter output directly when there is no derived output to
+  exercise.
+"""
 
 
 def _format_inline_context_snippets(

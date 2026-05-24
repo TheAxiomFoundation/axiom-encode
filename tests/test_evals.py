@@ -554,6 +554,91 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     )
 
 
+def test_build_eval_prompt_for_rate_only_source_id_limits_scope(tmp_path):
+    runner = parse_runner_spec("codex:gpt-5.4")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/26/1401/a/rate",
+        runner=runner,
+        output_root=tmp_path / "out",
+        source_text=(
+            "(a) Old-age, survivors, and disability insurance There shall be "
+            "imposed for each taxable year, on the self-employment income of "
+            "every individual, a tax equal to 12.4 percent of the amount of "
+            "the self-employment income for such taxable year."
+        ),
+        axiom_rules_path=tmp_path / "rulespec-us",
+        mode="cold",
+    )
+
+    prompt = _build_eval_prompt(
+        "us/statute/26/1401/a/rate",
+        "cold",
+        workspace,
+        [],
+        target_file_name="rate.yaml",
+        target_ref_prefix="us:statutes/26/1401/a/rate",
+        include_tests=True,
+    )
+
+    assert "Rate-only source boundary:" in prompt
+    assert "source-stated rate or percentage" in prompt
+    assert "parameters anchored in `./source.txt`" in prompt
+    assert "Do not encode the downstream tax" in prompt
+    assert "Prefer `kind: parameter`, `dtype: Rate`" in prompt
+    assert "boundary must stay acyclic" in prompt
+    assert "companion tests may assert" in prompt
+    assert "canonical parameter output directly" in prompt
+    assert "Explicit rate-only source-boundary artifacts" in prompt
+
+
+def test_build_eval_prompt_does_not_treat_rates_path_as_rate_only(tmp_path):
+    runner = parse_runner_spec("codex:gpt-5.4")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/26/1401/rates",
+        runner=runner,
+        output_root=tmp_path / "out",
+        source_text="The table states several percentage rates.",
+        axiom_rules_path=tmp_path / "rulespec-us",
+        mode="cold",
+    )
+
+    prompt = _build_eval_prompt(
+        "us/statute/26/1401/rates",
+        "cold",
+        workspace,
+        [],
+        target_file_name="rates.yaml",
+        target_ref_prefix="us:statutes/26/1401/rates",
+        include_tests=True,
+    )
+
+    assert "Rate-only source boundary:" not in prompt
+
+
+def test_build_eval_prompt_does_not_treat_monetary_rate_as_rate_only(tmp_path):
+    runner = parse_runner_spec("codex:gpt-5.4")
+    workspace = prepare_eval_workspace(
+        citation="us/statute/26/9999/rate",
+        runner=runner,
+        output_root=tmp_path / "out",
+        source_text="The reimbursement rate is 67 cents per mile.",
+        axiom_rules_path=tmp_path / "rulespec-us",
+        mode="cold",
+    )
+
+    prompt = _build_eval_prompt(
+        "us/statute/26/9999/rate",
+        "cold",
+        workspace,
+        [],
+        target_file_name="rate.yaml",
+        target_ref_prefix="us:statutes/26/9999/rate",
+        include_tests=True,
+    )
+
+    assert "Rate-only source boundary:" not in prompt
+
+
 def test_context_file_surfaces_include_derived_relation(tmp_path):
     context_file = tmp_path / "snap_unit.yaml"
     context_file.write_text(
