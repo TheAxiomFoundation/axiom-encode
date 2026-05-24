@@ -15210,6 +15210,13 @@ class ValidatorPipeline:
                     rulespec_file=rulespec_file,
                 ):
                     continue
+                if self._is_source_stated_category_boundary(
+                    block=block,
+                    identifier=identifier,
+                    import_base=import_base,
+                    source_text=source_text,
+                ):
+                    continue
                 key = (str(block["name"]), identifier)
                 if key in seen:
                     continue
@@ -15234,6 +15241,83 @@ class ValidatorPipeline:
                     f"for a cited legal section. {resolution}"
                 )
         return issues
+
+    def _is_source_stated_category_boundary(
+        self,
+        *,
+        block: dict[str, object],
+        identifier: str,
+        import_base: str,
+        source_text: str,
+    ) -> bool:
+        """Allow cited-law category labels without allowing cited mechanics."""
+        if identifier.startswith(("section_", "subsection_")):
+            return False
+        if not re.search(
+            r"(?:^|_)(?:included|constitutes|covered|entered|established|treated|meaning)(?:_|$)",
+            identifier,
+            flags=re.IGNORECASE,
+        ):
+            return False
+
+        proof_excerpts = block.get("proof_excerpts")
+        scoped_text = (
+            " ".join(str(item) for item in proof_excerpts)
+            if isinstance(proof_excerpts, list)
+            else ""
+        ).strip()
+        if not scoped_text:
+            scoped_text = source_text
+        if not self._source_text_mentions_import_base(scoped_text, import_base):
+            return False
+        if not re.search(
+            r"\b(?:"
+            r"included\s+under|"
+            r"constitutes\b|"
+            r"covered\s+by|"
+            r"entered\s+into\s+pursuant\s+to|"
+            r"established\s+by|"
+            r"treated\s+(?:pursuant\s+to|under|as)|"
+            r"meaning\s+given"
+            r")\b",
+            scoped_text,
+            flags=re.IGNORECASE,
+        ):
+            return False
+        return bool(
+            re.search(
+                r"\b(?:"
+                r"agreement|category|class|employee|employment|instrumentality|"
+                r"member|officer|official|position|retirement\s+system|service|"
+                r"status|worker"
+                r")\b",
+                scoped_text,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    def _source_text_mentions_import_base(
+        self, source_text: str, import_base: str
+    ) -> bool:
+        parts = import_base.split("/")
+        try:
+            statutes_index = parts.index("statutes")
+        except ValueError:
+            return False
+        citation_parts = parts[statutes_index + 1 :]
+        if len(citation_parts) < 2:
+            return False
+        section = re.escape(citation_parts[1])
+        fragments = "".join(
+            rf"\s*\(\s*{re.escape(fragment)}\s*\)" for fragment in citation_parts[2:]
+        )
+        return bool(
+            re.search(
+                rf"\bsection\s+{section}{fragments}(?:\b|\s|,|\))",
+                source_text,
+                flags=re.IGNORECASE,
+            )
+        )
 
     def _check_encoded_cross_reference_placeholders(
         self, rulespec_file: Path
@@ -16151,6 +16235,7 @@ class ValidatorPipeline:
                     "dtype": rule.get("dtype"),
                     "source": rule.get("source"),
                     "status": rule.get("status"),
+                    "proof_excerpts": _rule_proof_source_excerpts(rule),
                     "constant_boolean": constant_boolean,
                 }
             )
