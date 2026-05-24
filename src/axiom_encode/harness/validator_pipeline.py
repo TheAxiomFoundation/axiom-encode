@@ -3528,6 +3528,26 @@ def _parse_multiline_else_if_formula(
     if len(lines) < 2:
         return None
 
+    def collect_block_result(start: int) -> tuple[str, int] | None:
+        result_lines: list[str] = []
+        index = start
+        while index < len(lines):
+            stripped = lines[index].strip()
+            if result_lines and re.fullmatch(
+                r"(?:if|elif|else\s+if)\s+.+?:|else:",
+                stripped,
+            ):
+                break
+            if not result_lines and re.match(r"(?:if|elif|else\b)", stripped):
+                return None
+            result_lines.append(stripped)
+            index += 1
+
+        result = " ".join(result_lines).strip()
+        if not result or re.match(r"(?:if|elif|else\b)", result):
+            return None
+        return result, index
+
     branches: list[tuple[str | None, str]] = []
     index = 0
     while index < len(lines):
@@ -3553,22 +3573,18 @@ def _parse_multiline_else_if_formula(
             break
         if_match = re.fullmatch(r"(?:if|elif|else\s+if)\s+(.+):", header)
         if if_match is not None:
-            if index + 1 >= len(lines):
+            collected = collect_block_result(index + 1)
+            if collected is None:
                 return None
-            result = lines[index + 1].strip()
-            if not result or re.match(r"(?:if|elif|else\b)", result):
-                return None
+            result, index = collected
             branches.append((if_match.group(1).strip(), result))
-            index += 2
             continue
         if header == "else:":
-            if index + 1 >= len(lines):
+            collected = collect_block_result(index + 1)
+            if collected is None:
                 return None
-            result = lines[index + 1].strip()
-            if not result or re.match(r"(?:if|elif|else\b)", result):
-                return None
+            result, index = collected
             branches.append((None, result))
-            index += 2
             break
         return None
 
