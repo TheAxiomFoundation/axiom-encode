@@ -14323,6 +14323,7 @@ class ValidatorPipeline:
         case_index: int,
         period: dict[str, Any],
         output_names: list[str],
+        output_runtime_keys: dict[str, str] | None = None,
         derived_by_key: dict[str, Any],
         require_legal_input_keys: bool,
         legal_ids_by_friendly_name: dict[str, list[str]],
@@ -14348,10 +14349,22 @@ class ValidatorPipeline:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
 
         output_map = case.get("output") if isinstance(case.get("output"), dict) else {}
+        output_values_by_runtime_key: dict[str, Any] = {}
+        if output_runtime_keys is None:
+            output_runtime_keys = {}
+        for output_key, runtime_key in output_runtime_keys.items():
+            if output_key in output_map:
+                output_values_by_runtime_key[runtime_key] = output_map[output_key]
+        for output_name in output_names:
+            if (
+                output_name in output_map
+                and output_name not in output_values_by_runtime_key
+            ):
+                output_values_by_runtime_key[output_name] = output_map[output_name]
         row_ordered_outputs = {
             output_name
             for output_name in output_names
-            if isinstance(output_map.get(output_name), list)
+            if isinstance(output_values_by_runtime_key.get(output_name), list)
         }
         query_entity_ids = [query_entity_id]
         if row_ordered_outputs:
@@ -14367,7 +14380,7 @@ class ValidatorPipeline:
                 ]
             expected_row_count = len(table_rows)
             for output_name in row_ordered_outputs:
-                expected_value = output_map.get(output_name)
+                expected_value = output_values_by_runtime_key.get(output_name)
                 if (
                     isinstance(expected_value, list)
                     and len(expected_value) != expected_row_count
@@ -14631,6 +14644,7 @@ class ValidatorPipeline:
                         case_index=index,
                         period=period,
                         output_names=derived_outputs,
+                        output_runtime_keys=output_runtime_keys,
                         derived_by_key=derived_by_key,
                         require_legal_input_keys=require_legal_input_keys,
                         legal_ids_by_friendly_name=legal_ids_by_friendly_name,
