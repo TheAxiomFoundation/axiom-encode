@@ -3301,6 +3301,13 @@ RuleSpec requirements:
   eligibility predicates: if importing a rate-bearing source would complete a
   cycle with a foundational base definition, keep the rate as a source-named
   boundary input and continue encoding the non-cyclic base formula.
+- When the requested source defines a base, net amount, includable amount, wage
+  base, income base, deduction base, or similar amount that a tax, contribution,
+  credit, or deduction section will consume, do not import that consumer section
+  only to use its rate parameters. If the requested source merely cites the
+  consumer section's rates for an adjustment to the base, keep that rate or rate
+  sum as a source-named numeric boundary input unless a non-cyclic standalone
+  rate table/source is available.
 - When a copied context file encodes a cited upstream source on a different
   entity, import that upstream output and bridge entities with a structural
   relation instead of replacing the import with a local cross-reference amount.

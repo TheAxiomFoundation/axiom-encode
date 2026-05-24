@@ -89,6 +89,10 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "numeric boundary input" in ENCODER_PROMPT
     assert "rate-bearing source" in ENCODER_PROMPT
     assert "cycle with a foundational base definition" in ENCODER_PROMPT
+    assert "defines a base, net amount" in ENCODER_PROMPT
+    assert "do not import that consumer section" in ENCODER_PROMPT
+    assert "rate or rate" in ENCODER_PROMPT
+    assert "source-named numeric boundary input" in ENCODER_PROMPT
     assert "source-stated formula executable" in ENCODER_PROMPT
     assert "defer only that branch" in ENCODER_PROMPT
     assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT
