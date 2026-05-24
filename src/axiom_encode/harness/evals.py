@@ -3182,6 +3182,15 @@ RuleSpec requirements:
   rather than applying a helper-only definition. This overrides the usual
   mixed-provision instruction to keep independent helpers: a `Definition of X`
   artifact without executable X is misleading and must be cleanly deferred.
+- If a definition applies an exclusion, cap, threshold, exception, or special
+  rule only "for purposes of", "in the case of", "with respect to", or "for the
+  tax imposed by" a specific downstream provision, do not collapse that
+  purpose-specific branch into one generic output for all downstream uses. Emit
+  source-backed purpose-specific outputs such as `x_for_section_1234_a` and keep
+  any broader `x` output free of that limited branch when the source supports a
+  broader meaning. Downstream provisions must import the output that matches
+  their cited purpose rather than using a stale local input or an over-broad
+  generic output.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
   `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
@@ -3265,6 +3274,12 @@ RuleSpec requirements:
   not import an unrelated output from that file as a stand-in; encode the proper
   upstream source slice first, split the unresolved branch, or emit a deferred
   status when the requested file cannot compute faithfully without it.
+- When the requested source imposes a rate, tax, deduction, credit, cap, or
+  threshold on a legal term that is defined by an available upstream RuleSpec
+  file, import that upstream definition and use it in the formula. Do not leave
+  a same-named local input such as `x` merely because a copied target file used
+  `#input.x`. If the upstream definition has purpose-specific exports, select
+  the export matching the requested source's clause.
 - Every proof import must correspond to a symbol actually used by that rule's
   formula. Do not add an import atom merely because the source text mentions an
   exception or cross-reference that the formula excludes, subtracts around, or
@@ -3373,6 +3388,9 @@ RuleSpec requirements:
 - Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
   Do not write `else if` or `elif`; chain branches as `if condition: value else: if next_condition: next_value else: fallback`.
+- Function calls in formulas are expression syntax, not Python syntax. Do not
+  include trailing commas in calls such as `min(a, b)` or `max(0, x)`, and do
+  not write tuple-style expressions.
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
 - Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
