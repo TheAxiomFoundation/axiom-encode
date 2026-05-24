@@ -34,6 +34,7 @@ from axiom_encode.cli import (
     _infer_missing_input_default,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
+    _person_scoped_definition_issue_names,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
     _repair_input_field_accesses_in_formulas,
@@ -3753,6 +3754,17 @@ rules:
         ]
         payload = yaml.safe_load(rules_file.read_text())
         assert [rule["entity"] for rule in payload["rules"]] == ["Person", "Person"]
+
+    def test_person_scoped_definition_issue_names_includes_source_scope_mismatch(self):
+        issues = [
+            "Source scope mismatch: `earned_income` is declared on `TaxUnit`, "
+            "but the embedded source states an individual/person/member-scoped "
+            "eligibility or disqualification. Encode the rule at the "
+            "person/member scope or cite source text that states the unit-level "
+            "test."
+        ]
+
+        assert _person_scoped_definition_issue_names(issues) == ["earned_income"]
 
     def test_encode_apply_auto_repairs_section_1401_policyengine_oracle_inputs(
         self, capsys, tmp_path
