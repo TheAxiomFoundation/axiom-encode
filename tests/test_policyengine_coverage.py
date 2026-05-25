@@ -1360,6 +1360,61 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_c_5_family_employment(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/5.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: family_employment_child_age_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 21
+  - name: service_performer_under_family_employment_child_age_limit
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performer_age < family_employment_child_age_limit
+  - name: family_employment_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_by_individual_in_employ_of_individuals_son
+          or service_performed_by_individual_in_employ_of_individuals_daughter
+          or service_performed_by_individual_in_employ_of_individuals_spouse
+          or (
+            service_performer_under_family_employment_child_age_limit
+            and (
+              service_performed_by_child_in_employ_of_childs_father
+              or service_performed_by_child_in_employ_of_childs_mother
+            )
+          )
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
