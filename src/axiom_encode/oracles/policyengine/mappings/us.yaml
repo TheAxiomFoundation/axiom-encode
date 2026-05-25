@@ -9381,6 +9381,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(l) foreign-affiliate agreement predicates, agreement effective-period rules, or source-specific thresholds as one-to-one variables. These legal definitions support FICA wage and employment classifications for foreign-affiliate service before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/n#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(n) uniformed-service membership predicates or source-specific ROTC training thresholds as one-to-one variables. These legal definitions support FICA employment classifications for uniformed-service members before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/y#
     country: us
     program: tax
