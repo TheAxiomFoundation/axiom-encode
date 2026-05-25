@@ -366,6 +366,20 @@ module:
   source_verification:
     corpus_citation_path: us/statute/26/3306
 rules:
+  - name: state_unemployment_payment_exclusion_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          payment_made_by_employer_without_deduction_from_employee_remuneration
+          and payment_required_from_employee_under_state_unemployment_compensation_law
+          and (
+            remuneration_paid_to_employee_for_domestic_service_in_private_home_of_employer
+            or remuneration_paid_to_employee_for_agricultural_labor
+          )
   - name: employer_state_unemployment_payment_excluded_from_wages
     kind: derived
     entity: Payment
@@ -388,15 +402,22 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["status_counts"] == {"known_not_comparable": 1}
-    item = report["items"][0]
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    predicate = items_by_id[
+        "us:statutes/26/3306/b/6#state_unemployment_payment_exclusion_applies"
+    ]
+    exclusion = items_by_id[
+        "us:statutes/26/3306/b/6#employer_state_unemployment_payment_excluded_from_wages"
+    ]
+    assert predicate["status"] == "known_not_comparable"
     assert (
-        item["legal_id"]
-        == "us:statutes/26/3306/b/6#employer_state_unemployment_payment_excluded_from_wages"
+        predicate["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
     )
-    assert item["status"] == "known_not_comparable"
-    assert (
-        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    assert exclusion["status"] == "known_not_comparable"
+    assert exclusion["policyengine_variable"] == (
+        "taxable_earnings_for_federal_unemployment_tax"
     )
 
 
