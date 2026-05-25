@@ -78,7 +78,10 @@ Encode only the supplied legal source text into Axiom RuleSpec YAML.
 
 Hard requirements:
 - Emit `format: rulespec/v1`.
-- Include `module.summary: |-` with the operative source text or an exact audit excerpt.
+- Include `module.summary: |-` with a concise exact audit excerpt, not the full
+  source text when the source is more than a short paragraph. Corpus-backed
+  validation reads the authoritative source from `corpus.provisions`; use the
+  summary only to orient reviewers to the encoded provisions.
 - If the source has an ingested corpus provision, include
   `module.source_verification.corpus_citation_path` or
   `module.source_verification.corpus_citation_paths`.
@@ -91,6 +94,10 @@ Hard requirements:
   explicit imported RuleSpec export. If you cannot build that proof, stop and
   emit a typed request such as `missing_claim`, `bundle_expansion_request`,
   `corpus_defect`, `segmentation_fix`, `stale_claim`, or `conflicting_claims`.
+- For source-backed proof atoms, `source.corpus_citation_path` is sufficient.
+  Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
+  disambiguation; keep excerpts short and do not quote long definitions or
+  institutional descriptions.
 - For imported proof support, put `import:` at the proof atom top level
   (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
   do not put imported RuleSpec targets under `source:`. Import proof atoms must
