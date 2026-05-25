@@ -1129,6 +1129,22 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 3111(c) foreign-social-security agreement wage exemption as a separate variable.
 
+  - legal_id: us:statutes/26/3301#federal_unemployment_excise_tax_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3301 imposes the gross 6 percent FUTA excise tax rate before section 3302 credits; PolicyEngine exposes the post-credit effective base rate used on Form 940.
+
+  - legal_id: us:statutes/26/3301#federal_unemployment_excise_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3301 is the gross FUTA tax before section 3302 credits, while PolicyEngine exposes final employer FUTA tax after the effective rate and credit-reduction adjustment.
+
   - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
     country: us
     program: tax

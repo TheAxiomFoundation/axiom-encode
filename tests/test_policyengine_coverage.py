@@ -254,6 +254,39 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
+        """format: rulespec/v1
+rules:
+  - name: federal_unemployment_excise_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.06
+  - name: federal_unemployment_excise_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: federal_unemployment_excise_tax_rate * wages
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    rate = items_by_id["us:statutes/26/3301#federal_unemployment_excise_tax_rate"]
+    tax = items_by_id["us:statutes/26/3301#federal_unemployment_excise_tax"]
+    assert rate["status"] == "known_not_comparable"
+    assert (
+        rate["policyengine_parameter"]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert tax["status"] == "known_not_comparable"
+    assert tax["policyengine_variable"] == "employer_federal_unemployment_tax"
+
+
 def test_policyengine_coverage_maps_section_1401_rate_leaf_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/1401/a/rate.yaml",
