@@ -645,6 +645,64 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_c_3_trade_act_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/c/3.yaml",
+        """format: rulespec/v1
+rules:
+  - name: trade_act_agreement_credit_reduction_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.075
+  - name: trade_act_agreement_credit_reduction_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: taxpayer_subject and secretary_determination
+  - name: trade_act_agreement_credit_reduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: trade_act_agreement_credit_reduction_rate * tax
+  - name: total_credits_allowed_under_section_after_trade_act_agreement_reduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, credits_before_reduction - trade_act_agreement_credit_reduction)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/3#trade_act_agreement_credit_reduction_rate"
+        ]["policyengine_parameter"]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/3#trade_act_agreement_credit_reduction_applies"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id["us:statutes/26/3302/c/3#trade_act_agreement_credit_reduction"][
+            "policyengine_variable"
+        ]
+        == "employer_federal_unemployment_tax"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/3#total_credits_allowed_under_section_after_trade_act_agreement_reduction"
+        ]["policyengine_variable"]
+        == "employer_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3302_d_1_subsection_c_tax_outputs(
     tmp_path,
 ):

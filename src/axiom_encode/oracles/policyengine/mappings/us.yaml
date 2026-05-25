@@ -1350,6 +1350,37 @@ mappings:
     candidate_priority: P4
     rationale: This output computes an intermediate section 3302(c)(2)(C) reduction in credits based on state advance balances and wage-attribution inputs; PolicyEngine exposes final employer FUTA tax, not this intermediate reduction amount separately.
 
+  - legal_id: us:statutes/26/3302/c/3#trade_act_agreement_credit_reduction_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(c)(3)'s 7.5 percent Trade Act agreement failure reduction is an agreement-specific statutory credit-reduction rate; PolicyEngine exposes a final post-credit FUTA effective rate instead.
+
+  - legal_id: us:statutes/26/3302/c/3#trade_act_agreement_credit_reduction_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This output is a Secretary-of-Labor determination predicate for applying the section 3302(c)(3) Trade Act agreement credit reduction; PolicyEngine does not expose this predicate separately from final FUTA assumptions.
+
+  - legal_id: us:statutes/26/3302/c/3#trade_act_agreement_credit_reduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: This output computes an intermediate section 3302(c)(3) reduction in credits for Trade Act agreement noncompliance; PolicyEngine exposes final employer FUTA tax, not this statutory intermediate amount separately.
+
+  - legal_id: us:statutes/26/3302/c/3#total_credits_allowed_under_section_after_trade_act_agreement_reduction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: This output applies the section 3302(c)(3) Trade Act agreement reduction to total allowed credits before final FUTA tax; PolicyEngine exposes final employer FUTA tax and does not expose the adjusted section 3302 credits separately.
+
   - legal_id: us:statutes/26/3302/d/1#subsection_c_tax_computation_rate
     country: us
     program: tax
