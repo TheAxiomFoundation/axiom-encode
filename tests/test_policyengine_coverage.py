@@ -676,6 +676,63 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_14_meals_lodging_exclusion(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/14.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: meals_or_lodging_section_119_income_exclusion_reasonably_expected_at_furnishing
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          meals_or_lodging_furnished_by_or_on_behalf_of_employer_to_employee
+          and reasonable_at_time_of_furnishing_to_believe_employee_can_exclude_meals_or_lodging_from_income_under_section_119
+  - name: meals_or_lodging_value_excluded_from_wages_due_to_expected_section_119_income_exclusion
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if meals_or_lodging_section_119_income_exclusion_reasonably_expected_at_furnishing: value_of_meals_or_lodging_furnished_to_employee else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    predicate = items_by_id[
+        "us:statutes/26/3306/b/14#meals_or_lodging_section_119_income_exclusion_reasonably_expected_at_furnishing"
+    ]
+    exclusion = items_by_id[
+        "us:statutes/26/3306/b/14#meals_or_lodging_value_excluded_from_wages_due_to_expected_section_119_income_exclusion"
+    ]
+    assert predicate["status"] == "known_not_comparable"
+    assert (
+        predicate["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+    assert exclusion["status"] == "known_not_comparable"
+    assert (
+        exclusion["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",

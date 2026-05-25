@@ -1562,6 +1562,22 @@ mappings:
     candidate_priority: P4
     rationale: Section 3306(b)(13) excludes payments or benefits reasonably believed excludable from income under section 127, 129, 134(b)(4), or 134(b)(5) from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
 
+  - legal_id: us:statutes/26/3306/b/14#meals_or_lodging_section_119_income_exclusion_reasonably_expected_at_furnishing
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(14)'s reasonable-belief predicate is a statutory gate for excluding section 119 meals or lodging from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this predicate separately.
+
+  - legal_id: us:statutes/26/3306/b/14#meals_or_lodging_value_excluded_from_wages_due_to_expected_section_119_income_exclusion
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(14) excludes employer-furnished meals or lodging reasonably believed excludable under section 119 from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
+
   - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
     country: us
     program: tax
