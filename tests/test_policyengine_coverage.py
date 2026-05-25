@@ -733,6 +733,51 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_15_survivor_estate_payment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/15.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: survivor_or_estate_payment_after_employee_death_year_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if (
+            (
+              payment_made_by_employer_to_survivor_of_former_employee
+              or payment_made_by_employer_to_estate_of_former_employee
+            )
+            and payment_made_after_calendar_year_in_which_former_employee_died
+          ): payment_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3306/b/15#survivor_or_estate_payment_after_employee_death_year_excluded_from_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
