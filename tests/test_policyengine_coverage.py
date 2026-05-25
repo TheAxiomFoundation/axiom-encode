@@ -599,6 +599,11 @@ rules:
             "member_of_uniformed_service",
         ),
         (
+            "statutes/26/3121/o.yaml",
+            "us:statutes/26/3121/o#crew_leader",
+            "crew_leader",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
