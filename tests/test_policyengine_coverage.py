@@ -951,6 +951,69 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_19_stock_remuneration(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/19.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: stock_option_or_employee_stock_purchase_plan_stock_remuneration_exclusion_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          (
+            remuneration_on_account_of_transfer_of_share_of_stock_to_individual
+            and (
+              stock_transfer_pursuant_to_exercise_of_incentive_stock_option_as_defined_in_section_422_b
+              or stock_transfer_under_employee_stock_purchase_plan_as_defined_in_section_423_b
+            )
+          )
+          or remuneration_on_account_of_disposition_by_individual_of_stock_transferred_pursuant_to_exercise_of_incentive_stock_option_or_under_employee_stock_purchase_plan
+  - name: stock_option_or_employee_stock_purchase_plan_stock_remuneration_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    unit: USD
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if stock_option_or_employee_stock_purchase_plan_stock_remuneration_exclusion_applies: remuneration_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    predicate = items_by_id[
+        "us:statutes/26/3306/b/19#stock_option_or_employee_stock_purchase_plan_stock_remuneration_exclusion_applies"
+    ]
+    exclusion = items_by_id[
+        "us:statutes/26/3306/b/19#stock_option_or_employee_stock_purchase_plan_stock_remuneration_excluded_from_wages"
+    ]
+    assert predicate["status"] == "known_not_comparable"
+    assert (
+        predicate["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+    assert exclusion["status"] == "known_not_comparable"
+    assert (
+        exclusion["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
