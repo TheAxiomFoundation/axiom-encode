@@ -1475,6 +1475,21 @@ mappings:
     candidate_priority: P4
     rationale: Section 3306(b)(2) excludes qualifying employer-plan sickness, accident-disability, medical, hospitalization, and death payments from FUTA wages; PolicyEngine exposes final FUTA taxable earnings after wage exclusions, not this exclusion amount separately.
 
+  - legal_id: us:statutes/26/3306/b/4#sickness_accident_disability_payment_waiting_period_calendar_months
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3306(b)(4)'s six-calendar-month waiting period is a statutory condition for a FUTA wage exclusion; PolicyEngine does not expose this waiting period as a separate payroll tax parameter.
+
+  - legal_id: us:statutes/26/3306/b/4#post_work_sickness_accident_or_medical_payment_excluded_from_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(4) excludes post-work sickness, accident-disability, medical, and hospitalization payments from FUTA wages after the six-calendar-month waiting period; PolicyEngine exposes final FUTA taxable earnings, not this exclusion predicate separately.
+
   - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
     country: us
     program: tax
