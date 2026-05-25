@@ -527,6 +527,54 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_10_death_disability_exclusion(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/10.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: death_or_disability_retirement_termination_plan_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if (
+            payment_or_series_paid_by_employer_to_employee_or_dependent
+            and payment_paid_upon_or_after_termination_of_employment_relationship
+            and (
+              employment_relationship_terminated_because_of_death
+              or employment_relationship_terminated_because_of_retirement_for_disability
+            )
+            and employer_established_plan_makes_provision_for_employees_generally_or_classes_and_dependents
+            and not payment_or_series_would_have_been_paid_if_employment_relationship_had_not_been_terminated
+          ): payment_or_series_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3306/b/10#death_or_disability_retirement_termination_plan_payment_excluded_from_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
