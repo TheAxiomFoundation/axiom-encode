@@ -345,6 +345,53 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_b_additional_credit_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: additional_credit_comparison_rate_cap
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.054
+  - name: applicable_additional_credit_comparison_rate
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(state_rate, additional_credit_comparison_rate_cap)
+  - name: additional_credit_rate_differential_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, comparison_contributions - required_contributions)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id["us:statutes/26/3302/b#additional_credit_comparison_rate_cap"][
+            "policyengine_parameter"
+        ]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/b#applicable_additional_credit_comparison_rate"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id["us:statutes/26/3302/b#additional_credit_rate_differential_amount"][
+            "policyengine_variable"
+        ]
+        == "employer_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_legacy_tax_procedural_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/68/b.yaml",
