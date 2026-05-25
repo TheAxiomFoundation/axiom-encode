@@ -1111,6 +1111,91 @@ rules:
     assert item["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_3306_c_1_agricultural_labor_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/1.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: agricultural_labor_cash_remuneration_quarter_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 20000
+  - name: agricultural_labor_days_different_weeks_threshold
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 20
+  - name: agricultural_labor_individuals_per_day_threshold
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 10
+  - name: agricultural_labor_cash_remuneration_test_satisfied
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          maximum_cash_remuneration_paid_to_agricultural_labor_individuals_in_any_calendar_quarter >= agricultural_labor_cash_remuneration_quarter_threshold
+  - name: agricultural_labor_day_count_test_satisfied
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          counted_days_during_calendar_year_or_preceding_calendar_year_each_in_different_calendar_week >= agricultural_labor_days_different_weeks_threshold
+          and minimum_agricultural_labor_individuals_employed_for_some_portion_of_each_counted_day >= agricultural_labor_individuals_per_day_threshold
+  - name: agricultural_labor_employer_test_satisfied
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          agricultural_labor_cash_remuneration_test_satisfied
+          or agricultural_labor_day_count_test_satisfied
+  - name: agricultural_labor_excepted_from_employment
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          labor_is_agricultural_labor
+          and (
+            not agricultural_labor_employer_test_satisfied
+            or labor_performed_by_immigration_and_nationality_act_agricultural_worker_alien
+          )
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 7}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
