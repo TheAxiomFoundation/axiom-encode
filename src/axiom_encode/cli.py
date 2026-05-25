@@ -13698,6 +13698,24 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
+            mixed_derived_entity_repairs = _repair_mixed_derived_entity_output_tests(
+                rules_file=overlay_target,
+                test_file=_rulespec_test_path(overlay_target),
+                repo_path=overlay_repo,
+                relative_output=relative_output,
+            )
+            if mixed_derived_entity_repairs:
+                test_path = _rulespec_test_path(overlay_target)
+                supplemental_files[test_path.relative_to(overlay_repo)] = (
+                    test_path.read_text()
+                )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             target_validation = next(
                 (
                     validation
@@ -14202,6 +14220,125 @@ def _repair_mixed_scalar_output_tests(
         return []
     test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
     return repaired_names
+
+
+def _repair_mixed_derived_entity_output_tests(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> list[str]:
+    """Split companion tests whose derived outputs span multiple entities."""
+    if not test_file.exists():
+        return []
+    try:
+        rules_document = yaml.safe_load(rules_file.read_text()) or {}
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(rules_document, dict) or not isinstance(test_cases, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    derived_entity_by_output: dict[str, str] = {}
+    for rule in rules_document.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        entity = str(rule.get("entity") or "Case").strip() or "Case"
+        for key in _local_rulespec_output_keys(
+            rule,
+            target_base=target_base,
+            repo_path=repo_path,
+        ):
+            derived_entity_by_output[key] = entity
+    if not derived_entity_by_output:
+        return []
+
+    repaired_cases: list[object] = []
+    repaired_names: list[str] = []
+    existing_names = {
+        str(case.get("name") or "") for case in test_cases if isinstance(case, dict)
+    }
+    for case in test_cases:
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            repaired_cases.append(case)
+            continue
+
+        entity_order: list[str] = []
+        for key in output:
+            entity = derived_entity_by_output.get(str(key))
+            if entity is not None and entity not in entity_order:
+                entity_order.append(entity)
+        if len(entity_order) <= 1:
+            repaired_cases.append(case)
+            continue
+
+        case_name = str(case.get("name") or "case").strip() or "case"
+        for index, entity in enumerate(entity_order):
+            entity_output = {
+                key: value
+                for key, value in output.items()
+                if derived_entity_by_output.get(str(key)) == entity
+            }
+            if index == 0:
+                for key, value in output.items():
+                    if str(key) not in derived_entity_by_output:
+                        entity_output[key] = value
+                repaired_case = dict(case)
+                repaired_case["output"] = entity_output
+                repaired_cases.append(repaired_case)
+                continue
+
+            derived_case_name = _unique_test_case_name(
+                f"{case_name}_{_test_case_entity_suffix(entity)}_outputs",
+                existing_names,
+            )
+            existing_names.add(derived_case_name)
+            derived_case = dict(case)
+            derived_case["name"] = derived_case_name
+            derived_case["period"] = copy.deepcopy(case.get("period"))
+            derived_case["input"] = copy.deepcopy(case.get("input", {}))
+            derived_case["output"] = entity_output
+            repaired_cases.append(derived_case)
+        repaired_names.append(case_name)
+
+    if not repaired_names:
+        return []
+    test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
+    return repaired_names
+
+
+def _local_rulespec_output_keys(
+    rule: dict[str, Any],
+    *,
+    target_base: str,
+    repo_path: Path,
+) -> set[str]:
+    name = str(rule.get("name") or "").strip()
+    keys = set(_rulespec_public_item_keys(rule, policy_repo_path=repo_path))
+    if name:
+        keys.add(name)
+        keys.add(f"{target_base}#{name}")
+    item_id = str(rule.get("id") or "").strip()
+    if item_id:
+        keys.add(item_id)
+    return {key for key in keys if key}
+
+
+def _test_case_entity_suffix(entity: str) -> str:
+    suffix = re.sub(r"[^a-z0-9]+", "_", entity.strip().lower())
+    suffix = suffix.strip("_")
+    return suffix or "entity"
 
 
 def _scalar_parameter_test_expected_value(value: Any) -> Any:

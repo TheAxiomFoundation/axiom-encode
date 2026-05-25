@@ -43,6 +43,7 @@ from axiom_encode.cli import (
     _repair_generated_import_symbol_near_misses,
     _repair_input_field_accesses_in_formulas,
     _repair_missing_source_proof_atoms,
+    _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
     _repair_person_scoped_definition_entities,
     _repair_section_151_imports,
@@ -6187,6 +6188,99 @@ rules:
         assert cases[1]["output"] == {
             "us:statutes/26/3121/a/7#cash_nontrade_service_annual_threshold": 100
         }
+
+    def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        rules_file = policy_repo / "statutes/26/3121/l.yaml"
+        test_file = policy_repo / "statutes/26/3121/l.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: agreement_covers_foreign_affiliate_service
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_is_citizen_or_resident_of_united_states
+  - name: termination_of_subsection_l_agreement_prohibited
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: agreement_under_subsection_l
+  - name: overpayment_claim_filing_limit_years
+    kind: parameter
+    dtype: Number
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 2
+"""
+        )
+        test_file.write_text(
+            """- name: excluded_service_and_unadjustable_overpayment
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3121/l#input.employee_is_citizen_or_resident_of_united_states: false
+    us:statutes/26/3121/l#input.agreement_under_subsection_l: true
+  output:
+    us:statutes/26/3121/l#agreement_covers_foreign_affiliate_service: not_holds
+    us:statutes/26/3121/l#termination_of_subsection_l_agreement_prohibited: holds
+    us:statutes/26/3121/l#overpayment_claim_filing_limit_years: 2
+"""
+        )
+
+        repaired = _repair_mixed_derived_entity_output_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/3121/l.yaml"),
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["excluded_service_and_unadjustable_overpayment"]
+        assert cases == [
+            {
+                "name": "excluded_service_and_unadjustable_overpayment",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {
+                    "us:statutes/26/3121/l#input.employee_is_citizen_or_resident_of_united_states": False,
+                    "us:statutes/26/3121/l#input.agreement_under_subsection_l": True,
+                },
+                "output": {
+                    "us:statutes/26/3121/l#agreement_covers_foreign_affiliate_service": "not_holds",
+                    "us:statutes/26/3121/l#overpayment_claim_filing_limit_years": 2,
+                },
+            },
+            {
+                "name": "excluded_service_and_unadjustable_overpayment_employer_outputs",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {
+                    "us:statutes/26/3121/l#input.employee_is_citizen_or_resident_of_united_states": False,
+                    "us:statutes/26/3121/l#input.agreement_under_subsection_l": True,
+                },
+                "output": {
+                    "us:statutes/26/3121/l#termination_of_subsection_l_agreement_prohibited": "holds"
+                },
+            },
+        ]
 
 
 class TestGuardGenerated:

@@ -537,7 +537,9 @@ Hard requirements:
   leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If
-  a module defines both `Person` and `TaxUnit` outputs, create separate cases:
+  a module defines outputs on multiple entities, create separate cases for each
+  entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or
+  `Employer`/`Payment`. For example:
   `Person` cases set person facts at the top level and assert person outputs;
   `TaxUnit` cases use relation rows to supply person facts and assert only
   tax-unit outputs. Do not assert relation-child outputs in the parent entity's
