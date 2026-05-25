@@ -894,6 +894,63 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_18_section_106_d_payments(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/18.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: section_106_d_income_exclusion_reasonably_expected_at_payment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          payment_made_to_or_for_benefit_of_employee
+          and reasonable_at_time_of_payment_to_believe_employee_can_exclude_payment_from_income_under_section_106_d
+  - name: payment_excluded_from_wages_due_to_expected_section_106_d_income_exclusion
+    kind: derived
+    entity: Payment
+    dtype: Money
+    unit: USD
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if section_106_d_income_exclusion_reasonably_expected_at_payment: payment_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    predicate = items_by_id[
+        "us:statutes/26/3306/b/18#section_106_d_income_exclusion_reasonably_expected_at_payment"
+    ]
+    exclusion = items_by_id[
+        "us:statutes/26/3306/b/18#payment_excluded_from_wages_due_to_expected_section_106_d_income_exclusion"
+    ]
+    assert predicate["status"] == "known_not_comparable"
+    assert (
+        predicate["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+    assert exclusion["status"] == "known_not_comparable"
+    assert (
+        exclusion["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",

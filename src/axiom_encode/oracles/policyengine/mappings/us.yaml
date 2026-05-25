@@ -1618,6 +1618,22 @@ mappings:
     candidate_priority: P4
     rationale: Section 3306(b)(17) excludes payments reasonably believed excludable from income under section 106(b) from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow payment exclusion amount separately.
 
+  - legal_id: us:statutes/26/3306/b/18#section_106_d_income_exclusion_reasonably_expected_at_payment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(18)'s reasonable-belief predicate is a statutory gate for excluding payments reasonably believed excludable from income under section 106(d) from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this predicate separately.
+
+  - legal_id: us:statutes/26/3306/b/18#payment_excluded_from_wages_due_to_expected_section_106_d_income_exclusion
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(18) excludes payments reasonably believed excludable from income under section 106(d) from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow payment exclusion amount separately.
+
   - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
     country: us
     program: tax
