@@ -1246,6 +1246,84 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_c_3_nonbusiness_service_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/3.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: nonbusiness_service_cash_remuneration_quarter_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 50
+  - name: nonbusiness_service_regular_employment_days_threshold
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 24
+  - name: nonbusiness_service_cash_remuneration_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          cash_remuneration_paid_for_nonbusiness_service_in_calendar_quarter >= nonbusiness_service_cash_remuneration_quarter_threshold
+  - name: nonbusiness_service_current_quarter_regular_employment_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          counted_days_in_calendar_quarter_person_performed_nonbusiness_service_for_employer >= nonbusiness_service_regular_employment_days_threshold
+  - name: nonbusiness_service_regular_employment_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          nonbusiness_service_current_quarter_regular_employment_test_satisfied
+          or person_was_regularly_employed_by_employer_for_nonbusiness_service_during_preceding_calendar_quarter
+  - name: nonbusiness_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          person_performed_service_not_in_course_of_employer_trade_or_business_as_employee_in_calendar_quarter
+          and not (
+            nonbusiness_service_cash_remuneration_test_satisfied
+            and nonbusiness_service_regular_employment_test_satisfied
+          )
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 6}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
