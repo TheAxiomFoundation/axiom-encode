@@ -1014,6 +1014,43 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_20_third_party_employer_treatment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/20.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: third_party_treated_as_employer_for_this_chapter_and_chapter_22_wages
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          third_party_makes_payment
+          and payment_included_in_wages_solely_by_reason_of_parenthetical_matter_contained_in_paragraph_2_subparagraph_A
+          and not regulations_prescribed_by_secretary_provide_otherwise_for_third_party_payment
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3306/b/20#third_party_treated_as_employer_for_this_chapter_and_chapter_22_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
