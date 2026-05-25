@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import tempfile
+import tomllib
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -111,6 +112,14 @@ from axiom_encode.harness.evals import EvalArtifactMetrics
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
+
+
+def test_package_version_metadata_matches_pyproject():
+    pyproject = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    )
+
+    assert pyproject["project"]["version"] == AXIOM_ENCODE_TEST_VERSION
 
 
 def _signed_manifest_payload(payload: dict) -> dict:
