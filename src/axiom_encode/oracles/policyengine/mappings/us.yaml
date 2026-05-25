@@ -1506,6 +1506,14 @@ mappings:
     candidate_priority: P4
     rationale: Section 3306(b)(6)'s State unemployment payment exclusion predicate feeds a narrow FUTA wage exclusion; PolicyEngine exposes final FUTA taxable earnings, not this eligibility predicate separately.
 
+  - legal_id: us:statutes/26/3306/b/7#noncash_nonbusiness_service_remuneration_excluded_from_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(7) excludes noncash remuneration for service outside the employer's trade or business from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
+
   - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
     country: us
     program: tax
