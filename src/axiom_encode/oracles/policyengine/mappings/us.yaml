@@ -1241,6 +1241,14 @@ mappings:
     candidate_priority: P4
     rationale: Section 3302(d)(1)'s purpose-specific section 3301 tax amount is an intermediate gross-tax amount for applying subsection (c), while PolicyEngine exposes final employer FUTA tax after credits and credit-reduction assumptions.
 
+  - legal_id: us:statutes/26/3302/d/2#wages_attributable_to_particular_state_for_subsection_c
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3302(d)(2) defines a state-attribution predicate for wages used in subsection (c) credit computations; PolicyEngine does not expose this state-law attribution predicate separately from final employer FUTA tax.
+
   - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
     country: us
     program: tax
