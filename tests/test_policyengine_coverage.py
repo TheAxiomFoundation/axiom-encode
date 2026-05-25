@@ -624,6 +624,21 @@ rules:
             "member",
         ),
         (
+            "statutes/26/3121/s.yaml",
+            "us:statutes/26/3121/s#common_paymaster_remuneration_allocated_to_disbursing_corporation",
+            "common_paymaster_remuneration_allocated_to_disbursing_corporation",
+        ),
+        (
+            "statutes/26/3121/u.yaml",
+            "us:statutes/26/3121/u#medicare_qualified_government_employment",
+            "medicare_qualified_government_employment",
+        ),
+        (
+            "statutes/26/3121/v.yaml",
+            "us:statutes/26/3121/v#nonqualified_deferred_compensation_taken_into_account_as_wages",
+            "nonqualified_deferred_compensation_taken_into_account_as_wages",
+        ),
+        (
             "statutes/26/3121/w.yaml",
             "us:statutes/26/3121/w#services_excluded_from_employment_by_church_election",
             "services_excluded_from_employment_by_church_election",
@@ -637,6 +652,11 @@ rules:
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
+        ),
+        (
+            "statutes/26/3121/z.yaml",
+            "us:statutes/26/3121/z#foreign_person_treated_as_american_employer_for_government_contract_service",
+            "foreign_person_treated_as_american_employer_for_government_contract_service",
         ),
     ],
 )
