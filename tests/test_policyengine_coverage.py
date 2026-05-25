@@ -579,6 +579,11 @@ rules:
             "agricultural_labor",
         ),
         (
+            "statutes/26/3121/h.yaml",
+            "us:statutes/26/3121/h#american_employer",
+            "american_employer",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
