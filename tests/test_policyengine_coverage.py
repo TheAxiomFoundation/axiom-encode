@@ -1462,6 +1462,72 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_c_7_state_tribal_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/7.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: service_in_employ_of_state_political_subdivision_or_indian_tribe
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_in_employ_of_state
+          or service_performed_in_employ_of_political_subdivision_of_state
+          or service_performed_in_employ_of_indian_tribe
+  - name: service_in_employ_of_wholly_owned_state_political_subdivision_or_indian_tribe_instrumentality
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_in_employ_of_instrumentality_of_state_political_subdivision_or_indian_tribe
+          and instrumentality_wholly_owned_by_one_or_more_states_political_subdivisions_or_indian_tribes
+  - name: service_in_employ_of_constitutionally_immune_state_or_political_subdivision_instrumentality
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_in_employ_of_instrumentality_of_one_or_more_states_or_political_subdivisions
+          and instrumentality_is_with_respect_to_service_immune_under_constitution_from_federal_unemployment_excise_tax
+  - name: state_political_subdivision_indian_tribe_or_immune_instrumentality_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_in_employ_of_state_political_subdivision_or_indian_tribe
+          or service_in_employ_of_wholly_owned_state_political_subdivision_or_indian_tribe_instrumentality
+          or service_in_employ_of_constitutionally_immune_state_or_political_subdivision_instrumentality
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
