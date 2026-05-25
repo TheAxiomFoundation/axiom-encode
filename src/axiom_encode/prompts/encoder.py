@@ -360,6 +360,14 @@ Hard requirements:
   input such as `tier_1_applicable_percentage`. Import the upstream output when
   it exists; otherwise defer the affected output and name the cited legal
   dependency in `reason`.
+  If the current source instead states a purpose-limited replacement rate,
+  percentage, or amount for a cited section using phrases like `computed at`,
+  `in lieu of`, or `instead of the rate provided by`, encode that source-stated
+  replacement value as a purpose-scoped output named for the current source's
+  purpose, not as `section_<cited>_*` or `subsection_<cited>_*`. Do not
+  reconstruct the cited section's amount locally by dividing an imported amount
+  by its rate and multiplying by the replacement rate; downstream consumer
+  modules should import the purpose-scoped replacement value when they need it.
   When the omitted output covers a specific subsection or subparagraph, the
   `output` target path must include that source path segment, e.g.
   `us:statutes/26/3201/a#tier_1_employee_tax`, not
