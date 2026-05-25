@@ -9411,6 +9411,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(r) religious-order coverage-election certificates, vow-of-poverty member predicates, retroactive effective-period limits, or assessment timing intermediates as one-to-one payroll tax variables. These definitions determine FICA coverage before downstream wage and tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/w#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(w) church and qualified church-controlled organization election predicates, revocation rules, support tests, or service-exclusion intermediates as one-to-one payroll tax variables. These definitions determine FICA employment coverage before downstream wage and tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/y#
     country: us
     program: tax
