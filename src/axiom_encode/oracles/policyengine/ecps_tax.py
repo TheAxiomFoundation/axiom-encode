@@ -1811,7 +1811,7 @@ def run_axiom_program(
     rulespec_root: Path,
     axiom_rules_path: Path,
 ) -> list[dict[str, Any]]:
-    binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
+    binary = axiom_rules_path / "target" / "release" / "axiom-rules-engine"
     if not binary.exists():
         raise SystemExit(f"axiom-rules-engine binary not found: {binary}")
     env = os.environ.copy()
@@ -1844,7 +1844,7 @@ def run_axiom_program(
             text=True,
             cwd=str(axiom_rules_path),
             env=env,
-            timeout=120,
+            timeout=600,
         )
         if run_result.returncode != 0:
             raise SystemExit(run_result.stderr.strip() or run_result.stdout.strip())
