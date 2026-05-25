@@ -5540,7 +5540,10 @@ module:
   summary: |-
     The term employment shall, notwithstanding the provisions of subsection (b)
     of this section, include service performed by an individual as a member of a
-    uniformed service on active duty.
+    uniformed service on active duty. Active duty means active duty as described
+    in paragraph (21) of section 101 of title 38, except that it shall also
+    include active duty for training as described in paragraph (22) of that
+    section.
 rules:
   - name: uniformed_service_included_in_employment
     kind: derived
