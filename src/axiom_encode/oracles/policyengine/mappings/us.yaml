@@ -9822,6 +9822,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(c)(1) defines agricultural-labor employment thresholds and exception predicates for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not these agricultural-employment eligibility parameters or predicates separately.
 
+  - legal_id_prefix: us:statutes/26/3306/c/2#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(c)(2) defines domestic-service employment thresholds and exception predicates for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not these domestic-service eligibility parameters or predicates separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
