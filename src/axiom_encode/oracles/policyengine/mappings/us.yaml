@@ -9393,6 +9393,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(o) crew-leader definition predicates or deemed-employee relationship surfaces as one-to-one variables. These legal definitions support FICA employment classifications for agricultural crew leaders and furnished workers before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/p#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(p) Peace Corps volunteer-service employment-inclusion predicates as one-to-one variables. These legal definitions support FICA employment classifications before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/y#
     country: us
     program: tax
