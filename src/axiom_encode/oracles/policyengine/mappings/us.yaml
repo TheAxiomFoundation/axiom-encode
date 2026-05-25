@@ -9399,6 +9399,14 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(p) Peace Corps volunteer-service employment-inclusion predicates as one-to-one variables. These legal definitions support FICA employment classifications before downstream payroll-tax comparisons.
 
+  - legal_id: us:statutes/26/3121/q#tip_remuneration_for_employment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: tip_income
+    candidate_priority: P4
+    rationale: PolicyEngine has a generic annual tip_income input for deduction and reform surfaces, and payroll taxes flow through employment-income wage aggregates. It does not expose the section 3121(q) month-level intermediate that treats tips received in employment as remuneration for FICA employment.
+
   - legal_id_prefix: us:statutes/26/3121/y#
     country: us
     program: tax
