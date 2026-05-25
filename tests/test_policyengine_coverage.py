@@ -564,6 +564,87 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_c_2_c_fifth_succeeding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/c/2/C.yaml",
+        """format: rulespec/v1
+rules:
+  - name: fifth_or_succeeding_benefit_cost_floor_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.027
+  - name: fifth_or_succeeding_advances_balance_reduction_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: fifth_or_succeeding_balance and not secretary_exception
+  - name: fifth_or_succeeding_advances_balance_subparagraph_b_applies_instead
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: fifth_or_succeeding_balance and secretary_exception
+  - name: fifth_or_succeeding_benefit_cost_rate_after_floor
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(five_year_rate, fifth_or_succeeding_benefit_cost_floor_rate)
+  - name: fifth_or_succeeding_advances_balance_excess_percentage
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: fifth_or_succeeding_benefit_cost_rate_after_floor - average_rate
+  - name: fifth_or_succeeding_advances_balance_reduction_rate
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: fifth_or_succeeding_advances_balance_excess_percentage
+  - name: fifth_or_succeeding_advances_balance_credit_reduction_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: fifth_or_succeeding_advances_balance_reduction_rate * wages
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 7}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/2/C#fifth_or_succeeding_benefit_cost_floor_rate"
+        ]["policyengine_parameter"]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_reduction_applies"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_subparagraph_b_applies_instead"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/2/C#fifth_or_succeeding_benefit_cost_rate_after_floor"
+        ]["policyengine_parameter"]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_credit_reduction_amount"
+        ]["policyengine_variable"]
+        == "employer_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3302_d_1_subsection_c_tax_outputs(
     tmp_path,
 ):
