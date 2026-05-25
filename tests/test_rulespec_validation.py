@@ -15095,6 +15095,27 @@ rules:
     assert 0.5 in extract_numeric_occurrences_from_text("The amount is ½.")
 
 
+def test_ungrounded_numeric_accepts_source_mixed_unicode_fraction_percentage():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3302
+rules:
+  - name: trade_act_agreement_noncompliance_reduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          0.075
+"""
+
+    source_text = "The total credits shall be reduced by 7½ percent of the tax."
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 0.075 in extract_numeric_occurrences_from_text(source_text)
+
+
 def test_non_rulespec_yaml_artifact_is_rejected(tmp_path):
     rules_file = tmp_path / "not-rulespec.yaml"
     rules_file.write_text("rules:\n  - name: missing_format_header\n")

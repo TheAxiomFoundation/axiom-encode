@@ -1670,6 +1670,18 @@ def _iter_normalized_special_numeric_matches(
 ) -> list[tuple[tuple[int, int], float]]:
     """Return normalized special-case numeric matches like percentages, pence, and table values."""
     matches: list[tuple[tuple[int, int], float]] = []
+    fraction_chars = "".join(re.escape(glyph) for glyph in _UNICODE_FRACTION_VALUES)
+
+    for match in re.finditer(
+        rf"(-?[\d,]+)\s*([{fraction_chars}])(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
+        text,
+        re.IGNORECASE,
+    ):
+        with contextlib.suppress(ValueError):
+            whole = float(match.group(1).replace(",", ""))
+            fraction = _UNICODE_FRACTION_VALUES[match.group(2)]
+            sign = -1 if whole < 0 else 1
+            matches.append((match.span(), (whole + sign * fraction) / 100))
 
     for pattern in (
         re.compile(
