@@ -3136,7 +3136,7 @@ Test file rules:
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
-- Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines both `Person` and `TaxUnit` outputs, create separate cases: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
+- Each `.test.yaml` case may assert derived outputs for only one entity type. If a module defines outputs on multiple entities, create separate cases for each entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or `Employer`/`Payment`. For example: `Person` cases set person facts at the top level and assert person outputs; `TaxUnit` cases use relation rows to supply person facts and assert only tax-unit outputs. Do not assert relation-child outputs in the parent entity's case.
 - Use `holds` and `not_holds` for actual `dtype: Judgment` rule keys in test inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys referenced directly by formulas.
 - For proration tests with a source-stated denominator, choose input amounts divisible by that denominator so expected outputs are exact decimals, not rounded approximations. For example, if the denominator is 365, use a base amount like 36500 so `36500 * 182 / 365 = 18200`.
@@ -3683,7 +3683,9 @@ RuleSpec requirements:
   leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If
-  a module defines both `Person` and `TaxUnit` outputs, create separate cases:
+  a module defines outputs on multiple entities, create separate cases for each
+  entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or
+  `Employer`/`Payment`. For example:
   `Person` cases set person facts at the top level and assert person outputs;
   `TaxUnit` cases use relation rows to supply person facts and assert only
   tax-unit outputs. Do not assert relation-child outputs in the parent entity's
