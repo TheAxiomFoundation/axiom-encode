@@ -1415,6 +1415,53 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_c_6_federal_government_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/6.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: service_in_employ_of_qualifying_united_states_instrumentality
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_in_employ_of_instrumentality_of_united_states
+          and (
+            instrumentality_wholly_or_partially_owned_by_united_states
+            or instrumentality_exempt_from_federal_unemployment_excise_tax_by_specific_reference_to_section_3301_or_prior_law
+          )
+  - name: federal_government_or_qualifying_instrumentality_service_excepted_from_employment
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_in_employ_of_united_states_government
+          or service_in_employ_of_qualifying_united_states_instrumentality
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
