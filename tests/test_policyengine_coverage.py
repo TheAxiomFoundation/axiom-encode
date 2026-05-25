@@ -569,6 +569,11 @@ rules:
             "citizen_of_united_states_for_section",
         ),
         (
+            "statutes/26/3121/f.yaml",
+            "us:statutes/26/3121/f#american_vessel",
+            "american_vessel",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
