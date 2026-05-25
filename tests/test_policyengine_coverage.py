@@ -504,6 +504,36 @@ rules:
     assert item["policyengine_variable"] == "employer_federal_unemployment_tax"
 
 
+def test_policyengine_coverage_classifies_3302_d_4_state_rate_threshold_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/d/4.yaml",
+        """format: rulespec/v1
+rules:
+  - name: average_employer_contribution_rate_employee_payment_adjustment_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.027
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3302/d/4#average_employer_contribution_rate_employee_payment_adjustment_threshold"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_parameter"]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+
+
 def test_policyengine_coverage_classifies_legacy_tax_procedural_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/68/b.yaml",
