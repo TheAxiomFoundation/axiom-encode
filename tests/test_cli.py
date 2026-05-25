@@ -6819,6 +6819,86 @@ rules: []
             in updated
         )
 
+    def test_complete_missing_imported_test_inputs_adds_table_entity_defaults(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/3121/y.yaml"
+        dependent = policy_repo / "statutes/26/3121/b/15.yaml"
+        dependent_test = policy_repo / "statutes/26/3121/b/15.test.yaml"
+        imported.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+rules:
+  - name: transferred_federal_employee_international_organization_service_constitutes_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          service_performed_in_employ_of_international_organization_within_meaning_of_section_3581_3_of_title_5
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_constitutes_employment
+rules:
+  - name: international_organization_service_excluded_from_employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          service_performed_in_employ_of_international_organization
+          and not transferred_federal_employee_international_organization_service_constitutes_employment
+"""
+        )
+        imported_ref = (
+            "us:statutes/26/3121/y#input."
+            "service_performed_in_employ_of_international_organization_within_meaning_of_section_3581_3_of_title_5"
+        )
+        dependent_test.write_text(
+            f"""- name: case_one
+  input:
+    {imported_ref}: true
+  tables:
+    Payment:
+    - us:statutes/26/3121/b/15#input.service_performed_in_employ_of_international_organization: true
+  output:
+    us:statutes/26/3121/b/15#international_organization_service_excluded_from_employment:
+    - holds
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: missing input "
+                        "`service_performed_in_employ_of_international_organization_within_meaning_of_section_3581_3_of_title_5` "
+                        "for entity `payment-1` over 2026-01-01..2026-12-31"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        payload = yaml.safe_load(dependent_test.read_text())
+        payment_row = payload[0]["tables"]["Payment"][0]
+        assert payment_row[imported_ref] is True
+
     def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         imported = policy_repo / "statutes/26/1/h.yaml"

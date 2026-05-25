@@ -14275,7 +14275,9 @@ def _repair_dependent_proof_import_hashes(
 
 
 _MISSING_INPUT_RE = re.compile(
-    r"Test case `(?P<case>[^`]+)` execution failed: missing input `(?P<input>[^`]+)`"
+    r"Test case `(?P<case>[^`]+)` execution failed: "
+    r"missing input `(?P<input>[^`]+)`"
+    r"(?: for entity `(?P<entity>[^`]+)`)?"
 )
 _APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT = 50
 
@@ -14517,7 +14519,8 @@ def _complete_missing_imported_test_inputs(
     """Fill missing input slots for imported modules in this file's tests."""
     if not test_file.exists():
         return False
-    missing_inputs = _missing_input_names_from_validation(validation)
+    missing_assignments = _missing_input_assignments_from_validation(validation)
+    missing_inputs = {assignment["input"] for assignment in missing_assignments}
     if not missing_inputs:
         return False
     imported_inputs = _imported_input_refs_by_name(rules_file, repo_path=repo_path)
@@ -14533,6 +14536,19 @@ def _complete_missing_imported_test_inputs(
                 input_ref,
                 _infer_missing_input_default(input_name),
             )
+    for assignment in missing_assignments:
+        entity_id = assignment.get("entity")
+        if not entity_id:
+            continue
+        input_name = assignment["input"]
+        for input_ref in imported_inputs.get(input_name, []):
+            updated = _insert_input_default_in_table_entity_rows(
+                updated,
+                input_ref=input_ref,
+                value=_infer_missing_input_default(input_name),
+                case_name=assignment["case"],
+                entity_id=entity_id,
+            )
     if updated == content:
         return False
     test_file.write_text(updated)
@@ -14540,15 +14556,35 @@ def _complete_missing_imported_test_inputs(
 
 
 def _missing_input_names_from_validation(validation: object) -> set[str]:
-    missing_inputs: set[str] = set()
+    return {
+        assignment["input"]
+        for assignment in _missing_input_assignments_from_validation(validation)
+    }
+
+
+def _missing_input_assignments_from_validation(
+    validation: object,
+) -> list[dict[str, str]]:
+    seen_assignments: set[tuple[str, str, str | None]] = set()
+    assignments: list[dict[str, str]] = []
     results = getattr(validation, "results", {})
     if not isinstance(results, dict):
-        return missing_inputs
+        return assignments
     for validator_result in results.values():
         error = getattr(validator_result, "error", "") or ""
         for match in _MISSING_INPUT_RE.finditer(str(error)):
-            missing_inputs.add(match.group("input"))
-    return missing_inputs
+            key = (match.group("case"), match.group("input"), match.group("entity"))
+            if key in seen_assignments:
+                continue
+            seen_assignments.add(key)
+            assignment = {
+                "case": match.group("case"),
+                "input": match.group("input"),
+            }
+            if match.group("entity"):
+                assignment["entity"] = match.group("entity")
+            assignments.append(assignment)
+    return assignments
 
 
 def _imported_input_refs_by_name(
@@ -14785,6 +14821,54 @@ def _insert_input_default_in_test_cases(
         lines.insert(start + 1, f"{indent}{input_ref}: {rendered}{newline}")
     lines = _insert_input_default_in_relation_rows(lines, input_ref, rendered)
     return "".join(lines)
+
+
+def _insert_input_default_in_table_entity_rows(
+    content: str,
+    *,
+    input_ref: str,
+    value: object,
+    case_name: str,
+    entity_id: str,
+) -> str:
+    """Insert an input default into table rows matching a validation entity id."""
+    try:
+        payload = yaml.safe_load(content) or []
+    except (ValueError, yaml.YAMLError):
+        return content
+    if not isinstance(payload, list):
+        return content
+
+    changed = False
+    for test_case in payload:
+        if not isinstance(test_case, dict) or test_case.get("name") != case_name:
+            continue
+        row_value = value
+        inputs = test_case.get("input")
+        if isinstance(inputs, dict) and input_ref in inputs:
+            row_value = inputs[input_ref]
+        tables = test_case.get("tables")
+        if not isinstance(tables, dict):
+            continue
+        for table_entity, rows in tables.items():
+            if not isinstance(rows, list):
+                continue
+            for row_index, row in enumerate(rows, 1):
+                if not isinstance(row, dict):
+                    continue
+                if (
+                    _rulespec_table_row_entity_id(str(table_entity), row, row_index)
+                    != entity_id
+                ):
+                    continue
+                if input_ref in row:
+                    continue
+                row[input_ref] = row_value
+                changed = True
+
+    if not changed:
+        return content
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
 
 
 def _insert_input_default_in_relation_rows(
