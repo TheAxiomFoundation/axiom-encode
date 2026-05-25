@@ -10155,7 +10155,8 @@ def find_copied_cross_reference_source_issues(
     issues: list[str] = []
     seen: set[str] = set()
     for match in re.finditer(
-        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)\s+of\s+this\s+section\b",
+        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)"
+        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
         source_text,
         flags=re.IGNORECASE,
     ):
@@ -10207,7 +10208,8 @@ def find_missing_same_section_subsection_import_issues(
     issues: list[str] = []
     seen: set[str] = set()
     for match in re.finditer(
-        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)\s+of\s+this\s+section\b",
+        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)"
+        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
         source_text,
         flags=re.IGNORECASE,
     ):

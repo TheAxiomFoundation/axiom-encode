@@ -6691,6 +6691,50 @@ rules:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_same_section_under_subsection_context(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        statute_root = repo_root / "rulespec-us" / "statutes" / "26" / "3121"
+        statute_root.mkdir(parents=True)
+        context_file = statute_root / "y.yaml"
+        context_test = statute_root / "y.test.yaml"
+        context_file.write_text("format: rulespec/v1\nrules: []\n")
+        context_test.write_text("- name: transferred_employee_case\n  period: 2026\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 3121(b)(15)",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=(
+                    "Service performed in the employ of an international "
+                    "organization, except service which constitutes employment "
+                    "under subsection (y)."
+                ),
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(context_file)]["kind"] == "implementation_precedent"
+        assert (
+            copied_sources[str(context_file)]["import_path"] == "us:statutes/26/3121/y"
+        )
+        assert (
+            copied_sources[str(context_test)]["kind"] == "implementation_test_context"
+        )
+
     def test_prepare_eval_workspace_adds_cross_section_context(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "axiom-rules-engine"

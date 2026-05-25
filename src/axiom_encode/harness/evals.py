@@ -1952,7 +1952,8 @@ def _select_same_section_subsection_context_files(
     selected: list[Path] = []
     seen: set[Path] = set()
     for match in re.finditer(
-        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)\s+of\s+this\s+section\b",
+        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)"
+        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
         source_text,
         flags=re.IGNORECASE,
     ):
