@@ -553,6 +553,11 @@ rules:
             "us:statutes/26/3121/b/1#foreign_agricultural_worker_service_excluded_from_employment",
             "foreign_agricultural_worker_service_excluded_from_employment",
         ),
+        (
+            "statutes/26/3121/y.yaml",
+            "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
+            "transferred_federal_employee_international_organization_service_is_employment",
+        ),
     ],
 )
 def test_policyengine_coverage_classifies_3121_employment_exclusions(
