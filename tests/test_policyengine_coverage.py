@@ -287,6 +287,59 @@ rules:
     assert tax["policyengine_variable"] == "employer_federal_unemployment_tax"
 
 
+def test_policyengine_coverage_classifies_legacy_tax_procedural_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/68/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: section_68_applied_after_other_itemized_deduction_limitations
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: true
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/443/a/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: annual_accounting_period_change_with_secretary_approval
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: taxpayer_changes_annual_accounting_period
+  - name: return_made_for_required_short_period_after_accounting_period_change
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: return_is_made_for_short_period
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    statuses_by_id = {item["legal_id"]: item["status"] for item in report["items"]}
+    assert (
+        statuses_by_id[
+            "us:statutes/26/68/b#section_68_applied_after_other_itemized_deduction_limitations"
+        ]
+        == "known_not_comparable"
+    )
+    assert (
+        statuses_by_id[
+            "us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval"
+        ]
+        == "known_not_comparable"
+    )
+    assert (
+        statuses_by_id[
+            "us:statutes/26/443/a/1#return_made_for_required_short_period_after_accounting_period_change"
+        ]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_maps_section_1401_rate_leaf_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/1401/a/rate.yaml",
