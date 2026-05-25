@@ -1634,6 +1634,22 @@ mappings:
     candidate_priority: P4
     rationale: Section 3306(b)(18) excludes payments reasonably believed excludable from income under section 106(d) from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow payment exclusion amount separately.
 
+  - legal_id: us:statutes/26/3306/b/19#stock_option_or_employee_stock_purchase_plan_stock_remuneration_exclusion_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(19)'s stock-option and employee-stock-purchase-plan remuneration predicate is a statutory gate for excluding those amounts from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this predicate separately.
+
+  - legal_id: us:statutes/26/3306/b/19#stock_option_or_employee_stock_purchase_plan_stock_remuneration_excluded_from_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(19) excludes remuneration on account of qualifying incentive stock option or employee stock purchase plan stock transfers and dispositions from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
+
   - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
     country: us
     program: tax
