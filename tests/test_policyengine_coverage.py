@@ -798,6 +798,44 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_d_5_benefit_cost_rate_scalars(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/d/5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: benefit_cost_rate_compensation_lookback_years
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 5
+  - name: benefit_cost_rate_compensation_averaging_fraction
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1 / 5
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/d/5#benefit_cost_rate_compensation_lookback_years"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/d/5#benefit_cost_rate_compensation_averaging_fraction"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_legacy_tax_procedural_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/68/b.yaml",
