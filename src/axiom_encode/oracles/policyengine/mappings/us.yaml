@@ -1225,6 +1225,38 @@ mappings:
     candidate_priority: P4
     rationale: This section 3302(c)(1) output applies the total-credit cap before final FUTA tax; PolicyEngine exposes final employer FUTA tax and does not expose the capped total section 3302 credits separately.
 
+  - legal_id: us:statutes/26/3302/c/2/A#second_consecutive_january1_advances_balance_reduction_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(c)(2)(A)(i)'s 5 percent advance-balance credit-reduction rate is a statutory intermediate rate, while PolicyEngine exposes a final post-credit effective FUTA rate.
+
+  - legal_id: us:statutes/26/3302/c/2/A#succeeding_consecutive_january1_advances_balance_additional_reduction_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(c)(2)(A)(ii)'s additional 5 percent succeeding-year advance-balance rate is a statutory intermediate credit-reduction rate; PolicyEngine exposes a final post-credit effective FUTA rate instead.
+
+  - legal_id: us:statutes/26/3302/c/2/A#advances_credit_reduction_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This output computes the statutory section 3302(c)(2)(A) advance-balance credit-reduction rate, while PolicyEngine exposes final FUTA effective-rate assumptions rather than this intermediate statutory rate.
+
+  - legal_id: us:statutes/26/3302/c/2/A#advances_credit_reduction_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: This output computes an intermediate section 3302(c)(2)(A) reduction in credits based on advance balances; PolicyEngine exposes final employer FUTA tax after effective-rate and credit-reduction assumptions, not this statutory intermediate amount separately.
+
   - legal_id: us:statutes/26/3302/d/1#subsection_c_tax_computation_rate
     country: us
     program: tax
