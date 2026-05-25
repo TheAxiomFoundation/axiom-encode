@@ -439,6 +439,44 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_d_1_subsection_c_tax_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/d/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: subsection_c_tax_computation_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.06
+  - name: tax_imposed_by_section_3301_for_applying_subsection_c
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: federal_unemployment_excise_tax
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id["us:statutes/26/3302/d/1#subsection_c_tax_computation_rate"][
+            "policyengine_parameter"
+        ]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/d/1#tax_imposed_by_section_3301_for_applying_subsection_c"
+        ]["policyengine_variable"]
+        == "employer_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_legacy_tax_procedural_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/68/b.yaml",
