@@ -5454,6 +5454,9 @@ rules:
 
 def test_same_section_subsection_reference_requires_import(tmp_path):
     repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "7" / "2015" / "e.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -5488,6 +5491,9 @@ rules:
 
 def test_same_section_under_subsection_reference_requires_import(tmp_path):
     repo = tmp_path / "rulespec-us"
+    cited_file = repo / "statutes" / "26" / "3121" / "y.yaml"
+    cited_file.parent.mkdir(parents=True)
+    cited_file.write_text("format: rulespec/v1\nrules: []\n")
     rules_file = repo / "statutes" / "26" / "3121" / "b" / "15.yaml"
     rules_file.parent.mkdir(parents=True)
     rules_file.write_text(
@@ -5519,6 +5525,37 @@ rules:
     assert len(issues) == 1
     assert "Same-section subsection import missing" in issues[0]
     assert "statutes/26/3121/y" in issues[0]
+
+
+def test_same_section_subsection_reference_allows_missing_source(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3121" / "i.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Service applies unless the provisions of subsection (m)(1) are unavailable.
+rules:
+  - name: service_applies_until_missing_subsection_boundary
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: service_applies_and_subsection_m_boundary_not_met
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
 
 
 def test_same_section_subsection_reference_allows_import(tmp_path):

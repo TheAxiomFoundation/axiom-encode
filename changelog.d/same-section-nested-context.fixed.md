@@ -1,0 +1,1 @@
+Copied precise nested same-section RuleSpec context for references such as `subsection (a)(7)(B)` before falling back to broader subsection context, and only require same-section imports when the cited RuleSpec source exists locally.
