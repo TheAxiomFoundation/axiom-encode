@@ -1171,6 +1171,20 @@ mappings:
     candidate_priority: P4
     rationale: PolicyEngine exposes final FUTA taxable earnings, not the section 3306(b)(1) above-wage-base excluded-remuneration amount separately.
 
+  - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 443(a)(1)'s annual-accounting-period change with Secretary approval is procedural filing-period logic, not a PolicyEngine tax calculation variable or parameter.
+
+  - legal_id: us:statutes/26/443/a/1#return_made_for_required_short_period_after_accounting_period_change
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 443(a)(1)'s required short-period return rule is procedural return-period logic; PolicyEngine does not expose the short-period filing requirement as a one-to-one oracle output.
+
   - legal_id: us:statutes/26/3121/a/1#successor_employer_base_continuity_applies
     country: us
     program: tax
@@ -2263,6 +2277,13 @@ mappings:
     unit: USD
     comparison: money
     rationale: Same federal taxable income after exemptions and taxable-income deductions.
+
+  - legal_id: us:statutes/26/68/b#section_68_applied_after_other_itemized_deduction_limitations
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 68(b) is a statutory ordering rule for applying the overall itemized-deduction limitation after other itemized-deduction limitations; PolicyEngine does not expose this ordering judgment as an oracle output.
 
   - legal_id: us:statutes/26/86#social_security_one_half_rate
     country: us
