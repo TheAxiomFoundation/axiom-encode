@@ -3357,8 +3357,10 @@ RuleSpec requirements:
   source is unavailable, do not invent a local cross-reference fact for the
   cited mechanics. If the requested source itself states the operative effect
   and only uses the citation to label a category, encode a source-named boundary
-  predicate for that category instead of deferring. Otherwise, if the dependency
-  is essential to the only requested executable concept, emit
+  predicate for that category instead of deferring. This includes `within the
+  meaning of section ...` carve-outs where the current source states that the
+  category is included, excluded, or not treated in a specified way. Otherwise,
+  if the dependency is essential to the only requested executable concept, emit
   `module.status: deferred` or `module.status: entity_not_supported` with
   `rules: []`. In a mixed provision, omit or defer only the affected executable
   surface and still encode independent source-backed outputs that do not require
@@ -3453,8 +3455,9 @@ RuleSpec requirements:
   as its own boundary predicate and combine them into the final rule. Do not
   defer the final exported output solely because cited title, chapter, schedule,
   appointment, office, retirement-system, election, covered-service, or
-  treated-as-trade-or-business definitions are not encoded when the requested
-  source states the exception's operative effect.
+  treated-as-trade-or-business, unrelated-trade-or-business, or other
+  within-meaning definitions are not encoded when the requested source states
+  the exception's operative effect.
 - If the copied target file is already executable, do not let its old surface
   force local placeholders or compatibility names. Rebuild, drop, or defer
   individual outputs as needed. Prefer retaining or replacing source-backed

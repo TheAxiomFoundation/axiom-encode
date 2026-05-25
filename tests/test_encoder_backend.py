@@ -99,7 +99,10 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "enumerates exception categories" in ENCODER_PROMPT
     assert "only uses the citation to label a category" in ENCODER_PROMPT
     assert "retirement-system, election, covered-service" in ENCODER_PROMPT
-    assert "treated-as-trade-or-business definitions" in ENCODER_PROMPT
+    assert "treated-as-trade-or-business, unrelated-trade-or-business" in ENCODER_PROMPT
+    assert "`within the\n  meaning of section ...` carve-outs" in ENCODER_PROMPT
+    assert "unrelated-trade-or-business" in ENCODER_PROMPT
+    assert "within-meaning definitions" in ENCODER_PROMPT
     assert "positive/nonzero" in ENCODER_PROMPT
     assert "toggle each gate at least once" in ENCODER_PROMPT
     assert (

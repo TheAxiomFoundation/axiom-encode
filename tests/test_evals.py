@@ -517,7 +517,11 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "cites other\n  laws only to define those category labels" in prompt
     assert "only uses the citation to label a category" in prompt
     assert "appointment, office, retirement-system, election" in prompt
-    assert "covered-service, or\n  treated-as-trade-or-business definitions" in prompt
+    assert "covered-service, or\n  treated-as-trade-or-business" in prompt
+    assert "`within the\n  meaning of section ...` carve-outs" in prompt
+    assert (
+        "unrelated-trade-or-business, or other\n  within-meaning definitions" in prompt
+    )
     assert "Validation fails if a direct local `#input.*_exception_applies`" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
