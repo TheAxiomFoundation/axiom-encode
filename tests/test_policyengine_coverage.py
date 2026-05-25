@@ -584,6 +584,11 @@ rules:
             "american_employer",
         ),
         (
+            "statutes/26/3121/j.yaml",
+            "us:statutes/26/3121/j#covered_transportation_service",
+            "covered_transportation_service",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
