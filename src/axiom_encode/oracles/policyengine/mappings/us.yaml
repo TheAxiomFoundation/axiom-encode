@@ -1514,6 +1514,22 @@ mappings:
     candidate_priority: P4
     rationale: Section 3306(b)(7) excludes noncash remuneration for service outside the employer's trade or business from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
 
+  - legal_id: us:statutes/26/3306/b/9#corresponding_section_217_deduction_reasonably_believed_allowable_without_section_274_n
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(9)'s reasonable-belief predicate is a statutory gate for excluding section 217 moving-expense remuneration from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this predicate separately.
+
+  - legal_id: us:statutes/26/3306/b/9#section_217_deduction_remuneration_excluded_from_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(9) excludes remuneration to the extent a corresponding section 217 deduction is reasonably believed allowable; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
+
   - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
     country: us
     program: tax
