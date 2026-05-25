@@ -9369,6 +9369,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(h) American-employer definition predicates or source-specific partnership thresholds as one-to-one variables. These legal definitions support FICA employment and wage classifications before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/i#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(i) special wage-computation rules, rounding parameters, uniformed-service and religious-order remuneration intermediates, or retired-judge payment exclusions as one-to-one variables. These legal intermediates feed FICA wage construction before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/j#
     country: us
     program: tax

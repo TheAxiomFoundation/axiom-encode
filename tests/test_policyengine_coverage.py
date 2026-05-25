@@ -584,6 +584,11 @@ rules:
             "american_employer",
         ),
         (
+            "statutes/26/3121/i.yaml",
+            "us:statutes/26/3121/i#uniformed_service_remuneration_included_before_subsection_a_1_limit",
+            "uniformed_service_remuneration_included_before_subsection_a_1_limit",
+        ),
+        (
             "statutes/26/3121/j.yaml",
             "us:statutes/26/3121/j#covered_transportation_service",
             "covered_transportation_service",
