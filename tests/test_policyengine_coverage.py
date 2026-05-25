@@ -604,6 +604,11 @@ rules:
             "crew_leader",
         ),
         (
+            "statutes/26/3121/p.yaml",
+            "us:statutes/26/3121/p#peace_corps_volunteer_service_constitutes_employment",
+            "peace_corps_volunteer_service_constitutes_employment",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
