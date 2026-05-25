@@ -513,14 +513,17 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "exclusions conditioned on a reasonable belief" in prompt
     assert "Do not defer solely because" in prompt
     assert "model the source-stated\n  reasonable-belief condition" in prompt
-    assert "enumerates exception categories" in prompt
-    assert "cites other\n  laws only to define those category labels" in prompt
+    assert "enumerates qualifying or exception categories" in prompt
+    assert "cites other laws only to define those category labels" in prompt
     assert "only uses the citation to label a category" in prompt
     assert "appointment, office, retirement-system, election" in prompt
-    assert "covered-service, or\n  treated-as-trade-or-business" in prompt
+    assert "`described in section ...` category\n  labels" in prompt
+    assert "section-described supporting organization" in prompt
+    assert "covered-service, section-described supporting organization" in prompt
     assert "`within the\n  meaning of section ...` carve-outs" in prompt
     assert (
-        "unrelated-trade-or-business, or other\n  within-meaning definitions" in prompt
+        "unrelated-trade-or-business, or other\n  within-meaning/described-in definitions"
+        in prompt
     )
     assert "Validation fails if a direct local `#input.*_exception_applies`" in prompt
     assert "imported test inputs from copied files" in prompt
