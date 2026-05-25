@@ -439,6 +439,66 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/c/2/A.yaml",
+        """format: rulespec/v1
+rules:
+  - name: second_consecutive_january1_advances_balance_reduction_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.05
+  - name: succeeding_consecutive_january1_advances_balance_additional_reduction_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.05
+  - name: advances_credit_reduction_rate
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: second_consecutive_january1_advances_balance_reduction_rate
+  - name: advances_credit_reduction_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: advances_credit_reduction_rate * tax
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/2/A#second_consecutive_january1_advances_balance_reduction_rate"
+        ]["policyengine_parameter"]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/2/A#succeeding_consecutive_january1_advances_balance_additional_reduction_rate"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id["us:statutes/26/3302/c/2/A#advances_credit_reduction_rate"][
+            "policyengine_parameter"
+        ]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id["us:statutes/26/3302/c/2/A#advances_credit_reduction_amount"][
+            "policyengine_variable"
+        ]
+        == "employer_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3302_d_1_subsection_c_tax_outputs(
     tmp_path,
 ):
