@@ -302,6 +302,58 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_4_post_work_sickness_exclusion(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/4.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: sickness_accident_disability_payment_waiting_period_calendar_months
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 6
+  - name: post_work_sickness_accident_or_medical_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          (payment_on_account_of_sickness_or_accident_disability
+          or payment_on_account_of_medical_or_hospitalization_expenses_in_connection_with_sickness_or_accident_disability)
+          and (payment_made_by_employer_to_employee
+          or payment_made_by_employer_on_behalf_of_employee)
+          and full_calendar_months_following_last_work_month_expired_before_payment >= sickness_accident_disability_payment_waiting_period_calendar_months
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    waiting_period = items_by_id[
+        "us:statutes/26/3306/b/4#sickness_accident_disability_payment_waiting_period_calendar_months"
+    ]
+    exclusion = items_by_id[
+        "us:statutes/26/3306/b/4#post_work_sickness_accident_or_medical_payment_excluded_from_wages"
+    ]
+    assert waiting_period["status"] == "known_not_comparable"
+    assert exclusion["status"] == "known_not_comparable"
+    assert (
+        exclusion["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
