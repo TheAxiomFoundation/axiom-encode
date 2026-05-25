@@ -1413,6 +1413,20 @@ mappings:
     candidate_priority: P4
     rationale: Section 3302(d)(4)'s 2.7 percent threshold is a state average-employer-contribution-rate condition for subsection (c)(2)(C); PolicyEngine exposes a federal post-credit effective FUTA rate instead of this state-law threshold.
 
+  - legal_id: us:statutes/26/3302/d/5#benefit_cost_rate_compensation_lookback_years
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3302(d)(5)'s 5-year lookback is a State unemployment-compensation benefit-cost-rate formula constant; PolicyEngine does not expose this State-scoped benefit-cost-rate formula separately from federal FUTA assumptions.
+
+  - legal_id: us:statutes/26/3302/d/5#benefit_cost_rate_compensation_averaging_fraction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3302(d)(5)'s one-fifth averaging fraction is a State unemployment-compensation benefit-cost-rate formula constant; PolicyEngine does not expose this State-scoped benefit-cost-rate formula separately from federal FUTA assumptions.
+
   - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
     country: us
     program: tax
