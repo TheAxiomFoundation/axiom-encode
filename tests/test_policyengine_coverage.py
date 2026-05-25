@@ -254,6 +254,54 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_2_employer_plan_payment_exclusion(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/2.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: employer_plan_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if payment_made_to_or_on_behalf_of_employee_or_dependent
+          and employer_plan_or_system_makes_provision_for_employees_or_classes_and_dependents
+          and (
+            payment_on_account_of_medical_or_hospitalization_expenses_in_connection_with_sickness_or_accident_disability
+            or payment_on_account_of_death
+            or (
+              payment_on_account_of_sickness_or_accident_disability
+              and payment_received_under_workmens_compensation_law
+            )
+          ): payment_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3306/b/2#employer_plan_payment_excluded_from_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
