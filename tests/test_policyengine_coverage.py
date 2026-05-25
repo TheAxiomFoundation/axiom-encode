@@ -836,6 +836,42 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_d_6_rounding_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/d/6.yaml",
+        """format: rulespec/v1
+rules:
+  - name: subparagraph_b_or_c_percentage_rounding_multiple
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.001
+  - name: subparagraph_b_or_c_percentage_after_rounding
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: floor((rate / subparagraph_b_or_c_percentage_rounding_multiple) + 0.5) * subparagraph_b_or_c_percentage_rounding_multiple
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/d/6#subparagraph_b_or_c_percentage_rounding_multiple"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/d/6#subparagraph_b_or_c_percentage_after_rounding"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_legacy_tax_procedural_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/68/b.yaml",

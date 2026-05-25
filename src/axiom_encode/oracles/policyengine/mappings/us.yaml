@@ -1427,6 +1427,20 @@ mappings:
     candidate_priority: P4
     rationale: Section 3302(d)(5)'s one-fifth averaging fraction is a State unemployment-compensation benefit-cost-rate formula constant; PolicyEngine does not expose this State-scoped benefit-cost-rate formula separately from federal FUTA assumptions.
 
+  - legal_id: us:statutes/26/3302/d/6#subparagraph_b_or_c_percentage_rounding_multiple
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3302(d)(6)'s 0.1 percent rounding increment applies to State advance-balance percentages under section 3302(c)(2)(B) and (C); PolicyEngine does not expose this statutory rounding increment separately from final FUTA assumptions.
+
+  - legal_id: us:statutes/26/3302/d/6#subparagraph_b_or_c_percentage_after_rounding
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This output applies section 3302(d)(6)'s rounding rule to State advance-balance percentages; PolicyEngine does not expose the rounded statutory percentage separately from final FUTA assumptions.
+
   - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
     country: us
     program: tax
