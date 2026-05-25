@@ -610,8 +610,8 @@ rules:
         ),
         (
             "statutes/26/3121/q.yaml",
-            "us:statutes/26/3121/q#tip_remuneration_for_employment",
-            "tip_remuneration_for_employment",
+            "us:statutes/26/3121/q#tips_considered_remuneration_for_employment",
+            "tips_considered_remuneration_for_employment",
         ),
         (
             "statutes/26/3121/y.yaml",
