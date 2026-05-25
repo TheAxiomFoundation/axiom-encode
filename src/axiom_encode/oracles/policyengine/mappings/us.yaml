@@ -1296,6 +1296,60 @@ mappings:
     candidate_priority: P4
     rationale: This output computes an intermediate section 3302(c)(2)(B) reduction in credits based on state advance balances and wage-attribution inputs; PolicyEngine exposes final employer FUTA tax, not this intermediate reduction amount separately.
 
+  - legal_id: us:statutes/26/3302/c/2/C#fifth_or_succeeding_benefit_cost_floor_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(c)(2)(C)(i)'s 2.7 percent floor is a statutory intermediate for the fifth-or-succeeding-year credit-reduction computation; PolicyEngine exposes final FUTA effective-rate assumptions instead.
+
+  - legal_id: us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_reduction_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This output is a state advance-balance timing and Secretary-of-Labor exception predicate for applying section 3302(c)(2)(C); PolicyEngine does not expose this predicate separately from final FUTA assumptions.
+
+  - legal_id: us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_subparagraph_b_applies_instead
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This output models the section 3302(c)(2)(C) exception under which subparagraph (B) applies instead; PolicyEngine does not expose this source-specific routing predicate separately.
+
+  - legal_id: us:statutes/26/3302/c/2/C#fifth_or_succeeding_benefit_cost_rate_after_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This output computes the statutory greater-of 5-year benefit-cost rate and 2.7 percent floor; PolicyEngine exposes a final post-credit FUTA effective rate rather than this component separately.
+
+  - legal_id: us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_excess_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This output computes the statutory fifth-or-succeeding-year excess percentage over the state's average employer contribution rate; PolicyEngine exposes final FUTA effective-rate assumptions rather than this intermediate separately.
+
+  - legal_id: us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_reduction_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This output computes a statutory fifth-or-succeeding-year advance-balance credit-reduction rate subject to the subparagraph (B) substitution exception; PolicyEngine exposes final FUTA effective-rate assumptions instead.
+
+  - legal_id: us:statutes/26/3302/c/2/C#fifth_or_succeeding_advances_balance_credit_reduction_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: This output computes an intermediate section 3302(c)(2)(C) reduction in credits based on state advance balances and wage-attribution inputs; PolicyEngine exposes final employer FUTA tax, not this intermediate reduction amount separately.
+
   - legal_id: us:statutes/26/3302/d/1#subsection_c_tax_computation_rate
     country: us
     program: tax
