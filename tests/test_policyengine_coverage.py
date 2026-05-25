@@ -575,6 +575,48 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_11_noncash_agricultural_exclusion(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/11.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: noncash_agricultural_labor_remuneration_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if (
+            remuneration_for_agricultural_labor
+            and remuneration_paid_in_medium_other_than_cash
+          ): remuneration_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3306/b/11#noncash_agricultural_labor_remuneration_excluded_from_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",

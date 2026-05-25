@@ -1538,6 +1538,14 @@ mappings:
     candidate_priority: P4
     rationale: Section 3306(b)(10) excludes employer-plan payments after employment termination due to death or disability retirement from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
 
+  - legal_id: us:statutes/26/3306/b/11#noncash_agricultural_labor_remuneration_excluded_from_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(b)(11) excludes noncash remuneration for agricultural labor from FUTA wages; PolicyEngine exposes final FUTA taxable earnings, not this narrow exclusion amount separately.
+
   - legal_id: us:statutes/26/443/a/1#annual_accounting_period_change_with_secretary_approval
     country: us
     program: tax
