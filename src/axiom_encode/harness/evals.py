@@ -1953,23 +1953,36 @@ def _select_same_section_subsection_context_files(
     seen: set[Path] = set()
     for match in re.finditer(
         r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)"
+        r"(?P<tail>(?:\([A-Za-z0-9]+\))*)"
         r"(?:\s+of\s+this\s+section)?(?=\W|$)",
         source_text,
         flags=re.IGNORECASE,
     ):
-        subsection = match.group("subsection")
-        if subsection in parts.fragments:
-            continue
-        candidate_rel = citation_to_relative_rulespec_path(
-            CitationParts(parts.title, parts.section, (subsection,))
+        referenced_fragments = (
+            match.group("subsection"),
+            *re.findall(r"\(([A-Za-z0-9]+)\)", match.group("tail") or ""),
         )
-        if candidate_rel == target_rel:
+        if referenced_fragments[0] in parts.fragments:
             continue
-        candidate = policy_root / candidate_rel
-        resolved = candidate.resolve()
-        if candidate.exists() and resolved not in seen:
-            selected.append(candidate)
-            seen.add(resolved)
+        for length in range(len(referenced_fragments), 0, -1):
+            candidate_rel = citation_to_relative_rulespec_path(
+                CitationParts(
+                    parts.title,
+                    parts.section,
+                    referenced_fragments[:length],
+                )
+            )
+            if candidate_rel == target_rel:
+                continue
+            candidates = _cited_context_candidates(policy_root, candidate_rel)
+            if not candidates:
+                continue
+            for candidate in candidates:
+                resolved = candidate.resolve()
+                if resolved not in seen:
+                    selected.append(candidate)
+                    seen.add(resolved)
+            break
     return selected
 
 

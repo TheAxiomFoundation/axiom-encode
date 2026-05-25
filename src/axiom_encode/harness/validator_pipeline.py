@@ -10217,6 +10217,8 @@ def find_missing_same_section_subsection_import_issues(
         if subsection in current_fragments or subsection in seen:
             continue
         import_base = "/".join(["statutes", title, section, subsection])
+        if not _rulespec_path_or_child_exists_static(policy_repo_path, import_base):
+            continue
         if _imports_cover_path_static(
             imports,
             import_base,
@@ -10235,6 +10237,17 @@ def find_missing_same_section_subsection_import_issues(
             "subsection instead of modeling its requirements as a local fact."
         )
     return issues
+
+
+def _rulespec_path_or_child_exists_static(
+    policy_repo_path: Path,
+    import_base: str,
+) -> bool:
+    """Return whether a cited same-section RuleSpec source exists locally."""
+    relative = Path(import_base)
+    return (policy_repo_path / relative.with_suffix(".yaml")).exists() or (
+        policy_repo_path / relative
+    ).is_dir()
 
 
 def find_rule_name_path_suffix_issues(

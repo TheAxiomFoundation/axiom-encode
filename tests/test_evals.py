@@ -6735,6 +6735,52 @@ rules:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_nested_same_section_context(self, tmp_path):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        subsection_root = repo_root / "rulespec-us" / "statutes" / "26" / "3121" / "a"
+        subsection_root.mkdir(parents=True)
+        cap_file = subsection_root / "1.yaml"
+        domestic_file = subsection_root / "7.yaml"
+        domestic_test = subsection_root / "7.test.yaml"
+        cap_file.write_text("format: rulespec/v1\nrules: []\n")
+        domestic_file.write_text("format: rulespec/v1\nrules: []\n")
+        domestic_test.write_text("- name: domestic_service_case\n  period: 2026\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 3121(i)",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=(
+                    "Wages shall be subject to the provisions of subsection "
+                    "(a)(1) of this section. Domestic service described in "
+                    "subsection (a)(7)(B) shall be computed to the nearest dollar."
+                ),
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(cap_file)]["kind"] == "implementation_precedent"
+        assert copied_sources[str(cap_file)]["import_path"] == "us:statutes/26/3121/a/1"
+        assert (
+            copied_sources[str(domestic_file)]["import_path"]
+            == "us:statutes/26/3121/a/7"
+        )
+        assert (
+            copied_sources[str(domestic_test)]["kind"] == "implementation_test_context"
+        )
+
     def test_prepare_eval_workspace_adds_cross_section_context(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "axiom-rules-engine"
