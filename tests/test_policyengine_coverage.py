@@ -1324,6 +1324,42 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_c_4_vessel_aircraft_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/4.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: non_american_vessel_or_aircraft_service_excepted_from_employment
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_on_or_in_connection_with_vessel_or_aircraft
+          and not (american_vessel or american_aircraft)
+          and employee_employed_on_and_in_connection_with_vessel_or_aircraft_when_outside_united_states
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
