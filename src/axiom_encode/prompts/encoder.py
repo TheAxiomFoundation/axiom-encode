@@ -609,12 +609,15 @@ Hard requirements:
   one aggregate fact such as `sections_..._do_not_preclude...`. Encode or
   import each cited exception separately, then combine them in a helper if
   useful.
-- When an exception, exclusion, `unless`, or `notwithstanding` clause cites
-  another legal section or same-section subsection, do not create a local
+- When an exception, exclusion, or `unless` clause cites another legal section
+  or same-section subsection, do not create a local
   `section_...` or `subsection_...` placeholder input for that cited source.
   Import the cited RuleSpec source when it exists; if that upstream source is
   required but unavailable, stop with a missing-upstream/dependency request
   rather than encoding an opaque local fact.
+- A pure `notwithstanding subsection ...` override does not require importing
+  the overridden subsection unless the formula actually needs that cited
+  subsection's computed output.
 - If the cited same-section subsection is supplied in context as a RuleSpec
   file, add an `imports:` entry for that file and reference its exported rule;
   do not summarize the cited subsection into a local fact like
