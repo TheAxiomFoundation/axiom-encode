@@ -6405,6 +6405,44 @@ rules:
     assert any("statutes/26/3241" in issue for issue in issues)
 
 
+def test_cross_reference_numeric_placeholder_does_not_infer_named_act_title(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3121" / "b" / "7.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The exception applies for an election worker if remuneration is less than
+    the adjusted amount determined under section 218(c)(8)(B) of the Social
+    Security Act for any calendar year commencing on or after January 1, 2000.
+rules:
+  - name: election_worker_low_remuneration_exception
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3121(b)(7)(F)(iv)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          service_performed_by_election_worker
+          and remuneration < adjusted_amount_determined_under_social_security_act_section_218_c_8_B
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_numeric_placeholders(rules_file)
+
+    assert issues == []
+
+
 def test_cross_reference_numeric_placeholder_accepts_top_level_import_sequence(
     tmp_path,
 ):
