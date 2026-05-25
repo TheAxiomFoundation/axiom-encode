@@ -1145,6 +1145,38 @@ mappings:
     candidate_priority: P4
     rationale: Section 3301 is the gross FUTA tax before section 3302 credits, while PolicyEngine exposes final employer FUTA tax after the effective rate and credit-reduction adjustment.
 
+  - legal_id: us:statutes/26/3302/a#late_paid_contributions_credit_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(a)'s 90 percent limit is a late-paid state-contribution credit rule; PolicyEngine exposes a final post-credit effective FUTA rate rather than this timing-specific credit percentage.
+
+  - legal_id: us:statutes/26/3302/a#title11_trustee_no_fault_late_paid_contributions_credit_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(a)(5)'s title 11 trustee no-fault substitution is a special late-payment credit rule; PolicyEngine does not expose this bankruptcy-trustee credit percentage separately.
+
+  - legal_id: us:statutes/26/3302/a#applicable_late_paid_contributions_credit_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This section 3302(a) output selects the applicable late-paid state-contribution credit percentage, while PolicyEngine uses a final effective FUTA rate and does not model late-payment timing as a one-to-one oracle output.
+
+  - legal_id: us:statutes/26/3302/a#credit_for_late_paid_contributions_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3302(a)'s late-paid contribution credit limit is an intermediate credit calculation before final FUTA tax; PolicyEngine exposes final employer FUTA tax after effective-rate and credit-reduction assumptions, not this credit limit separately.
+
   - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
     country: us
     program: tax
