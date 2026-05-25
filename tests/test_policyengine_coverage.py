@@ -392,6 +392,53 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_c_1_credit_limit_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/c/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: total_credits_allowed_percentage_limit
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.9
+  - name: total_credits_allowed_under_section_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: total_credits_allowed_percentage_limit * tax
+  - name: total_credits_allowed_under_section_after_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(credits_before_limit, total_credits_allowed_under_section_limit)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        items_by_id["us:statutes/26/3302/c/1#total_credits_allowed_percentage_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.irs.payroll.federal_unemployment.effective_rate"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/1#total_credits_allowed_under_section_limit"
+        ]["policyengine_variable"]
+        == "employer_federal_unemployment_tax"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3302/c/1#total_credits_allowed_under_section_after_limit"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_legacy_tax_procedural_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/68/b.yaml",
