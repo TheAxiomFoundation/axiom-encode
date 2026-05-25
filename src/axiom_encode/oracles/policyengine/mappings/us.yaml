@@ -1177,6 +1177,30 @@ mappings:
     candidate_priority: P4
     rationale: Section 3302(a)'s late-paid contribution credit limit is an intermediate credit calculation before final FUTA tax; PolicyEngine exposes final employer FUTA tax after effective-rate and credit-reduction assumptions, not this credit limit separately.
 
+  - legal_id: us:statutes/26/3302/b#additional_credit_comparison_rate_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(b)'s 5.4 percent comparison-rate cap is part of the statutory additional-credit calculation; PolicyEngine exposes a final post-credit effective FUTA rate rather than this comparison cap.
+
+  - legal_id: us:statutes/26/3302/b#applicable_additional_credit_comparison_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This section 3302(b) output selects the lower of the state highest rate and 5.4 percent for an additional-credit computation; PolicyEngine does not expose that state-law comparison rate separately.
+
+  - legal_id: us:statutes/26/3302/b#additional_credit_rate_differential_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3302(b)'s additional-credit rate differential is an intermediate credit amount before final FUTA tax; PolicyEngine exposes final employer FUTA tax after effective-rate and credit-reduction assumptions, not this credit differential separately.
+
   - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
     country: us
     program: tax
