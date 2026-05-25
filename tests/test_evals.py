@@ -521,6 +521,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "section-described supporting organization" in prompt
     assert "covered-service, section-described supporting organization" in prompt
     assert "`within the\n  meaning of section ...` carve-outs" in prompt
+    assert "category membership phrases" in prompt
+    assert "`organization described in section X`" in prompt
+    assert "organization_described_in_section_509_a_3" in prompt
+    assert "testing\n  membership in the described category" in prompt
     assert (
         "unrelated-trade-or-business, or other\n  within-meaning/described-in definitions"
         in prompt
