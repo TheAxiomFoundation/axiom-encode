@@ -554,6 +554,11 @@ rules:
             "foreign_agricultural_worker_service_excluded_from_employment",
         ),
         (
+            "statutes/26/3121/c.yaml",
+            "us:statutes/26/3121/c#all_services_for_pay_period_deemed_employment",
+            "all_services_for_pay_period_deemed_employment",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
@@ -580,6 +585,27 @@ rules:
     assert report["status_counts"] == {"known_not_comparable": 1}
     item = report["items"][0]
     assert item["legal_id"] == legal_id
+    assert item["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_classifies_3121_c_pay_period_parameter(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3121/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pay_period_max_consecutive_days
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 31
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us:statutes/26/3121/c#pay_period_max_consecutive_days"
     assert item["status"] == "known_not_comparable"
 
 
