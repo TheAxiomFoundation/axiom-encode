@@ -9870,6 +9870,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(c)(7) defines State, political-subdivision, Indian-tribe, and constitutionally immune instrumentality service exception predicates for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not these governmental or tribal employment exception predicates separately.
 
+  - legal_id_prefix: us:statutes/26/3306/c/8#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(c)(8) defines service for tax-exempt section 501(c)(3) organizations as an exception predicate for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not this exempt-organization employment exception predicate separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
