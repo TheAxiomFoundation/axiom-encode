@@ -1,0 +1,1 @@
+`tax-ecps-compare` now invokes the release axiom-rules-engine binary and allows up to 600 s per `run-compiled` call, so full Enhanced CPS runs (~7 k tax units) complete instead of timing out the per-surface engine call (was hardcoded to 120 s against the debug binary).
