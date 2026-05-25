@@ -559,6 +559,11 @@ rules:
             "all_services_for_pay_period_deemed_employment",
         ),
         (
+            "statutes/26/3121/d.yaml",
+            "us:statutes/26/3121/d#employee",
+            "employee",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
