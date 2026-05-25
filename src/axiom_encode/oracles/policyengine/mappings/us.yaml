@@ -1129,6 +1129,32 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 3111(c) foreign-social-security agreement wage exemption as a separate variable.
 
+  - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.taxable_wage_base
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same FUTA annual taxable wage base, stored in PE as the federal unemployment taxable wage base parameter.
+
+  - legal_id: us:statutes/26/3306/b/1#successor_predecessor_remuneration_considered_paid
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: PolicyEngine exposes final FUTA taxable earnings from aggregate payroll wages and the wage-base parameter, not predecessor remuneration counted under section 3306(b)(1)'s successor-employer continuity rule.
+
+  - legal_id: us:statutes/26/3306/b/1#remuneration_excluded_from_wages_after_annual_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: PolicyEngine exposes final FUTA taxable earnings, not the section 3306(b)(1) above-wage-base excluded-remuneration amount separately.
+
   - legal_id: us:statutes/26/3121/a/1#successor_employer_base_continuity_applies
     country: us
     program: tax

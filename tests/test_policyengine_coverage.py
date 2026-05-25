@@ -202,6 +202,58 @@ rules:
     )
 
 
+def test_policyengine_coverage_maps_3306_b_1_futa_wage_base(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: annual_remuneration_wage_base_limit
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 7000
+  - name: successor_predecessor_remuneration_considered_paid
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: predecessor_remuneration
+  - name: remuneration_excluded_from_wages_after_annual_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, wages - annual_remuneration_wage_base_limit)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 2,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    wage_base = items_by_id[
+        "us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit"
+    ]
+    assert wage_base["status"] == "comparable"
+    assert (
+        wage_base["policyengine_parameter"]
+        == "gov.irs.payroll.federal_unemployment.taxable_wage_base"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3306/b/1#successor_predecessor_remuneration_considered_paid"
+        ]["status"]
+        == "known_not_comparable"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/3306/b/1#remuneration_excluded_from_wages_after_annual_limit"
+        ]["status"]
+        == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_maps_section_1401_rate_leaf_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/1401/a/rate.yaml",
