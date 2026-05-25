@@ -96,13 +96,18 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "source-stated formula executable" in ENCODER_PROMPT
     assert "defer only that branch" in ENCODER_PROMPT
     assert "predicate for the excepted category" in ENCODER_PROMPT
-    assert "enumerates exception categories" in ENCODER_PROMPT
+    assert "enumerates qualifying or exception categories" in ENCODER_PROMPT
     assert "only uses the citation to label a category" in ENCODER_PROMPT
-    assert "retirement-system, election, covered-service" in ENCODER_PROMPT
+    assert "retirement-system, election" in ENCODER_PROMPT
+    assert (
+        "covered-service, section-described supporting organization" in ENCODER_PROMPT
+    )
+    assert "`described in section ...` category\n  labels" in ENCODER_PROMPT
+    assert "section-described supporting organization" in ENCODER_PROMPT
     assert "treated-as-trade-or-business, unrelated-trade-or-business" in ENCODER_PROMPT
     assert "`within the\n  meaning of section ...` carve-outs" in ENCODER_PROMPT
     assert "unrelated-trade-or-business" in ENCODER_PROMPT
-    assert "within-meaning definitions" in ENCODER_PROMPT
+    assert "within-meaning/described-in definitions" in ENCODER_PROMPT
     assert "positive/nonzero" in ENCODER_PROMPT
     assert "toggle each gate at least once" in ENCODER_PROMPT
     assert (
