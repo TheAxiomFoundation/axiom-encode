@@ -1225,6 +1225,22 @@ mappings:
     candidate_priority: P4
     rationale: This section 3302(c)(1) output applies the total-credit cap before final FUTA tax; PolicyEngine exposes final employer FUTA tax and does not expose the capped total section 3302 credits separately.
 
+  - legal_id: us:statutes/26/3302/d/1#subsection_c_tax_computation_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(d)(1)'s 6 percent rate is a purpose-specific gross section 3301 tax computation rate used when applying subsection (c); PolicyEngine exposes a post-credit effective FUTA rate instead.
+
+  - legal_id: us:statutes/26/3302/d/1#tax_imposed_by_section_3301_for_applying_subsection_c
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3302(d)(1)'s purpose-specific section 3301 tax amount is an intermediate gross-tax amount for applying subsection (c), while PolicyEngine exposes final employer FUTA tax after credits and credit-reduction assumptions.
+
   - legal_id: us:statutes/26/3306/b/1#annual_remuneration_wage_base_limit
     country: us
     program: tax
