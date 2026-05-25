@@ -1257,6 +1257,45 @@ mappings:
     candidate_priority: P4
     rationale: This output computes an intermediate section 3302(c)(2)(A) reduction in credits based on advance balances; PolicyEngine exposes final employer FUTA tax after effective-rate and credit-reduction assumptions, not this statutory intermediate amount separately.
 
+  - legal_id: us:statutes/26/3302/c/2/B#federal_unemployment_credit_reduction_benchmark_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: Section 3302(c)(2)(B)(i)'s 2.7 percent benchmark is a statutory intermediate for the third/fourth-year credit-reduction computation; PolicyEngine exposes a final post-credit FUTA effective rate instead.
+
+  - legal_id: us:statutes/26/3302/c/2/B#taxable_year_begins_with_third_or_fourth_consecutive_january1_with_balance_of_advances
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This output is a state advance-balance timing predicate for applying section 3302(c)(2)(B); PolicyEngine does not expose the predicate separately from final FUTA assumptions.
+
+  - legal_id: us:statutes/26/3302/c/2/B#third_or_fourth_consecutive_january1_advances_balance_excess_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This output computes the statutory excess-percentage intermediate for the third/fourth-year advance-balance reduction; PolicyEngine exposes final FUTA effective-rate assumptions rather than this component separately.
+
+  - legal_id: us:statutes/26/3302/c/2/B#third_or_fourth_consecutive_january1_advances_balance_reduction_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.irs.payroll.federal_unemployment.effective_rate
+    candidate_priority: P4
+    rationale: This output computes a statutory third/fourth-year advance-balance credit-reduction rate after state and national wage adjustments; PolicyEngine exposes a final post-credit FUTA effective rate instead.
+
+  - legal_id: us:statutes/26/3302/c/2/B#third_or_fourth_consecutive_january1_advances_balance_credit_reduction_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: This output computes an intermediate section 3302(c)(2)(B) reduction in credits based on state advance balances and wage-attribution inputs; PolicyEngine exposes final employer FUTA tax, not this intermediate reduction amount separately.
+
   - legal_id: us:statutes/26/3302/d/1#subsection_c_tax_computation_rate
     country: us
     program: tax
