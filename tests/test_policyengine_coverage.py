@@ -619,6 +619,11 @@ rules:
             "member",
         ),
         (
+            "statutes/26/3121/w.yaml",
+            "us:statutes/26/3121/w#services_excluded_from_employment_by_church_election",
+            "services_excluded_from_employment_by_church_election",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
