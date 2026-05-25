@@ -1196,6 +1196,56 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_c_2_domestic_service_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/2.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: domestic_service_cash_remuneration_quarter_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1000
+  - name: domestic_service_cash_remuneration_test_satisfied
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          maximum_cash_remuneration_paid_to_individuals_employed_in_such_domestic_service_in_any_calendar_quarter >= domestic_service_cash_remuneration_quarter_threshold
+  - name: domestic_service_excepted_from_employment
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_is_domestic_service_in_private_home_local_college_club_or_local_chapter_of_college_fraternity_or_sorority
+          and not domestic_service_cash_remuneration_test_satisfied
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
