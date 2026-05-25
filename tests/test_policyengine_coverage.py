@@ -564,6 +564,11 @@ rules:
             "employee",
         ),
         (
+            "statutes/26/3121/e.yaml",
+            "us:statutes/26/3121/e#citizen_of_united_states_for_section",
+            "citizen_of_united_states_for_section",
+        ),
+        (
             "statutes/26/3121/y.yaml",
             "us:statutes/26/3121/y#transferred_federal_employee_international_organization_service_is_employment",
             "transferred_federal_employee_international_organization_service_is_employment",
