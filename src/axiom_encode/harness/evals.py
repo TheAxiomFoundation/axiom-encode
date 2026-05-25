@@ -3709,12 +3709,14 @@ RuleSpec requirements:
 - Preserve existing or copied `kind: source_relation` records unless `./source.txt` proves the legal/provenance edge is wrong.
 - For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
 - When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
-- When the source uses `except`, `unless`, or `notwithstanding` with cited
-  sections or same-section subsections, do not create local `section_...` or
-  `subsection_...` inputs for those cited sources. Import the cited RuleSpec
-  source when it exists; if the target source is needed but unavailable, stop
-  with an explicit missing-upstream/dependency request instead of encoding an
-  opaque placeholder.
+- When the source uses `except` or `unless` with cited sections or same-section
+  subsections, do not create local `section_...` or `subsection_...` inputs for
+  those cited sources. Import the cited RuleSpec source when it exists; if the
+  target source is needed but unavailable, stop with an explicit
+  missing-upstream/dependency request instead of encoding an opaque placeholder.
+- A pure `notwithstanding subsection ...` override does not require importing
+  the overridden subsection unless the formula actually needs that cited
+  subsection's computed output.
 - If the cited same-section subsection is supplied in context as a RuleSpec file, add an `imports:` entry for that file and reference its exported rule; do not summarize the cited subsection into a local fact like `person_meets_...requirements`.
 - Do not copy the body of a cited cross-reference provision into this module's `summary` or re-encode that cited provision locally. Keep this module scoped to the requested citation and import the cited provision instead.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.

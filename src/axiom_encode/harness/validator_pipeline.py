@@ -10190,7 +10190,7 @@ def find_missing_same_section_subsection_import_issues(
     """Require imports for cited same-section subsections used as carve-outs."""
     source_text = extract_embedded_source_text(content)
     if not source_text or not re.search(
-        r"\b(?:except|unless|notwithstanding)\b",
+        r"\b(?:except|unless)\b",
         source_text,
         flags=re.IGNORECASE,
     ):

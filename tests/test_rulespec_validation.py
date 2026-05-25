@@ -5527,6 +5527,42 @@ rules:
     assert "statutes/26/3121/y" in issues[0]
 
 
+def test_same_section_notwithstanding_override_does_not_require_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    cited_dir = repo / "statutes" / "26" / "3121" / "b"
+    cited_dir.mkdir(parents=True)
+    (cited_dir / "1.yaml").write_text("format: rulespec/v1\nrules: []\n")
+    rules_file = repo / "statutes" / "26" / "3121" / "m.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The term employment shall, notwithstanding the provisions of subsection (b)
+    of this section, include service performed by an individual as a member of a
+    uniformed service on active duty.
+rules:
+  - name: uniformed_service_included_in_employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: service_performed_by_individual_as_member_of_uniformed_service_on_active_duty
+"""
+    )
+
+    assert (
+        find_missing_same_section_subsection_import_issues(
+            rules_file.read_text(),
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_same_section_subsection_reference_allows_missing_source(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "3121" / "i.yaml"
