@@ -10213,6 +10213,8 @@ def find_missing_same_section_subsection_import_issues(
         source_text,
         flags=re.IGNORECASE,
     ):
+        if not _same_section_subsection_citation_requires_import(source_text, match):
+            continue
         subsection = match.group("subsection")
         if subsection in current_fragments or subsection in seen:
             continue
@@ -10237,6 +10239,28 @@ def find_missing_same_section_subsection_import_issues(
             "subsection instead of modeling its requirements as a local fact."
         )
     return issues
+
+
+def _same_section_subsection_citation_requires_import(
+    source_text: str,
+    match: re.Match[str],
+) -> bool:
+    """Return whether a same-section citation is locally an exception dependency."""
+    sentence_start = max(
+        source_text.rfind(".", 0, match.start()),
+        source_text.rfind(";", 0, match.start()),
+    )
+    prefix = source_text[sentence_start + 1 : match.start()]
+    triggers = list(
+        re.finditer(
+            r"\b(?:except|unless|notwithstanding)\b",
+            prefix,
+            flags=re.IGNORECASE,
+        )
+    )
+    if not triggers:
+        return False
+    return triggers[-1].group(0).lower() in {"except", "unless"}
 
 
 def _rulespec_path_or_child_exists_static(
