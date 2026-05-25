@@ -5486,6 +5486,41 @@ rules:
     assert "statutes/7/2015/e" in issues[0]
 
 
+def test_same_section_under_subsection_reference_requires_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3121" / "b" / "15.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Service performed in the employ of an international organization, except
+    service which constitutes employment under subsection (y).
+rules:
+  - name: international_organization_service_excluded_from_employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          service_performed_in_employ_of_international_organization
+          and not service_constitutes_employment_under_subsection_y
+"""
+    )
+
+    issues = find_missing_same_section_subsection_import_issues(
+        rules_file.read_text(),
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Same-section subsection import missing" in issues[0]
+    assert "statutes/26/3121/y" in issues[0]
+
+
 def test_same_section_subsection_reference_allows_import(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "7" / "2015" / "d" / "2" / "C.yaml"
