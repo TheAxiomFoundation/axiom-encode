@@ -93,6 +93,11 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "do not import that consumer section" in ENCODER_PROMPT
     assert "rate or rate" in ENCODER_PROMPT
     assert "source-named numeric boundary input" in ENCODER_PROMPT
+    assert "purpose-limited replacement rate" in ENCODER_PROMPT
+    assert "computed at" in ENCODER_PROMPT
+    assert "instead of the rate provided by" in ENCODER_PROMPT
+    assert "not as `section_<cited>_*`" in ENCODER_PROMPT
+    assert "Do not\n  reconstruct the cited section's amount locally" in ENCODER_PROMPT
     assert "source-stated formula executable" in ENCODER_PROMPT
     assert "defer only that branch" in ENCODER_PROMPT
     assert "predicate for the excepted category" in ENCODER_PROMPT
@@ -156,6 +161,10 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Importing an adjacent upstream output only as proof" in prompt
     assert "does not satisfy the dependency" in prompt
     assert "is not an executable dependency" in prompt
+    assert "purpose-limited replacement rate" in prompt
+    assert "computed at" in prompt
+    assert "instead of the rate provided by" in prompt
+    assert "not as `section_<cited>_*`" in prompt
     assert "source-stated formula executable" in prompt
     assert "defer only that branch" in prompt
     assert "predicate for the excepted category" in prompt
