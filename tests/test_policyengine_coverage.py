@@ -354,6 +354,66 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_5_qualified_plan_exclusion(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/5.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: qualified_plan_cafeteria_or_deferred_compensation_exclusion_category_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          (
+            payment_from_or_to_trust_described_in_section_401_a_exempt_under_section_501_a_at_time_of_payment
+            and not payment_made_to_employee_of_trust_as_remuneration_for_services_rendered_as_employee_and_not_as_beneficiary
+          )
+          or payment_under_or_to_annuity_plan_described_in_section_403_a_at_time_of_payment
+  - name: qualified_plan_cafeteria_or_deferred_compensation_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if payment_made_to_or_on_behalf_of_employee_or_beneficiary
+          and qualified_plan_cafeteria_or_deferred_compensation_exclusion_category_applies: payment_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    predicate = items_by_id[
+        "us:statutes/26/3306/b/5#qualified_plan_cafeteria_or_deferred_compensation_exclusion_category_applies"
+    ]
+    exclusion = items_by_id[
+        "us:statutes/26/3306/b/5#qualified_plan_cafeteria_or_deferred_compensation_payment_excluded_from_wages"
+    ]
+    assert predicate["status"] == "known_not_comparable"
+    assert (
+        predicate["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+    assert exclusion["status"] == "known_not_comparable"
+    assert exclusion["policyengine_variable"] == (
+        "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3306_b_6_state_unemployment_exclusion(
     tmp_path,
 ):
