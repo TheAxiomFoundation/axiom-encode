@@ -339,6 +339,14 @@ Hard requirements:
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  Treat category membership phrases such as `person described in section X`,
+  `organization described in section X`, or `service described in section X` as
+  factual boundary predicates when the current source states the legal effect.
+  Use a source-named predicate like `organization_described_in_section_509_a_3`
+  plus any conditions stated in the current source. Do not defer merely because
+  the cited section is unavailable unless the current source requires computing
+  numeric amounts or legal mechanics from that section rather than testing
+  membership in the described category.
   If a source says a rate, percentage, amount, applicable percentage, or
   similar numeric term is determined under, in effect under, or equal to rates
   from another section or subsection, do not model that numeric term as a local
