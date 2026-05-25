@@ -9357,6 +9357,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(f) American-vessel or American-aircraft definition predicates as one-to-one variables. These legal definitions support FICA employment and wage classifications before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3121/g#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(g) agricultural-labor definition predicates or source-specific thresholds as one-to-one variables. These legal definitions support FICA employment and wage classifications before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/y#
     country: us
     program: tax
