@@ -354,6 +354,52 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_6_state_unemployment_exclusion(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/6.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: employer_state_unemployment_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if (
+            payment_made_by_employer_without_deduction_from_employee_remuneration
+            and payment_required_from_employee_under_state_unemployment_compensation_law
+            and (
+              remuneration_paid_to_employee_for_domestic_service_in_private_home_of_employer
+              or remuneration_paid_to_employee_for_agricultural_labor
+            )
+          ): payment_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3306/b/6#employer_state_unemployment_payment_excluded_from_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
