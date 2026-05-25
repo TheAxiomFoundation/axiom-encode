@@ -778,6 +778,65 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_b_16_income_exclusion_benefits(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/b/16.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: benefit_income_exclusion_reasonably_expected_under_cited_sections
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          reasonable_at_time_benefit_provided_to_believe_employee_can_exclude_benefit_from_income_under_section_74_c
+          or reasonable_at_time_benefit_provided_to_believe_employee_can_exclude_benefit_from_income_under_section_108_f_4
+          or reasonable_at_time_benefit_provided_to_believe_employee_can_exclude_benefit_from_income_under_section_117
+          or reasonable_at_time_benefit_provided_to_believe_employee_can_exclude_benefit_from_income_under_section_132
+  - name: benefit_excluded_from_wages_due_to_expected_income_exclusion
+    kind: derived
+    entity: Payment
+    dtype: Money
+    unit: USD
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if benefit_provided_to_or_on_behalf_of_employee and benefit_income_exclusion_reasonably_expected_under_cited_sections: benefit_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    predicate = items_by_id[
+        "us:statutes/26/3306/b/16#benefit_income_exclusion_reasonably_expected_under_cited_sections"
+    ]
+    exclusion = items_by_id[
+        "us:statutes/26/3306/b/16#benefit_excluded_from_wages_due_to_expected_income_exclusion"
+    ]
+    assert predicate["status"] == "known_not_comparable"
+    assert (
+        predicate["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+    assert exclusion["status"] == "known_not_comparable"
+    assert (
+        exclusion["policyengine_variable"]
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
