@@ -153,6 +153,41 @@ def _is_empty_nonassertable_artifact(content: str) -> bool:
     return status in {"deferred", "entity_not_supported"} and not payload.get("rules")
 
 
+def _extract_proof_source_excerpt_text(content: str) -> str:
+    """Return source excerpts from proof atoms for numeric grounding."""
+    with contextlib.suppress(ValueError, TypeError, yaml.YAMLError):
+        payload = yaml.safe_load(content)
+        if not isinstance(payload, dict):
+            return ""
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return ""
+        excerpts: list[str] = []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            metadata = rule.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            proof = metadata.get("proof")
+            if not isinstance(proof, dict):
+                continue
+            atoms = proof.get("atoms")
+            if not isinstance(atoms, list):
+                continue
+            for atom in atoms:
+                if not isinstance(atom, dict):
+                    continue
+                source = atom.get("source")
+                if not isinstance(source, dict):
+                    continue
+                excerpt = source.get("excerpt")
+                if isinstance(excerpt, str) and excerpt.strip():
+                    excerpts.append(excerpt.strip())
+        return "\n".join(excerpts)
+    return ""
+
+
 @dataclass(frozen=True)
 class EvalRunnerSpec:
     """How to invoke a model in an eval."""
@@ -2267,11 +2302,15 @@ def evaluate_artifact(
 
     content = rulespec_file.read_text()
     embedded_source = extract_embedded_source_text(content)
+    proof_excerpt_text = _extract_proof_source_excerpt_text(content)
     numeric_source_text = extract_numeric_grounding_source_text(content)
     if not numeric_source_text and source_text:
         numeric_source_text = source_text
     numeric_validation_source_text = embedded_source or numeric_source_text
-    source_numbers = extract_numbers_from_text(numeric_validation_source_text or "")
+    numeric_grounding_source_text = "\n".join(
+        part for part in (numeric_validation_source_text, proof_excerpt_text) if part
+    )
+    source_numbers = extract_numbers_from_text(numeric_grounding_source_text or "")
     source_numeric_occurrences = Counter(
         extract_numeric_occurrences_from_text(numeric_validation_source_text or "")
     )
@@ -2324,7 +2363,7 @@ def evaluate_artifact(
 
     ungrounded_numeric_issues = find_ungrounded_numeric_issues(
         content,
-        numeric_validation_source_text,
+        numeric_grounding_source_text,
     )
     ci_issues = []
     seen_ci_issues: set[str] = set()
@@ -3235,7 +3274,7 @@ Primary legal authority:
 {canonical_concept_section}
 RuleSpec requirements:
 - The RuleSpec file must begin with `format: rulespec/v1`.
-- Include `module.summary: |-` containing the exact operative source text or an exact compact excerpt sufficient to audit all encoded rules.
+- Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.
 - Do not emit `source_url`; RuleSpec source verification reads `corpus.provisions`, not raw PDFs or web pages.
 {corpus_rulespec_requirement.rstrip()}
 - Include `module.proof_validation.required: true` and add
@@ -3243,6 +3282,10 @@ RuleSpec requirements:
   `derived_relation` rule. Each atom
   must point to the corpus source, an accepted claim, or an explicit imported
   RuleSpec export supporting that rule's formula/value.
+- For source-backed proof atoms, `source.corpus_citation_path` is sufficient.
+  Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
+  disambiguation; keep excerpts short and do not quote long definitions or
+  institutional descriptions.
 - For imported proof support, put `import:` at the proof atom top level
   (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
   do not put imported RuleSpec targets under `source:`. Import proof atoms must
@@ -3653,7 +3696,7 @@ RuleSpec requirements:
 - Do not use Python inline ternaries like `x if cond else y`.
 - Use chained `if condition: value else: other_value` expressions; do not use YAML-style `if:` / `then:` / `else:` blocks, `else if`, or `elif`.
 - Do not append a multiline conditional directly onto another expression, and do not use inline assignment syntax like `:=` inside formula blocks.
-- For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals.
+- For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals and never as arithmetic like `25 / 100` unless the source itself states both numerator and denominator.
 - Do not simplify source-stated ratios or fractions into new decimal literals.
   If the source states `20/200`, encode grounded numerator and denominator
   parameters and compare with `20 / 200` or with those named parameters; do not
@@ -3769,7 +3812,7 @@ module:
   source_verification:
     corpus_citation_path: <corpus citation path from this prompt>
   summary: |-
-    <exact source text>
+    <concise exact audit excerpt from the source text>
 rules:
   - name: example_amount
     kind: parameter

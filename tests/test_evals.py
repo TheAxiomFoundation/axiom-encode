@@ -2332,6 +2332,58 @@ rules:
         assert metrics.ungrounded_numeric_count == 1
         assert any("144" in issue for issue in metrics.ci_issues)
 
+    def test_generated_numeric_grounding_uses_proof_excerpts_with_compact_summary(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "statutes" / "26" / "3121" / "w.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3121
+  summary: |-
+    Church election timing rule.
+rules:
+  - name: election_timing_days_after_enactment_threshold
+    kind: parameter
+    dtype: Count
+    period: Day
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: more than 90 days after July 18, 1984
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 90
+"""
+        )
+
+        compile_result = ValidationResult("compile", True, issues=[])
+        ci_result = ValidationResult("ci", True, issues=[])
+
+        with (
+            patch.object(
+                ValidatorPipeline, "_run_compile_check", return_value=compile_result
+            ),
+            patch.object(ValidatorPipeline, "_run_ci", return_value=ci_result),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="A different paragraph contains $144.",
+            )
+
+        assert metrics.ci_pass
+        assert metrics.grounded_numeric_count == 1
+        assert metrics.ungrounded_numeric_count == 0
+        assert metrics.source_numeric_occurrence_count == 0
+
     def test_numeric_occurrence_check_counts_imported_named_scalars(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
         child = policy_repo / "statutes" / "7" / "2015" / "d" / "2" / "B.yaml"
@@ -4015,13 +4067,17 @@ class TestEvalPrompt:
         )
 
         assert (
-            "For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals."
+            "For `dtype: Rate`, encode percentages as decimal ratios like `0.60` or `0.40`, never as `%` literals"
             in prompt
         )
+        assert "never as arithmetic like `25 / 100`" in prompt
+        assert "source.corpus_citation_path` is sufficient" in prompt
         assert (
             "Do not respond with summaries, markdown prose, or file-write confirmations"
             in prompt
         )
+        assert "concise exact audit excerpt" in prompt
+        assert "not the full source text" in prompt
         assert (
             "do not use inline assignment syntax like `:=` inside formula blocks"
             in prompt
