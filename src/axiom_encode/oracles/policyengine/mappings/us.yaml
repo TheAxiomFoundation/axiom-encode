@@ -9564,6 +9564,12 @@ mappings:
     rationale: Same statutory percentage of adjusted gross income that floors deductible medical-care expenses.
 
 prefixes:
+  - legal_id_prefix: us:statutes/26/3202#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3202 defines Railroad Retirement Tax Act employer collection, payment liability, indemnification, tip-collection deadlines, and post-employment group-term life insurance withholding rules; PolicyEngine does not expose RRTA withholding-collection or employer-liability surfaces as one-to-one outputs.
+
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
     program: snap
