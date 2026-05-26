@@ -9942,6 +9942,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(c)(16) defines international-organization service as an exception predicate for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not this international-organization employment exception predicate separately.
 
+  - legal_id_prefix: us:statutes/26/3306/c/17#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(c)(17) defines aquatic-life service exception predicates and statutory carveouts for FUTA coverage, including the vessel net-ton threshold; PolicyEngine exposes final FUTA taxable earnings, not these fishing and aquatic-life employment exception predicates or the vessel-tonnage threshold separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
