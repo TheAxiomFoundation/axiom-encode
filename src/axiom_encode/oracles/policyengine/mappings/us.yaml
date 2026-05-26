@@ -9918,6 +9918,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(c)(13) defines student-nurse and hospital-intern service exception predicates for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not these health-training employment exception predicates separately.
 
+  - legal_id_prefix: us:statutes/26/3306/c/14#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(c)(14) defines an insurance-agent or insurance-solicitor commission service exception predicate for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not this insurance-service employment exception predicate separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
