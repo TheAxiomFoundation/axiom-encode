@@ -50,6 +50,7 @@ from axiom_encode.cli import (
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
+    _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
     _sha256_file,
@@ -6348,6 +6349,113 @@ rules:
             "us:statutes/26/3306/d#local_all_services_for_pay_period_deemed_employment": "holds",
             "us:statutes/26/3306/d#pay_period_result": "holds",
         }
+
+    def test_upstream_placement_duplicate_repair_imports_existing_target(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        upstream_file = policy_repo / "statutes/26/3121/c.yaml"
+        rules_file = policy_repo / "statutes/26/3306/d.yaml"
+        test_file = policy_repo / "statutes/26/3306/d.test.yaml"
+        upstream_file.parent.mkdir(parents=True)
+        rules_file.parent.mkdir(parents=True)
+        upstream_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: pay_period_max_consecutive_days
+    kind: parameter
+    dtype: Count
+    period: Day
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          31
+  - name: one_half_services_threshold
+    kind: parameter
+    dtype: Rate
+    period: Day
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1 / 2
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3306/c/9#railroad_service_exception
+rules:
+  - name: pay_period_max_consecutive_days
+    kind: parameter
+    dtype: Count
+    period: Day
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          31
+  - name: one_half_services_threshold
+    kind: parameter
+    dtype: Rate
+    period: Day
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1 / 2
+  - name: pay_period
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/26/3306/d#pay_period_max_consecutive_days
+              output: pay_period_max_consecutive_days
+              hash: sha256:local
+    versions:
+      - effective_from: '1990-01-01'
+        formula: pay_period_consecutive_days <= pay_period_max_consecutive_days
+"""
+        )
+        test_file.write_text(
+            """- name: pay_period_case
+  period: 2026-01
+  input:
+    us:statutes/26/3306/d#input.pay_period_consecutive_days: 31
+  output:
+    us:statutes/26/3306/d#pay_period_max_consecutive_days: 31
+    us:statutes/26/3306/d#pay_period: holds
+"""
+        )
+
+        repaired = _repair_upstream_placement_duplicate_imports(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/3306/d.yaml"),
+        )
+
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "one_half_services_threshold",
+            "pay_period_max_consecutive_days",
+        ]
+        assert rules_payload["imports"] == [
+            "us:statutes/26/3306/c/9#railroad_service_exception",
+            "us:statutes/26/3121/c#one_half_services_threshold",
+            "us:statutes/26/3121/c#pay_period_max_consecutive_days",
+        ]
+        assert [rule["name"] for rule in rules_payload["rules"]] == ["pay_period"]
+        proof_import = rules_payload["rules"][0]["metadata"]["proof"]["atoms"][0][
+            "import"
+        ]
+        assert (
+            proof_import["target"]
+            == "us:statutes/26/3121/c#pay_period_max_consecutive_days"
+        )
+        assert proof_import["hash"] == f"sha256:{_sha256_file(upstream_file)}"
+        assert test_cases[0]["output"] == {"us:statutes/26/3306/d#pay_period": "holds"}
 
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
