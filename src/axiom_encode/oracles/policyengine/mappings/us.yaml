@@ -1141,6 +1141,24 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 3111(c) foreign-social-security agreement wage exemption as a separate variable.
 
+  - legal_id: us:statutes/26/3401/b#payroll_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(b) defines payroll-period status for chapter 24 withholding mechanics; PolicyEngine does not expose this legal-period classification as a separate output.
+
+  - legal_id: us:statutes/26/3401/b#miscellaneous_payroll_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(b) defines a residual payroll-period classification for chapter 24 withholding; PolicyEngine does not expose this cadence classification as a separate variable.
+
+  - legal_id: us:statutes/26/3401/c#employee
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(c) defines employee status for chapter 24 withholding; PolicyEngine models income and payroll tax amounts, not this legal status predicate as a separate output.
+
   - legal_id: us:statutes/26/3301#federal_unemployment_excise_tax_rate
     country: us
     program: tax
