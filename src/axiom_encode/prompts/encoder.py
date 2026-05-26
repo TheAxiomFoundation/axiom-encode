@@ -568,6 +568,10 @@ Hard requirements:
   Good:
   `<jurisdiction>:<repo-path>#relation.member_of_household:`
   followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
+- Put `#relation.<name>` test inputs under the test case's top-level `input:`,
+  not inside `tables.<Entity>` rows. If a table-row entity output depends on a
+  relation, write separate scalar cases with the row's scalar facts and relation
+  list under `input:` instead of a row-ordered `tables` case.
 - Never assign an imported module's computed `#rule_name` output in `input:`.
   If this file imports that rule, the compiled program computes it. To make an
   imported output true, false, or equal a value, mirror the imported file's

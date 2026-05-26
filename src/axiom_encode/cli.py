@@ -10501,6 +10501,34 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_table_relation_tests = (
+                    _try_repair_generated_table_relation_tests_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_table_relation_tests:
+                    outcome["auto_repaired_table_relation_tests"] = (
+                        repaired_table_relation_tests
+                    )
+                    print(
+                        "  apply=auto_repaired_table_relation_tests:"
+                        + ",".join(repaired_table_relation_tests)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_module_layout = _try_repair_generated_module_layout_for_apply(
                     result,
                     output_root=args.output,
@@ -11358,6 +11386,127 @@ def _hoist_nested_test_tables(test_file: Path) -> list[str]:
 
     test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired_cases
+
+
+def _try_repair_generated_table_relation_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Split table-row relation inputs into scalar root-entity test cases."""
+    if not any(
+        "tables." in str(issue)
+        and "#relation." in str(issue)
+        and "must be scalar" in str(issue)
+        for issue in issues
+    ):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _split_table_row_relation_test_cases(test_file)
+
+
+def _split_table_row_relation_test_cases(test_file: Path) -> list[str]:
+    if not test_file.exists():
+        return []
+
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+
+    if isinstance(payload, dict) and isinstance(payload.get("cases"), list):
+        cases = payload["cases"]
+    elif isinstance(payload, list):
+        cases = payload
+    else:
+        return []
+
+    repaired_cases: list[str] = []
+    updated_cases: list[object] = []
+    changed = False
+    for index, test_case in enumerate(cases, start=1):
+        if not isinstance(test_case, dict):
+            updated_cases.append(test_case)
+            continue
+        split_cases = _split_one_table_row_relation_test_case(test_case, index=index)
+        if not split_cases:
+            updated_cases.append(test_case)
+            continue
+        updated_cases.extend(split_cases)
+        repaired_cases.append(str(test_case.get("name") or f"case {index}"))
+        changed = True
+
+    if not changed:
+        return []
+    if isinstance(payload, dict):
+        payload["cases"] = updated_cases
+    else:
+        payload = updated_cases
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired_cases
+
+
+def _split_one_table_row_relation_test_case(
+    test_case: dict,
+    *,
+    index: int,
+) -> list[dict]:
+    tables = test_case.get("tables")
+    if not isinstance(tables, dict) or len(tables) != 1:
+        return []
+    table_entity, rows = next(iter(tables.items()))
+    table_entity = str(table_entity)
+    if not isinstance(rows, list) or not rows:
+        return []
+    if not all(isinstance(row, dict) for row in rows):
+        return []
+    if not any(
+        any(_is_relation_input_key(row_key) for row_key in row)
+        for row in rows
+        if isinstance(row, dict)
+    ):
+        return []
+
+    original_input = test_case.get("input") or {}
+    if not isinstance(original_input, dict):
+        return []
+    original_output = test_case.get("output") or {}
+    if not isinstance(original_output, dict):
+        return []
+    for expected_value in original_output.values():
+        if isinstance(expected_value, list) and len(expected_value) != len(rows):
+            return []
+
+    base_name = str(test_case.get("name") or f"case {index}").strip() or f"case {index}"
+    split_cases: list[dict] = []
+    for row_index, row in enumerate(rows):
+        case_copy = copy.deepcopy(test_case)
+        case_copy.pop("tables", None)
+        case_copy["name"] = f"{base_name} {table_entity} row {row_index + 1}"
+        case_input = copy.deepcopy(original_input)
+        case_input.update(copy.deepcopy(row))
+        case_copy["input"] = case_input
+        case_output: dict = {}
+        for output_key, expected_value in original_output.items():
+            if isinstance(expected_value, list):
+                case_output[output_key] = copy.deepcopy(expected_value[row_index])
+            else:
+                case_output[output_key] = copy.deepcopy(expected_value)
+        case_copy["output"] = case_output
+        split_cases.append(case_copy)
+    return split_cases
+
+
+def _is_relation_input_key(key: object) -> bool:
+    key_text = str(key)
+    return "#relation." in key_text or ".relation." in key_text
 
 
 def _try_repair_generated_proof_import_hashes_for_apply(

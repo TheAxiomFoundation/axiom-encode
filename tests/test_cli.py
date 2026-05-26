@@ -57,6 +57,7 @@ from axiom_encode.cli import (
     _sha256_text,
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
+    _split_table_row_relation_test_cases,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
@@ -4803,6 +4804,57 @@ rules:
         assert payload[0]["tables"] == {
             "Payment": [{"us:statutes/26/3121/a/2#input.payment_amount": 1000}]
         }
+
+    def test_split_table_row_relation_test_cases_moves_rows_to_input(self, tmp_path):
+        test_file = tmp_path / "3306" / "g.test.yaml"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(
+            """- name: contributions require state law unemployment fund payment
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {}
+  tables:
+    Payment:
+    - us:statutes/26/3306/g#input.payment_made_by_person_on_account_of_having_individuals_in_employ: true
+      us:statutes/26/3306/g#input.payment_amount_made_without_being_deducted_or_deductible_from_remuneration_of_individuals_in_employ: 800
+      us:statutes/26/3306/g#relation.state_law_required_payment_funds:
+      - us:statutes/26/3306/f#input.fund_is_special_fund_established_under_state_law: true
+        us:statutes/26/3306/f#input.fund_administered_by_state_agency: true
+    - us:statutes/26/3306/g#input.payment_made_by_person_on_account_of_having_individuals_in_employ: true
+      us:statutes/26/3306/g#input.payment_amount_made_without_being_deducted_or_deductible_from_remuneration_of_individuals_in_employ: 800
+      us:statutes/26/3306/g#relation.state_law_required_payment_funds: []
+  output:
+    us:statutes/26/3306/g#state_law_unemployment_fund_payment:
+    - holds
+    - not_holds
+    us:statutes/26/3306/g#contributions:
+    - 800
+    - 0
+"""
+        )
+
+        repaired = _split_table_row_relation_test_cases(test_file)
+
+        assert repaired == ["contributions require state law unemployment fund payment"]
+        payload = yaml.safe_load(test_file.read_text())
+        assert len(payload) == 2
+        assert "tables" not in payload[0]
+        assert payload[0]["output"] == {
+            "us:statutes/26/3306/g#state_law_unemployment_fund_payment": "holds",
+            "us:statutes/26/3306/g#contributions": 800,
+        }
+        assert payload[1]["output"] == {
+            "us:statutes/26/3306/g#state_law_unemployment_fund_payment": "not_holds",
+            "us:statutes/26/3306/g#contributions": 0,
+        }
+        assert (
+            payload[0]["input"][
+                "us:statutes/26/3306/g#relation.state_law_required_payment_funds"
+            ][0]["us:statutes/26/3306/f#input.fund_administered_by_state_agency"]
+            is True
+        )
 
     def test_encode_apply_auto_repairs_nested_test_tables(self, capsys, tmp_path):
         args = self._make_args(
