@@ -2831,6 +2831,28 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3231_f_company_output(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/f.yaml",
+        """format: rulespec/v1
+rules:
+  - name: company
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: corporation or association or joint_stock_company
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us:statutes/26/3231/f#company"
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+
+
 def test_policyengine_coverage_classifies_3231_g_carrier_output(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/g.yaml",
