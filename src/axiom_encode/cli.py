@@ -10649,21 +10649,32 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_deferred_rules = (
-                    _try_repair_generated_unsafe_formula_outputs_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
+                repaired_deferred_rules: list[str] = []
+                seen_deferred_rules: set[str] = set()
+                for _repair_attempt in range(5):
+                    repaired_batch = (
+                        _try_repair_generated_unsafe_formula_outputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_deferred_rules:
+                    if not repaired_batch:
+                        break
+                    new_repairs = [
+                        repair
+                        for repair in repaired_batch
+                        if repair not in seen_deferred_rules
+                    ]
+                    seen_deferred_rules.update(repaired_batch)
+                    repaired_deferred_rules.extend(new_repairs)
                     outcome["auto_deferred_unsafe_formula_outputs"] = (
                         repaired_deferred_rules
                     )
                     print(
                         "  apply=auto_deferred_unsafe_formula_outputs:"
-                        + ",".join(repaired_deferred_rules)
+                        + ",".join(repaired_batch)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -10677,6 +10688,8 @@ def cmd_encode(args):
                         )
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
+                    if can_apply:
+                        break
             if not can_apply:
                 repaired_employer_scoped_rules = (
                     _try_repair_generated_employer_scope_for_apply(
