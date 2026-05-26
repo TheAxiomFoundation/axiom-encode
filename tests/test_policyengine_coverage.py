@@ -2053,6 +2053,88 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_c_20_organized_camp_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/20.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: organized_camp_operation_month_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 7
+  - name: organized_camp_gross_receipts_percentage_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.3333333333333333
+  - name: full_time_student_camp_service_week_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 13
+  - name: camp_employing_student_short_season_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: months <= organized_camp_operation_month_limit
+  - name: camp_employing_student_gross_receipts_seasonality_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: selected_receipts <= organized_camp_gross_receipts_percentage_limit * other_receipts
+  - name: camp_employing_student_paragraph_a_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: camp_employing_student_short_season_test_satisfied or camp_employing_student_gross_receipts_seasonality_test_satisfied
+  - name: full_time_student_camp_service_week_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: weeks < full_time_student_camp_service_week_limit
+  - name: full_time_student_organized_camp_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: student and camp_employing_student_paragraph_a_test_satisfied and full_time_student_camp_service_week_test_satisfied
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 8}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
