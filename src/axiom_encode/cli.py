@@ -10649,6 +10649,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_deferred_rules = (
+                    _try_repair_generated_unsafe_formula_outputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_deferred_rules:
+                    outcome["auto_deferred_unsafe_formula_outputs"] = (
+                        repaired_deferred_rules
+                    )
+                    print(
+                        "  apply=auto_deferred_unsafe_formula_outputs:"
+                        + ",".join(repaired_deferred_rules)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_employer_scoped_rules = (
                     _try_repair_generated_employer_scope_for_apply(
                         result,
@@ -11855,6 +11884,279 @@ def _infer_deferred_output_symbol_from_summary(summary: str) -> tuple[str, str]:
     return symbol, label
 
 
+def _try_repair_generated_unsafe_formula_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Defer generated outputs that validation proved use unsafe formulas."""
+    seed_rules: set[str] = set()
+    issue_reasons: dict[str, list[str]] = defaultdict(list)
+    for issue in issues:
+        issue_text = str(issue)
+        flattened_match = _FLATTENED_THRESHOLDED_RATE_ISSUE_PATTERN.search(issue_text)
+        if flattened_match:
+            rule_name = flattened_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("flattened_thresholded_rate")
+        base_match = _CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN.search(issue_text)
+        if base_match:
+            rule_name = base_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("cross_reference_base_mechanics")
+        numeric_match = _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN.search(
+            issue_text
+        )
+        if numeric_match:
+            rule_name = numeric_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("cross_reference_numeric_placeholder")
+    if not seed_rules:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    rules_by_name = {
+        str(rule.get("name") or ""): rule
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "")
+    }
+    affected_rules = _expand_affected_generated_rule_dependencies(
+        rules_by_name=rules_by_name,
+        seed_rules=seed_rules,
+    )
+    if not affected_rules:
+        return []
+
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    module = payload.setdefault("module", {})
+    if not isinstance(module, dict):
+        return []
+    deferred_outputs = module.setdefault("deferred_outputs", [])
+    if not isinstance(deferred_outputs, list):
+        return []
+    existing_outputs = {
+        str(record.get("output") or "").strip()
+        for record in deferred_outputs
+        if isinstance(record, dict)
+    }
+
+    deferred_targets: list[str] = []
+    for rule_name in sorted(affected_rules):
+        rule = rules_by_name.get(rule_name)
+        if not isinstance(rule, dict):
+            continue
+        output = _deferred_output_target_for_generated_rule(
+            rule_name=rule_name,
+            rule=rule,
+            base_anchor=base_anchor,
+        )
+        if not output:
+            continue
+        reasons = issue_reasons.get(rule_name) or []
+        dependency_reasons = sorted(seed_rules.intersection(affected_rules))
+        if not reasons and dependency_reasons:
+            reason = (
+                "Generated rule depends on an output that validation deferred "
+                "because it flattened thresholded, capped, base-limited, or "
+                "cross-referenced base mechanics."
+            )
+        elif "cross_reference_base_mechanics" in reasons:
+            reason = (
+                "Generated rule computed the tax on a raw compensation, wage, "
+                "remuneration, or payment base even though the source applies "
+                "cited base mechanics. This output is deferred until the cited "
+                "base, cap, exclusion, or excess outputs can be composed without "
+                "multiplying an unadjusted base."
+            )
+        elif "cross_reference_numeric_placeholder" in reasons:
+            reason = (
+                "Generated rule kept a local numeric rate, percentage, amount, or "
+                "base that the source sets by cross-reference to another legal "
+                "section. This output is deferred until the cited numeric "
+                "mechanics can be imported or composed without a local placeholder."
+            )
+        else:
+            reason = (
+                "Generated rule used a thresholded, capped, base-limited, or "
+                "excess-amount imported rate as a flat percentage. This output "
+                "is deferred until the cited mechanics can be composed without "
+                "flattening the imported rate."
+            )
+        if output not in existing_outputs:
+            deferred_outputs.append({"output": output, "reason": reason})
+            existing_outputs.add(output)
+        deferred_targets.append(output)
+
+    if not deferred_targets:
+        return []
+
+    payload["rules"] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict) and str(rule.get("name") or "") in affected_rules
+        )
+    ]
+    if not payload["rules"]:
+        module.setdefault("status", "deferred")
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+
+    _remove_generated_test_outputs_for_deferred_rules(
+        test_file=_rulespec_test_path(rules_file),
+        base_anchor=base_anchor,
+        rule_names=affected_rules,
+    )
+    return deferred_targets
+
+
+def _expand_affected_generated_rule_dependencies(
+    *,
+    rules_by_name: dict[str, dict[str, Any]],
+    seed_rules: set[str],
+) -> set[str]:
+    affected = {rule for rule in seed_rules if rule in rules_by_name}
+    changed = True
+    while changed:
+        changed = False
+        for rule_name, rule in rules_by_name.items():
+            if rule_name in affected:
+                continue
+            identifiers = _generated_rule_formula_identifiers(rule)
+            if identifiers.intersection(affected):
+                affected.add(rule_name)
+                changed = True
+    return affected
+
+
+def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
+    identifiers: set[str] = set()
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return identifiers
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            identifiers.update(_RULESPEC_IDENTIFIER_PATTERN.findall(formula))
+    return identifiers - _RULESPEC_FORMULA_BUILTINS
+
+
+def _deferred_output_target_for_generated_rule(
+    *,
+    rule_name: str,
+    rule: dict[str, Any],
+    base_anchor: str,
+) -> str:
+    source = str(rule.get("source") or "")
+    path_suffix = _top_level_source_suffix_from_rule_source(source)
+    return f"{base_anchor}{path_suffix}#{rule_name}"
+
+
+def _top_level_source_suffix_from_rule_source(source: str) -> str:
+    match = re.search(
+        r"\b[0-9A-Za-z]+\s+USC\s+[0-9A-Za-z.-]+"
+        r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+        source,
+    )
+    if match is None:
+        return ""
+    parts = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("suffix"))
+    if not parts:
+        return ""
+    return "/" + str(parts[0]).lower()
+
+
+def _remove_generated_test_outputs_for_deferred_rules(
+    *,
+    test_file: Path,
+    base_anchor: str,
+    rule_names: set[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(test_cases, list):
+        return []
+
+    removed_cases: list[str] = []
+    repaired_cases: list[Any] = []
+    for index, case in enumerate(test_cases):
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            repaired_cases.append(case)
+            continue
+        repaired_outputs = {
+            key: value
+            for key, value in outputs.items()
+            if not _test_output_targets_deferred_rule(
+                str(key),
+                base_anchor=base_anchor,
+                rule_names=rule_names,
+            )
+        }
+        if repaired_outputs == outputs:
+            repaired_cases.append(case)
+            continue
+        case_name = str(case.get("name") or f"case[{index}]")
+        if repaired_outputs:
+            repaired_case = dict(case)
+            repaired_case["output"] = repaired_outputs
+            repaired_cases.append(repaired_case)
+        else:
+            removed_cases.append(case_name)
+
+    if len(repaired_cases) == len(test_cases) and not removed_cases:
+        return []
+    test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
+    return removed_cases
+
+
+def _test_output_targets_deferred_rule(
+    output_key: str,
+    *,
+    base_anchor: str,
+    rule_names: set[str],
+) -> bool:
+    if "#" not in output_key:
+        return False
+    path, fragment = output_key.split("#", 1)
+    if not path.startswith(base_anchor):
+        return False
+    return fragment in rule_names
+
+
 _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
     r"Person-scoped rate base at unit scope: `([^`]+)`"
 )
@@ -11866,6 +12168,15 @@ _SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN = re.compile(
 )
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
+)
+_FLATTENED_THRESHOLDED_RATE_ISSUE_PATTERN = re.compile(
+    r"Flattened thresholded imported rate: `([^`]+)`"
+)
+_CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN = re.compile(
+    r"Cross-reference base mechanics omitted: `([^`]+)`"
+)
+_CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN = re.compile(
+    r"Cross-reference numeric placeholder: `([^`]+)`"
 )
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"
@@ -14046,6 +14357,22 @@ def _validate_generated_encoding_in_policy_overlay(
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
+            changed_proof_hash_files = _repair_dependent_proof_import_hashes(
+                overlay_repo=overlay_repo,
+                dependents=dependents,
+            )
+            if changed_proof_hash_files:
+                for path in changed_proof_hash_files:
+                    supplemental_files[path.relative_to(overlay_repo)] = (
+                        path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             upstream_placement_repairs = _repair_upstream_placement_duplicate_imports(
                 rules_file=overlay_target,
                 test_file=_rulespec_test_path(overlay_target),

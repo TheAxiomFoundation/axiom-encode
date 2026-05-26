@@ -11479,6 +11479,128 @@ def _formula_preserves_thresholded_rate_mechanics(formula: str) -> bool:
     return bool(re.search(r"\bmin\s*\(", formula))
 
 
+@dataclass(frozen=True)
+class _CrossReferenceBaseObligation:
+    section: str
+    subsections: str
+    affected_children: tuple[str, ...]
+
+
+def _extract_cross_reference_base_obligations(
+    source_text: str,
+) -> list[_CrossReferenceBaseObligation]:
+    """Return cited base-mechanics sections that must affect local amount rules."""
+    obligations: list[_CrossReferenceBaseObligation] = []
+    seen: set[tuple[str, str, tuple[str, ...]]] = set()
+    pattern = re.compile(
+        r"\bFor\s+application\s+of\s+"
+        r"(?P<description>.{0,220}?\b(?:base|bases|cap|caps|limit|limits)"
+        r".{0,220}?)"
+        r"\s+(?:with\s+respect\s+to|to|for)\s+"
+        r"(?P<target>.{0,220}?)"
+        r"\bsee\s+section\s+(?P<section>[0-9][A-Za-z0-9.-]*)"
+        r"(?P<subsections>(?:\([A-Za-z0-9]+\))+)?",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(source_text):
+        description = match.group("description") or ""
+        target = match.group("target") or ""
+        if not re.search(
+            r"\b(?:compensation|contribution|wage|remuneration|payment|taxable)\b",
+            description,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if not re.search(r"\b(?:tax|taxes|amount|rate|rates)\b", target, re.I):
+            continue
+        affected_children = _extract_referenced_source_children(target)
+        section = str(match.group("section") or "").strip()
+        subsections = str(match.group("subsections") or "").strip()
+        key = (section, subsections, affected_children)
+        if not section or key in seen:
+            continue
+        seen.add(key)
+        obligations.append(
+            _CrossReferenceBaseObligation(
+                section=section,
+                subsections=subsections,
+                affected_children=affected_children,
+            )
+        )
+    return obligations
+
+
+def _extract_referenced_source_children(text: str) -> tuple[str, ...]:
+    """Extract top-level source children from phrases like ``subsections (a) and (b)``."""
+    children: list[str] = []
+    for match in re.finditer(
+        r"\bsubsections?\s+((?:\([A-Za-z0-9]+\)"
+        r"(?:\s*(?:,|and|or)\s*)?)+)",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        children.extend(re.findall(r"\(([A-Za-z0-9]+)\)", match.group(1)))
+    return tuple(dict.fromkeys(child.lower() for child in children if child))
+
+
+def _formula_uses_raw_compensation_base(identifiers: set[str]) -> bool:
+    """Return whether a formula appears to use a raw payroll-style amount base."""
+    raw_base_tokens = {
+        "compensation",
+        "wage",
+        "wages",
+        "remuneration",
+        "payment",
+        "payments",
+        "paid",
+        "pay",
+        "salary",
+    }
+    for identifier in identifiers:
+        tokens = set(_normalize_identifier(identifier).split("_"))
+        if tokens.intersection(raw_base_tokens):
+            return True
+    return False
+
+
+def _formula_uses_cross_reference_base_mechanics(
+    identifiers: set[str],
+    *,
+    imports_by_fragment: dict[str, str],
+    section: str,
+) -> bool:
+    """Return whether a formula imports or references cited base mechanics."""
+    normalized_section = _normalize_identifier(section)
+    mechanics_tokens = {
+        "base",
+        "bases",
+        "cap",
+        "capped",
+        "ceiling",
+        "contribution",
+        "excess",
+        "exclude",
+        "excluded",
+        "exclusion",
+        "limit",
+        "limited",
+        "remaining",
+    }
+    for identifier in identifiers:
+        import_item = imports_by_fragment.get(identifier)
+        if import_item and f"/{section}" in import_item:
+            return True
+        normalized = _normalize_identifier(identifier)
+        tokens = set(normalized.split("_"))
+        if normalized_section and normalized_section in tokens:
+            return True
+        if tokens.intersection(mechanics_tokens) and "base" in tokens:
+            return True
+        if tokens.intersection({"excess", "excluded", "remaining", "limit"}):
+            return True
+    return False
+
+
 def find_test_input_assignment_issues(
     content: str,
     test_cases: Any,
@@ -15118,6 +15240,7 @@ class ValidatorPipeline:
         issues.extend(self._check_encoded_cross_reference_placeholders(rules_file))
         issues.extend(self._check_cross_reference_numeric_placeholders(rules_file))
         issues.extend(self._check_flattened_thresholded_imported_rates(rules_file))
+        issues.extend(self._check_unapplied_cross_reference_base_mechanics(rules_file))
         issues.extend(
             find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
         )
@@ -15851,6 +15974,68 @@ class ValidatorPipeline:
                     "outputs, or defer the affected output instead of applying "
                     "the rate as a flat percentage."
                 )
+        return issues
+
+    def _check_unapplied_cross_reference_base_mechanics(
+        self,
+        rulespec_file: Path,
+    ) -> list[str]:
+        """Reject raw-base tax formulas when source requires cited base mechanics."""
+        content = rulespec_file.read_text()
+        source_text = _extract_source_verification_text(content)
+        if not source_text:
+            source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        obligations = _extract_cross_reference_base_obligations(source_text)
+        if not obligations:
+            return []
+
+        import_items = self._extract_import_items(content)
+        imports_by_fragment = {
+            self._import_item_fragment(import_item): import_item
+            for import_item in import_items
+            if self._import_item_fragment(import_item)
+        }
+
+        issues: list[str] = []
+        for block in self._extract_definition_blocks(content):
+            source_child = self._rule_source_top_level_child(block)
+            if not source_child:
+                continue
+            dtype = str(block.get("dtype") or "").strip().lower()
+            if dtype != "money":
+                continue
+            formula = "\n".join(str(line) for line in block["body_lines"])
+            identifiers = _formula_local_identifiers(formula)
+            if not _formula_uses_raw_compensation_base(identifiers):
+                continue
+            for obligation in obligations:
+                if obligation.affected_children and source_child not in (
+                    (child,) for child in obligation.affected_children
+                ):
+                    continue
+                if _formula_uses_cross_reference_base_mechanics(
+                    identifiers,
+                    imports_by_fragment=imports_by_fragment,
+                    section=obligation.section,
+                ):
+                    continue
+                citation = f"section {obligation.section}" + (
+                    obligation.subsections if obligation.subsections else ""
+                )
+                issues.append(
+                    "Cross-reference base mechanics omitted: "
+                    f"`{block['name']}` cites source child "
+                    f"`{''.join(f'({part})' for part in source_child)}` and "
+                    "computes on a raw compensation, wage, remuneration, or "
+                    f"payment base without applying {citation}'s base mechanics. "
+                    "Import and compose the cited base, cap, exclusion, or "
+                    "excess outputs, or defer this output under "
+                    "`module.deferred_outputs` instead of multiplying the raw base."
+                )
+                break
         return issues
 
     def _extract_cross_reference_numeric_obligations(
