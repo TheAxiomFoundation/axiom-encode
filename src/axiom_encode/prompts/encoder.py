@@ -392,6 +392,14 @@ Hard requirements:
   cannot pass the correct adjusted base into those cited mechanics, defer the
   affected executable output and name the missing cited computation rather than
   approximating it with a flat rate.
+  If the source has a cross-reference such as `For application of different
+  contribution bases ... see section X`, do not emit executable tax, amount, or
+  rate-times-compensation formulas for the referenced subsections on the raw
+  wage, compensation, remuneration, or payment base. Import and compose the
+  cited base/cap/exclusion/excess outputs; if the cited base mechanics are
+  missing, purpose-specific, or deferred, add `module.deferred_outputs[]` for
+  each affected source subsection output instead of preserving a raw-base
+  formula.
   If the current source instead states a purpose-limited replacement rate,
   percentage, or amount for a cited section using phrases like `computed at`,
   `in lieu of`, or `instead of the rate provided by`, encode that source-stated

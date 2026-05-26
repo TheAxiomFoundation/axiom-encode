@@ -3618,6 +3618,13 @@ RuleSpec requirements:
   If imported child calculations cannot receive the adjusted basis faithfully
   under the current executable schema, emit `module.status: entity_not_supported`
   or `deferred` instead of an approximate executable formula.
+- If the source has a cross-reference such as `For application of different
+  contribution bases ... see section X`, do not repair it by keeping tax,
+  amount, or rate-times-compensation formulas on the raw wage, compensation,
+  remuneration, or payment base. Import and compose the cited
+  base/cap/exclusion/excess outputs; if those cited base mechanics are missing,
+  purpose-specific, or deferred, add `module.deferred_outputs[]` for each
+  affected source subsection output.
 - Do not repair that case by importing child rates or thresholds and rebuilding
   the child branch locally with an adjusted basis. That still re-encodes the
   child branch and is invalid unless the schema can explicitly wire the

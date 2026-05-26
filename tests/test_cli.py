@@ -65,6 +65,7 @@ from axiom_encode.cli import (
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
+    _try_repair_generated_unsafe_formula_outputs_for_apply,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
     cmd_calibration,
@@ -6640,6 +6641,89 @@ rules: []
         ]
         assert payload["rules"] == []
 
+    def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Section 3201 payroll taxes.
+rules:
+  - name: tier_1_applicable_percentage
+    kind: derived
+    entity: Person
+    dtype: Rate
+    source: 26 USC 3201(a)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: base_rate + additional_medicare_tax_rate
+  - name: tier_1_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(a)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: compensation * tier_1_applicable_percentage
+  - name: tier_2_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: compensation * tier_2_rate
+"""
+        )
+        test_file.write_text(
+            """- name: unsafe_outputs
+  output:
+    us:statutes/26/3201#tier_1_applicable_percentage: 0.0855
+    us:statutes/26/3201#tier_1_employee_tax: 8550
+    us:statutes/26/3201#tier_2_employee_tax: 4900
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3201.yaml: ci: Flattened thresholded imported rate: "
+                "`tier_1_applicable_percentage` uses imported "
+                "`additional_medicare_tax_rate`.",
+                "statutes/26/3201.yaml: ci: Cross-reference numeric placeholder: "
+                "`tier_1_applicable_percentage` uses local "
+                "`additional_medicare_tax_rate` for `percentage`.",
+                "statutes/26/3201.yaml: ci: Cross-reference base mechanics omitted: "
+                "`tier_2_employee_tax` cites source child `(b)`.",
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "us:statutes/26/3201/a#tier_1_applicable_percentage",
+            "us:statutes/26/3201/a#tier_1_employee_tax",
+            "us:statutes/26/3201/b#tier_2_employee_tax",
+        ]
+        assert payload["module"]["status"] == "deferred"
+        assert payload["rules"] == []
+        assert [
+            record["output"] for record in payload["module"]["deferred_outputs"]
+        ] == repaired
+        assert test_cases == []
+
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
     ):
@@ -11723,6 +11807,116 @@ rules:
         updated = supplemental[Path("statutes/26/63.yaml")]
         assert "hash: sha256:old" not in updated
         assert f"hash: sha256:{_sha256_file(generated)}" in updated
+
+    def test_apply_overlay_validation_refreshes_dependent_hashes_after_target_repair(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        unused_import = policy_repo / "statutes/26/999.yaml"
+        dependent = policy_repo / "statutes/26/63.yaml"
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        unused_import.write_text(
+            """format: rulespec/v1
+rules:
+  - name: unused_parameter
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1'
+"""
+        )
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/999#unused_parameter
+rules:
+  - name: section_151_exemption_deduction
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          0
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/151
+rules:
+  - name: deductions_referred_to_in_subsection_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/151#section_151_exemption_deduction
+              output: section_151_exemption_deduction
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          section_151_exemption_deduction
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                path = Path(path)
+                content = path.read_text()
+                if path.name == "151.yaml" and "unused_parameter" in content:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                issues=[
+                                    "Unused import "
+                                    "`us:statutes/26/999#unused_parameter`."
+                                ]
+                            )
+                        },
+                    )
+                if path.name == "63.yaml":
+                    current_hash = _sha256_file(path.parent / "151.yaml")
+                    if f"hash: sha256:{current_hash}" not in content:
+                        return SimpleNamespace(
+                            all_passed=False,
+                            results={
+                                "ci": SimpleNamespace(
+                                    error="Proof import hash mismatch"
+                                )
+                            },
+                        )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        assert "unused_parameter" not in supplemental[Path("statutes/26/151.yaml")]
+        refreshed_dependent = supplemental[Path("statutes/26/63.yaml")]
+        final_target_hash = _sha256_text(supplemental[Path("statutes/26/151.yaml")])
+        assert f"hash: sha256:{final_target_hash}" in refreshed_dependent
 
     def test_apply_overlay_validation_removes_obsolete_dependent_test_inputs(
         self, tmp_path

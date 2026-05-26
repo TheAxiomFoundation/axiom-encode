@@ -6626,6 +6626,87 @@ rules:
     assert issues == []
 
 
+def test_cross_reference_base_mechanics_raw_compensation_tax_is_rejected(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    (a) Tier 1 tax In addition to other taxes, there is hereby imposed on the income
+    of each employee a tax equal to the applicable percentage of the compensation
+    received during any calendar year by such employee for services rendered.
+
+    (b) Tier 2 tax In addition to other taxes, there is hereby imposed on the income
+    of each employee a tax equal to the percentage determined under section 3241
+    for any calendar year of the compensation received during such calendar year.
+
+    (c) Cross reference For application of different contribution bases with respect
+    to the taxes imposed by subsections (a) and (b), see section 3231(e)(2).
+rules:
+  - name: tier_2_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: compensation_received_for_services * tier_2_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unapplied_cross_reference_base_mechanics(rules_file)
+
+    assert len(issues) == 1
+    assert "Cross-reference base mechanics omitted" in issues[0]
+    assert "tier_2_employee_tax" in issues[0]
+    assert "section 3231(e)(2)" in issues[0]
+
+
+def test_cross_reference_base_mechanics_allows_cited_base_formula(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3231/e/2#remaining_applicable_base_before_payment
+module:
+  summary: |-
+    (a) Tier 1 tax In addition to other taxes, there is hereby imposed on the income
+    of each employee a tax equal to the applicable percentage of the compensation
+    received during any calendar year by such employee for services rendered.
+
+    (c) Cross reference For application of different contribution bases with respect
+    to the taxes imposed by subsection (a), see section 3231(e)(2).
+rules:
+  - name: tier_1_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(compensation_received_for_services, remaining_applicable_base_before_payment) * tier_1_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unapplied_cross_reference_base_mechanics(rules_file)
+
+    assert issues == []
+
+
 def test_cross_reference_numeric_placeholder_does_not_infer_named_act_title(
     tmp_path,
 ):
