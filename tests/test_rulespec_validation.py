@@ -31,8 +31,10 @@ from axiom_encode.harness.validator_pipeline import (
     find_broad_application_passthrough_issues,
     find_child_fragment_reencoding_issues,
     find_copied_cross_reference_source_issues,
+    find_current_purpose_placeholder_issues,
     find_current_year_final_amount_table_issues,
     find_deferred_output_issues,
+    find_deferred_purpose_specific_limitation_issues,
     find_deprecated_source_url_issues,
     find_employer_scoped_entity_issues,
     find_empty_rules_module_issues,
@@ -15237,3 +15239,74 @@ def test_non_rulespec_yaml_artifact_is_rejected(tmp_path):
 
     assert result.passed is False
     assert "RuleSpec YAML artifacts are required" in result.issues[0]
+
+
+def test_current_purpose_placeholder_input_is_rejected():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3231
+rules:
+  - name: remaining_applicable_base_before_payment
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, applicable_base_for_current_purpose - compensation_paid_before_payment)
+"""
+
+    issues = find_current_purpose_placeholder_issues(content)
+
+    assert len(issues) == 1
+    assert "applicable_base_for_current_purpose" in issues[0]
+    assert "Current-purpose placeholder input" in issues[0]
+
+
+def test_deferred_purpose_specific_limitation_rejects_generic_output():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3231
+  deferred_outputs:
+    - output: us:statutes/26/3231/e/2#compensation_excess_base_exclusion_for_section_3201_a_hospital_insurance_rate_portion
+      reason: Clause (iii) provides that the clause (i) base exclusion shall not apply to the hospital-insurance rate portion.
+rules:
+  - name: compensation_excess_applicable_base_excluded
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, remuneration_paid - remaining_applicable_base_before_payment)
+  - name: compensation_excess_base_exclusion_for_section_3201_a_non_hospital_insurance_rate_portion
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, remuneration_paid - remaining_applicable_base_before_payment)
+"""
+
+    issues = find_deferred_purpose_specific_limitation_issues(content)
+
+    assert len(issues) == 1
+    assert "Generic output with deferred purpose-specific limitation" in issues[0]
+    assert "compensation_excess_applicable_base_excluded" in issues[0]
+
+
+def test_deferred_purpose_specific_limitation_allows_named_tier_output():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3231
+  deferred_outputs:
+    - output: us:statutes/26/3231/e/2#applicable_base_for_tier_2_taxes_and_average_monthly_compensation
+      reason: Clause (ii) defines a purpose-specific base for tier 2 taxes, but section 230(c) mechanics are not yet executable.
+rules:
+  - name: applicable_base_for_tier_1_taxes
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: contribution_and_benefit_base_for_calendar_year
+"""
+
+    assert find_deferred_purpose_specific_limitation_issues(content) == []
