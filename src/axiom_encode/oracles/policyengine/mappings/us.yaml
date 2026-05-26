@@ -9910,6 +9910,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(c)(12) defines foreign-government wholly owned instrumentality service as an exception predicate for FUTA coverage, including service-character and State Department reciprocity certification conditions; PolicyEngine exposes final FUTA taxable earnings, not this foreign-government-instrumentality employment exception predicate separately.
 
+  - legal_id_prefix: us:statutes/26/3306/c/13#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(c)(13) defines student-nurse and hospital-intern service exception predicates for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not these health-training employment exception predicates separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
