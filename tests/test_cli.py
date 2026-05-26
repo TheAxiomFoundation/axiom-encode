@@ -41,6 +41,7 @@ from axiom_encode.cli import (
     _remove_invalid_dependent_test_inputs,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
+    _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
@@ -6256,6 +6257,97 @@ rules:
             "organized_camp_gross_receipts_percentage_limit"
             not in test_file.read_text()
         )
+
+    def test_imported_rule_name_collision_repair_prefixes_local_outputs(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        imported_file = policy_repo / "statutes/26/3121/c.yaml"
+        rules_file = policy_repo / "statutes/26/3306/d.yaml"
+        test_file = policy_repo / "statutes/26/3306/d.test.yaml"
+        imported_file.parent.mkdir(parents=True)
+        rules_file.parent.mkdir(parents=True)
+        imported_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: one_half_services_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1 / 2
+  - name: all_services_for_pay_period_deemed_employment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: true
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3121/c#one_half_services_threshold
+rules:
+  - name: all_services_for_pay_period_deemed_employment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: services_fraction >= one_half_services_threshold
+  - name: pay_period_result
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/26/3306/d#all_services_for_pay_period_deemed_employment
+              output: all_services_for_pay_period_deemed_employment
+              hash: sha256:local
+    versions:
+      - effective_from: '1990-01-01'
+        formula: all_services_for_pay_period_deemed_employment
+"""
+        )
+        test_file.write_text(
+            """- name: collision_case
+  period: 2026-01
+  input:
+    us:statutes/26/3306/d#input.services_fraction: 0.5
+  output:
+    us:statutes/26/3306/d#all_services_for_pay_period_deemed_employment: holds
+    us:statutes/26/3306/d#pay_period_result: holds
+"""
+        )
+
+        repaired = _repair_imported_rule_name_collisions(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/3306/d.yaml"),
+        )
+
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["all_services_for_pay_period_deemed_employment"]
+        assert [rule["name"] for rule in rules_payload["rules"]] == [
+            "local_all_services_for_pay_period_deemed_employment",
+            "pay_period_result",
+        ]
+        assert (
+            rules_payload["rules"][1]["versions"][0]["formula"]
+            == "local_all_services_for_pay_period_deemed_employment"
+        )
+        proof_import = rules_payload["rules"][1]["metadata"]["proof"]["atoms"][0][
+            "import"
+        ]
+        assert proof_import["target"] == (
+            "us:statutes/26/3306/d#local_all_services_for_pay_period_deemed_employment"
+        )
+        assert (
+            proof_import["output"]
+            == "local_all_services_for_pay_period_deemed_employment"
+        )
+        assert test_cases[0]["output"] == {
+            "us:statutes/26/3306/d#local_all_services_for_pay_period_deemed_employment": "holds",
+            "us:statutes/26/3306/d#pay_period_result": "holds",
+        }
 
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
