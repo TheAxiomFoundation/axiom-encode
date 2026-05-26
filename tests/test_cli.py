@@ -65,6 +65,7 @@ from axiom_encode.cli import (
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
+    _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
@@ -6721,6 +6722,8 @@ rules:
                 "purpose-specific limitation: "
                 "`employer_section_3201_tax_payment_liability` overlaps deferred "
                 "purpose-specific output `tips_section_3201_tax_collectible_by_employer`.",
+                "statutes/26/3201.yaml: ci: Sibling rule name collision: rule "
+                "`tier_2_employee_tax` is also exported by sibling `3202.yaml`.",
             ],
         )
 
@@ -6738,6 +6741,48 @@ rules:
             record["output"] for record in payload["module"]["deferred_outputs"]
         ] == repaired
         assert test_cases == []
+
+    def test_unresolved_local_test_output_repair_removes_stale_output(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: tier_rates
+  output:
+    us:statutes/26/3221#tier_1_applicable_percentage: 0.0765
+    us:statutes/26/3221#tier_2_applicable_percentage: 0.221
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unresolved_local_test_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3221.yaml: ci: Test case `tier_rates` output "
+                "`us:statutes/26/3221#tier_2_applicable_percentage` does not "
+                "resolve to a derived rule, or parameter in statutes/26/3221.yaml."
+            ],
+        )
+
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "tier_rates:us:statutes/26/3221#tier_2_applicable_percentage"
+        ]
+        assert test_cases == [
+            {
+                "name": "tier_rates",
+                "output": {"us:statutes/26/3221#tier_1_applicable_percentage": 0.0765},
+            }
+        ]
 
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
