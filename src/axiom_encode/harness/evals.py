@@ -2095,20 +2095,25 @@ def _citation_parts_from_match(match: re.Match[str]) -> CitationParts:
 def _cited_context_candidates(policy_root: Path, candidate_rel: Path) -> list[Path]:
     """Return an exact cited RuleSpec file or child fragments when only a section exists."""
     candidate = policy_root / candidate_rel
-    if candidate.exists():
-        return [candidate]
     child_root = policy_root / candidate_rel.with_suffix("")
-    if not child_root.is_dir():
-        return []
-    candidates = [
-        path
-        for path in child_root.rglob("*.yaml")
-        if not path.name.endswith(".test.yaml")
-    ]
-    candidates.sort(
-        key=lambda path: (len(path.relative_to(child_root).parts), str(path))
-    )
-    return candidates[:8]
+    child_candidates: list[Path] = []
+    if child_root.is_dir():
+        child_candidates = [
+            path
+            for path in child_root.rglob("*.yaml")
+            if not path.name.endswith(".test.yaml")
+        ]
+        child_candidates.sort(
+            key=lambda path: (len(path.relative_to(child_root).parts), str(path))
+        )
+        child_candidates = child_candidates[:8]
+
+    if candidate.exists():
+        if _context_file_exports(str(candidate)) or not child_candidates:
+            return [candidate]
+        return [candidate, *child_candidates]
+
+    return child_candidates
 
 
 def _select_child_fragment_context_files(
