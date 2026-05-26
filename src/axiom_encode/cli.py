@@ -69,8 +69,15 @@ from .harness.evals import (
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
     ValidatorPipeline,
+    _candidate_upstream_rulespec_roots,
     _canonical_rulespec_compile_path,
+    _canonical_rulespec_target,
+    _is_executable_rulespec_rule,
+    _rulespec_executable_index_for_roots,
+    _rulespec_executable_signature,
     _rulespec_public_item_keys,
+    _rulespec_repo_prefix,
+    _rulespec_target_is_descendant_of,
     find_proof_import_reference_issues,
     find_tax_filing_status_local_input_issues,
     find_tax_status_component_local_input_issues,
@@ -13681,6 +13688,26 @@ def _validate_generated_encoding_in_policy_overlay(
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
+            upstream_placement_repairs = _repair_upstream_placement_duplicate_imports(
+                rules_file=overlay_target,
+                test_file=_rulespec_test_path(overlay_target),
+                repo_path=overlay_repo,
+                relative_output=relative_output,
+            )
+            if upstream_placement_repairs:
+                supplemental_files[relative_output] = overlay_target.read_text()
+                test_path = _rulespec_test_path(overlay_target)
+                if test_path.exists():
+                    supplemental_files[test_path.relative_to(overlay_repo)] = (
+                        test_path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             imported_collision_repairs = _repair_imported_rule_name_collisions(
                 rules_file=overlay_target,
                 test_file=_rulespec_test_path(overlay_target),
@@ -14155,6 +14182,206 @@ def _rulespec_ancestor_target_paths(relative_output: Path) -> list[Path]:
         ancestors.append(Path(f"{current.as_posix()}.yaml"))
         current = current.parent
     return ancestors
+
+
+def _repair_upstream_placement_duplicate_imports(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> list[str]:
+    """Replace copied upstream executable rules with imports to canonical targets."""
+    try:
+        rules_document = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(rules_document, dict):
+        return []
+
+    rules = rules_document.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    duplicate_targets_by_name, duplicate_indexes = (
+        _upstream_placement_duplicate_targets(
+            rules=rules,
+            rules_file=rules_file,
+            repo_path=repo_path,
+        )
+    )
+    if not duplicate_targets_by_name:
+        return []
+
+    imports = rules_document.get("imports")
+    if not isinstance(imports, list):
+        imports = []
+        rules_document["imports"] = imports
+    existing_imports = {
+        str(raw_import).strip().strip('"').strip("'")
+        for raw_import in imports
+        if isinstance(raw_import, str)
+    }
+    for target in sorted(duplicate_targets_by_name.values()):
+        if target not in existing_imports:
+            imports.append(target)
+            existing_imports.add(target)
+
+    rules_document["rules"] = [
+        rule for index, rule in enumerate(rules) if index not in duplicate_indexes
+    ]
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    for rule in rules_document["rules"]:
+        if not isinstance(rule, dict):
+            continue
+        _retarget_local_proof_imports_to_upstream(
+            rule,
+            target_base=target_base,
+            targets_by_name=duplicate_targets_by_name,
+        )
+
+    content = yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+    content, _ = _repair_proof_import_hashes(
+        content,
+        target_base=target_base,
+        rules_file=rules_file,
+        repo_path=repo_path,
+    )
+    rules_file.write_text(content)
+
+    if test_file.exists():
+        _remove_local_test_output_refs_for_names(
+            test_file,
+            target_base=target_base,
+            names=set(duplicate_targets_by_name),
+        )
+
+    return sorted(duplicate_targets_by_name)
+
+
+def _upstream_placement_duplicate_targets(
+    *,
+    rules: list[object],
+    rules_file: Path,
+    repo_path: Path,
+) -> tuple[dict[str, str], set[int]]:
+    repo_root = Path(repo_path).resolve()
+    prefix = _rulespec_repo_prefix(repo_root)
+    try:
+        current_file = Path(rules_file).resolve()
+    except OSError:
+        current_file = Path(rules_file)
+    try:
+        candidate_roots = _candidate_upstream_rulespec_roots(repo_root)
+        index = _rulespec_executable_index_for_roots(
+            tuple(str(root.resolve()) for root in candidate_roots)
+        )
+    except OSError:
+        return {}, set()
+    if not index:
+        return {}, set()
+
+    duplicate_targets_by_name: dict[str, str] = {}
+    duplicate_indexes: set[int] = set()
+    for rule_index, rule in enumerate(rules):
+        if not isinstance(rule, dict) or not _is_executable_rulespec_rule(rule):
+            continue
+        signature = _rulespec_executable_signature(rule)
+        if signature is None:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            current_target = _canonical_rulespec_target(
+                prefix=prefix,
+                repo_root=repo_root,
+                rules_file=current_file,
+                symbol=name,
+            )
+        except ValueError:
+            continue
+        for candidate in index:
+            if candidate.symbol != name or candidate.signature != signature:
+                continue
+            if candidate.target == current_target:
+                continue
+            if Path(candidate.source_file).resolve() == current_file:
+                continue
+            if _rulespec_target_is_descendant_of(current_target, candidate.target):
+                continue
+            duplicate_targets_by_name[name] = candidate.target
+            duplicate_indexes.add(rule_index)
+            break
+
+    return duplicate_targets_by_name, duplicate_indexes
+
+
+def _retarget_local_proof_imports_to_upstream(
+    rule: dict[str, object],
+    *,
+    target_base: str,
+    targets_by_name: dict[str, str],
+) -> None:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return
+    for atom in atoms:
+        if not isinstance(atom, dict) or atom.get("kind") != "import":
+            continue
+        import_payload = atom.get("import")
+        if not isinstance(import_payload, dict):
+            continue
+        output = str(import_payload.get("output") or "").strip()
+        if output not in targets_by_name:
+            continue
+        target = str(import_payload.get("target") or "").strip().strip('"').strip("'")
+        if target not in {target_base, f"{target_base}#{output}"}:
+            continue
+        import_payload["target"] = targets_by_name[output]
+
+
+def _remove_local_test_output_refs_for_names(
+    test_file: Path,
+    *,
+    target_base: str,
+    names: set[str],
+) -> bool:
+    try:
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(cases, list):
+        return False
+
+    local_outputs = {f"{target_base}#{name}" for name in names}
+    changed = False
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for output_ref in list(outputs):
+            if str(output_ref).strip().strip('"').strip("'") in local_outputs:
+                outputs.pop(output_ref, None)
+                changed = True
+
+    if changed:
+        test_file.write_text(
+            yaml.safe_dump(cases, sort_keys=False, allow_unicode=False)
+        )
+    return changed
 
 
 def _repair_imported_rule_name_collisions(
