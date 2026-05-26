@@ -3456,6 +3456,16 @@ RuleSpec requirements:
   input such as `tier_1_applicable_percentage`. Import the upstream output when
   it exists; otherwise defer the affected output and name the cited legal
   dependency in `reason`.
+  Before applying any imported rate to the current source's whole base, check
+  whether the cited source makes that rate thresholded, capped, base-limited, or
+  part of an amount formula that applies only above or below a specified amount.
+  If so, do not flatten the cited mechanics into `current_base * imported_rate`
+  or into a combined percentage that is later multiplied by the whole current
+  base. Import and compose the cited executable amount or the cited base,
+  threshold, cap, and excess-amount outputs faithfully. If the current schema
+  cannot pass the correct adjusted base into those cited mechanics, defer the
+  affected executable output and name the missing cited computation rather than
+  approximating it with a flat rate.
   When the omitted output covers a specific subsection or subparagraph, the
   `output` target path must include that source path segment, e.g.
   `us:statutes/26/3201/a#tier_1_employee_tax`, not

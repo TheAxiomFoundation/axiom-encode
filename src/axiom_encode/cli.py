@@ -14132,6 +14132,23 @@ def _validate_generated_encoding_in_policy_overlay(
                 None,
             )
             target_test_path = _rulespec_test_path(overlay_target)
+            if (
+                target_validation is not None
+                and _repair_missing_entity_table_rows_for_row_ordered_outputs(
+                    test_file=target_test_path,
+                    validation=target_validation,
+                )
+            ):
+                supplemental_files[target_test_path.relative_to(overlay_repo)] = (
+                    target_test_path.read_text()
+                )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             if target_validation is not None and _complete_missing_imported_test_inputs(
                 rules_file=overlay_target,
                 test_file=target_test_path,
@@ -15041,6 +15058,98 @@ def _repair_mixed_scalar_output_tests(
     return repaired_names
 
 
+def _repair_missing_entity_table_rows_for_row_ordered_outputs(
+    *,
+    test_file: Path,
+    validation: object,
+) -> list[str]:
+    """Move one-row entity test inputs from scalar input into tables.<Entity>."""
+    if not test_file.exists():
+        return []
+    repairs_by_case: dict[str, str] = {}
+    for issue in _validation_issue_strings(validation):
+        match = _ROW_ORDERED_WITHOUT_TABLE_RE.search(str(issue))
+        if match is None:
+            continue
+        repairs_by_case[match.group("case")] = match.group("entity")
+    if not repairs_by_case:
+        return []
+
+    try:
+        loaded = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    cases: list[object]
+    if isinstance(loaded, dict) and isinstance(loaded.get("cases"), list):
+        cases = loaded["cases"]
+        output_payload: object = loaded
+    elif isinstance(loaded, list):
+        cases = loaded
+        output_payload = cases
+    else:
+        return []
+
+    repaired_names: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or "").strip()
+        entity = repairs_by_case.get(case_name)
+        if not entity:
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            continue
+        row_lengths = {
+            len(value) for value in output.values() if isinstance(value, list)
+        }
+        if row_lengths != {1}:
+            continue
+        case_input = case.get("input")
+        if not isinstance(case_input, dict):
+            continue
+        row_inputs = {
+            key: value
+            for key, value in case_input.items()
+            if isinstance(key, str) and "#input." in key
+        }
+        if not row_inputs:
+            continue
+        remaining_input = {
+            key: value for key, value in case_input.items() if key not in row_inputs
+        }
+        tables = copy.deepcopy(case.get("tables") or {})
+        if not isinstance(tables, dict):
+            continue
+        existing_rows = tables.get(entity)
+        if isinstance(existing_rows, list) and existing_rows:
+            continue
+        tables[entity] = [row_inputs]
+        case["input"] = remaining_input
+        case["tables"] = tables
+        repaired_names.append(case_name)
+
+    if not repaired_names:
+        return []
+    test_file.write_text(yaml.safe_dump(output_payload, sort_keys=False))
+    return repaired_names
+
+
+def _validation_issue_strings(validation: object) -> list[str]:
+    """Collect issue strings from a PipelineResult-like object."""
+    issues: list[str] = []
+    results = getattr(validation, "results", {})
+    if not isinstance(results, dict):
+        return issues
+    for validator_result in results.values():
+        for issue in getattr(validator_result, "issues", []) or []:
+            issues.append(str(issue))
+        error = getattr(validator_result, "error", None)
+        if error:
+            issues.append(str(error))
+    return issues
+
+
 def _repair_mixed_derived_entity_output_tests(
     *,
     rules_file: Path,
@@ -15280,6 +15389,10 @@ _INVALID_INPUT_REF_RE = re.compile(
 _ABSOLUTE_RULESPEC_REF_RE = re.compile(r"^[a-z][a-z0-9_-]*:[^\s]+$")
 _MIXED_DERIVED_OUTPUT_ENTITIES_RE = re.compile(
     r"Test case `(?P<case>[^`]+)` mixes derived output entities \([^)]+\)"
+)
+_ROW_ORDERED_WITHOUT_TABLE_RE = re.compile(
+    r"Test case `(?P<case>[^`]+)` output .+ uses a row-ordered "
+    r"list but has no `tables\.(?P<entity>[^`]+)` rows\."
 )
 
 

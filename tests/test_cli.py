@@ -43,6 +43,7 @@ from axiom_encode.cli import (
     _repair_generated_import_symbol_near_misses,
     _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
+    _repair_missing_entity_table_rows_for_row_ordered_outputs,
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
@@ -6730,6 +6731,84 @@ rules:
                 },
             },
         ]
+
+    def test_missing_entity_table_rows_repair_moves_inputs_to_row(self, tmp_path):
+        test_file = tmp_path / "3231-e-2.test.yaml"
+        test_file.write_text(
+            """- name: payment_partly_exceeds_applicable_base_without_successor
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3121/a/1#input.successor_employer_acquired_substantially_all_trade_or_business_property_from_predecessor_during_calendar_year: false
+    us:statutes/26/3231/e/2#input.compensation_paid_to_individual_by_employer_during_calendar_year_before_payment: 90000
+    scenario_id: base
+  output:
+    us:statutes/26/3231/e/2#compensation_counted_toward_applicable_base_before_payment:
+    - 90000
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    issues=[
+                        "Test case `payment_partly_exceeds_applicable_base_without_successor` "
+                        "output `compensation_counted_toward_applicable_base_before_payment` "
+                        "uses a row-ordered list but has no `tables.Payment` rows."
+                    ]
+                )
+            }
+        )
+
+        repaired = _repair_missing_entity_table_rows_for_row_ordered_outputs(
+            test_file=test_file,
+            validation=validation,
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["payment_partly_exceeds_applicable_base_without_successor"]
+        assert cases[0]["input"] == {"scenario_id": "base"}
+        assert cases[0]["tables"] == {
+            "Payment": [
+                {
+                    "us:statutes/26/3121/a/1#input.successor_employer_acquired_substantially_all_trade_or_business_property_from_predecessor_during_calendar_year": False,
+                    "us:statutes/26/3231/e/2#input.compensation_paid_to_individual_by_employer_during_calendar_year_before_payment": 90000,
+                }
+            ]
+        }
+
+    def test_missing_entity_table_rows_repair_skips_multirow_outputs(self, tmp_path):
+        test_file = tmp_path / "3231-e-2.test.yaml"
+        test_file.write_text(
+            """- name: two_payments
+  input:
+    us:statutes/26/3231/e/2#input.compensation_paid_to_individual_by_employer_during_calendar_year_before_payment: 90000
+  output:
+    us:statutes/26/3231/e/2#compensation_counted_toward_applicable_base_before_payment:
+    - 90000
+    - 95000
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    issues=[
+                        "Test case `two_payments` output "
+                        "`compensation_counted_toward_applicable_base_before_payment` "
+                        "uses a row-ordered list but has no `tables.Payment` rows."
+                    ]
+                )
+            }
+        )
+
+        repaired = _repair_missing_entity_table_rows_for_row_ordered_outputs(
+            test_file=test_file,
+            validation=validation,
+        )
+
+        assert repaired == []
+        assert "tables" not in yaml.safe_load(test_file.read_text())[0]
 
 
 class TestGuardGenerated:
