@@ -3709,15 +3709,14 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
             stripped = line.strip()
             if stripped:
                 indent = len(line) - len(line.lstrip())
-                if indent <= imports_indent:
+                item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
+                if item_match and indent >= imports_indent:
+                    item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
+                    if item in unused:
+                        removed.append(item)
+                        continue
+                elif indent <= imports_indent:
                     in_imports = False
-                else:
-                    item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
-                    if item_match:
-                        item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
-                        if item in unused:
-                            removed.append(item)
-                            continue
 
         repaired_lines.append(line)
 
@@ -14134,6 +14133,21 @@ def _validate_generated_encoding_in_policy_overlay(
             target_test_path = _rulespec_test_path(overlay_target)
             if (
                 target_validation is not None
+                and _repair_generated_unused_imports_for_apply(
+                    rules_file=overlay_target,
+                    validation=target_validation,
+                )
+            ):
+                supplemental_files[relative_output] = overlay_target.read_text()
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
+            if (
+                target_validation is not None
                 and _repair_missing_entity_table_rows_for_row_ordered_outputs(
                     test_file=target_test_path,
                     validation=target_validation,
@@ -15133,6 +15147,27 @@ def _repair_missing_entity_table_rows_for_row_ordered_outputs(
         return []
     test_file.write_text(yaml.safe_dump(output_payload, sort_keys=False))
     return repaired_names
+
+
+def _repair_generated_unused_imports_for_apply(
+    *,
+    rules_file: Path,
+    validation: object,
+) -> list[str]:
+    """Prune generated imports that validation proves are unused."""
+    if not any(
+        "Unused import `" in issue for issue in _validation_issue_strings(validation)
+    ):
+        return []
+    try:
+        content = rules_file.read_text()
+    except OSError:
+        return []
+    repaired_content, removed_imports = _prune_unused_imports(content)
+    if not removed_imports:
+        return []
+    rules_file.write_text(repaired_content)
+    return removed_imports
 
 
 def _validation_issue_strings(validation: object) -> list[str]:

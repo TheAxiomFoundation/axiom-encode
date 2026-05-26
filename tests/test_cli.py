@@ -41,6 +41,7 @@ from axiom_encode.cli import (
     _remove_invalid_dependent_test_inputs,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
+    _repair_generated_unused_imports_for_apply,
     _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
     _repair_missing_entity_table_rows_for_row_ordered_outputs,
@@ -6809,6 +6810,47 @@ rules:
 
         assert repaired == []
         assert "tables" not in yaml.safe_load(test_file.read_text())[0]
+
+    def test_apply_unused_import_repair_prunes_validated_unused_import(self, tmp_path):
+        rules_file = tmp_path / "3231-e-2.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+- us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate
+- us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate
+module:
+  deferred_outputs:
+    - output: us:statutes/26/3231/e/2#hospital_insurance_rate_portion
+      reason: downstream rate unavailable
+rules:
+  - name: section_1401_rate_copy
+    kind: derived
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_income_tax_rate
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    issues=[
+                        "Unused import `us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate`: "
+                        "imported symbol `hospital_insurance_wage_tax_rate` is not referenced by any formula or proof import."
+                    ]
+                )
+            }
+        )
+
+        removed = _repair_generated_unused_imports_for_apply(
+            rules_file=rules_file,
+            validation=validation,
+        )
+
+        content = rules_file.read_text()
+        assert removed == ["us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate"]
+        assert "hospital_insurance_wage_tax_rate" not in content
+        assert "self_employment_income_tax_rate" in content
 
 
 class TestGuardGenerated:
