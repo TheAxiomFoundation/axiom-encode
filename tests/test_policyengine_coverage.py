@@ -2609,6 +2609,33 @@ rules:
     assert item["policyengine_variable"] is None
 
 
+def test_policyengine_coverage_classifies_3241_a_applicable_percentage_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3241/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: applicable_percentage_for_section_3201_b_for_purposes_of_subsection_a
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: applicable_percentage_for_section_3201_b
+  - name: applicable_percentage_for_sections_3211_b_and_3221_b_for_purposes_of_subsection_a
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: applicable_percentage_for_sections_3211_b_and_3221_b
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_a_employer_definition_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/a.yaml",
