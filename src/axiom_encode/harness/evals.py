@@ -3258,7 +3258,7 @@ Preferred principal output:
 === BEGIN SOURCE.TXT ===
 {source_text}
 === END SOURCE.TXT ===
-"""
+{_format_subparagraph_coverage_checklist(source_text, corpus_citation_path)}"""
     corpus_source_section = ""
     corpus_rulespec_requirement = ""
     if corpus_citation_path:
@@ -3964,6 +3964,67 @@ def _source_identifier_requests_percentage_rate_boundary(
     if not parts or parts[-1].lower() != "rate":
         return False
     return bool(re.search(r"(?i)(?:\bper\s+cent\b|\bpercent(?:age)?\b|%)", source_text))
+
+
+def _format_subparagraph_coverage_checklist(
+    source_text: str, corpus_citation_path: str | None
+) -> str:
+    """Pre-compute the validator's subparagraph coverage list and inject it as a
+    structured checklist the model must satisfy.
+
+    The source-subparagraph-coverage validator (validator_pipeline.py) flags
+    every high-signal top-level subparagraph that the encoded artifact neither
+    cites in a rule's ``source:`` nor lists in ``module.deferred_outputs``.
+    Adding more abstract instructions to the prompt failed to make gpt-class
+    models comply (two prior iterations either ignored the directive or
+    omitted more subparagraphs). The structural fix is to do the enumeration
+    deterministically here, render it next to the source text, and force the
+    model to acknowledge each subparagraph by name. Same data the validator
+    uses, same expectation, no model-side enumeration discretion.
+    """
+    if not corpus_citation_path:
+        return ""
+    try:
+        from .validator_pipeline import (
+            _compact_source_excerpt,
+            _format_source_subparagraph_citation,
+            _high_signal_top_level_subparagraphs,
+        )
+    except ImportError:
+        return ""
+    subparagraphs = _high_signal_top_level_subparagraphs(source_text)
+    if not subparagraphs:
+        return ""
+    rows = []
+    for label, text in subparagraphs:
+        citation = _format_source_subparagraph_citation(corpus_citation_path, label)
+        excerpt = _compact_source_excerpt(text, limit=100)
+        rows.append(f"  - {citation}: {excerpt}")
+    rows_text = "\n".join(rows)
+    return f"""
+=== BEGIN SUBPARAGRAPH COVERAGE CHECKLIST ===
+The source text above contains {len(subparagraphs)} high-signal top-level
+subparagraphs. Your output MUST account for every one. For each subparagraph
+below, the encoded artifact must contain EITHER:
+  (a) An executable rule whose `source:` field cites that subparagraph
+      (e.g. `source: 7 USC 2014(d)`), OR
+  (b) An entry under `module.deferred_outputs[]` whose `output:` target path
+      includes that subparagraph segment (e.g.
+      `us:statutes/7/2014/d#unspecified_output`) and whose `reason:` names
+      the legal dependency or scope reason blocking encoding.
+
+Subparagraphs without (a) or (b) are an automatic CI failure under the
+source-subparagraph-coverage validator. There is no implicit "covered by
+the umbrella rule" path — composite rules cite the parent section, not
+the children.
+
+Subparagraphs requiring action:
+{rows_text}
+
+When in doubt, prefer (b): a `deferred_outputs` entry with a clear
+`reason` is honest and cheap to refine later. Silent omission is not.
+=== END SUBPARAGRAPH COVERAGE CHECKLIST ===
+"""
 
 
 def render_rate_only_source_boundary_guidance() -> str:
