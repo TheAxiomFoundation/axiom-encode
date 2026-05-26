@@ -16194,15 +16194,21 @@ def _complete_missing_imported_test_inputs(
         entity_id = assignment.get("entity")
         if not entity_id:
             continue
-        input_name = assignment["input"]
-        for input_ref in imported_inputs.get(input_name, []):
-            updated = _insert_input_default_in_table_entity_rows(
-                updated,
-                input_ref=input_ref,
-                value=_infer_missing_input_default(input_name),
-                case_name=assignment["case"],
-                entity_id=entity_id,
-            )
+        input_names = [assignment["input"]]
+        if assignment["input"] in imported_inputs:
+            # The validator reports the first missing row input it encounters.
+            # Imported aggregate rules can require many defaults, so complete the
+            # whole imported input surface for that row in one repair pass.
+            input_names = sorted(imported_inputs)
+        for input_name in input_names:
+            for input_ref in imported_inputs.get(input_name, []):
+                updated = _insert_input_default_in_table_entity_rows(
+                    updated,
+                    input_ref=input_ref,
+                    value=_infer_missing_input_default(input_name),
+                    case_name=assignment["case"],
+                    entity_id=entity_id,
+                )
     if updated == content:
         return False
     test_file.write_text(updated)
