@@ -1059,6 +1059,12 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine models employee FICA payroll taxes and excess payroll tax withheld, but not Railroad Retirement Tax Act section 3201(b) tier 2 employee tax or the section 3241 applicable percentage as a comparable output.
 
+  - legal_id: us:statutes/26/3201#tier_2_applicable_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine models employee FICA payroll taxes and excess payroll tax withheld, but not the Railroad Retirement Tax Act section 3201(b) tier 2 applicable-percentage helper as a one-to-one output.
+
   - legal_id: us:statutes/26/3211#tier_2_employee_representative_tax
     country: us
     program: tax
@@ -1070,6 +1076,12 @@ mappings:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine models employer FICA payroll taxes, but not Railroad Retirement Tax Act section 3221(b) tier 2 employer tax or the section 3241 applicable percentage as a comparable output.
+
+  - legal_id: us:statutes/26/3221#tier_1_applicable_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes component employer OASDI and Medicare payroll tax rates, but not the section 3221(a) Railroad Retirement Tax Act tier 1 applicable-percentage helper as a one-to-one output.
 
   - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax_rate
     country: us
