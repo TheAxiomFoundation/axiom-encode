@@ -6808,6 +6808,120 @@ rules:
         ]
         assert test_cases == []
 
+    def test_unsafe_formula_output_repair_defers_unused_source_modifiers(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3111/e.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3111/e.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: qualified_veteran_credit_substituted_section_51_a_rate
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3111(e)(3)(A)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.26'
+  - name: qualified_veteran_wages_taken_into_account_for_credit
+    kind: derived
+    entity: Employer
+    dtype: Money
+    source: 26 USC 3111(e)(3)(C)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_paid_to_qualified_veteran_during_applicable_period
+  - name: qualified_veteran_employment_credit_against_subsection_a_tax
+    kind: derived
+    entity: Employer
+    dtype: Money
+    source: 26 USC 3111(e)(1)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(credit_determined_under_section_51_after_application_of_subsection_e_modifications, employer_oasdi_excise_tax)
+"""
+        )
+        test_file.write_text(
+            """- name: unused_source_modifier
+  output:
+    us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate: 0.26
+    us:statutes/26/3111/e#qualified_veteran_wages_taken_into_account_for_credit: 12000
+    us:statutes/26/3111/e#qualified_veteran_employment_credit_against_subsection_a_tax: 5000
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3111/e.yaml: ci: Source-stated modifier parameter "
+                "is not used by any numeric derived output: "
+                "`qualified_veteran_credit_substituted_section_51_a_rate` "
+                "appears to encode a substitution/modification amount, but "
+                "`qualified_veteran_employment_credit_against_subsection_a_tax`, "
+                "`qualified_veteran_wages_taken_into_account_for_credit` ignores it. "
+                "Use the modifier in the affected formula or defer the affected "
+                "output until the upstream branching condition is encoded and list "
+                "this source value under `module.deferred_outputs[].source_values`."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "us:statutes/26/3111/e#qualified_veteran_employment_credit_against_subsection_a_tax",
+            "us:statutes/26/3111/e#qualified_veteran_wages_taken_into_account_for_credit",
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "qualified_veteran_credit_substituted_section_51_a_rate"
+        ]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": "us:statutes/26/3111/e#qualified_veteran_employment_credit_against_subsection_a_tax",
+                "reason": (
+                    "Generated rule ignored a source-stated substitution, "
+                    "modification, or limitation parameter. This output is "
+                    "deferred until the upstream cross-referenced mechanics can "
+                    "be imported or composed without stranding the modifier."
+                ),
+                "source_values": [
+                    "us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate"
+                ],
+            },
+            {
+                "output": "us:statutes/26/3111/e#qualified_veteran_wages_taken_into_account_for_credit",
+                "reason": (
+                    "Generated rule ignored a source-stated substitution, "
+                    "modification, or limitation parameter. This output is "
+                    "deferred until the upstream cross-referenced mechanics can "
+                    "be imported or composed without stranding the modifier."
+                ),
+                "source_values": [
+                    "us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate"
+                ],
+            },
+        ]
+        assert test_cases == [
+            {
+                "name": "unused_source_modifier",
+                "output": {
+                    "us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate": 0.26
+                },
+            }
+        ]
+
     def test_unresolved_local_test_output_repair_removes_stale_output(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.yaml"
