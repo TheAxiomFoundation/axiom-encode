@@ -6885,6 +6885,77 @@ rules:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_child_context_for_unavailable_cited_parent(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        section_root = repo_root / "rulespec-us" / "statutes" / "26" / "3101"
+        section_root.mkdir(parents=True)
+        parent = section_root.with_suffix(".yaml")
+        parent.write_text(
+            "format: rulespec/v1\nmodule:\n  status: entity_not_supported\nrules: []\n"
+        )
+        oasdi = section_root / "a.yaml"
+        oasdi.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: oasdi_wage_tax_rate\n"
+            "    kind: parameter\n"
+            "    versions:\n"
+            "      - effective_from: '1990-01-01'\n"
+            "        formula: '0.062'\n"
+        )
+        hi = section_root / "b" / "1.yaml"
+        hi.parent.mkdir()
+        hi.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: hospital_insurance_wage_tax_rate\n"
+            "    kind: parameter\n"
+            "    versions:\n"
+            "      - effective_from: '1986-01-01'\n"
+            "        formula: '0.0145'\n"
+        )
+        source_text = (
+            "For purposes of the preceding sentence, the term applicable "
+            "percentage means the percentage equal to the sum of the rates "
+            "of tax in effect under subsections (a) and (b) of section 3101 "
+            "for the calendar year."
+        )
+
+        selected = _select_cross_section_context_files(
+            "26 USC 3201",
+            source_text,
+            repo_root / "rulespec-us",
+        )
+
+        assert selected == [parent, oasdi, hi]
+
+        runner = parse_runner_spec("openai:gpt-5.5")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 3201",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=source_text,
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(parent)]["import_path"] == "us:statutes/26/3101"
+        assert copied_sources[str(oasdi)]["import_path"] == "us:statutes/26/3101/a"
+        assert copied_sources[str(hi)]["import_path"] == "us:statutes/26/3101/b/1"
+
     def test_prepare_eval_workspace_adds_cross_section_list_and_parent_fallback_context(
         self, tmp_path
     ):
