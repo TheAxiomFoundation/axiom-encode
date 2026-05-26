@@ -7714,6 +7714,7 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           service_performed_in_employ_of_international_organization_within_meaning_of_section_3581_3_of_title_5
+          and worker_is_transferred_federal_employee
 """
         )
         dependent.write_text(
@@ -7772,6 +7773,12 @@ rules:
         payload = yaml.safe_load(dependent_test.read_text())
         payment_row = payload[0]["tables"]["Payment"][0]
         assert payment_row[imported_ref] is True
+        assert (
+            payment_row[
+                "us:statutes/26/3121/y#input.worker_is_transferred_federal_employee"
+            ]
+            is False
+        )
 
     def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
