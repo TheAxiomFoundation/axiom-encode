@@ -1832,6 +1832,12 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert qualified_veteran_credit_mapping.mapping_type == "not_comparable"
     assert qualified_veteran_credit_mapping.match_type == "prefix"
+    research_payroll_credit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3111/f#research_credit_allowed_against_subsection_a_tax",
+        country="us",
+    )
+    assert research_payroll_credit_mapping.mapping_type == "not_comparable"
+    assert research_payroll_credit_mapping.match_type == "prefix"
     assert (
         registry.mapping_for_legal_id(
             "us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount",
