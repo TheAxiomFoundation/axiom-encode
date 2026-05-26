@@ -6742,6 +6742,72 @@ rules:
         ] == repaired
         assert test_cases == []
 
+    def test_unsafe_formula_output_repair_defers_cross_reference_placeholders(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3121/b.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3121/b.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Section 3121(b) employment.
+rules:
+  - name: employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    source: 26 USC 3121(b)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_designated_as_employment_under_section_233_social_security_act_agreement
+"""
+        )
+        test_file.write_text(
+            """- name: cross_reference_placeholder
+  output:
+    us:statutes/26/3121/b#employment: true
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3121/b.yaml: ci: Cross-reference placeholder: "
+                "`employment` uses local fact "
+                "`service_designated_as_employment_under_section_233_social_security_act_agreement` "
+                "for a cited legal section."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["us:statutes/26/3121/b#employment"]
+        assert payload["module"]["status"] == "deferred"
+        assert payload["rules"] == []
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": "us:statutes/26/3121/b#employment",
+                "reason": (
+                    "Generated rule kept a local fact for a cited legal section. "
+                    "This output is deferred until the cited source can be encoded "
+                    "or imported without a local cross-reference placeholder."
+                ),
+            }
+        ]
+        assert test_cases == []
+
     def test_unresolved_local_test_output_repair_removes_stale_output(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.yaml"
