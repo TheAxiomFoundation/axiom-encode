@@ -9934,6 +9934,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(c)(15) defines newspaper delivery, distribution, and ultimate-consumer sales service exception predicates for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not these newspaper-service employment exception predicates separately.
 
+  - legal_id_prefix: us:statutes/26/3306/c/16#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(c)(16) defines international-organization service as an exception predicate for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not this international-organization employment exception predicate separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
