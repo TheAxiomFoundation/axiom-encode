@@ -2684,6 +2684,38 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3231_c_employee_representative_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: regularly_assigned_or_employed_individual_qualifies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: regular_assignment_or_employment_for_employee_representation
+  - name: railway_labor_officer_representative_qualifies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: officer_or_official_representing_employees
+  - name: employee_representative
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: regularly_assigned_or_employed_individual_qualifies
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_e_compensation_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/e.yaml",
