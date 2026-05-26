@@ -2747,6 +2747,31 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employer_liability_for_chapter_withholding_tax_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tax_required_to_be_deducted_and_withheld_under_this_chapter
+  - name: employer_liability_to_any_person_for_chapter_withholding_tax_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_c_employee_representative_outputs(
     tmp_path,
 ):

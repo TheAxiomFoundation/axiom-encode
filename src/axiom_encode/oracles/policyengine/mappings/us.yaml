@@ -1159,6 +1159,18 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 3401(c) defines employee status for chapter 24 withholding; PolicyEngine models income and payroll tax amounts, not this legal status predicate as a separate output.
 
+  - legal_id: us:statutes/26/3403#employer_liability_for_chapter_withholding_tax_payment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3403 assigns employer liability for chapter 24 withheld tax payments; PolicyEngine computes tax liabilities, not employer withholding-payment liability as a separate output.
+
+  - legal_id: us:statutes/26/3403#employer_liability_to_any_person_for_chapter_withholding_tax_payment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3403 shields the employer from liability to other persons for withheld-tax payments; PolicyEngine does not expose this non-tax-due legal liability shield as a variable.
+
   - legal_id: us:statutes/26/3301#federal_unemployment_excise_tax_rate
     country: us
     program: tax
