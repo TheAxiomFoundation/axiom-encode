@@ -9814,6 +9814,14 @@ prefixes:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(a)(8) agricultural-labor cash and noncash wage-exclusion thresholds, hand-harvest exception predicates, or excluded amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
 
+  - legal_id_prefix: us:statutes/26/3302/e#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3302(e) defines successor-employer credit eligibility and a pre-subsection-(c) credit amount; PolicyEngine exposes final employer FUTA tax, not this successor-credit intermediate separately.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
