@@ -2519,6 +2519,41 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3302_f_credit_reduction_limitation_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/f.yaml",
+        """format: rulespec/v1
+rules:
+  - name: credit_reduction_limitation_wage_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.006
+  - name: state_meets_credit_reduction_limitation_requirements
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: secretary_determination
+  - name: credit_reduction_after_partial_limitation
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, credit_reduction - partial_limitation)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert {item["status"] for item in items_by_id.values()} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in items_by_id.values()} == {
+        "employer_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
