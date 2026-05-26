@@ -2659,6 +2659,66 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3231_e_compensation_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/e.yaml",
+        """format: rulespec/v1
+rules:
+  - name: monthly_cash_tip_inclusion_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 20
+  - name: local_lodge_monthly_disregard_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 25
+  - name: money_remuneration_for_employee_services
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_is_money_remuneration
+  - name: cash_tips_included_as_compensation_for_section_3201_taxes
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: cash_tip_amount
+  - name: employer_sickness_accident_medical_death_plan_exclusion_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: sickness_plan_payment
+  - name: identified_business_expense_reimbursement_exclusion_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: business_expense_reimbursement
+  - name: qualifying_nonresident_alien_service_exclusion_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: nonresident_alien_service
+  - name: convention_delegate_compensation_disregard_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: convention_delegate_service
+  - name: local_lodge_low_monthly_compensation_disregard_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: local_lodge_low_monthly_compensation
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 9}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
