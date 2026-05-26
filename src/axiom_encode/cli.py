@@ -10719,6 +10719,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                removed_unresolved_outputs = (
+                    _try_repair_generated_unresolved_local_test_outputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if removed_unresolved_outputs:
+                    outcome["auto_repaired_unresolved_local_test_outputs"] = (
+                        removed_unresolved_outputs
+                    )
+                    print(
+                        "  apply=auto_repaired_unresolved_local_test_outputs:"
+                        + ",".join(removed_unresolved_outputs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_input_field_accesses = (
                     _try_repair_generated_input_field_access_for_apply(
                         result,
@@ -11933,6 +11962,11 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             rule_name = generic_purpose_match.group(1)
             seed_rules.add(rule_name)
             issue_reasons[rule_name].append("generic_deferred_purpose_limitation")
+        sibling_match = _SIBLING_RULE_NAME_COLLISION_ISSUE_PATTERN.search(issue_text)
+        if sibling_match:
+            rule_name = sibling_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("sibling_rule_name_collision")
     if not seed_rules:
         return []
 
@@ -12027,6 +12061,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "deferred. This generic surface is deferred until the affected "
                 "purpose-specific outputs can be encoded or split without "
                 "applying the non-excepted rule too broadly."
+            )
+        elif "sibling_rule_name_collision" in reasons:
+            reason = (
+                "Generated rule used a local name that collides with a sibling "
+                "RuleSpec export. This output is deferred until it can be "
+                "encoded with a semantic branch-specific name without creating "
+                "ambiguous sibling imports."
             )
         else:
             reason = (
@@ -12185,6 +12226,96 @@ def _test_output_targets_deferred_rule(
     return fragment in rule_names
 
 
+def _try_repair_generated_unresolved_local_test_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove generated test expectations for local outputs that no longer exist."""
+    output_refs = _unresolved_local_test_output_refs_from_issues(issues)
+    if not output_refs:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+    target_base = (
+        f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    local_refs = sorted(
+        ref
+        for ref in output_refs
+        if ref == target_base or ref.startswith(f"{target_base}#")
+    )
+    if not local_refs:
+        return []
+    test_file = _rulespec_test_path(Path(str(getattr(result, "output_file", "") or "")))
+    return _remove_generated_test_output_refs(
+        test_file=test_file,
+        output_refs=set(local_refs),
+    )
+
+
+def _unresolved_local_test_output_refs_from_issues(issues: list[str]) -> set[str]:
+    refs: set[str] = set()
+    for issue in issues:
+        match = _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            refs.add(match.group(1).strip())
+    return refs
+
+
+def _remove_generated_test_output_refs(
+    *,
+    test_file: Path,
+    output_refs: set[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(test_cases, list):
+        return []
+
+    removed: list[str] = []
+    repaired_cases: list[Any] = []
+    for index, case in enumerate(test_cases):
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            repaired_cases.append(case)
+            continue
+        case_name = str(case.get("name") or f"case[{index}]")
+        repaired_outputs = {}
+        for raw_key, value in outputs.items():
+            output_ref = str(raw_key).strip().strip('"').strip("'")
+            if output_ref in output_refs:
+                removed.append(f"{case_name}:{output_ref}")
+                continue
+            repaired_outputs[raw_key] = value
+        if repaired_outputs:
+            repaired_case = dict(case)
+            repaired_case["output"] = repaired_outputs
+            repaired_cases.append(repaired_case)
+
+    if not removed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+    )
+    return removed
+
+
 _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
     r"Person-scoped rate base at unit scope: `([^`]+)`"
 )
@@ -12208,6 +12339,12 @@ _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN = re.compile(
 )
 _GENERIC_DEFERRED_PURPOSE_LIMITATION_ISSUE_PATTERN = re.compile(
     r"Generic output with deferred purpose-specific limitation: `([^`]+)`"
+)
+_SIBLING_RULE_NAME_COLLISION_ISSUE_PATTERN = re.compile(
+    r"Sibling rule name collision: rule `([^`]+)`"
+)
+_UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
+    r"Test case `[^`]+` output `([^`]+)` does not resolve"
 )
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"
