@@ -19,6 +19,7 @@ import difflib
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import shutil
@@ -14158,7 +14159,7 @@ def _repair_mixed_scalar_output_tests(
         f"{_repo_jurisdiction_prefix(repo_path)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
-    scalar_outputs: set[str] = set()
+    scalar_parameter_rules: dict[str, dict[str, Any]] = {}
     for rule in rules_document.get("rules") or []:
         if not isinstance(rule, dict):
             continue
@@ -14166,9 +14167,10 @@ def _repair_mixed_scalar_output_tests(
             continue
         name = str(rule.get("name") or "").strip()
         if name:
-            scalar_outputs.add(f"{target_base}#{name}")
-    if not scalar_outputs:
+            scalar_parameter_rules[f"{target_base}#{name}"] = rule
+    if not scalar_parameter_rules:
         return []
+    scalar_outputs = set(scalar_parameter_rules)
 
     repaired_cases: list[object] = []
     repaired_names: list[str] = []
@@ -14183,13 +14185,36 @@ def _repair_mixed_scalar_output_tests(
         if not isinstance(output, dict):
             repaired_cases.append(case)
             continue
+
+        output = dict(output)
+        dropped_fractional_parameter_outputs = [
+            key
+            for key in output
+            if _parameter_output_assertion_uses_nonterminating_fraction(
+                scalar_parameter_rules.get(str(key))
+            )
+        ]
+        for key in dropped_fractional_parameter_outputs:
+            output.pop(key, None)
+        if dropped_fractional_parameter_outputs:
+            case_name = str(case.get("name") or "case").strip() or "case"
+            if case_name not in repaired_names:
+                repaired_names.append(case_name)
+        if not output:
+            continue
+
         scalar_items = {
             key: _scalar_parameter_test_expected_value(value)
             for key, value in output.items()
             if str(key) in scalar_outputs
         }
         if not scalar_items or len(scalar_items) == len(output):
-            repaired_cases.append(case)
+            if dropped_fractional_parameter_outputs:
+                repaired_case = dict(case)
+                repaired_case["output"] = output
+                repaired_cases.append(repaired_case)
+            else:
+                repaired_cases.append(case)
             continue
 
         entity_items = {
@@ -14214,7 +14239,8 @@ def _repair_mixed_scalar_output_tests(
             "output": scalar_items,
         }
         repaired_cases.append(scalar_case)
-        repaired_names.append(case_name)
+        if case_name not in repaired_names:
+            repaired_names.append(case_name)
 
     if not repaired_names:
         return []
@@ -14349,6 +14375,43 @@ def _scalar_parameter_test_expected_value(value: Any) -> Any:
     if all(item == first for item in value):
         return first
     return value
+
+
+def _parameter_output_assertion_uses_nonterminating_fraction(
+    rule: dict[str, Any] | None,
+) -> bool:
+    """Return true when a raw parameter output cannot be stably represented in YAML."""
+    if not isinstance(rule, dict):
+        return False
+    formula = _first_parameter_formula_text(rule)
+    if formula is None:
+        return False
+    match = re.fullmatch(r"\(?\s*(-?\d+)\s*/\s*(-?\d+)\s*\)?", formula)
+    if not match:
+        return False
+    numerator = int(match.group(1))
+    denominator = int(match.group(2))
+    if denominator == 0:
+        return False
+    denominator = abs(denominator) // math.gcd(abs(numerator), abs(denominator))
+    for factor in (2, 5):
+        while denominator % factor == 0 and denominator > 1:
+            denominator //= factor
+    return denominator != 1
+
+
+def _first_parameter_formula_text(rule: dict[str, Any]) -> str | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return None
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if formula is None:
+            continue
+        return str(formula).strip()
+    return None
 
 
 def _unique_test_case_name(base: str, existing_names: set[str]) -> str:

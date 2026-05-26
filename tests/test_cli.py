@@ -6189,6 +6189,74 @@ rules:
             "us:statutes/26/3121/a/7#cash_nontrade_service_annual_threshold": 100
         }
 
+    def test_mixed_scalar_output_test_repair_drops_nonterminating_fraction_parameter(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        rules_file = policy_repo / "statutes/26/3306/c/20.yaml"
+        test_file = policy_repo / "statutes/26/3306/c/20.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: organized_camp_operation_month_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 7
+  - name: organized_camp_gross_receipts_percentage_limit
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1 / 3
+  - name: organized_camp_gross_receipts_test_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: selected_receipts <= organized_camp_gross_receipts_percentage_limit * other_receipts
+"""
+        )
+        test_file.write_text(
+            """- name: gross_receipts_path_qualifies
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3306/c/20#input.selected_receipts: 90
+    us:statutes/26/3306/c/20#input.other_receipts: 300
+  output:
+    us:statutes/26/3306/c/20#organized_camp_operation_month_limit: 7
+    us:statutes/26/3306/c/20#organized_camp_gross_receipts_percentage_limit: 0.3333333333333333
+    us:statutes/26/3306/c/20#organized_camp_gross_receipts_test_satisfied: holds
+"""
+        )
+
+        repaired = _repair_mixed_scalar_output_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/3306/c/20.yaml"),
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["gross_receipts_path_qualifies"]
+        assert cases[0]["output"] == {
+            "us:statutes/26/3306/c/20#organized_camp_gross_receipts_test_satisfied": "holds"
+        }
+        assert cases[1]["output"] == {
+            "us:statutes/26/3306/c/20#organized_camp_operation_month_limit": 7
+        }
+        assert (
+            "organized_camp_gross_receipts_percentage_limit"
+            not in test_file.read_text()
+        )
+
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
     ):
