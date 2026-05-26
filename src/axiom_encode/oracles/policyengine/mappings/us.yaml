@@ -9582,6 +9582,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3111(e) defines the qualified tax-exempt organization qualified-veteran employment credit against employer OASDI tax, including modified section 51 rates, applicable-period, qualified-veteran, exempt-purpose wage, and credit-limitation intermediates; PolicyEngine does not expose this credit or its section 51 modification surfaces as one-to-one payroll-tax outputs.
 
+  - legal_id_prefix: us:statutes/26/3111/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3111(f) defines section 41(h) research-credit offsets against employer OASDI and Medicare taxes, quarterly payroll-tax limitations, carryovers, and chapter 1 deduction coordination; PolicyEngine does not expose these employer payroll-credit allocation and carryover surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3202#
     country: us
     program: tax
