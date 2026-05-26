@@ -1987,6 +1987,39 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_c_18_fishing_boat_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/18.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: fishing_boat_service_excepted_from_employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: fishing_boat_service_excluded_from_employment
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
