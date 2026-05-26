@@ -1596,6 +1596,109 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_c_10_educational_health_and_exempt_organization_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/10.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: exempt_organization_service_remuneration_quarter_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 50
+  - name: exempt_organization_service_remuneration_below_threshold
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: remuneration_for_service_in_calendar_quarter < exempt_organization_service_remuneration_quarter_threshold
+  - name: service_in_employ_of_qualifying_exempt_organization
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_performed_in_employ_of_organization and employer_is_section_501_a_income_tax_exempt_organization and not employer_is_section_401_a_organization
+  - name: exempt_organization_low_remuneration_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_in_employ_of_qualifying_exempt_organization and exempt_organization_service_remuneration_below_threshold
+  - name: student_school_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_performed_in_employ_of_school_college_or_university and service_performed_by_student_enrolled_and_regularly_attending_classes_at_employing_school_college_or_university
+  - name: student_spouse_school_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_performed_by_spouse_of_student_enrolled_and_regularly_attending_classes_at_employing_school_college_or_university
+  - name: school_student_or_spouse_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: student_school_service_excepted_from_employment or student_spouse_school_service_excepted_from_employment
+  - name: work_experience_education_program_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_enrolled_at_qualifying_nonprofit_or_public_educational_institution_as_full_time_credit_student
+  - name: hospital_patient_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_performed_in_employ_of_hospital and service_performed_by_patient_of_hospital
+  - name: educational_health_and_exempt_organization_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: exempt_organization_low_remuneration_service_excepted_from_employment or school_student_or_spouse_service_excepted_from_employment or work_experience_education_program_service_excepted_from_employment or hospital_patient_service_excepted_from_employment
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 10}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
