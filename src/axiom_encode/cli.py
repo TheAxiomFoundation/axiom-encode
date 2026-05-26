@@ -13681,6 +13681,26 @@ def _validate_generated_encoding_in_policy_overlay(
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
+            imported_collision_repairs = _repair_imported_rule_name_collisions(
+                rules_file=overlay_target,
+                test_file=_rulespec_test_path(overlay_target),
+                repo_path=overlay_repo,
+                relative_output=relative_output,
+            )
+            if imported_collision_repairs:
+                supplemental_files[relative_output] = overlay_target.read_text()
+                test_path = _rulespec_test_path(overlay_target)
+                if test_path.exists():
+                    supplemental_files[test_path.relative_to(overlay_repo)] = (
+                        test_path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             mixed_scalar_repairs = _repair_mixed_scalar_output_tests(
                 rules_file=overlay_target,
                 test_file=_rulespec_test_path(overlay_target),
@@ -14135,6 +14155,193 @@ def _rulespec_ancestor_target_paths(relative_output: Path) -> list[Path]:
         ancestors.append(Path(f"{current.as_posix()}.yaml"))
         current = current.parent
     return ancestors
+
+
+def _repair_imported_rule_name_collisions(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> list[str]:
+    """Rename generated local outputs that collide with imported module exports."""
+    try:
+        rules_document = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(rules_document, dict):
+        return []
+
+    rules = rules_document.get("rules")
+    if not isinstance(rules, list):
+        return []
+    imports = rules_document.get("imports")
+    if not isinstance(imports, list):
+        return []
+
+    imported_names = _imported_module_exported_rule_names(
+        imports,
+        repo_path=repo_path,
+    )
+    if not imported_names:
+        return []
+
+    local_names = _rulespec_rule_names_from_payload(rules_document)
+    collisions = sorted(local_names & imported_names)
+    if not collisions:
+        return []
+
+    existing_names = set(local_names) | imported_names
+    replacements: dict[str, str] = {}
+    for name in collisions:
+        candidate = f"local_{name}"
+        index = 2
+        while candidate in existing_names:
+            candidate = f"local_{name}_{index}"
+            index += 1
+        replacements[name] = candidate
+        existing_names.add(candidate)
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if name in replacements:
+            rule["name"] = replacements[name]
+        for old, new in replacements.items():
+            _replace_formula_identifier_in_rule(rule, old=old, new=new)
+        _replace_local_proof_import_targets_in_rule(
+            rule,
+            target_base=target_base,
+            replacements=replacements,
+        )
+
+    rules_file.write_text(
+        yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+    )
+
+    if test_file.exists():
+        _replace_local_test_output_refs(
+            test_file,
+            target_base=target_base,
+            replacements=replacements,
+        )
+
+    return collisions
+
+
+def _imported_module_exported_rule_names(
+    imports: list[object],
+    *,
+    repo_path: Path,
+) -> set[str]:
+    names: set[str] = set()
+    seen_files: set[Path] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str):
+            continue
+        resolved = _same_repo_import_base_and_file(raw_import, repo_path=repo_path)
+        if resolved is None:
+            continue
+        _, import_file = resolved
+        try:
+            resolved_file = import_file.resolve()
+        except OSError:
+            resolved_file = import_file
+        if resolved_file in seen_files or not import_file.exists():
+            continue
+        seen_files.add(resolved_file)
+        names.update(_rulespec_exported_rule_names(import_file))
+    return names
+
+
+def _replace_formula_identifier_in_rule(
+    rule: dict[str, Any],
+    *,
+    old: str,
+    new: str,
+) -> None:
+    token = re.compile(rf"\b{re.escape(old)}\b")
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            version["formula"] = token.sub(new, formula)
+
+
+def _replace_local_proof_import_targets_in_rule(
+    rule: dict[str, Any],
+    *,
+    target_base: str,
+    replacements: dict[str, str],
+) -> None:
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if not isinstance(atoms, list):
+        return
+    for atom in atoms:
+        if not isinstance(atom, dict) or atom.get("kind") != "import":
+            continue
+        import_payload = atom.get("import")
+        if not isinstance(import_payload, dict):
+            continue
+        target = str(import_payload.get("target") or "").strip()
+        if "#" not in target or not _rulespec_ref_matches_base(target, target_base):
+            continue
+        output = str(import_payload.get("output") or "").strip()
+        if output in replacements:
+            import_payload["output"] = replacements[output]
+        base, _, fragment = target.partition("#")
+        if fragment in replacements:
+            import_payload["target"] = f"{base}#{replacements[fragment]}"
+
+
+def _replace_local_test_output_refs(
+    test_file: Path,
+    *,
+    target_base: str,
+    replacements: dict[str, str],
+) -> None:
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(test_cases, list):
+        return
+
+    changed = False
+    for case in test_cases:
+        if not isinstance(case, dict):
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            continue
+        case_changed = False
+        updated: dict[object, object] = {}
+        for key, value in output.items():
+            key_text = str(key)
+            if "#" in key_text and _rulespec_ref_matches_base(key_text, target_base):
+                base, _, fragment = key_text.partition("#")
+                replacement = replacements.get(fragment)
+                if replacement is not None:
+                    key = f"{base}#{replacement}"
+                    case_changed = True
+            updated[key] = value
+        if case_changed:
+            case["output"] = updated
+            changed = True
+
+    if changed:
+        test_file.write_text(yaml.safe_dump(test_cases, sort_keys=False))
 
 
 def _repair_mixed_scalar_output_tests(
