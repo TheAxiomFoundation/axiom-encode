@@ -9822,6 +9822,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3302(e) defines successor-employer credit eligibility and a pre-subsection-(c) credit amount; PolicyEngine exposes final employer FUTA tax, not this successor-credit intermediate separately.
 
+  - legal_id_prefix: us:statutes/26/3302/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3302(f) defines State-specific limitation and partial-limitation rules for subsection (c)(2) credit reductions, including benefit-cost ratios, State unemployment tax rates, and intermediate capped reduction amounts; PolicyEngine exposes final employer FUTA tax, not these statutory credit-reduction limitation components separately.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
