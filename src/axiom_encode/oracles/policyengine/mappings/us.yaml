@@ -9606,6 +9606,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3231(e) defines Railroad Retirement Tax Act compensation and its purpose-specific inclusions, exclusions, tip thresholds, and local-lodge disregards; PolicyEngine does not expose RRTA compensation-definition surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3231/g#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3231(g) defines Railroad Retirement Tax Act carrier status; PolicyEngine does not expose RRTA carrier-definition surfaces as one-to-one outputs.
+
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
     program: snap
