@@ -3106,6 +3106,16 @@ Import and context rules:
   the canonical home for the scalar. Import the exact child export and use it
   in the current formula; do not emit a duplicate local `parameter` with the
   same value or name in the parent/composition file.
+- Before using any imported output in arithmetic, check the copied context
+  export's `dtype:`. An imported `dtype: Judgment` is a predicate, not a scalar
+  amount, rate, or base. Never multiply, add, subtract, divide, `min`, or `max`
+  a Judgment import as if it were Money, Rate, Count, or another numeric value.
+  If the current source states a numeric base such as wages, remuneration,
+  payments, or amounts attributable to a category and the copied import only
+  identifies whether an item is attributable to that category, encode the source-stated numeric base as a local amount fact, or as a relation-filtered
+  aggregate only when a compatible relation and numeric amount field are
+  present. If neither is available, defer the numeric output instead of using
+  the Judgment import as a placeholder scalar.
 - If a copied context file for this target or a same-program sibling contains a `kind: source_relation` record, preserve the legal/provenance edge unless `./source.txt` proves it wrong; executable formula changes are not a reason to drop source graph context.
 - Do not fabricate same-instrument imports or `statutes/...#symbol` paths unless that exact `path#symbol` import target is listed.
 - do not fabricate sibling-file imports for uncopied same-instrument provisions.
@@ -3764,6 +3774,16 @@ RuleSpec requirements:
 - If the cited same-section subsection is supplied in context as a RuleSpec file, add an `imports:` entry for that file and reference its exported rule; do not summarize the cited subsection into a local fact like `person_meets_...requirements`.
 - Do not copy the body of a cited cross-reference provision into this module's `summary` or re-encode that cited provision locally. Keep this module scoped to the requested citation and import the cited provision instead.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
+- Before using any imported output in arithmetic, check the copied context
+  export's `dtype:`. An imported `dtype: Judgment` is a predicate, not a scalar
+  amount, rate, or base. Never multiply, add, subtract, divide, `min`, or `max`
+  a Judgment import as if it were Money, Rate, Count, or another numeric value.
+  If the current source states a numeric base such as wages, remuneration,
+  payments, or amounts attributable to a category and the copied import only
+  identifies whether an item is attributable to that category, encode the source-stated numeric base as a local amount fact, or as a relation-filtered
+  aggregate only when a compatible relation and numeric amount field are
+  present. If neither is available, defer the numeric output instead of using
+  the Judgment import as a placeholder scalar.
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
      or limit has a named local `parameter` or an exact imported parameter from

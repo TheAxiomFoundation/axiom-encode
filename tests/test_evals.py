@@ -494,6 +494,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "exact imported parameter from\n     context" in prompt
     assert "import it instead of duplicating it locally" in prompt
+    assert "An imported `dtype: Judgment` is a predicate, not a scalar" in prompt
+    assert "Never multiply, add, subtract, divide, `min`, or `max`" in prompt
+    assert "encode the source-stated numeric base as a local amount fact" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
     assert "For proration, average, ratio, or percentage tests" in prompt
     assert "use totals like 600" in prompt
