@@ -6516,6 +6516,114 @@ rules:
     assert any("statutes/26/3241" in issue for issue in issues)
 
 
+def test_flattened_thresholded_imported_rate_is_rejected(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    imported_file.parent.mkdir(parents=True)
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: additional_medicare_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 0.009
+  - name: additional_medicare_wage_tax_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 200000
+  - name: additional_medicare_excess_wages
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: max(0, wages - additional_medicare_wage_tax_threshold)
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3101/b/2#additional_medicare_tax_rate
+rules:
+  - name: tier_1_applicable_percentage
+    kind: derived
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: base_rate + additional_medicare_tax_rate
+  - name: tier_1_employee_tax
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: compensation * tier_1_applicable_percentage
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_flattened_thresholded_imported_rates(rules_file)
+
+    assert len(issues) == 1
+    assert "Flattened thresholded imported rate" in issues[0]
+    assert "additional_medicare_tax_rate" in issues[0]
+
+
+def test_thresholded_imported_rate_allows_excess_amount_formula(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    imported_file.parent.mkdir(parents=True)
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: additional_medicare_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 0.009
+  - name: additional_medicare_wage_tax_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 200000
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3101/b/2#additional_medicare_tax_rate
+rules:
+  - name: additional_medicare_component_tax
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: additional_medicare_excess_wages * additional_medicare_tax_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_flattened_thresholded_imported_rates(rules_file)
+
+    assert issues == []
+
+
 def test_cross_reference_numeric_placeholder_does_not_infer_named_act_title(
     tmp_path,
 ):

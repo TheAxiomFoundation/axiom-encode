@@ -11262,6 +11262,46 @@ def _normalize_identifier(value: str) -> str:
     return re.sub(r"_+", "_", normalized).strip("_")
 
 
+def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
+    """Return whether an imported rate file also encodes limited rate mechanics."""
+    if rate_name not in _formula_local_identifiers(content):
+        return False
+    normalized = _normalize_identifier(content)
+    return any(
+        token in normalized
+        for token in (
+            "threshold",
+            "excess",
+            "cap",
+            "capped",
+            "ceiling",
+            "limit",
+            "limited",
+            "above",
+            "below",
+        )
+    )
+
+
+def _formula_preserves_thresholded_rate_mechanics(formula: str) -> bool:
+    """Return whether a local formula appears to preserve limited-rate mechanics."""
+    normalized = _normalize_identifier(formula)
+    if any(
+        token in normalized
+        for token in (
+            "threshold",
+            "excess",
+            "cap",
+            "capped",
+            "ceiling",
+            "limit",
+            "limited",
+        )
+    ):
+        return True
+    return bool(re.search(r"\bmin\s*\(", formula))
+
+
 def find_test_input_assignment_issues(
     content: str,
     test_cases: Any,
@@ -14898,6 +14938,7 @@ class ValidatorPipeline:
         issues.extend(self._check_cross_reference_exception_placeholders(rules_file))
         issues.extend(self._check_encoded_cross_reference_placeholders(rules_file))
         issues.extend(self._check_cross_reference_numeric_placeholders(rules_file))
+        issues.extend(self._check_flattened_thresholded_imported_rates(rules_file))
         issues.extend(
             find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
         )
@@ -15583,6 +15624,54 @@ class ValidatorPipeline:
                         f"`{block['name']}` uses local `{identifier}` for "
                         f"`{label}` set by a cited legal section. {resolution}"
                     )
+        return issues
+
+    def _check_flattened_thresholded_imported_rates(
+        self, rulespec_file: Path
+    ) -> list[str]:
+        """Reject formulas that flatten thresholded imported rates into flat rates."""
+        content = rulespec_file.read_text()
+        imported_rate_sources: dict[str, str] = {}
+        for import_item in self._extract_import_items(content):
+            fragment = self._import_item_fragment(import_item)
+            if not fragment or "rate" not in fragment.lower():
+                continue
+            import_file = _resolve_rulespec_import_file_static(
+                import_item,
+                rules_file=rulespec_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+            if import_file is None:
+                continue
+            with contextlib.suppress(OSError):
+                imported_content = import_file.read_text()
+                if _imported_rate_source_is_thresholded(
+                    imported_content,
+                    fragment,
+                ):
+                    imported_rate_sources[fragment] = import_item
+
+        if not imported_rate_sources:
+            return []
+
+        issues: list[str] = []
+        for block in self._extract_definition_blocks(content):
+            formula = "\n".join(str(line) for line in block["body_lines"])
+            identifiers = _formula_local_identifiers(formula)
+            for rate_name, import_item in sorted(imported_rate_sources.items()):
+                if rate_name not in identifiers:
+                    continue
+                if _formula_preserves_thresholded_rate_mechanics(formula):
+                    continue
+                issues.append(
+                    "Flattened thresholded imported rate: "
+                    f"`{block['name']}` uses imported `{rate_name}` from "
+                    f"`{import_item}` without the cited source's threshold, "
+                    "cap, base, or excess-amount mechanics. Import and compose "
+                    "the cited executable amount or the cited base/threshold "
+                    "outputs, or defer the affected output instead of applying "
+                    "the rate as a flat percentage."
+                )
         return issues
 
     def _extract_cross_reference_numeric_obligations(

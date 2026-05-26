@@ -453,6 +453,12 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "rate-applied result at that lower entity" in prompt
     assert "Treat legal subject nouns as stronger evidence" in prompt
     assert "usually require\n  `entity: Person`" in prompt
+    assert "thresholded, capped, base-limited" in prompt
+    assert (
+        "do not flatten the cited mechanics into `current_base * imported_rate`"
+        in prompt
+    )
+    assert "defer the\n  affected executable output" in prompt
     assert 'definition uses "taxpayer" but also says the amount is "of an' in prompt
     assert 'Do not let\n  the word "taxpayer"' in prompt
     assert "on the [base] of every individual/person/employee" in prompt
