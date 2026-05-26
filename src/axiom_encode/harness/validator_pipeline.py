@@ -9402,6 +9402,183 @@ def find_scoped_exception_category_gate_issues(content: str) -> list[str]:
     return issues
 
 
+_CURRENT_PURPOSE_PLACEHOLDER_PATTERN = re.compile(
+    r"(?:^|_)current_(?:purpose|use|context)(?:_|$)|"
+    r"(?:^|_)(?:for|under)_current_(?:purpose|use|context)(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_PURPOSE_SPECIFIC_NAME_MARKER_PATTERN = re.compile(
+    r"(?:^|_)(?:for|under|with_respect_to|in_case_of)_"
+    r"(?:section|subsection|paragraph|clause|tax|rate|purpose|portion|category|use|case)"
+    r"(?:_|$)|(?:^|_)hospital_insurance(?:_|$)|(?:^|_)rate_portion(?:_|$)|"
+    r"(?:^|_)tier_[0-9]+(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_DEFERRED_PURPOSE_LIMITATION_REASON_PATTERN = re.compile(
+    r"\b(?:shall\s+not\s+apply|does\s+not\s+apply|except(?:ion)?|carve-?out|"
+    r"purpose-specific|rate\s+portion|for\s+purposes\s+of|for\s+the\s+tax\s+imposed\s+by)\b",
+    flags=re.IGNORECASE,
+)
+_PURPOSE_SPLIT_PATTERN = re.compile(
+    r"_(?:for|under|with_respect_to|in_case_of)_(?:section|subsection|paragraph|"
+    r"clause|tax|rate|purpose|portion|category|use|case)",
+    flags=re.IGNORECASE,
+)
+_PURPOSE_TOKEN_STOPWORDS = {
+    "a",
+    "after",
+    "and",
+    "any",
+    "applicable",
+    "before",
+    "by",
+    "current",
+    "for",
+    "from",
+    "in",
+    "of",
+    "or",
+    "purpose",
+    "the",
+    "to",
+    "under",
+    "with",
+}
+_PURPOSE_AMOUNT_TOKENS = {
+    "amount",
+    "base",
+    "benefit",
+    "compensation",
+    "credit",
+    "deduction",
+    "earnings",
+    "excess",
+    "exclusion",
+    "inclusion",
+    "income",
+    "rate",
+    "tax",
+    "wage",
+    "wages",
+}
+
+
+def find_current_purpose_placeholder_issues(content: str) -> list[str]:
+    """Reject broad current-purpose placeholders in executable formulas."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived":
+            continue
+        for identifier in sorted(_formula_local_identifiers(formula)):
+            if not _CURRENT_PURPOSE_PLACEHOLDER_PATTERN.search(identifier):
+                continue
+            issues.append(
+                "Current-purpose placeholder input: "
+                f"`{name}` references `{identifier}`. Do not make callers supply "
+                "a broad current-purpose/current-context base; encode concrete "
+                "purpose-specific outputs or defer the affected executable surface."
+            )
+    return issues
+
+
+def find_deferred_purpose_specific_limitation_issues(content: str) -> list[str]:
+    """Reject generic executable outputs when purpose-specific limitations defer."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    deferred_prefix_tokens: list[tuple[str, set[str]]] = []
+    module = payload.get("module")
+    deferred_outputs = (
+        module.get("deferred_outputs") if isinstance(module, dict) else None
+    )
+    if not isinstance(deferred_outputs, list):
+        return []
+    for record in deferred_outputs:
+        if not isinstance(record, dict):
+            continue
+        output = str(record.get("output") or "").strip()
+        reason = str(record.get("reason") or "").strip()
+        if not output or "#" not in output:
+            continue
+        symbol = output.rsplit("#", 1)[1]
+        if not (
+            _PURPOSE_SPECIFIC_NAME_MARKER_PATTERN.search(symbol)
+            or _DEFERRED_PURPOSE_LIMITATION_REASON_PATTERN.search(reason)
+        ):
+            continue
+        if not _DEFERRED_PURPOSE_LIMITATION_REASON_PATTERN.search(reason):
+            continue
+        prefix = _purpose_specific_prefix(symbol)
+        tokens = _purpose_surface_tokens(prefix)
+        if len(tokens) < 2:
+            continue
+        deferred_prefix_tokens.append((symbol, tokens))
+    if not deferred_prefix_tokens:
+        return []
+
+    issues: list[str] = []
+    for name, kind, _formula, _source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype in {"judgment", "boolean", "bool"}:
+            continue
+        if _PURPOSE_SPECIFIC_NAME_MARKER_PATTERN.search(name):
+            continue
+        rule_tokens = _purpose_surface_tokens(name)
+        if not rule_tokens or not rule_tokens.intersection(_PURPOSE_AMOUNT_TOKENS):
+            continue
+        for deferred_symbol, deferred_tokens in deferred_prefix_tokens:
+            overlap = rule_tokens & deferred_tokens
+            if len(overlap) < 3:
+                continue
+            overlap_hint = ", ".join(f"`{token}`" for token in sorted(overlap)[:4])
+            issues.append(
+                "Generic output with deferred purpose-specific limitation: "
+                f"`{name}` overlaps deferred purpose-specific output "
+                f"`{deferred_symbol}` on {overlap_hint}. Do not export a broad "
+                "amount/base/inclusion/exclusion that applies the non-excepted "
+                "rule to every purpose while a source-stated purpose-specific "
+                "carve-out is deferred; rename/split into concrete "
+                "purpose-specific outputs or defer the generic surface."
+            )
+            break
+    return issues
+
+
+def _purpose_specific_prefix(symbol: str) -> str:
+    match = _PURPOSE_SPLIT_PATTERN.search(symbol)
+    if match:
+        return symbol[: match.start()]
+    return symbol
+
+
+def _purpose_surface_tokens(name: str) -> set[str]:
+    tokens = {
+        _normalize_purpose_token(token)
+        for token in _normalize_identifier(name).split("_")
+        if token and token not in _PURPOSE_TOKEN_STOPWORDS
+    }
+    return {token for token in tokens if token}
+
+
+def _normalize_purpose_token(token: str) -> str:
+    if token in {"exclude", "excluded", "excludes", "excluding"}:
+        return "exclusion"
+    if token in {"include", "included", "includes", "including", "includable"}:
+        return "inclusion"
+    if token in {"earning"}:
+        return "earnings"
+    return token
+
+
 def _rule_scoped_exception_categories(rule: dict[str, Any]) -> list[str]:
     proof = _rule_proof_payload(rule)
     atoms = proof.get("atoms") if isinstance(proof, dict) else None
@@ -14901,6 +15078,8 @@ class ValidatorPipeline:
         issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_partial_extent_zeroing_issues(content))
         issues.extend(find_scoped_exception_category_gate_issues(content))
+        issues.extend(find_current_purpose_placeholder_issues(content))
+        issues.extend(find_deferred_purpose_specific_limitation_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(find_import_shape_issues(content))

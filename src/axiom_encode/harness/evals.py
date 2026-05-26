@@ -3382,6 +3382,18 @@ RuleSpec requirements:
   broader meaning. Downstream provisions must import the output that matches
   their cited purpose rather than using a stale local input or an over-broad
   generic output.
+- If one purpose-specific exception, rate portion, or base branch is not
+  executable yet, do not export a generic `x_after_cap`, `x_included`,
+  `x_excluded`, `taxable_x`, or similar output that silently applies the
+  non-excepted branch to every downstream purpose. Either split the executable
+  surface into concrete purpose-scoped outputs and defer only the unresolved
+  purpose, or defer the generic surface entirely.
+- Do not use boundary inputs named like `applicable_base_for_current_purpose`,
+  `amount_for_current_context`, or `rate_under_current_use`. Those hide
+  purpose-specific legal mechanics from downstream importers. Use the concrete
+  source-stated purpose in the rule name and formula input, such as
+  `applicable_base_for_section_3201_a_non_hospital_insurance_rate_portion`, or
+  defer that purpose-specific surface.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
   `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
