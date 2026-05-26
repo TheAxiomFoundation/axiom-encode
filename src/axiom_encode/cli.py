@@ -11936,6 +11936,7 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
     """Defer generated outputs that validation proved use unsafe formulas."""
     seed_rules: set[str] = set()
     issue_reasons: dict[str, list[str]] = defaultdict(list)
+    issue_source_values: dict[str, set[str]] = defaultdict(set)
     for issue in issues:
         issue_text = str(issue)
         flattened_match = _FLATTENED_THRESHOLDED_RATE_ISSUE_PATTERN.search(issue_text)
@@ -11974,6 +11975,17 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             rule_name = sibling_match.group(1)
             seed_rules.add(rule_name)
             issue_reasons[rule_name].append("sibling_rule_name_collision")
+        unused_modifier_match = _UNUSED_SOURCE_MODIFIER_ISSUE_PATTERN.search(issue_text)
+        if unused_modifier_match:
+            source_value_rule = unused_modifier_match.group("source_value")
+            affected_rule_names = re.findall(
+                r"`([^`]+)`",
+                unused_modifier_match.group("affected"),
+            )
+            for rule_name in affected_rule_names:
+                seed_rules.add(rule_name)
+                issue_reasons[rule_name].append("unused_source_modifier")
+                issue_source_values[rule_name].add(source_value_rule)
     if not seed_rules:
         return []
 
@@ -12082,6 +12094,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "encoded with a semantic branch-specific name without creating "
                 "ambiguous sibling imports."
             )
+        elif "unused_source_modifier" in reasons:
+            reason = (
+                "Generated rule ignored a source-stated substitution, "
+                "modification, or limitation parameter. This output is deferred "
+                "until the upstream cross-referenced mechanics can be imported "
+                "or composed without stranding the modifier."
+            )
         else:
             reason = (
                 "Generated rule used a thresholded, capped, base-limited, or "
@@ -12090,7 +12109,15 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "flattening the imported rate."
             )
         if output not in existing_outputs:
-            deferred_outputs.append({"output": output, "reason": reason})
+            deferred_record = {"output": output, "reason": reason}
+            source_value_targets = _source_value_targets_for_generated_rule_names(
+                rule_names=issue_source_values.get(rule_name, set()),
+                rules_by_name=rules_by_name,
+                base_anchor=base_anchor,
+            )
+            if source_value_targets:
+                deferred_record["source_values"] = source_value_targets
+            deferred_outputs.append(deferred_record)
             existing_outputs.add(output)
         deferred_targets.append(output)
 
@@ -12162,6 +12189,27 @@ def _deferred_output_target_for_generated_rule(
     return f"{base_anchor}{path_suffix}#{rule_name}"
 
 
+def _source_value_targets_for_generated_rule_names(
+    *,
+    rule_names: set[str],
+    rules_by_name: dict[str, dict[str, Any]],
+    base_anchor: str,
+) -> list[str]:
+    targets: list[str] = []
+    for rule_name in sorted(rule_names):
+        rule = rules_by_name.get(rule_name)
+        if not isinstance(rule, dict):
+            continue
+        target = _deferred_output_target_for_generated_rule(
+            rule_name=rule_name,
+            rule=rule,
+            base_anchor=base_anchor,
+        )
+        if target and target not in targets:
+            targets.append(target)
+    return targets
+
+
 def _top_level_source_suffix_from_rule_source(source: str) -> str:
     match = re.search(
         r"\b[0-9A-Za-z]+\s+USC\s+[0-9A-Za-z.-]+"
@@ -12193,6 +12241,7 @@ def _remove_generated_test_outputs_for_deferred_rules(
 
     removed_cases: list[str] = []
     repaired_cases: list[Any] = []
+    changed = False
     for index, case in enumerate(test_cases):
         if not isinstance(case, dict):
             repaired_cases.append(case)
@@ -12213,6 +12262,7 @@ def _remove_generated_test_outputs_for_deferred_rules(
         if repaired_outputs == outputs:
             repaired_cases.append(case)
             continue
+        changed = True
         case_name = str(case.get("name") or f"case[{index}]")
         if repaired_outputs:
             repaired_case = dict(case)
@@ -12221,7 +12271,7 @@ def _remove_generated_test_outputs_for_deferred_rules(
         else:
             removed_cases.append(case_name)
 
-    if len(repaired_cases) == len(test_cases) and not removed_cases:
+    if not changed and not removed_cases:
         return []
     test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
     return removed_cases
@@ -12360,6 +12410,10 @@ _GENERIC_DEFERRED_PURPOSE_LIMITATION_ISSUE_PATTERN = re.compile(
 )
 _SIBLING_RULE_NAME_COLLISION_ISSUE_PATTERN = re.compile(
     r"Sibling rule name collision: rule `([^`]+)`"
+)
+_UNUSED_SOURCE_MODIFIER_ISSUE_PATTERN = re.compile(
+    r"Source-stated modifier parameter is not used by any numeric derived output: "
+    r"`(?P<source_value>[^`]+)`.+?but (?P<affected>.+?) ignores it\.",
 )
 _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
     r"Test case `[^`]+` output `([^`]+)` does not resolve"

@@ -1826,6 +1826,12 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "employer_medicare_tax"
     )
+    qualified_veteran_credit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3111/e#veteran_employment_credit_against_subsection_a_tax",
+        country="us",
+    )
+    assert qualified_veteran_credit_mapping.mapping_type == "not_comparable"
+    assert qualified_veteran_credit_mapping.match_type == "prefix"
     assert (
         registry.mapping_for_legal_id(
             "us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount",
