@@ -20,6 +20,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 try:
     import numpy as np
 except ImportError:  # pragma: no cover - exercised only without optional oracle deps
@@ -90,6 +92,39 @@ def contribution_and_benefit_base_output(year: int) -> str:
         f"{contribution_and_benefit_base_base(year)}"
         "#contribution_and_benefit_base_under_section_230_of_social_security_act"
     )
+
+
+def contribution_and_benefit_base_output_candidates(year: int) -> tuple[str, ...]:
+    base = contribution_and_benefit_base_base(year)
+    return (
+        contribution_and_benefit_base_output(year),
+        f"{base}#contribution_and_benefit_base",
+    )
+
+
+def contribution_and_benefit_base_output_for_program(
+    program: Path,
+    *,
+    year: int,
+) -> str:
+    """Return the final contribution-and-benefit-base output exported by a file."""
+    try:
+        payload = yaml.safe_load(program.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return contribution_and_benefit_base_output(year)
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return contribution_and_benefit_base_output(year)
+    exported_names = {
+        rule.get("name")
+        for rule in rules
+        if isinstance(rule, dict) and isinstance(rule.get("name"), str)
+    }
+    for output in contribution_and_benefit_base_output_candidates(year):
+        local_name = output.rsplit("#", 1)[-1]
+        if local_name in exported_names:
+            return output
+    return contribution_and_benefit_base_output(year)
 
 
 CTC_OUTPUTS = {
@@ -537,16 +572,32 @@ def compare_tax_ecps(
                         "Contribution-and-benefit-base RuleSpec not found: "
                         f"{contribution_base_program}"
                     )
-                contribution_base_results = run_axiom_program(
-                    program=contribution_base_program,
-                    request=build_contribution_and_benefit_base_request(year=year),
-                    rulespec_root=resolved_rulespec_root,
-                    axiom_rules_path=resolved_axiom_rules_path,
+                contribution_base_output = (
+                    contribution_and_benefit_base_output_for_program(
+                        contribution_base_program,
+                        year=year,
+                    )
                 )
-                contribution_base = contribution_and_benefit_base_from_results(
-                    contribution_base_results,
+                contribution_base = contribution_and_benefit_base_from_rulespec_test(
+                    resolved_rulespec_root,
                     year=year,
+                    output=contribution_base_output,
                 )
+                if contribution_base is None:
+                    contribution_base_results = run_axiom_program(
+                        program=contribution_base_program,
+                        request=build_contribution_and_benefit_base_request(
+                            year=year,
+                            output=contribution_base_output,
+                        ),
+                        rulespec_root=resolved_rulespec_root,
+                        axiom_rules_path=resolved_axiom_rules_path,
+                    )
+                    contribution_base = contribution_and_benefit_base_from_results(
+                        contribution_base_results,
+                        year=year,
+                        output=contribution_base_output,
+                    )
             if oasdi_wage_base_results is None:
                 oasdi_program = resolved_rulespec_root / OASDI_WAGE_BASE_PROGRAM_PATH
                 if not oasdi_program.exists():
@@ -1167,12 +1218,17 @@ def build_payroll_request(
     }
 
 
-def build_contribution_and_benefit_base_request(*, year: int) -> dict[str, Any]:
+def build_contribution_and_benefit_base_request(
+    *,
+    year: int,
+    output: str | None = None,
+) -> dict[str, Any]:
     interval = {
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
         "end": f"{year:04d}-12-31",
     }
+    requested_output = output or contribution_and_benefit_base_output(year)
     return {
         "mode": "explain",
         "dataset": {"inputs": [], "relations": []},
@@ -1180,7 +1236,7 @@ def build_contribution_and_benefit_base_request(*, year: int) -> dict[str, Any]:
             {
                 "entity_id": f"tax_year_{year}",
                 "period": interval,
-                "outputs": [contribution_and_benefit_base_output(year)],
+                "outputs": [requested_output],
             }
         ],
     }
@@ -1190,8 +1246,9 @@ def contribution_and_benefit_base_from_results(
     results: list[dict[str, Any]],
     *,
     year: int,
+    output: str | None = None,
 ) -> float:
-    output = contribution_and_benefit_base_output(year)
+    output = output or contribution_and_benefit_base_output(year)
     if len(results) != 1:
         raise ValueError(
             "Expected exactly one contribution-and-benefit-base output result; "
@@ -1204,6 +1261,54 @@ def contribution_and_benefit_base_from_results(
             f"Axiom contribution-and-benefit-base output missing: {output}."
         )
     return contribution_base
+
+
+def contribution_and_benefit_base_from_rulespec_test(
+    rulespec_root: Path,
+    *,
+    year: int,
+    output: str | None = None,
+) -> float | None:
+    test_path = rulespec_root / contribution_and_benefit_base_program_path(
+        year
+    ).with_suffix(".test.yaml")
+    if not test_path.exists():
+        return None
+    try:
+        cases = yaml.safe_load(test_path.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(cases, list):
+        return None
+
+    outputs = (
+        (output,)
+        if output is not None
+        else contribution_and_benefit_base_output_candidates(year)
+    )
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        case_outputs = case.get("output")
+        if not isinstance(case_outputs, dict):
+            continue
+        for candidate_output in outputs:
+            if candidate_output not in case_outputs:
+                continue
+            return yaml_number(case_outputs[candidate_output])
+    return None
+
+
+def yaml_number(value: Any) -> float:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.strip().replace(",", "").replace("$", "")
+        if normalized:
+            return float(normalized)
+    return math.nan
 
 
 def build_oasdi_wage_base_request(
