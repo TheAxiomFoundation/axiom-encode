@@ -2135,6 +2135,52 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_d_pay_period_deeming(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/d.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: pay_period_for_included_and_excluded_service
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '1990-01-01'
+        formula: pay_period_consecutive_days <= pay_period_max_consecutive_days
+  - name: local_all_services_for_pay_period_deemed_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '1990-01-01'
+        formula: pay_period_for_included_and_excluded_service and employment_fraction >= one_half_services_threshold
+  - name: local_no_services_for_pay_period_deemed_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '1990-01-01'
+        formula: pay_period_for_included_and_excluded_service and nonemployment_fraction > one_half_services_threshold
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
