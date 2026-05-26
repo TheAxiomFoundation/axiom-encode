@@ -58,6 +58,7 @@ from axiom_encode.cli import (
     _sign_applied_encoding_manifest,
     _source_relation_preservation_issues,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
@@ -6456,6 +6457,55 @@ rules:
         )
         assert proof_import["hash"] == f"sha256:{_sha256_file(upstream_file)}"
         assert test_cases[0]["output"] == {"us:statutes/26/3306/d#pay_period": "holds"}
+
+    def test_missing_deferred_output_repair_adds_definition_target(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/26/3306/e.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  status: entity_not_supported
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+  summary: |-
+    “State agency” means any State officer, board, or other authority.
+rules: []
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_missing_deferred_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3306/e.yaml: ci: Source sub-paragraph coverage missing: "
+                "26 USC 3306(e) has no rule citing it and no entry in "
+                "`module.deferred_outputs`."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == ["us:statutes/26/3306/e#state_agency"]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": "us:statutes/26/3306/e#state_agency",
+                "reason": (
+                    "Generated module is marked `entity_not_supported`; the source "
+                    "definition for State agency cannot be encoded as an executable "
+                    "RuleSpec output until the target entity or surface is supported."
+                ),
+            }
+        ]
+        assert payload["rules"] == []
 
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
