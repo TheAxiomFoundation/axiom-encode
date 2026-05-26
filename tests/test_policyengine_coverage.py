@@ -2831,6 +2831,48 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3231_e_2_contribution_base_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/e/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: successor_employer_compensation_base_continuity_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: successor_acquisition and immediate_service
+  - name: predecessor_compensation_counted_for_successor_applicable_base
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: predecessor_compensation
+  - name: compensation_counted_toward_applicable_base_before_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: compensation_before_payment
+  - name: remaining_applicable_base_before_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: applicable_base - compensation_before_payment
+  - name: compensation_excess_excluded_before_hospital_insurance_carveout
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, remuneration - remaining_applicable_base_before_payment)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_f_company_output(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/f.yaml",
