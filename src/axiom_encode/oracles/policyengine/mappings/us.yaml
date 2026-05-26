@@ -9958,6 +9958,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(c)(18) incorporates the section 3121(b)(20) fishing-boat service exception as a FUTA employment exception predicate; PolicyEngine exposes final FUTA taxable earnings, not this fishing-boat employment exception predicate separately.
 
+  - legal_id_prefix: us:statutes/26/3306/c/19#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(c)(19) defines a nonresident-alien F, J, M, or Q nonimmigrant purpose-service exception predicate for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not this immigration-status employment exception predicate separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
