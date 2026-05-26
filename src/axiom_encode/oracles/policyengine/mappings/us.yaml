@@ -9990,6 +9990,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(d) defines pay-period included-and-excluded-service deeming predicates for FUTA coverage; PolicyEngine exposes final FUTA taxable earnings, not these pay-period employment deeming intermediates separately.
 
+  - legal_id_prefix: us:statutes/26/3306/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(f) defines State unemployment-fund status and maintained-fund predicates for FUTA administration; PolicyEngine exposes final FUTA taxable earnings, not State fund entity predicates separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax
