@@ -9576,6 +9576,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3212 determines employee-representative compensation for Railroad Retirement Tax Act tax ascertainment as if the employee organization were a section 3231(a) employer; PolicyEngine does not expose RRTA employee-representative compensation-determination surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3231/a#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3231(a) defines Railroad Retirement Tax Act employer status and related inclusion or exception predicates; PolicyEngine does not expose railroad-employer definition surfaces as one-to-one outputs.
+
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
     program: snap
