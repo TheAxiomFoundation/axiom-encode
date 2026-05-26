@@ -2609,6 +2609,56 @@ rules:
     assert item["policyengine_variable"] is None
 
 
+def test_policyengine_coverage_classifies_3231_a_employer_definition_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: carrier_or_controlled_service_company_included
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: carrier_as_defined_in_subsection_g
+  - name: receiver_or_trustee_of_employer_included
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: receiver_or_trustee
+  - name: railroad_association_or_organization_included
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: railroad_association
+  - name: railway_labor_organization_included
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: railway_labor_organization
+  - name: electric_railway_exception_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: electric_railway_exception
+  - name: coal_company_exception_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: coal_company_exception
+  - name: employer
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: carrier_or_controlled_service_company_included
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 7}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
