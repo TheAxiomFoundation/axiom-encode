@@ -1735,6 +1735,42 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_c_12_foreign_government_instrumentality_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/12.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: foreign_government_wholly_owned_instrumentality_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_in_employ_of_instrumentality_wholly_owned_by_foreign_government
+          and service_character_similar_to_service_performed_in_foreign_countries_by_united_states_government_or_instrumentality_employees
+          and secretary_of_state_certifies_foreign_government_grants_equivalent_exemption_for_similar_service_by_united_states_government_or_instrumentality_employees
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["status"] == "known_not_comparable"
+    assert (
+        item["policyengine_variable"] == "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
