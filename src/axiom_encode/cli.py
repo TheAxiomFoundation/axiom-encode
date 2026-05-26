@@ -11948,6 +11948,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             rule_name = base_match.group(1)
             seed_rules.add(rule_name)
             issue_reasons[rule_name].append("cross_reference_base_mechanics")
+        placeholder_match = _CROSS_REFERENCE_PLACEHOLDER_ISSUE_PATTERN.search(
+            issue_text
+        )
+        if placeholder_match:
+            rule_name = placeholder_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("cross_reference_placeholder")
         numeric_match = _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN.search(
             issue_text
         )
@@ -12054,6 +12061,12 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "section. This output is deferred until the cited numeric "
                 "mechanics can be imported or composed without a local placeholder."
             )
+        elif "cross_reference_placeholder" in reasons:
+            reason = (
+                "Generated rule kept a local fact for a cited legal section. This "
+                "output is deferred until the cited source can be encoded or "
+                "imported without a local cross-reference placeholder."
+            )
         elif "generic_deferred_purpose_limitation" in reasons:
             reason = (
                 "Generated rule exported a broad amount, base, inclusion, or "
@@ -12144,6 +12157,8 @@ def _deferred_output_target_for_generated_rule(
 ) -> str:
     source = str(rule.get("source") or "")
     path_suffix = _top_level_source_suffix_from_rule_source(source)
+    if path_suffix and base_anchor.endswith(path_suffix):
+        path_suffix = ""
     return f"{base_anchor}{path_suffix}#{rule_name}"
 
 
@@ -12333,6 +12348,9 @@ _FLATTENED_THRESHOLDED_RATE_ISSUE_PATTERN = re.compile(
 )
 _CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN = re.compile(
     r"Cross-reference base mechanics omitted: `([^`]+)`"
+)
+_CROSS_REFERENCE_PLACEHOLDER_ISSUE_PATTERN = re.compile(
+    r"(?:Encoded )?Cross-reference placeholder: `([^`]+)`"
 )
 _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN = re.compile(
     r"Cross-reference numeric placeholder: `([^`]+)`"
