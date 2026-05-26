@@ -2585,6 +2585,30 @@ rules:
     assert {item["policyengine_variable"] for item in items_by_id.values()} == {None}
 
 
+def test_policyengine_coverage_classifies_3212_compensation_output(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3212.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee_representative_compensation_for_tax_ascertainment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: compensation_paid_by_employee_organization
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us:statutes/26/3212#employee_representative_compensation_for_tax_ascertainment"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
