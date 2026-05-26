@@ -1933,6 +1933,60 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_c_17_aquatic_life_employment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/c/17.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: large_vessel_net_tons_threshold
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 10
+  - name: qualifying_aquatic_life_service
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_performed_in_catching_taking_harvesting_cultivating_or_farming_aquatic_life
+  - name: large_vessel_service_carveout_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: vessel_net_tons > large_vessel_net_tons_threshold
+  - name: aquatic_life_service_excepted_from_employment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualifying_aquatic_life_service and not large_vessel_service_carveout_applies
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
