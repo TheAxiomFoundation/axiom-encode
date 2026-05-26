@@ -3658,6 +3658,19 @@ def test_policyengine_coverage_treats_ssa_policy_parameters_as_tax(tmp_path):
     _write_rulespec_file(
         tmp_path
         / "rulespec-us"
+        / "policies/ssa/contribution-and-benefit-base/2024.yaml",
+        """format: rulespec/v1
+rules:
+  - name: contribution_and_benefit_base
+    kind: parameter
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '168600'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
         / "policies/ssa/contribution-and-benefit-base/2026.yaml",
         """format: rulespec/v1
 rules:
@@ -3676,8 +3689,21 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["total_outputs"] == 2
+    assert report["total_outputs"] == 3
     statuses_by_id = {item["legal_id"]: item["status"] for item in report["items"]}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        statuses_by_id[
+            "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+        ]
+        == "comparable"
+    )
+    assert (
+        items_by_id[
+            "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+        ]["policyengine_parameter"]
+        == "gov.irs.payroll.social_security.cap"
+    )
     assert (
         statuses_by_id[
             "us:policies/ssa/contribution-and-benefit-base/2026#base_year_contribution_and_benefit_base"
