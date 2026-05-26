@@ -10843,6 +10843,32 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_kinds = (
+                    _try_repair_generated_invalid_proof_atom_kinds_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_kinds:
+                    outcome["auto_repaired_invalid_proof_atom_kinds"] = repaired_kinds
+                    print(
+                        "  apply=auto_repaired_invalid_proof_atom_kinds:"
+                        + ",".join(repaired_kinds)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_hashes = _try_repair_generated_proof_import_hashes_for_apply(
                     result,
                     output_root=args.output,
@@ -11544,6 +11570,57 @@ def _try_repair_generated_proof_import_hashes_for_apply(
         return []
     rules_file.write_text(repaired)
     return [f"hash[{index}]" for index in range(repair_count)]
+
+
+def _try_repair_generated_invalid_proof_atom_kinds_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Normalize schema-invalid proof kind synonyms in generated output."""
+    if not any("Proof atom kind invalid" in str(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    repairs: list[str] = []
+    for rule in payload.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "<unnamed>")
+        atoms = (
+            ((rule.get("metadata") or {}).get("proof") or {}).get("atoms")
+            if isinstance(rule.get("metadata"), dict)
+            else None
+        )
+        if not isinstance(atoms, list):
+            continue
+        for index, atom in enumerate(atoms):
+            if not isinstance(atom, dict):
+                continue
+            kind = str(atom.get("kind") or "").strip()
+            if kind != "rate":
+                continue
+            atom["kind"] = "parameter"
+            repairs.append(f"{rule_name}[{index}]:rate->parameter")
+
+    if not repairs:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repairs
 
 
 def _try_repair_generated_empty_deferred_source_values_for_apply(

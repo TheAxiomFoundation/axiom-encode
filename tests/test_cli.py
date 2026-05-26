@@ -3628,6 +3628,85 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_repairs_invalid_rate_proof_atom_kind(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3302"
+            / "f.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: credit_reduction_limitation_wage_rate
+  kind: parameter
+  dtype: Rate
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: rate
+        source:
+          corpus_citation_path: us/statute/26/3302
+          excerpt: 0.6 percent
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 0.006
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3302/f.yaml"
+        kind_issue = (
+            "statutes/26/3302/f.yaml: ci: Proof atom kind invalid: "
+            "rule `credit_reduction_limitation_wage_rate` proof atom 0 "
+            "has kind `rate`."
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (False, [kind_issue], {}),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_invalid_proof_atom_kinds:"
+            "credit_reduction_limitation_wage_rate[0]:rate->parameter" in output
+        )
+        repaired = yaml.safe_load(output_file.read_text())
+        assert (
+            repaired["rules"][0]["metadata"]["proof"]["atoms"][0]["kind"] == "parameter"
+        )
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_proof_atom_kinds"] == [
+            "credit_reduction_limitation_wage_rate[0]:rate->parameter"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_repairs_person_scoped_rate_base(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
