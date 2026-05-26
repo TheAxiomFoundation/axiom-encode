@@ -198,6 +198,16 @@ Hard requirements:
   the canonical home for the scalar. Import the exact child export and use it
   in the current formula; do not emit a duplicate local `parameter` with the
   same value or name in the parent/composition file.
+- Before using any imported output in arithmetic, check the copied context
+  export's `dtype:`. An imported `dtype: Judgment` is a predicate, not a scalar
+  amount, rate, or base. Never multiply, add, subtract, divide, `min`, or `max`
+  a Judgment import as if it were Money, Rate, Count, or another numeric value.
+  If the current source states a numeric base such as wages, remuneration,
+  payments, or amounts attributable to a category and the copied import only
+  identifies whether an item is attributable to that category, encode the source-stated numeric base as a local amount fact, or as a relation-filtered
+  aggregate only when a compatible relation and numeric amount field are present.
+  If neither is available, defer the numeric output instead of using the
+  Judgment import as a placeholder scalar.
 - Treat any existing copied target file as context, not as a backward
   compatibility contract. You may drop, rename, rebuild, or defer existing
   executable rules, tests, imports, and local factual inputs when the source
