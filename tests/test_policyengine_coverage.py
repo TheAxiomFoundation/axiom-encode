@@ -2659,6 +2659,31 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3231_b_employee_definition_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: coal_physical_operations_exclusion_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: engaged_in_physical_operations_consisting_of_mining_of_coal
+  - name: employee
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_in_service_of_one_or_more_employers_for_compensation
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_e_compensation_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/e.yaml",
