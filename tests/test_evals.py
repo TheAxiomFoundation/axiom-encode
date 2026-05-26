@@ -495,6 +495,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "exact imported parameter from\n     context" in prompt
     assert "import it instead of duplicating it locally" in prompt
     assert "Test input inventory: for every local factual identifier" in prompt
+    assert "For proration, average, ratio, or percentage tests" in prompt
+    assert "use totals like 600" in prompt
+    assert "Avoid exact equality boundaries for ratios or percentages" in prompt
     assert "Do not assert raw `kind: parameter` rules directly" in prompt
     assert "assert derived outputs that consume the parameters" in prompt
     assert "modifier parameter stranded" in prompt

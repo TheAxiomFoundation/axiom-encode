@@ -593,10 +593,14 @@ Hard requirements:
   inputs and outputs; do not use YAML booleans for Judgment rule values.
 - Use YAML booleans `true` and `false` for local factual `#input.<fact>` keys
   referenced directly by formulas.
-- For proration tests with a source-stated denominator, choose input amounts
-  divisible by that denominator so expected outputs are exact decimals, not
-  rounded approximations. For example, if the denominator is 365, use a base
-  amount like 36500 so `36500 * 182 / 365 = 18200`.
+- For proration, average, ratio, or percentage tests with a source-stated
+  denominator, choose input amounts divisible by that denominator so expected
+  outputs are exact decimals, not rounded approximations. For example, if the
+  denominator is 365, use a base amount like 36500 so
+  `36500 * 182 / 365 = 18200`; if an average divides by 6, use totals like 600
+  or 1800, not 700. Avoid exact equality boundaries for ratios or percentages;
+  choose clearly below/above-boundary values so decimal precision cannot decide
+  the test outcome.
 - Every test case for a local derived formula must assign every local factual
   `#input.<fact>` referenced by that formula, including facts that are false in
   the case. Missing false inputs make the executable test invalid.
