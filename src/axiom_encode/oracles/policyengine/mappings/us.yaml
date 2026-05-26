@@ -1735,6 +1735,16 @@ mappings:
     candidate_priority: P4
     rationale: PolicyEngine exposes taxable Social Security earnings after this exclusion, not the excluded-remuneration amount separately. The ECPS tax harness uses this Axiom output to stage OASDI wage inputs before comparing sections 3101(a) and 3111(a).
 
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.social_security.cap
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final 2024 Social Security contribution-and-benefit base, stored in PolicyEngine as the Social Security payroll cap parameter.
+
   - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#base_year_contribution_and_benefit_base
     country: us
     program: tax
