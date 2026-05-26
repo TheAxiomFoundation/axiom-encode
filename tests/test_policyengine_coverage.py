@@ -2488,6 +2488,37 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3302_e_successor_credit_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3302/e.yaml",
+        """format: rulespec/v1
+rules:
+  - name: successor_employer_credit_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: acquisition_conditions_hold
+  - name: successor_employer_credit_before_subsection_c_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if successor_employer_credit_applies: other_person_credit else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert {item["status"] for item in items_by_id.values()} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in items_by_id.values()} == {
+        "employer_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
