@@ -2135,6 +2135,64 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_a_employer_definition(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/a.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: general_calendar_quarter_wage_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1500
+  - name: domestic_service_cash_wage_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1000
+  - name: employer_under_general_rule
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages >= general_calendar_quarter_wage_threshold
+  - name: employer_for_domestic_service
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: domestic_wages >= domestic_service_cash_wage_threshold
+  - name: employer
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_under_general_rule or employer_for_domestic_service
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3306_d_pay_period_deeming(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3306/d.yaml",
