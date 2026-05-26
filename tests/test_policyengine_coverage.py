@@ -2554,6 +2554,37 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3202_collection_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3202.yaml",
+        """format: rulespec/v1
+rules:
+  - name: monthly_tip_collection_deadline_day
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 10
+  - name: tier_2_employee_tax_collectible_by_employer_deduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(compensation, tier_2_employee_tax)
+  - name: employer_section_3201_tax_payment_liability
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tax_required_to_deduct
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert {item["status"] for item in items_by_id.values()} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in items_by_id.values()} == {None}
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
