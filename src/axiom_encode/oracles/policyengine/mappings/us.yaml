@@ -9594,6 +9594,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3231(c) defines Railroad Retirement Tax Act employee-representative status and related qualifying predicates; PolicyEngine does not expose RRTA employee-representative definition surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3231/d#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3231(d) defines Railroad Retirement Tax Act service status, service exceptions, and special general-chairman compensation treatment; PolicyEngine does not expose RRTA service-definition surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3231/e#
     country: us
     program: tax

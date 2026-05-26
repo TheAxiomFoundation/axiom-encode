@@ -2716,6 +2716,61 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3231_d_service_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/d.yaml",
+        """format: rulespec/v1
+rules:
+  - name: basic_service_conditions_satisfied
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: subject_to_continuing_authority
+  - name: general_chairman_minimum_compensation_percentage
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.75
+  - name: general_chairman_service_remuneration_regarded_as_compensation
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: remuneration_for_service
+  - name: general_committee_service_qualifies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: general_committee_service
+  - name: local_lodge_or_division_service_qualifies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: local_lodge_service
+  - name: non_us_principal_non_labor_organization_employer_service_qualifies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: non_us_principal_service
+  - name: noncitizen_nonresident_foreign_required_hire_exception_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: foreign_required_hire
+  - name: service
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: basic_service_conditions_satisfied
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 8}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_e_compensation_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/e.yaml",
