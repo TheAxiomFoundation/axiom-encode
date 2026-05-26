@@ -2711,6 +2711,42 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3401_withholding_definitions(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3401/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: payroll_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_of_wages_is_ordinarily_made_to_employee_by_employer_for_period
+  - name: miscellaneous_payroll_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payroll_period and not payroll_period_is_daily
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3401/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_is_officer_of_corporation
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_c_employee_representative_outputs(
     tmp_path,
 ):
