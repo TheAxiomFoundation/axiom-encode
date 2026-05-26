@@ -6679,6 +6679,15 @@ rules:
     versions:
       - effective_from: '2013-01-01'
         formula: compensation * tier_2_rate
+  - name: employer_section_3201_tax_payment_liability
+    kind: derived
+    entity: Employer
+    dtype: Money
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          if employer_required_to_deduct_tax: tax_required_to_deduct else: 0
 """
         )
         test_file.write_text(
@@ -6687,6 +6696,7 @@ rules:
     us:statutes/26/3201#tier_1_applicable_percentage: 0.0855
     us:statutes/26/3201#tier_1_employee_tax: 8550
     us:statutes/26/3201#tier_2_employee_tax: 4900
+    us:statutes/26/3201#employer_section_3201_tax_payment_liability: 1200
 """
         )
         result = SimpleNamespace(
@@ -6707,12 +6717,17 @@ rules:
                 "`additional_medicare_tax_rate` for `percentage`.",
                 "statutes/26/3201.yaml: ci: Cross-reference base mechanics omitted: "
                 "`tier_2_employee_tax` cites source child `(b)`.",
+                "statutes/26/3201.yaml: ci: Generic output with deferred "
+                "purpose-specific limitation: "
+                "`employer_section_3201_tax_payment_liability` overlaps deferred "
+                "purpose-specific output `tips_section_3201_tax_collectible_by_employer`.",
             ],
         )
 
         payload = yaml.safe_load(rules_file.read_text())
         test_cases = yaml.safe_load(test_file.read_text())
         assert repaired == [
+            "us:statutes/26/3201/b#employer_section_3201_tax_payment_liability",
             "us:statutes/26/3201/a#tier_1_applicable_percentage",
             "us:statutes/26/3201/a#tier_1_employee_tax",
             "us:statutes/26/3201/b#tier_2_employee_tax",

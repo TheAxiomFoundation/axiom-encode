@@ -11926,6 +11926,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             rule_name = numeric_match.group(1)
             seed_rules.add(rule_name)
             issue_reasons[rule_name].append("cross_reference_numeric_placeholder")
+        generic_purpose_match = (
+            _GENERIC_DEFERRED_PURPOSE_LIMITATION_ISSUE_PATTERN.search(issue_text)
+        )
+        if generic_purpose_match:
+            rule_name = generic_purpose_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("generic_deferred_purpose_limitation")
     if not seed_rules:
         return []
 
@@ -12012,6 +12019,14 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "base that the source sets by cross-reference to another legal "
                 "section. This output is deferred until the cited numeric "
                 "mechanics can be imported or composed without a local placeholder."
+            )
+        elif "generic_deferred_purpose_limitation" in reasons:
+            reason = (
+                "Generated rule exported a broad amount, base, inclusion, or "
+                "exclusion while a source-stated purpose-specific limitation was "
+                "deferred. This generic surface is deferred until the affected "
+                "purpose-specific outputs can be encoded or split without "
+                "applying the non-excepted rule too broadly."
             )
         else:
             reason = (
@@ -12190,6 +12205,9 @@ _CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN = re.compile(
 )
 _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN = re.compile(
     r"Cross-reference numeric placeholder: `([^`]+)`"
+)
+_GENERIC_DEFERRED_PURPOSE_LIMITATION_ISSUE_PATTERN = re.compile(
+    r"Generic output with deferred purpose-specific limitation: `([^`]+)`"
 )
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"
