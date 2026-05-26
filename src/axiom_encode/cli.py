@@ -10593,6 +10593,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_missing_deferred_outputs = (
+                    _try_repair_generated_missing_deferred_outputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_missing_deferred_outputs:
+                    outcome["auto_repaired_missing_deferred_outputs"] = (
+                        repaired_missing_deferred_outputs
+                    )
+                    print(
+                        "  apply=auto_repaired_missing_deferred_outputs:"
+                        + ",".join(repaired_missing_deferred_outputs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_employer_scoped_rules = (
                     _try_repair_generated_employer_scope_for_apply(
                         result,
@@ -11495,6 +11524,110 @@ def _qualify_deferred_output_subsection_paths(
 
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
+
+
+def _try_repair_generated_missing_deferred_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Add a concrete deferred output when an empty deferred module omits one."""
+    if not any(
+        "Source sub-paragraph coverage missing" in str(issue)
+        and "module.deferred_outputs" in str(issue)
+        for issue in issues
+    ):
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if rules not in (None, []) and rules != []:
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    status = str(module.get("status") or "").strip().lower()
+    if status not in {"deferred", "entity_not_supported"}:
+        return []
+
+    deferred_outputs = module.get("deferred_outputs")
+    if deferred_outputs is None:
+        deferred_outputs = []
+        module["deferred_outputs"] = deferred_outputs
+    if not isinstance(deferred_outputs, list):
+        return []
+
+    summary = str(module.get("summary") or "")
+    symbol, label = _infer_deferred_output_symbol_from_summary(summary)
+    if not symbol:
+        symbol = "deferred_output"
+        label = "deferred output"
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    output = f"{base_anchor}#{symbol}"
+    existing_outputs = {
+        str(record.get("output") or "").strip()
+        for record in deferred_outputs
+        if isinstance(record, dict)
+    }
+    if output in existing_outputs:
+        return []
+
+    reason = (
+        f"Generated module is marked `{status}`; the source definition for "
+        f"{label} cannot be encoded as an executable RuleSpec output until the "
+        "target entity or surface is supported."
+    )
+    deferred_outputs.append(
+        {
+            "output": output,
+            "reason": reason,
+        }
+    )
+    payload["rules"] = []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return [output]
+
+
+def _infer_deferred_output_symbol_from_summary(summary: str) -> tuple[str, str]:
+    """Infer a stable deferred-output symbol from a simple definition summary."""
+    normalized = " ".join(str(summary or "").strip().split())
+    if not normalized:
+        return "", ""
+    match = re.search(r"[“\"]([^”\"]+)[”\"]\s+means\b", normalized)
+    if match is None:
+        match = re.search(
+            r"\b(?:the\s+term\s+)?([A-Za-z][A-Za-z0-9 /,&'-]{1,80}?)\s+means\b",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+    if match is None:
+        return "", ""
+    label = match.group(1).strip(" .,:;\"'“”")
+    symbol = re.sub(r"[^0-9A-Za-z]+", "_", label.lower()).strip("_")
+    if symbol and symbol[0].isdigit():
+        symbol = f"deferred_{symbol}"
+    return symbol, label
 
 
 _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
