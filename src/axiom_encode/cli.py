@@ -10964,14 +10964,20 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                    issues=apply_issues,
-                )
-                if repaired_test_cases:
-                    outcome["auto_repaired_zero_branch_tests"] = repaired_test_cases
+                repaired_zero_cases: list[str] = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_zero_branch_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_zero_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_zero_branch_tests"] = repaired_zero_cases
                     print(
                         "  apply=auto_repaired_zero_branch_tests:"
                         + ",".join(repaired_test_cases)
@@ -10988,6 +10994,8 @@ def cmd_encode(args):
                         )
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_zero_cases:
+                    outcome["auto_repaired_zero_branch_tests"] = repaired_zero_cases
             if not can_apply:
                 repaired_test_cases = _try_repair_generated_exception_tests_for_apply(
                     result,
@@ -11228,20 +11236,23 @@ def cmd_encode(args):
                         repaired_output_cases
                     )
             if not can_apply:
-                repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                    issues=apply_issues,
-                )
-                if repaired_test_cases:
-                    prior_repairs = outcome.get("auto_repaired_zero_branch_tests")
-                    if not isinstance(prior_repairs, list):
-                        prior_repairs = []
-                    outcome["auto_repaired_zero_branch_tests"] = [
-                        *prior_repairs,
-                        *repaired_test_cases,
-                    ]
+                prior_repairs = outcome.get("auto_repaired_zero_branch_tests")
+                if not isinstance(prior_repairs, list):
+                    prior_repairs = []
+                repaired_zero_cases = list(prior_repairs)
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_zero_branch_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_zero_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_zero_branch_tests"] = repaired_zero_cases
                     print(
                         "  apply=auto_repaired_zero_branch_tests:"
                         + ",".join(repaired_test_cases)
