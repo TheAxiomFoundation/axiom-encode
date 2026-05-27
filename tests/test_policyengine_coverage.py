@@ -2824,6 +2824,38 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3504_payroll_agent_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3504.yaml",
+        """format: rulespec/v1
+rules:
+  - name: secretary_may_designate_wage_control_person_to_perform_employer_acts
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_has_control_receipt_custody_or_disposal_of_employee_wages
+  - name: designated_person_subject_to_employer_law_provisions
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_is_designated_by_secretary_under_section_3504
+  - name: employer_remains_subject_to_employer_law_provisions
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: designated_person_acts_for_employer
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_c_employee_representative_outputs(
     tmp_path,
 ):
