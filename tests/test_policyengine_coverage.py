@@ -4002,6 +4002,36 @@ rules:
     assert item["policyengine_variable"] is None
 
 
+def test_policyengine_coverage_classifies_3232_court_jurisdiction_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3232.yaml",
+        """format: rulespec/v1
+rules:
+  - name: district_court_jurisdiction_to_compel_employee_or_other_person
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: attorney_general_application and person_resides_in_jurisdiction
+  - name: district_court_jurisdiction_to_compel_employer
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: attorney_general_application and employer_subject_to_service
+  - name: conferred_federal_court_jurisdiction_not_exclusive
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: otherwise_possessed_jurisdiction and enforcement_civil_action
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
