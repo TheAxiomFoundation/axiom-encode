@@ -4661,6 +4661,35 @@ rules:
     assert item["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_3121_a_5_subparts(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3121/a/5/D.yaml",
+        """format: rulespec/v1
+rules:
+  - name: section_403_b_annuity_contract_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |
+          if section_403_b_annuity_contract_payment_exclusion_applies: payment_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3121/a/5/D#section_403_b_annuity_contract_payment_excluded_from_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_classifies_3121_a_12_tip_threshold_parameter(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3121/a/12.yaml",
