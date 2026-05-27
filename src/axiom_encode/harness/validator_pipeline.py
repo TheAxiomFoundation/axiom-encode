@@ -6205,9 +6205,7 @@ def _scope_prefix_from_requested_source(
     """
     if not requested_source:
         return ()
-    citation_parts = tuple(
-        part for part in citation_path.strip("/").split("/") if part
-    )
+    citation_parts = tuple(part for part in citation_path.strip("/").split("/") if part)
     requested_parts = tuple(
         part for part in requested_source.strip("/").split("/") if part
     )
@@ -6215,7 +6213,7 @@ def _scope_prefix_from_requested_source(
         return ()
     if requested_parts[: len(citation_parts)] != citation_parts:
         return ()
-    return tuple(part.lower() for part in requested_parts[len(citation_parts):])
+    return tuple(part.lower() for part in requested_parts[len(citation_parts) :])
 
 
 def _rulespec_file_subparagraph_scope(
