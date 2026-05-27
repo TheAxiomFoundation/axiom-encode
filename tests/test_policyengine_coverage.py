@@ -2754,6 +2754,48 @@ rules:
     assert item["policyengine_variable"] == "employer_federal_unemployment_tax"
 
 
+def test_policyengine_coverage_classifies_3307_deduction_payment_treatment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3307.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3307
+rules:
+  - name: remuneration_deduction_payment_treatment_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_required_to_deduct and amount_paid_to_government
+  - name: remuneration_deduction_considered_paid_to_employee_for_chapter
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if remuneration_deduction_payment_treatment_applies: amount_deducted else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
