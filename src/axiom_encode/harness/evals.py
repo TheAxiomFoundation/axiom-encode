@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any, Iterator, Literal, Sequence
+from typing import Any, Callable, Iterator, Literal, Sequence
 
 import requests
 import yaml
@@ -2660,11 +2660,17 @@ def _run_single_eval(
     # the subsection identity and every sibling subsection would collapse onto
     # the parent's output file. Issue #71 documents the observable bug; using
     # the requested identifier keeps each subsection in its own file.
+    #
+    # When the benchmark uses a free-text ``source_id`` ("USDA SNAP FY2026
+    # maximum asset limits") alongside a path-like ``corpus_citation_path``,
+    # the citation alone can't be parsed as a path — fall through to
+    # ``source_unit.requested`` so the artifact lands inside a rulespec
+    # source-root directory instead of ``source/<slug>.yaml``.
     is_corpus_path = _looks_like_corpus_citation_path(citation)
-    relative_output = (
-        _source_identifier_to_relative_rulespec_path(citation)
-        if is_corpus_path
-        else citation_to_relative_rulespec_path(citation)
+    relative_output = _resolve_eval_output_path(
+        citation,
+        requested_source=source_unit.requested,
+        fallback=citation_to_relative_rulespec_path,
     )
     target_ref_source = citation if is_corpus_path else source_unit.citation_path
     prompt = _build_eval_prompt(
@@ -2779,7 +2785,22 @@ def _run_single_source_eval(
         extra_context_paths=extra_context_paths,
     )
 
-    relative_output = _source_identifier_to_relative_rulespec_path(source_id)
+    # Source-kind benchmarks often pass a human-readable source_id
+    # ("USDA SNAP FY2026 maximum asset limits") alongside a path-like
+    # corpus_citation_path in source_metadata_payload. Without consulting
+    # the requested target, free-text source_ids land the artifact at
+    # ``source/<slug>.yaml`` — outside the rulespec source-root, so the
+    # compile validator can't find it. `_resolve_eval_output_path` falls
+    # through to the metadata's `requested_source` when the source_id
+    # isn't itself path-like.
+    requested_source = None
+    if isinstance(source_metadata_payload, dict):
+        candidate = source_metadata_payload.get("requested_source")
+        if isinstance(candidate, str) and candidate:
+            requested_source = candidate
+    relative_output = _resolve_eval_output_path(
+        source_id, requested_source=requested_source
+    )
     prompt = _build_eval_prompt(
         source_id,
         mode,
@@ -2857,6 +2878,40 @@ def _run_single_source_eval(
     )
     emit_eval_result(result, response.trace)
     return result
+
+
+def _resolve_eval_output_path(
+    citation: str,
+    *,
+    requested_source: str | None = None,
+    fallback: Callable[[str], Path] | None = None,
+) -> Path:
+    """Resolve the rulespec-relative output path for an encode target.
+
+    Strategy:
+      1. If ``citation`` already looks like a corpus citation path, use it
+         directly (preserves subsection identity per issue #71).
+      2. Otherwise, if ``requested_source`` is supplied AND looks like a
+         corpus citation path, use that. Handles benchmarks that supply
+         a free-text ``source_id`` ("USDA SNAP FY2026 maximum asset
+         limits") alongside a path-like ``corpus_citation_path`` —
+         without this branch, free-text source_ids land at
+         ``source/<slug>.yaml`` outside any rulespec source root and
+         the compile validator can't find them.
+      3. Otherwise, defer to ``fallback`` (the caller decides whether
+         the existing site's USC-citation parser or the path-identifier
+         helper is appropriate). Defaults to the path-identifier helper,
+         which preserves prior behaviour for source-kind eval call
+         sites that always rendered free-text source_ids to
+         ``source/<slug>.yaml``.
+    """
+    if _looks_like_corpus_citation_path(citation):
+        return _source_identifier_to_relative_rulespec_path(citation)
+    if requested_source and _looks_like_corpus_citation_path(requested_source):
+        return _source_identifier_to_relative_rulespec_path(requested_source)
+    if fallback is not None:
+        return fallback(citation)
+    return _source_identifier_to_relative_rulespec_path(citation)
 
 
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
