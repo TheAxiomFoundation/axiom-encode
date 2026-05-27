@@ -10376,6 +10376,13 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3305 preserves State unemployment-law compliance duties against interstate-commerce and federal-property objections and denies section 3302 credits after Labor certification failures; PolicyEngine exposes final FUTA tax assumptions, not these State-law compliance and administrative credit-denial predicates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3309#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3309 defines services covered for State unemployment-compensation purposes, source-specific exceptions, organization employee-count thresholds, and tribal delinquency predicates; PolicyEngine exposes final FUTA taxable earnings and tax assumptions, not these source-specific coverage thresholds and legal predicates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3402/f#
     country: us
     program: tax

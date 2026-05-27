@@ -3016,6 +3016,57 @@ rules:
     assert all("State-law compliance" in item["rationale"] for item in report["items"])
 
 
+def test_policyengine_coverage_classifies_3309_coverage_predicate_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3309.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3309
+rules:
+  - name: policymaking_advisory_position_weekly_hours_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 8
+  - name: election_official_worker_remuneration_annual_limit
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1000
+  - name: service_category_excludes_section_application
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: religious_service or inmate_service
+  - name: organization_has_minimum_employment_for_section_application
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: counted_days >= 20 and workers >= 4
+  - name: tribal_uncorrected_failure_prevents_governmental_service_exception
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tribal_delinquency and not corrected
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all("coverage thresholds" in item["rationale"] for item in report["items"])
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
