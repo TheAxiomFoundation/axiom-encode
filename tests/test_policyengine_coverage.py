@@ -3087,6 +3087,48 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3241_c_account_ratio_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3241/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: most_recent_fiscal_year_count_for_average_account_benefits_ratio
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 10
+  - name: average_account_benefits_ratio_rounding_multiple
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.1
+  - name: unrounded_average_account_benefits_ratio
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: sum_of_account_benefits_ratios / 10
+  - name: average_account_benefits_ratio
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: ceil(unrounded_average_account_benefits_ratio / 0.1) * 0.1
+  - name: account_benefits_ratio
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: assets / benefits_and_administrative_expenses
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_a_employer_definition_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/a.yaml",
