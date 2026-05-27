@@ -74,6 +74,9 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Axiom formulas have no date literal type" in ENCODER_PROMPT
     assert 'excess of" a cap' in ENCODER_PROMPT
     assert "min(source_amount, cap)" in ENCODER_PROMPT
+    assert "compute the uncapped base amount separately" in ENCODER_PROMPT
+    assert "min(uncapped_amount, max(cap_a," in ENCODER_PROMPT
+    assert "unless the source expressly says" in ENCODER_PROMPT
     assert (
         "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`"
         in ENCODER_PROMPT

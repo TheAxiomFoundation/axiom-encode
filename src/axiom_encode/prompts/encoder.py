@@ -795,6 +795,15 @@ Hard requirements:
   `min(source_amount, cap)`. The excluded excess is
   `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
   `source_amount - remaining_cap` as the included amount.
+- When a source says an already-computed deduction, allowance, credit, benefit,
+  or other amount "cannot exceed", is "limited to", or is capped by "the higher
+  of", "the greater of", "the lesser of", or "the lower of" several cap
+  amounts, compute the uncapped base amount separately and apply the selected
+  cap only at the final capped output, e.g. `min(uncapped_amount, max(cap_a,
+  cap_b))`. Do not replace the uncapped base with one cap alternative such as
+  `if condition: cap_b else: uncapped_amount` unless the source expressly says
+  the alternative amount is used "instead of", "in lieu of", or as a
+  substitution for the base computation.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
