@@ -10170,6 +10170,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(f) defines withholding allowance certificates, certificate effective dates, nonresident alien exemption limits, and duplicate allowance-claim restrictions for chapter 24 withholding administration; PolicyEngine does not expose these paycheck withholding certificate administration surfaces as one-to-one outputs.
 
+  - legal_id: us:statutes/26/3402/g#special_wage_payment_regulatory_withholding_rule_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(g) identifies special wage-payment situations where withholding manner and amount are determined under Secretary regulations; PolicyEngine does not expose this regulatory-applicability predicate as a separate tax output.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
