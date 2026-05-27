@@ -4788,13 +4788,17 @@ def _format_unavailable_cited_context_guidance(
         if item.import_path in seen:
             continue
         seen.add(item.import_path)
-        suffix = _citation_example_suffix(item.import_path)
+        suffixes = _citation_example_suffixes(item.import_path)
+        suffix_list = ", ".join(f"`{suffix}`" for suffix in suffixes)
+        example_suffix = suffixes[-1]
         lines.append(
             f"- Source cites `{citation.label}`; copied context target "
             f"`{item.import_path}` has {reason}. For this cited target, do not "
-            f"create local `_under_section_{suffix}`, `section_{suffix}_...`, "
-            f"`*_provided_in_section_{suffix}`, or similar cross-reference "
-            "facts."
+            f"create local cross-reference facts using suffixes {suffix_list}. "
+            f"That includes `_under_section_{example_suffix}`, "
+            f"`section_{example_suffix}_...`, "
+            f"`*_provided_in_section_{example_suffix}`, "
+            f"`*_to_which_section_{example_suffix}_applies`, or similar facts."
         )
     if not lines:
         return ""
@@ -4960,6 +4964,25 @@ def _citation_example_suffix(import_target: str) -> str:
     if len(parts) >= 3 and parts[0] == "statutes":
         return "_".join(parts[2:])
     return "_".join(parts[-2:]) if len(parts) >= 2 else "cited"
+
+
+def _citation_example_suffixes(import_target: str) -> list[str]:
+    """Return exact and ancestor identifier suffixes for a cited import target."""
+    normalized = _normalize_prompt_import_target(import_target)
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) < 3 or parts[0] != "statutes":
+        return [_citation_example_suffix(import_target)]
+
+    citation_parts = parts[2:]
+    suffixes: list[str] = []
+    # A bare section ancestor is usually too broad for prompt guidance, but
+    # subsection ancestors are exactly how models phrase local placeholders.
+    minimum_length = 2 if len(citation_parts) > 1 else 1
+    for length in range(len(citation_parts), minimum_length - 1, -1):
+        suffix = "_".join(citation_parts[:length])
+        if suffix not in suffixes:
+            suffixes.append(suffix)
+    return suffixes or [_citation_example_suffix(import_target)]
 
 
 def _format_proration_test_guidance(source_text: str) -> str:
