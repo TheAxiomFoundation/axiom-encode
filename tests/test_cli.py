@@ -23,6 +23,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _append_generated_derived_output_tests_if_missing,
+    _append_generated_judgment_positive_tests_if_missing,
     _apply_generated_encoding_result,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
@@ -41,8 +42,10 @@ from axiom_encode.cli import (
     _remove_invalid_dependent_test_inputs,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
+    _repair_generated_unused_imports_for_apply,
     _repair_imported_rule_name_collisions,
     _repair_input_field_accesses_in_formulas,
+    _repair_missing_entity_table_rows_for_row_ordered_outputs,
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
@@ -63,6 +66,8 @@ from axiom_encode.cli import (
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
+    _try_repair_generated_unresolved_local_test_outputs_for_apply,
+    _try_repair_generated_unsafe_formula_outputs_for_apply,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
     cmd_calibration,
@@ -4568,6 +4573,18 @@ rules:
               min(lodging_amount_paid, lodging_medical_care_nightly_cap * lodging_nights * lodging_individuals)
           else:
               0
+  - name: lodging_medical_care_secondary_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if secondary_lodging_condition:
+              secondary_lodging_amount
+          else:
+              0
 """
         )
         test_file = output_file.with_name("213.test.yaml")
@@ -4606,6 +4623,16 @@ rules:
                         ],
                         {},
                     ),
+                    (
+                        False,
+                        [
+                            "statutes/26/213.yaml: ci: "
+                            "Zero branch test coverage missing: "
+                            "`lodging_medical_care_secondary_amount` has a formula "
+                            "branch that returns 0."
+                        ],
+                        {},
+                    ),
                     (True, [], {}),
                 ],
             ) as mock_overlay,
@@ -4624,15 +4651,24 @@ rules:
             "apply=auto_repaired_zero_branch_tests:"
             "auto_zero_lodging_medical_care_amount"
         ) in output
-        assert mock_overlay.call_count == 2
+        assert (
+            "apply=auto_repaired_zero_branch_tests:"
+            "auto_zero_lodging_medical_care_secondary_amount"
+        ) in output
+        assert mock_overlay.call_count == 3
         mock_apply.assert_called_once()
         test_content = test_file.read_text()
         assert "auto_zero_lodging_medical_care_amount" in test_content
+        assert "auto_zero_lodging_medical_care_secondary_amount" in test_content
         assert (
             "us:statutes/26/213#input.lodging_not_lavish_or_extravagant: false"
             in test_content
         )
         assert "us:statutes/26/213#lodging_medical_care_amount: 0" in test_content
+        assert (
+            "us:statutes/26/213#lodging_medical_care_secondary_amount: 0"
+            in test_content
+        )
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path
@@ -5301,6 +5337,158 @@ rules:
         assert test_payload[0]["output"] == {
             "us:statutes/26/3241/b#average_account_benefits_ratio_bracket": 1
         }
+
+    def test_judgment_positive_test_repair_clones_existing_scenario(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        test_file = repo_path / "statutes" / "26" / "3102" / "f" / "1.test.yaml"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(
+            """- name: above_threshold_parameter_only
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  tables:
+    Payment:
+    - us:statutes/26/3102/f/1#input.tax_is_imposed_by_section_3101_b_2: true
+      us:statutes/26/3102/f/1#input.taxpayer_wages_received_from_employer: 250000
+  output:
+    us:statutes/26/3102/f/1#additional_medicare_employer_wage_collection_threshold: 200000
+"""
+        )
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("statutes/26/3102/f/1.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == [
+            "auto_positive_subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold"
+        ]
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["name"] == "above_threshold_parameter_only"
+        assert test_payload[1]["name"] == repaired[0]
+        assert test_payload[1]["output"] == {
+            "us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold": "holds"
+        }
+        assert test_payload[1]["tables"] == test_payload[0]["tables"]
+
+    def test_encode_apply_auto_repairs_auto_output_test_mismatches(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path, backend="codex", citation="26 USC 3402(k)", sync=False
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3402"
+            / "k.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: low_monthly_reported_tip_amount_threshold
+    kind: parameter
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 20
+  - name: monthly_reported_tips_below_low_tip_threshold
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: total_tips_in_employee_statements < low_monthly_reported_tip_amount_threshold
+"""
+        )
+        test_file = output_file.with_name("k.test.yaml")
+        test_file.write_text("[]\n")
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3402/k.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/3402/k.yaml: ci: "
+                            "Derived rule missing companion output coverage: "
+                            "`us:statutes/26/3402/k#monthly_reported_tips_below_low_tip_threshold` "
+                            "is not asserted by the companion `.test.yaml` file."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/26/3402/k.yaml: ci: "
+                            "Test case `auto_output_monthly_reported_tips_below_low_tip_threshold` "
+                            "output `us:statutes/26/3402/k#monthly_reported_tips_below_low_tip_threshold` "
+                            "expected not_holds, got holds."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_derived_output_tests:"
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ) in output
+        assert (
+            "apply=auto_repaired_auto_output_tests:"
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ) in output
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["output"] == {
+            "us:statutes/26/3402/k#monthly_reported_tips_below_low_tip_threshold": "holds"
+        }
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_derived_output_tests"] == [
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ]
+        assert run.outcome["auto_repaired_auto_output_tests"] == [
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ]
+        assert run.outcome["status"] == "apply_applied"
 
     def test_encode_apply_removes_local_import_output_input_placeholders(
         self, capsys, tmp_path
@@ -6638,6 +6826,328 @@ rules: []
         ]
         assert payload["rules"] == []
 
+    def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3201.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Section 3201 payroll taxes.
+rules:
+  - name: tier_1_applicable_percentage
+    kind: derived
+    entity: Person
+    dtype: Rate
+    source: 26 USC 3201(a)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: base_rate + additional_medicare_tax_rate
+  - name: tier_1_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(a)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: compensation * tier_1_applicable_percentage
+  - name: tier_2_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: compensation * tier_2_rate
+  - name: employer_section_3201_tax_payment_liability
+    kind: derived
+    entity: Employer
+    dtype: Money
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          if employer_required_to_deduct_tax: tax_required_to_deduct else: 0
+"""
+        )
+        test_file.write_text(
+            """- name: unsafe_outputs
+  output:
+    us:statutes/26/3201#tier_1_applicable_percentage: 0.0855
+    us:statutes/26/3201#tier_1_employee_tax: 8550
+    us:statutes/26/3201#tier_2_employee_tax: 4900
+    us:statutes/26/3201#employer_section_3201_tax_payment_liability: 1200
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3201.yaml: ci: Flattened thresholded imported rate: "
+                "`tier_1_applicable_percentage` uses imported "
+                "`additional_medicare_tax_rate`.",
+                "statutes/26/3201.yaml: ci: Cross-reference numeric placeholder: "
+                "`tier_1_applicable_percentage` uses local "
+                "`additional_medicare_tax_rate` for `percentage`.",
+                "statutes/26/3201.yaml: ci: Cross-reference base mechanics omitted: "
+                "`tier_2_employee_tax` cites source child `(b)`.",
+                "statutes/26/3201.yaml: ci: Generic output with deferred "
+                "purpose-specific limitation: "
+                "`employer_section_3201_tax_payment_liability` overlaps deferred "
+                "purpose-specific output `tips_section_3201_tax_collectible_by_employer`.",
+                "statutes/26/3201.yaml: ci: Sibling rule name collision: rule "
+                "`tier_2_employee_tax` is also exported by sibling `3202.yaml`.",
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "us:statutes/26/3201/b#employer_section_3201_tax_payment_liability",
+            "us:statutes/26/3201/a#tier_1_applicable_percentage",
+            "us:statutes/26/3201/a#tier_1_employee_tax",
+            "us:statutes/26/3201/b#tier_2_employee_tax",
+        ]
+        assert payload["module"]["status"] == "deferred"
+        assert payload["rules"] == []
+        assert [
+            record["output"] for record in payload["module"]["deferred_outputs"]
+        ] == repaired
+        assert test_cases == []
+
+    def test_unsafe_formula_output_repair_defers_cross_reference_placeholders(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3121/b.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3121/b.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Section 3121(b) employment.
+rules:
+  - name: employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    source: 26 USC 3121(b)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_designated_as_employment_under_section_233_social_security_act_agreement
+"""
+        )
+        test_file.write_text(
+            """- name: cross_reference_placeholder
+  output:
+    us:statutes/26/3121/b#employment: true
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3121/b.yaml: ci: Cross-reference placeholder: "
+                "`employment` uses local fact "
+                "`service_designated_as_employment_under_section_233_social_security_act_agreement` "
+                "for a cited legal section."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["us:statutes/26/3121/b#employment"]
+        assert payload["module"]["status"] == "deferred"
+        assert payload["rules"] == []
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": "us:statutes/26/3121/b#employment",
+                "reason": (
+                    "Generated rule kept a local fact for a cited legal section. "
+                    "This output is deferred until the cited source can be encoded "
+                    "or imported without a local cross-reference placeholder."
+                ),
+            }
+        ]
+        assert test_cases == []
+
+    def test_unsafe_formula_output_repair_defers_unused_source_modifiers(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3111/e.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3111/e.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: qualified_veteran_credit_substituted_section_51_a_rate
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3111(e)(3)(A)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '0.26'
+  - name: qualified_veteran_wages_taken_into_account_for_credit
+    kind: derived
+    entity: Employer
+    dtype: Money
+    source: 26 USC 3111(e)(3)(C)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_paid_to_qualified_veteran_during_applicable_period
+  - name: qualified_veteran_employment_credit_against_subsection_a_tax
+    kind: derived
+    entity: Employer
+    dtype: Money
+    source: 26 USC 3111(e)(1)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(credit_determined_under_section_51_after_application_of_subsection_e_modifications, employer_oasdi_excise_tax)
+"""
+        )
+        test_file.write_text(
+            """- name: unused_source_modifier
+  output:
+    us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate: 0.26
+    us:statutes/26/3111/e#qualified_veteran_wages_taken_into_account_for_credit: 12000
+    us:statutes/26/3111/e#qualified_veteran_employment_credit_against_subsection_a_tax: 5000
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3111/e.yaml: ci: Source-stated modifier parameter "
+                "is not used by any numeric derived output: "
+                "`qualified_veteran_credit_substituted_section_51_a_rate` "
+                "appears to encode a substitution/modification amount, but "
+                "`qualified_veteran_employment_credit_against_subsection_a_tax`, "
+                "`qualified_veteran_wages_taken_into_account_for_credit` ignores it. "
+                "Use the modifier in the affected formula or defer the affected "
+                "output until the upstream branching condition is encoded and list "
+                "this source value under `module.deferred_outputs[].source_values`."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "us:statutes/26/3111/e#qualified_veteran_employment_credit_against_subsection_a_tax",
+            "us:statutes/26/3111/e#qualified_veteran_wages_taken_into_account_for_credit",
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "qualified_veteran_credit_substituted_section_51_a_rate"
+        ]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": "us:statutes/26/3111/e#qualified_veteran_employment_credit_against_subsection_a_tax",
+                "reason": (
+                    "Generated rule ignored a source-stated substitution, "
+                    "modification, or limitation parameter. This output is "
+                    "deferred until the upstream cross-referenced mechanics can "
+                    "be imported or composed without stranding the modifier."
+                ),
+                "source_values": [
+                    "us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate"
+                ],
+            },
+            {
+                "output": "us:statutes/26/3111/e#qualified_veteran_wages_taken_into_account_for_credit",
+                "reason": (
+                    "Generated rule ignored a source-stated substitution, "
+                    "modification, or limitation parameter. This output is "
+                    "deferred until the upstream cross-referenced mechanics can "
+                    "be imported or composed without stranding the modifier."
+                ),
+                "source_values": [
+                    "us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate"
+                ],
+            },
+        ]
+        assert test_cases == [
+            {
+                "name": "unused_source_modifier",
+                "output": {
+                    "us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate": 0.26
+                },
+            }
+        ]
+
+    def test_unresolved_local_test_output_repair_removes_stale_output(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: tier_rates
+  output:
+    us:statutes/26/3221#tier_1_applicable_percentage: 0.0765
+    us:statutes/26/3221#tier_2_applicable_percentage: 0.221
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unresolved_local_test_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3221.yaml: ci: Test case `tier_rates` output "
+                "`us:statutes/26/3221#tier_2_applicable_percentage` does not "
+                "resolve to a derived rule, or parameter in statutes/26/3221.yaml."
+            ],
+        )
+
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "tier_rates:us:statutes/26/3221#tier_2_applicable_percentage"
+        ]
+        assert test_cases == [
+            {
+                "name": "tier_rates",
+                "output": {"us:statutes/26/3221#tier_1_applicable_percentage": 0.0765},
+            }
+        ]
+
     def test_mixed_derived_entity_output_test_repair_splits_entity_outputs(
         self, tmp_path
     ):
@@ -6730,6 +7240,125 @@ rules:
                 },
             },
         ]
+
+    def test_missing_entity_table_rows_repair_moves_inputs_to_row(self, tmp_path):
+        test_file = tmp_path / "3231-e-2.test.yaml"
+        test_file.write_text(
+            """- name: payment_partly_exceeds_applicable_base_without_successor
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3121/a/1#input.successor_employer_acquired_substantially_all_trade_or_business_property_from_predecessor_during_calendar_year: false
+    us:statutes/26/3231/e/2#input.compensation_paid_to_individual_by_employer_during_calendar_year_before_payment: 90000
+    scenario_id: base
+  output:
+    us:statutes/26/3231/e/2#compensation_counted_toward_applicable_base_before_payment:
+    - 90000
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    issues=[
+                        "Test case `payment_partly_exceeds_applicable_base_without_successor` "
+                        "output `compensation_counted_toward_applicable_base_before_payment` "
+                        "uses a row-ordered list but has no `tables.Payment` rows."
+                    ]
+                )
+            }
+        )
+
+        repaired = _repair_missing_entity_table_rows_for_row_ordered_outputs(
+            test_file=test_file,
+            validation=validation,
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["payment_partly_exceeds_applicable_base_without_successor"]
+        assert cases[0]["input"] == {"scenario_id": "base"}
+        assert cases[0]["tables"] == {
+            "Payment": [
+                {
+                    "us:statutes/26/3121/a/1#input.successor_employer_acquired_substantially_all_trade_or_business_property_from_predecessor_during_calendar_year": False,
+                    "us:statutes/26/3231/e/2#input.compensation_paid_to_individual_by_employer_during_calendar_year_before_payment": 90000,
+                }
+            ]
+        }
+
+    def test_missing_entity_table_rows_repair_skips_multirow_outputs(self, tmp_path):
+        test_file = tmp_path / "3231-e-2.test.yaml"
+        test_file.write_text(
+            """- name: two_payments
+  input:
+    us:statutes/26/3231/e/2#input.compensation_paid_to_individual_by_employer_during_calendar_year_before_payment: 90000
+  output:
+    us:statutes/26/3231/e/2#compensation_counted_toward_applicable_base_before_payment:
+    - 90000
+    - 95000
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    issues=[
+                        "Test case `two_payments` output "
+                        "`compensation_counted_toward_applicable_base_before_payment` "
+                        "uses a row-ordered list but has no `tables.Payment` rows."
+                    ]
+                )
+            }
+        )
+
+        repaired = _repair_missing_entity_table_rows_for_row_ordered_outputs(
+            test_file=test_file,
+            validation=validation,
+        )
+
+        assert repaired == []
+        assert "tables" not in yaml.safe_load(test_file.read_text())[0]
+
+    def test_apply_unused_import_repair_prunes_validated_unused_import(self, tmp_path):
+        rules_file = tmp_path / "3231-e-2.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+- us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate
+- us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate
+module:
+  deferred_outputs:
+    - output: us:statutes/26/3231/e/2#hospital_insurance_rate_portion
+      reason: downstream rate unavailable
+rules:
+  - name: section_1401_rate_copy
+    kind: derived
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_income_tax_rate
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    issues=[
+                        "Unused import `us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate`: "
+                        "imported symbol `hospital_insurance_wage_tax_rate` is not referenced by any formula or proof import."
+                    ]
+                )
+            }
+        )
+
+        removed = _repair_generated_unused_imports_for_apply(
+            rules_file=rules_file,
+            validation=validation,
+        )
+
+        content = rules_file.read_text()
+        assert removed == ["us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate"]
+        assert "hospital_insurance_wage_tax_rate" not in content
+        assert "self_employment_income_tax_rate" in content
 
 
 class TestGuardGenerated:
@@ -7383,6 +8012,7 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           service_performed_in_employ_of_international_organization_within_meaning_of_section_3581_3_of_title_5
+          and worker_is_transferred_federal_employee
 """
         )
         dependent.write_text(
@@ -7441,6 +8071,12 @@ rules:
         payload = yaml.safe_load(dependent_test.read_text())
         payment_row = payload[0]["tables"]["Payment"][0]
         assert payment_row[imported_ref] is True
+        assert (
+            payment_row[
+                "us:statutes/26/3121/y#input.worker_is_transferred_federal_employee"
+            ]
+            is False
+        )
 
     def test_repair_imported_test_inputs_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
@@ -11602,6 +12238,116 @@ rules:
         updated = supplemental[Path("statutes/26/63.yaml")]
         assert "hash: sha256:old" not in updated
         assert f"hash: sha256:{_sha256_file(generated)}" in updated
+
+    def test_apply_overlay_validation_refreshes_dependent_hashes_after_target_repair(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        unused_import = policy_repo / "statutes/26/999.yaml"
+        dependent = policy_repo / "statutes/26/63.yaml"
+        generated.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True)
+        unused_import.write_text(
+            """format: rulespec/v1
+rules:
+  - name: unused_parameter
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1'
+"""
+        )
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/999#unused_parameter
+rules:
+  - name: section_151_exemption_deduction
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          0
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/151
+rules:
+  - name: deductions_referred_to_in_subsection_b
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/151#section_151_exemption_deduction
+              output: section_151_exemption_deduction
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          section_151_exemption_deduction
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                path = Path(path)
+                content = path.read_text()
+                if path.name == "151.yaml" and "unused_parameter" in content:
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                issues=[
+                                    "Unused import "
+                                    "`us:statutes/26/999#unused_parameter`."
+                                ]
+                            )
+                        },
+                    )
+                if path.name == "63.yaml":
+                    current_hash = _sha256_file(path.parent / "151.yaml")
+                    if f"hash: sha256:{current_hash}" not in content:
+                        return SimpleNamespace(
+                            all_passed=False,
+                            results={
+                                "ci": SimpleNamespace(
+                                    error="Proof import hash mismatch"
+                                )
+                            },
+                        )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+            )
+
+        assert ok is True
+        assert issues == []
+        assert "unused_parameter" not in supplemental[Path("statutes/26/151.yaml")]
+        refreshed_dependent = supplemental[Path("statutes/26/63.yaml")]
+        final_target_hash = _sha256_text(supplemental[Path("statutes/26/151.yaml")])
+        assert f"hash: sha256:{final_target_hash}" in refreshed_dependent
 
     def test_apply_overlay_validation_removes_obsolete_dependent_test_inputs(
         self, tmp_path

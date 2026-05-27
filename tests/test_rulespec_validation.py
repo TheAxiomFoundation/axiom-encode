@@ -31,8 +31,10 @@ from axiom_encode.harness.validator_pipeline import (
     find_broad_application_passthrough_issues,
     find_child_fragment_reencoding_issues,
     find_copied_cross_reference_source_issues,
+    find_current_purpose_placeholder_issues,
     find_current_year_final_amount_table_issues,
     find_deferred_output_issues,
+    find_deferred_purpose_specific_limitation_issues,
     find_deprecated_source_url_issues,
     find_employer_scoped_entity_issues,
     find_empty_rules_module_issues,
@@ -44,6 +46,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_helper_only_definition_issues,
     find_import_shape_issues,
     find_judgment_conditional_formula_issues,
+    find_judgment_positive_companion_output_issues,
     find_missing_child_exception_import_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
@@ -554,6 +557,89 @@ rules:
         "`us:statutes/26/63/f#blind_under_subsection_f` "
         "is not asserted by the companion `.test.yaml` file."
     ]
+
+
+def test_judgment_positive_companion_output_rejects_never_holds(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    rules_file = policy_repo / "statutes" / "26" / "3102" / "f" / "1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3102(f)(1)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          tax_is_imposed_by_section_3101_b_2
+          and wages_from_employer_in_excess_of_additional_medicare_collection_threshold > 0
+"""
+    cases = [
+        {
+            "name": "below_threshold",
+            "period": "2026",
+            "input": {},
+            "output": {
+                "us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold": "not_holds"
+            },
+        }
+    ]
+
+    issues = find_judgment_positive_companion_output_issues(
+        content,
+        cases,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == [
+        "Judgment rule missing positive companion output coverage: "
+        "`us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold` "
+        "is not asserted as `holds` by the companion `.test.yaml` file."
+    ]
+
+
+def test_judgment_positive_companion_output_allows_holds_case(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    rules_file = policy_repo / "statutes" / "26" / "3102" / "f" / "1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: additional_medicare_collection_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3102(f)(1)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: wages_above_threshold > 0
+"""
+    cases = [
+        {
+            "name": "above_threshold",
+            "period": "2026",
+            "input": {},
+            "output": {
+                "us:statutes/26/3102/f/1#additional_medicare_collection_applies": [
+                    "holds"
+                ]
+            },
+        }
+    ]
+
+    assert (
+        find_judgment_positive_companion_output_issues(
+            content,
+            cases,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo,
+        )
+        == []
+    )
 
 
 def test_test_input_assignment_scopes_inputs_to_asserted_outputs():
@@ -1824,6 +1910,18 @@ def test_policyengine_registry_is_legal_id_keyed():
         ).policyengine_variable
         == "employer_medicare_tax"
     )
+    qualified_veteran_credit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3111/e#veteran_employment_credit_against_subsection_a_tax",
+        country="us",
+    )
+    assert qualified_veteran_credit_mapping.mapping_type == "not_comparable"
+    assert qualified_veteran_credit_mapping.match_type == "prefix"
+    research_payroll_credit_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3111/f#research_credit_allowed_against_subsection_a_tax",
+        country="us",
+    )
+    assert research_payroll_credit_mapping.mapping_type == "not_comparable"
+    assert research_payroll_credit_mapping.match_type == "prefix"
     assert (
         registry.mapping_for_legal_id(
             "us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount",
@@ -5823,6 +5921,62 @@ rules:
     )
 
 
+def test_child_fragment_reencoding_allows_shared_input_with_terminal_child_import(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3121" / "a" / "5.yaml"
+    child = repo / "statutes" / "26" / "3121" / "a" / "5" / "C.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: simplified_employee_pension_payment_branch_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_made_under_simplified_employee_pension
+
+  - name: simplified_employee_pension_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if simplified_employee_pension_payment_branch_applies: payment_amount else: 0
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/3121/a/5/C#simplified_employee_pension_payment_excluded_from_wages
+rules:
+  - name: executable_paragraph_5_branch_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          simplified_employee_pension_payment_excluded_from_wages
+          + (if annuity_plan_403a_payment_exclusion_branch_applies: payment_amount else: 0)
+"""
+
+    assert (
+        find_child_fragment_reencoding_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_child_fragment_reencoding_points_to_terminal_child_output(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "3101.yaml"
@@ -6514,6 +6668,195 @@ rules:
     assert any("statutes/26/3101" in issue for issue in issues)
     assert any("tier_2_applicable_percentage" in issue for issue in issues)
     assert any("statutes/26/3241" in issue for issue in issues)
+
+
+def test_flattened_thresholded_imported_rate_is_rejected(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    imported_file.parent.mkdir(parents=True)
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: additional_medicare_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 0.009
+  - name: additional_medicare_wage_tax_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 200000
+  - name: additional_medicare_excess_wages
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: max(0, wages - additional_medicare_wage_tax_threshold)
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3101/b/2#additional_medicare_tax_rate
+rules:
+  - name: tier_1_applicable_percentage
+    kind: derived
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: base_rate + additional_medicare_tax_rate
+  - name: tier_1_employee_tax
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: compensation * tier_1_applicable_percentage
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_flattened_thresholded_imported_rates(rules_file)
+
+    assert len(issues) == 1
+    assert "Flattened thresholded imported rate" in issues[0]
+    assert "additional_medicare_tax_rate" in issues[0]
+
+
+def test_thresholded_imported_rate_allows_excess_amount_formula(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    imported_file.parent.mkdir(parents=True)
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: additional_medicare_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 0.009
+  - name: additional_medicare_wage_tax_threshold
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 200000
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3101/b/2#additional_medicare_tax_rate
+rules:
+  - name: additional_medicare_component_tax
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2013-01-01'
+        formula: additional_medicare_excess_wages * additional_medicare_tax_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_flattened_thresholded_imported_rates(rules_file)
+
+    assert issues == []
+
+
+def test_cross_reference_base_mechanics_raw_compensation_tax_is_rejected(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    (a) Tier 1 tax In addition to other taxes, there is hereby imposed on the income
+    of each employee a tax equal to the applicable percentage of the compensation
+    received during any calendar year by such employee for services rendered.
+
+    (b) Tier 2 tax In addition to other taxes, there is hereby imposed on the income
+    of each employee a tax equal to the percentage determined under section 3241
+    for any calendar year of the compensation received during such calendar year.
+
+    (c) Cross reference For application of different contribution bases with respect
+    to the taxes imposed by subsections (a) and (b), see section 3231(e)(2).
+rules:
+  - name: tier_2_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: compensation_received_for_services * tier_2_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unapplied_cross_reference_base_mechanics(rules_file)
+
+    assert len(issues) == 1
+    assert "Cross-reference base mechanics omitted" in issues[0]
+    assert "tier_2_employee_tax" in issues[0]
+    assert "section 3231(e)(2)" in issues[0]
+
+
+def test_cross_reference_base_mechanics_allows_cited_base_formula(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3231/e/2#remaining_applicable_base_before_payment
+module:
+  summary: |-
+    (a) Tier 1 tax In addition to other taxes, there is hereby imposed on the income
+    of each employee a tax equal to the applicable percentage of the compensation
+    received during any calendar year by such employee for services rendered.
+
+    (c) Cross reference For application of different contribution bases with respect
+    to the taxes imposed by subsection (a), see section 3231(e)(2).
+rules:
+  - name: tier_1_employee_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3201(a)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(compensation_received_for_services, remaining_applicable_base_before_payment) * tier_1_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unapplied_cross_reference_base_mechanics(rules_file)
+
+    assert issues == []
 
 
 def test_cross_reference_numeric_placeholder_does_not_infer_named_act_title(
@@ -10658,6 +11001,36 @@ rules:
     )
     assert "tier_2_employer_tax" in issues[0]
     assert "TaxUnit" in issues[0]
+
+
+def test_employer_scoped_entity_ignores_employee_paid_tax_not_collected_by_employer():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (2) Collection of amounts not withheld To the extent that the amount of any
+    tax imposed by section 3101(b)(2) is not collected by the employer, such tax
+    shall be paid by the employee.
+rules:
+  - name: employee_payment_responsibility_for_uncollected_additional_medicare_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3102(f)(2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              excerpt: tax imposed by section 3101(b)(2) is not collected by the employer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, additional_medicare_tax - additional_medicare_tax_collected_by_employer)
+"""
+
+    assert find_employer_scoped_entity_issues(content) == []
 
 
 def test_employer_scoped_entity_accepts_employer():
@@ -15129,3 +15502,74 @@ def test_non_rulespec_yaml_artifact_is_rejected(tmp_path):
 
     assert result.passed is False
     assert "RuleSpec YAML artifacts are required" in result.issues[0]
+
+
+def test_current_purpose_placeholder_input_is_rejected():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3231
+rules:
+  - name: remaining_applicable_base_before_payment
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, applicable_base_for_current_purpose - compensation_paid_before_payment)
+"""
+
+    issues = find_current_purpose_placeholder_issues(content)
+
+    assert len(issues) == 1
+    assert "applicable_base_for_current_purpose" in issues[0]
+    assert "Current-purpose placeholder input" in issues[0]
+
+
+def test_deferred_purpose_specific_limitation_rejects_generic_output():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3231
+  deferred_outputs:
+    - output: us:statutes/26/3231/e/2#compensation_excess_base_exclusion_for_section_3201_a_hospital_insurance_rate_portion
+      reason: Clause (iii) provides that the clause (i) base exclusion shall not apply to the hospital-insurance rate portion.
+rules:
+  - name: compensation_excess_applicable_base_excluded
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, remuneration_paid - remaining_applicable_base_before_payment)
+  - name: compensation_excess_base_exclusion_for_section_3201_a_non_hospital_insurance_rate_portion
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, remuneration_paid - remaining_applicable_base_before_payment)
+"""
+
+    issues = find_deferred_purpose_specific_limitation_issues(content)
+
+    assert len(issues) == 1
+    assert "Generic output with deferred purpose-specific limitation" in issues[0]
+    assert "compensation_excess_applicable_base_excluded" in issues[0]
+
+
+def test_deferred_purpose_specific_limitation_allows_named_tier_output():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3231
+  deferred_outputs:
+    - output: us:statutes/26/3231/e/2#applicable_base_for_tier_2_taxes_and_average_monthly_compensation
+      reason: Clause (ii) defines a purpose-specific base for tier 2 taxes, but section 230(c) mechanics are not yet executable.
+rules:
+  - name: applicable_base_for_tier_1_taxes
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: contribution_and_benefit_base_for_calendar_year
+"""
+
+    assert find_deferred_purpose_specific_limitation_issues(content) == []

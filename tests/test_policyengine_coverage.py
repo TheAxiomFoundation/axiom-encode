@@ -202,6 +202,72 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3102a_collection_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3102/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: paragraph_7C_or_10_cash_remuneration_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 100
+  - name: paragraph_8B_cash_remuneration_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 150
+  - name: employer_required_to_collect_section_3101_tax_by_wage_deduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_is_employer_of_taxpayer and wages_are_paid
+  - name: paragraph_7B_cash_remuneration_tax_deduction_permitted_when_below_applicable_threshold
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: cash_remuneration < applicable_dollar_threshold
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "employee_payroll_tax"
+    }
+
+
+def test_policyengine_coverage_classifies_3102b_collection_liability_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3102/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employer_liable_for_payment_of_deducted_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tax_deducted_under_section_3102
+  - name: employer_indemnified_against_claims_for_deducted_tax_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_paid_tax_deducted_under_section_3102
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "employee_payroll_tax"
+    }
+
+
 def test_policyengine_coverage_maps_3306_b_1_futa_wage_base(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3306/b/1.yaml",
@@ -2609,6 +2675,33 @@ rules:
     assert item["policyengine_variable"] is None
 
 
+def test_policyengine_coverage_classifies_3241_a_applicable_percentage_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3241/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: applicable_percentage_for_section_3201_b_for_purposes_of_subsection_a
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: applicable_percentage_for_section_3201_b
+  - name: applicable_percentage_for_sections_3211_b_and_3221_b_for_purposes_of_subsection_a
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: applicable_percentage_for_sections_3211_b_and_3221_b
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_a_employer_definition_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3231/a.yaml",
@@ -2680,6 +2773,571 @@ rules:
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
     assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3401_withholding_definitions(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3401/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: payroll_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_of_wages_is_ordinarily_made_to_employee_by_employer_for_period
+  - name: miscellaneous_payroll_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payroll_period and not payroll_period_is_daily
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3401/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_is_officer_of_corporation
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402a_withholding_table_wages(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: amount_of_wages_for_withholding_tables
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, wages - taxpayer_withholding_allowance)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402b_withholding_period_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: miscellaneous_allowance_period_days_for_nonpayroll_period_wages
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: days_in_period_with_respect_to_which_wages_are_paid
+  - name: miscellaneous_allowance_period_days_for_wages_paid_without_regard_to_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: days_elapsed_since_later_reference_date
+  - name: secretary_may_authorize_weekly_aggregate_computation
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: period_is_less_than_one_week
+  - name: wages_computed_for_withholding_under_percentage_method
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_computed_to_nearest_dollar
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402c_wage_bracket_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: wage_bracket_miscellaneous_period_days_for_nonpayroll_period_wages
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: days_in_period_with_respect_to_which_wages_are_paid
+  - name: wage_bracket_miscellaneous_period_days_for_wages_paid_without_regard_to_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: days_elapsed_since_later_reference_date
+  - name: wage_bracket_weekly_aggregate_computation_authorized
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: period_is_less_than_one_week
+  - name: wages_computed_for_wage_bracket_withholding
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_computed_to_nearest_dollar
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402d_withholding_liability_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/d.yaml",
+        """format: rulespec/v1
+rules:
+  - name: required_withholding_tax_not_collected_from_employer
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: recipient_tax_paid
+  - name: employer_remains_liable_for_penalties_or_additions_for_withholding_failure
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: penalties_or_additions_apply
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402e_wage_deeming_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/e.yaml",
+        """format: rulespec/v1
+rules:
+  - name: maximum_consecutive_days_for_payroll_period_deeming_rule
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 31
+  - name: payroll_period_within_deeming_rule_day_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payroll_period_consecutive_days <= maximum_consecutive_days_for_payroll_period_deeming_rule
+  - name: all_remuneration_deemed_wages_for_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: half_or_more_services_constitute_wages
+  - name: no_remuneration_deemed_wages_for_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: more_than_half_services_do_not_constitute_wages
+  - name: remuneration_amount_deemed_wages_for_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: remuneration_paid_by_employer_to_employee_for_period
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402f_withholding_certificate_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/f.yaml",
+        """format: rulespec/v1
+rules:
+  - name: change_status_new_certificate_due_days
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 10
+  - name: replacement_certificate_default_wait_days
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 30
+  - name: nonresident_alien_withholding_exemption_limit
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1
+  - name: commencement_certificate_requirement_satisfied
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: signed_certificate_furnished
+  - name: excess_allowance_new_certificate_violation
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: not new_certificate_furnished
+  - name: first_certificate_effective_for_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: first_payroll_period_after_certificate
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 6}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402g_special_wage_withholding_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/g.yaml",
+        """format: rulespec/v1
+rules:
+  - name: special_wage_payment_regulatory_withholding_rule_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: supplemental_wage_payment_condition
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402h_alternative_withholding_methods(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/h.yaml",
+        """format: rulespec/v1
+rules:
+  - name: average_wage_method_quarterly_adjustment_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: quarterly_required_withholding - actual_withholding
+  - name: annualized_wages_for_withholding_method
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_for_period * payroll_periods_in_year
+  - name: annualized_wage_method_tax_to_withhold_on_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: annualized_tax / payroll_periods_in_year
+  - name: cumulative_wage_method_tax_to_withhold_on_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: cumulative_wage_method_excess_tax
+  - name: other_substantially_same_method_authorizable
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: secretary_regulations_authorize_other_method
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402i_requested_increased_withholding(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/i.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee_requested_increased_withholding_regulatory_authority
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_requests_increased_withholding
+  - name: increased_withholding_treated_as_required_withholding_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: increased_withholding_deducted_and_withheld
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402j_retail_commission_output(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/j.yaml",
+        """format: rulespec/v1
+rules:
+  - name: retail_commission_noncash_remuneration_withholding_not_required
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: noncash_remuneration and retail_salesman_commission_service
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402k_tip_withholding_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/k.yaml",
+        """format: rulespec/v1
+rules:
+  - name: monthly_tip_statement_threshold_for_paragraph_16_b_permission
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 20
+  - name: tips_withholding_under_subsection_a_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tips_constitute_wages
+  - name: maximum_tip_tax_deduction_and_withholding_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, employer_controlled_wages - section_3102_or_3202_tax)
+  - name: low_monthly_tip_statement_withholding_permitted_for_paragraph_16_b_tips
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: monthly_tips < monthly_tip_statement_threshold_for_paragraph_16_b_permission
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employer_liability_for_chapter_withholding_tax_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tax_required_to_be_deducted_and_withheld_under_this_chapter
+  - name: employer_liability_to_any_person_for_chapter_withholding_tax_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3127_religious_exemption_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3127.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employer_application_meets_statutory_approval_prerequisites
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_application_contains_required_evidence
+  - name: employee_application_meets_statutory_approval_prerequisites
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_application_contains_required_evidence
+  - name: employer_meets_religious_exemption_requirements
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_application_meets_statutory_approval_prerequisites
+  - name: employee_meets_religious_exemption_requirements
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_application_meets_statutory_approval_prerequisites
+  - name: wages_paid_during_section_3127_effective_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_paid_after_application_effective_date
+  - name: wages_exempt_from_section_3111_taxes_under_section_3127
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_paid_to_employee_by_employer
+  - name: wages_exempt_from_section_3101_taxes_under_section_3127
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_paid_to_employee_by_employer
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 7}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3504_payroll_agent_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3504.yaml",
+        """format: rulespec/v1
+rules:
+  - name: secretary_may_designate_wage_control_person_to_perform_employer_acts
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_has_control_receipt_custody_or_disposal_of_employee_wages
+  - name: designated_person_subject_to_employer_law_provisions
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_is_designated_by_secretary_under_section_3504
+  - name: employer_remains_subject_to_employer_law_provisions
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: designated_person_acts_for_employer
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3511.yaml",
+        """format: rulespec/v1
+rules:
+  - name: related_party_nonapplication_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: customer_bears_relationship_to_cpeo
+  - name: cpeo_exclusive_employer_for_work_site_employee_remuneration
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: organization_is_certified_professional_employer_organization
+  - name: employer_type_based_rules_apply_to_cpeo_remitted_work_site_remuneration
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: cpeo_exclusive_employer_for_work_site_employee_remuneration
+  - name: cpeo_successor_customer_predecessor_during_service_contract
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: organization_entering_into_service_contract_with_customer
+  - name: customer_successor_cpeo_predecessor_after_service_contract_termination
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: customer_service_contract_with_cpeo_terminated
+  - name: individual_not_work_site_employee_due_to_self_employment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_has_net_earnings_from_self_employment
+  - name: specified_credit_applies_to_customer_not_cpeo
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: credit_is_specified_in_subsection_d
+  - name: customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: specified_credit_applies_to_customer_not_cpeo
+  - name: cpeo_information_furnishing_required_for_customer_credit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: specified_credit_applies_to_customer_not_cpeo
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 9}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
@@ -2827,6 +3485,48 @@ rules:
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
     assert report["status_counts"] == {"known_not_comparable": 9}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3231_e_2_contribution_base_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231/e/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: successor_employer_compensation_base_continuity_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: successor_acquisition and immediate_service
+  - name: predecessor_compensation_counted_for_successor_applicable_base
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: predecessor_compensation
+  - name: compensation_counted_toward_applicable_base_before_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: compensation_before_payment
+  - name: remaining_applicable_base_before_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: applicable_base - compensation_before_payment
+  - name: compensation_excess_excluded_before_hospital_insurance_carveout
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, remuneration - remaining_applicable_base_before_payment)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
@@ -3589,6 +4289,19 @@ def test_policyengine_coverage_treats_ssa_policy_parameters_as_tax(tmp_path):
     _write_rulespec_file(
         tmp_path
         / "rulespec-us"
+        / "policies/ssa/contribution-and-benefit-base/2024.yaml",
+        """format: rulespec/v1
+rules:
+  - name: contribution_and_benefit_base
+    kind: parameter
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '168600'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us"
         / "policies/ssa/contribution-and-benefit-base/2026.yaml",
         """format: rulespec/v1
 rules:
@@ -3607,8 +4320,21 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["total_outputs"] == 2
+    assert report["total_outputs"] == 3
     statuses_by_id = {item["legal_id"]: item["status"] for item in report["items"]}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    assert (
+        statuses_by_id[
+            "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+        ]
+        == "comparable"
+    )
+    assert (
+        items_by_id[
+            "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+        ]["policyengine_parameter"]
+        == "gov.irs.payroll.social_security.cap"
+    )
     assert (
         statuses_by_id[
             "us:policies/ssa/contribution-and-benefit-base/2026#base_year_contribution_and_benefit_base"
@@ -3931,6 +4657,62 @@ rules:
     assert (
         item["legal_id"]
         == "us:statutes/26/3121/a/10#home_worker_cash_remuneration_annual_threshold"
+    )
+    assert item["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_classifies_3121_a_5_subparts(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3121/a/5/D.yaml",
+        """format: rulespec/v1
+rules:
+  - name: section_403_b_annuity_contract_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |
+          if section_403_b_annuity_contract_payment_exclusion_applies: payment_amount else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/3121/a/5/D#section_403_b_annuity_contract_payment_excluded_from_wages"
+    )
+    assert item["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_classifies_408_p_subparts(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/408/p/2/A/i.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee_election_to_have_employer_make_payments_available
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_eligible_to_participate_in_arrangement
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/408/p/2/A/i#employee_election_to_have_employer_make_payments_available"
     )
     assert item["status"] == "known_not_comparable"
 

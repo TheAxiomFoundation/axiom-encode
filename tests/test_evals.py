@@ -453,6 +453,12 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "rate-applied result at that lower entity" in prompt
     assert "Treat legal subject nouns as stronger evidence" in prompt
     assert "usually require\n  `entity: Person`" in prompt
+    assert "thresholded, capped, base-limited" in prompt
+    assert (
+        "do not flatten the cited mechanics into `current_base * imported_rate`"
+        in prompt
+    )
+    assert "defer the\n  affected executable output" in prompt
     assert 'definition uses "taxpayer" but also says the amount is "of an' in prompt
     assert 'Do not let\n  the word "taxpayer"' in prompt
     assert "on the [base] of every individual/person/employee" in prompt
@@ -5403,6 +5409,12 @@ rules:
             "terminal exports `us:statutes/26/3101/b/2#additional_medicare_tax`"
             in prompt
         )
+        assert "Aggregate parent child outputs detected" in prompt
+        assert (
+            "`us:statutes/26/3101/b/2#additional_medicare_tax`"
+            " (derived, Money, TaxUnit)" in prompt
+        )
+        assert "Do not rebuild a child branch in the parent" in prompt
 
     def test_build_eval_prompt_requires_child_exception_imports_for_parent_list(
         self, tmp_path
@@ -6885,6 +6897,77 @@ rules:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_child_context_for_unavailable_cited_parent(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        section_root = repo_root / "rulespec-us" / "statutes" / "26" / "3101"
+        section_root.mkdir(parents=True)
+        parent = section_root.with_suffix(".yaml")
+        parent.write_text(
+            "format: rulespec/v1\nmodule:\n  status: entity_not_supported\nrules: []\n"
+        )
+        oasdi = section_root / "a.yaml"
+        oasdi.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: oasdi_wage_tax_rate\n"
+            "    kind: parameter\n"
+            "    versions:\n"
+            "      - effective_from: '1990-01-01'\n"
+            "        formula: '0.062'\n"
+        )
+        hi = section_root / "b" / "1.yaml"
+        hi.parent.mkdir()
+        hi.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: hospital_insurance_wage_tax_rate\n"
+            "    kind: parameter\n"
+            "    versions:\n"
+            "      - effective_from: '1986-01-01'\n"
+            "        formula: '0.0145'\n"
+        )
+        source_text = (
+            "For purposes of the preceding sentence, the term applicable "
+            "percentage means the percentage equal to the sum of the rates "
+            "of tax in effect under subsections (a) and (b) of section 3101 "
+            "for the calendar year."
+        )
+
+        selected = _select_cross_section_context_files(
+            "26 USC 3201",
+            source_text,
+            repo_root / "rulespec-us",
+        )
+
+        assert selected == [parent, oasdi, hi]
+
+        runner = parse_runner_spec("openai:gpt-5.5")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 3201",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=source_text,
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(parent)]["import_path"] == "us:statutes/26/3101"
+        assert copied_sources[str(oasdi)]["import_path"] == "us:statutes/26/3101/a"
+        assert copied_sources[str(hi)]["import_path"] == "us:statutes/26/3101/b/1"
+
     def test_prepare_eval_workspace_adds_cross_section_list_and_parent_fallback_context(
         self, tmp_path
     ):
@@ -6980,8 +7063,49 @@ rules:
         assert (
             "`us:statutes/26/152` has `module.status: entity_not_supported`" in prompt
         )
-        assert "do not create local `_under_section_152`" in prompt
+        assert "`_under_section_152`" in prompt
         assert "omit or defer only the affected executable surface" in prompt
+
+    def test_build_eval_prompt_warns_on_unavailable_cited_context_ancestors(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "rulespec-us"
+        section_408_p_2_a = (
+            policy_repo_root / "statutes" / "26" / "408" / "p" / "2" / "A.yaml"
+        )
+        section_408_p_2_a.parent.mkdir(parents=True)
+        section_408_p_2_a.write_text(
+            "format: rulespec/v1\nmodule:\n  status: entity_not_supported\nrules: []\n"
+        )
+
+        workspace = prepare_eval_workspace(
+            citation="26 USC 3121(a)(5)(H)",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "under an arrangement to which section 408(p) applies, "
+                "other than elective contributions under paragraph (2)(A)(i) thereof"
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 3121(a)(5)(H)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="H.yaml",
+            target_ref_prefix="us:statutes/26/3121/a/5/H",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Unavailable cited RuleSpec context detected" in prompt
+        assert "`408_p_2_A`, `408_p_2`, `408_p`" in prompt
+        assert "`*_to_which_section_408_p_applies`" in prompt
 
     def test_prepare_eval_workspace_adds_child_fragment_context(self, tmp_path):
         repo_root = tmp_path / "repos"

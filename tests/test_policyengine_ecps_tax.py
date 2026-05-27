@@ -35,7 +35,9 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     build_payroll_request,
     compare_tax_ecps,
     contribution_and_benefit_base_from_results,
+    contribution_and_benefit_base_from_rulespec_test,
     contribution_and_benefit_base_output,
+    contribution_and_benefit_base_output_for_program,
     contribution_and_benefit_base_program_path,
     ctc_h_filing_status_code,
     filing_status_code,
@@ -1149,6 +1151,52 @@ def test_build_contribution_and_benefit_base_request_queries_encoded_ssa_policy(
     }
 
 
+def test_build_contribution_and_benefit_base_request_accepts_selected_output():
+    output = "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+
+    request = build_contribution_and_benefit_base_request(year=2024, output=output)
+
+    assert request["queries"][0]["outputs"] == [output]
+
+
+def test_contribution_and_benefit_base_output_for_program_prefers_section_230(
+    tmp_path,
+):
+    program = tmp_path / "2026.yaml"
+    program.write_text(
+        """format: rulespec/v1
+rules:
+  - name: contribution_and_benefit_base
+    kind: parameter
+  - name: contribution_and_benefit_base_under_section_230_of_social_security_act
+    kind: parameter
+"""
+    )
+
+    assert contribution_and_benefit_base_output_for_program(program, year=2026) == (
+        "us:policies/ssa/contribution-and-benefit-base/2026"
+        "#contribution_and_benefit_base_under_section_230_of_social_security_act"
+    )
+
+
+def test_contribution_and_benefit_base_output_for_program_accepts_simple_base(
+    tmp_path,
+):
+    program = tmp_path / "2024.yaml"
+    program.write_text(
+        """format: rulespec/v1
+rules:
+  - name: contribution_and_benefit_base
+    kind: parameter
+"""
+    )
+
+    assert (
+        contribution_and_benefit_base_output_for_program(program, year=2024)
+        == "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+    )
+
+
 def test_contribution_and_benefit_base_comes_from_axiom_results():
     output = contribution_and_benefit_base_output(2026)
     results = [
@@ -1168,6 +1216,58 @@ def test_contribution_and_benefit_base_comes_from_axiom_results():
             year=2026,
         )
         == 184_500
+    )
+
+
+def test_contribution_and_benefit_base_comes_from_selected_axiom_result():
+    output = "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+    results = [
+        {
+            "outputs": {
+                output: {
+                    "kind": "scalar",
+                    "value": {"kind": "decimal", "value": "168600"},
+                }
+            }
+        }
+    ]
+
+    assert (
+        contribution_and_benefit_base_from_results(
+            results,
+            year=2024,
+            output=output,
+        )
+        == 168_600
+    )
+
+
+def test_contribution_and_benefit_base_can_come_from_rulespec_test(tmp_path):
+    test_path = tmp_path / contribution_and_benefit_base_program_path(2024).with_suffix(
+        ".test.yaml"
+    )
+    test_path.parent.mkdir(parents=True)
+    output = "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
+    test_path.write_text(
+        f"""- name: base_for_2024
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {{}}
+  output:
+    {output}: "$168,600"
+"""
+    )
+
+    assert (
+        contribution_and_benefit_base_from_rulespec_test(
+            tmp_path,
+            year=2024,
+            output=output,
+        )
+        == 168_600
     )
 
 

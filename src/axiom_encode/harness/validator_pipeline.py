@@ -4418,6 +4418,72 @@ def find_missing_derived_companion_output_issues(
     return issues
 
 
+def find_judgment_positive_companion_output_issues(
+    content: str,
+    cases: list[Any],
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
+    """Require local Judgment outputs to have at least one positive case."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    positive_outputs: set[str] = set()
+    positive_fragments: set[str] = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for key, value in outputs.items():
+            if not _is_positive_judgment_value(value):
+                continue
+            key_text = str(key).strip()
+            positive_outputs.add(key_text)
+            positive_fragments.add(_test_reference_fragment(key_text))
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip().lower() != "judgment":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not any(
+            isinstance(version, dict)
+            and isinstance(version.get("formula"), str)
+            and version["formula"].strip()
+            for version in versions
+        ):
+            continue
+        name = _rulespec_rule_name(rule)
+        target = _canonical_rulespec_file_target(
+            policy_repo_path=policy_repo_path,
+            rules_file=rules_file,
+            symbol=name,
+        )
+        if target is None:
+            continue
+        if target in positive_outputs or name in positive_fragments:
+            continue
+        issues.append(
+            "Judgment rule missing positive companion output coverage: "
+            f"`{target}` is not asserted as `holds` by the companion "
+            "`.test.yaml` file."
+        )
+
+    return issues
+
+
 def _rulespec_executable_signature(rule: dict[str, Any]) -> str | None:
     versions = rule.get("versions")
     if not isinstance(versions, list):
@@ -4986,7 +5052,12 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
 )
 _EMPLOYER_SCOPED_ENTITY_NAMES = {"business", "corporation", "taxunit"}
 _EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
-    r"\b(?:each|every|any|an?|the)\s+employer\b"
+    r"\b(?:each|every|any|an?)\s+employer\b"
+    r"|"
+    r"\bthe\s+employer\s+(?:shall|must|is|are|pays?|collects?|withholds?|"
+    r"deducts?|responsible|liable|required)\b"
+    r"|"
+    r"\bimposed\s+on\s+(?:each|every|any|an?|the)\s+employer\b"
     r"|"
     r"\bwith\s+respect\s+to\s+(?:having\s+individuals\s+in\s+his\s+employ|"
     r"any\s+employer|an?\s+employer)\b",
@@ -9402,6 +9473,183 @@ def find_scoped_exception_category_gate_issues(content: str) -> list[str]:
     return issues
 
 
+_CURRENT_PURPOSE_PLACEHOLDER_PATTERN = re.compile(
+    r"(?:^|_)current_(?:purpose|use|context)(?:_|$)|"
+    r"(?:^|_)(?:for|under)_current_(?:purpose|use|context)(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_PURPOSE_SPECIFIC_NAME_MARKER_PATTERN = re.compile(
+    r"(?:^|_)(?:for|under|with_respect_to|in_case_of)_"
+    r"(?:section|subsection|paragraph|clause|tax|rate|purpose|portion|category|use|case)"
+    r"(?:_|$)|(?:^|_)hospital_insurance(?:_|$)|(?:^|_)rate_portion(?:_|$)|"
+    r"(?:^|_)tier_[0-9]+(?:_|$)",
+    flags=re.IGNORECASE,
+)
+_DEFERRED_PURPOSE_LIMITATION_REASON_PATTERN = re.compile(
+    r"\b(?:shall\s+not\s+apply|does\s+not\s+apply|except(?:ion)?|carve-?out|"
+    r"purpose-specific|rate\s+portion|for\s+purposes\s+of|for\s+the\s+tax\s+imposed\s+by)\b",
+    flags=re.IGNORECASE,
+)
+_PURPOSE_SPLIT_PATTERN = re.compile(
+    r"_(?:for|under|with_respect_to|in_case_of)_(?:section|subsection|paragraph|"
+    r"clause|tax|rate|purpose|portion|category|use|case)",
+    flags=re.IGNORECASE,
+)
+_PURPOSE_TOKEN_STOPWORDS = {
+    "a",
+    "after",
+    "and",
+    "any",
+    "applicable",
+    "before",
+    "by",
+    "current",
+    "for",
+    "from",
+    "in",
+    "of",
+    "or",
+    "purpose",
+    "the",
+    "to",
+    "under",
+    "with",
+}
+_PURPOSE_AMOUNT_TOKENS = {
+    "amount",
+    "base",
+    "benefit",
+    "compensation",
+    "credit",
+    "deduction",
+    "earnings",
+    "excess",
+    "exclusion",
+    "inclusion",
+    "income",
+    "rate",
+    "tax",
+    "wage",
+    "wages",
+}
+
+
+def find_current_purpose_placeholder_issues(content: str) -> list[str]:
+    """Reject broad current-purpose placeholders in executable formulas."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula in _rulespec_rule_formulas(payload):
+        if kind != "derived":
+            continue
+        for identifier in sorted(_formula_local_identifiers(formula)):
+            if not _CURRENT_PURPOSE_PLACEHOLDER_PATTERN.search(identifier):
+                continue
+            issues.append(
+                "Current-purpose placeholder input: "
+                f"`{name}` references `{identifier}`. Do not make callers supply "
+                "a broad current-purpose/current-context base; encode concrete "
+                "purpose-specific outputs or defer the affected executable surface."
+            )
+    return issues
+
+
+def find_deferred_purpose_specific_limitation_issues(content: str) -> list[str]:
+    """Reject generic executable outputs when purpose-specific limitations defer."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    deferred_prefix_tokens: list[tuple[str, set[str]]] = []
+    module = payload.get("module")
+    deferred_outputs = (
+        module.get("deferred_outputs") if isinstance(module, dict) else None
+    )
+    if not isinstance(deferred_outputs, list):
+        return []
+    for record in deferred_outputs:
+        if not isinstance(record, dict):
+            continue
+        output = str(record.get("output") or "").strip()
+        reason = str(record.get("reason") or "").strip()
+        if not output or "#" not in output:
+            continue
+        symbol = output.rsplit("#", 1)[1]
+        if not (
+            _PURPOSE_SPECIFIC_NAME_MARKER_PATTERN.search(symbol)
+            or _DEFERRED_PURPOSE_LIMITATION_REASON_PATTERN.search(reason)
+        ):
+            continue
+        if not _DEFERRED_PURPOSE_LIMITATION_REASON_PATTERN.search(reason):
+            continue
+        prefix = _purpose_specific_prefix(symbol)
+        tokens = _purpose_surface_tokens(prefix)
+        if len(tokens) < 2:
+            continue
+        deferred_prefix_tokens.append((symbol, tokens))
+    if not deferred_prefix_tokens:
+        return []
+
+    issues: list[str] = []
+    for name, kind, _formula, _source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype in {"judgment", "boolean", "bool"}:
+            continue
+        if _PURPOSE_SPECIFIC_NAME_MARKER_PATTERN.search(name):
+            continue
+        rule_tokens = _purpose_surface_tokens(name)
+        if not rule_tokens or not rule_tokens.intersection(_PURPOSE_AMOUNT_TOKENS):
+            continue
+        for deferred_symbol, deferred_tokens in deferred_prefix_tokens:
+            overlap = rule_tokens & deferred_tokens
+            if len(overlap) < 3:
+                continue
+            overlap_hint = ", ".join(f"`{token}`" for token in sorted(overlap)[:4])
+            issues.append(
+                "Generic output with deferred purpose-specific limitation: "
+                f"`{name}` overlaps deferred purpose-specific output "
+                f"`{deferred_symbol}` on {overlap_hint}. Do not export a broad "
+                "amount/base/inclusion/exclusion that applies the non-excepted "
+                "rule to every purpose while a source-stated purpose-specific "
+                "carve-out is deferred; rename/split into concrete "
+                "purpose-specific outputs or defer the generic surface."
+            )
+            break
+    return issues
+
+
+def _purpose_specific_prefix(symbol: str) -> str:
+    match = _PURPOSE_SPLIT_PATTERN.search(symbol)
+    if match:
+        return symbol[: match.start()]
+    return symbol
+
+
+def _purpose_surface_tokens(name: str) -> set[str]:
+    tokens = {
+        _normalize_purpose_token(token)
+        for token in _normalize_identifier(name).split("_")
+        if token and token not in _PURPOSE_TOKEN_STOPWORDS
+    }
+    return {token for token in tokens if token}
+
+
+def _normalize_purpose_token(token: str) -> str:
+    if token in {"exclude", "excluded", "excludes", "excluding"}:
+        return "exclusion"
+    if token in {"include", "included", "includes", "including", "includable"}:
+        return "inclusion"
+    if token in {"earning"}:
+        return "earnings"
+    return token
+
+
 def _rule_scoped_exception_categories(rule: dict[str, Any]) -> list[str]:
     proof = _rule_proof_payload(rule)
     atoms = proof.get("atoms") if isinstance(proof, dict) else None
@@ -10212,9 +10460,10 @@ def find_missing_same_section_subsection_import_issues(
     if statute_path is None:
         return []
     title, section, current_fragments = statute_path
+    import_items = _extract_import_items_from_content(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
-        for import_path in _extract_import_paths_from_content(content)
+        for import_path in import_items
     }
 
     issues: list[str] = []
@@ -10747,9 +10996,10 @@ def find_child_fragment_reencoding_issues(
     except ValueError:
         return []
 
+    import_items = _extract_import_items_from_content(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
-        for import_path in _extract_import_paths_from_content(content)
+        for import_path in import_items
     }
     parent_inputs = _rulespec_local_input_slots(
         payload,
@@ -10803,8 +11053,20 @@ def find_child_fragment_reencoding_issues(
         if parent_inputs:
             shared_inputs = sorted(parent_inputs & child_inputs)
             if shared_inputs:
+                terminal_child_names = _rulespec_terminal_executable_names_from_payload(
+                    child_payload
+                )
+                child_imports_terminal_output = (
+                    _imports_include_child_terminal_output_static(
+                        import_items,
+                        child_import_base=child_import_base,
+                        terminal_names=terminal_child_names,
+                    )
+                )
+                if child_imports_terminal_output:
+                    continue
                 child_exports = _rulespec_child_export_targets(
-                    _rulespec_terminal_executable_names_from_payload(child_payload),
+                    terminal_child_names,
                     child_import_base=child_import_base,
                     policy_repo_path=policy_repo_path,
                 )
@@ -11107,9 +11369,9 @@ def _statute_path_parts_for_file(
     return title, section, tuple(fragments)
 
 
-def _extract_import_paths_from_content(content: str) -> list[str]:
-    """Extract import file references from an imports block."""
-    paths: list[str] = []
+def _extract_import_items_from_content(content: str) -> list[str]:
+    """Extract raw import references from an imports block."""
+    items: list[str] = []
     in_imports = False
     imports_indent = 0
 
@@ -11142,6 +11404,17 @@ def _extract_import_paths_from_content(content: str) -> list[str]:
             if not mapping_match:
                 continue
             item = mapping_match.group(2).strip()
+        item = item.strip().strip("\"'")
+        if item:
+            items.append(item)
+
+    return items
+
+
+def _extract_import_paths_from_content(content: str) -> list[str]:
+    """Extract import file references from an imports block."""
+    paths: list[str] = []
+    for item in _extract_import_items_from_content(content):
         import_target = item.split("#", 1)[0].strip()
         if import_target:
             paths.append(import_target)
@@ -11170,16 +11443,46 @@ def _rulespec_import_path_aliases_static(import_path: str) -> set[str]:
 
 
 def _imports_cover_path_static(imports: set[str], expected_path: str) -> bool:
-    expected_aliases = _rulespec_import_path_aliases_static(expected_path)
     for import_path in imports:
-        for import_alias in _rulespec_import_path_aliases_static(import_path):
-            for expected in expected_aliases:
-                if import_alias == expected:
-                    return True
-                if import_alias.startswith(expected + "/"):
-                    return True
-                if expected.startswith(import_alias + "/"):
-                    return True
+        if _rulespec_import_path_matches_static(import_path, expected_path):
+            return True
+    return False
+
+
+def _rulespec_import_path_matches_static(
+    import_path: str,
+    expected_path: str,
+) -> bool:
+    expected_aliases = _rulespec_import_path_aliases_static(expected_path)
+    for import_alias in _rulespec_import_path_aliases_static(import_path):
+        for expected in expected_aliases:
+            if import_alias == expected:
+                return True
+            if import_alias.startswith(expected + "/"):
+                return True
+            if expected.startswith(import_alias + "/"):
+                return True
+    return False
+
+
+def _imports_include_child_terminal_output_static(
+    import_items: list[str],
+    *,
+    child_import_base: str,
+    terminal_names: list[str],
+) -> bool:
+    """Return true when imports include at least one terminal export from a child."""
+    terminal_set = {name for name in terminal_names if name}
+    if not terminal_set:
+        return False
+    for item in import_items:
+        import_base, separator, symbol = item.partition("#")
+        if not _rulespec_import_path_matches_static(import_base, child_import_base):
+            continue
+        if not separator:
+            return True
+        if symbol.strip() in terminal_set:
+            return True
     return False
 
 
@@ -11260,6 +11563,168 @@ def _normalize_identifier(value: str) -> str:
     """Normalize source phrases and symbols for loose identifier matching."""
     normalized = re.sub(r"[^a-z0-9]+", "_", value.lower())
     return re.sub(r"_+", "_", normalized).strip("_")
+
+
+def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
+    """Return whether an imported rate file also encodes limited rate mechanics."""
+    if rate_name not in _formula_local_identifiers(content):
+        return False
+    normalized = _normalize_identifier(content)
+    return any(
+        token in normalized
+        for token in (
+            "threshold",
+            "excess",
+            "cap",
+            "capped",
+            "ceiling",
+            "limit",
+            "limited",
+            "above",
+            "below",
+        )
+    )
+
+
+def _formula_preserves_thresholded_rate_mechanics(formula: str) -> bool:
+    """Return whether a local formula appears to preserve limited-rate mechanics."""
+    normalized = _normalize_identifier(formula)
+    if any(
+        token in normalized
+        for token in (
+            "threshold",
+            "excess",
+            "cap",
+            "capped",
+            "ceiling",
+            "limit",
+            "limited",
+        )
+    ):
+        return True
+    return bool(re.search(r"\bmin\s*\(", formula))
+
+
+@dataclass(frozen=True)
+class _CrossReferenceBaseObligation:
+    section: str
+    subsections: str
+    affected_children: tuple[str, ...]
+
+
+def _extract_cross_reference_base_obligations(
+    source_text: str,
+) -> list[_CrossReferenceBaseObligation]:
+    """Return cited base-mechanics sections that must affect local amount rules."""
+    obligations: list[_CrossReferenceBaseObligation] = []
+    seen: set[tuple[str, str, tuple[str, ...]]] = set()
+    pattern = re.compile(
+        r"\bFor\s+application\s+of\s+"
+        r"(?P<description>.{0,220}?\b(?:base|bases|cap|caps|limit|limits)"
+        r".{0,220}?)"
+        r"\s+(?:with\s+respect\s+to|to|for)\s+"
+        r"(?P<target>.{0,220}?)"
+        r"\bsee\s+section\s+(?P<section>[0-9][A-Za-z0-9.-]*)"
+        r"(?P<subsections>(?:\([A-Za-z0-9]+\))+)?",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(source_text):
+        description = match.group("description") or ""
+        target = match.group("target") or ""
+        if not re.search(
+            r"\b(?:compensation|contribution|wage|remuneration|payment|taxable)\b",
+            description,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if not re.search(r"\b(?:tax|taxes|amount|rate|rates)\b", target, re.I):
+            continue
+        affected_children = _extract_referenced_source_children(target)
+        section = str(match.group("section") or "").strip()
+        subsections = str(match.group("subsections") or "").strip()
+        key = (section, subsections, affected_children)
+        if not section or key in seen:
+            continue
+        seen.add(key)
+        obligations.append(
+            _CrossReferenceBaseObligation(
+                section=section,
+                subsections=subsections,
+                affected_children=affected_children,
+            )
+        )
+    return obligations
+
+
+def _extract_referenced_source_children(text: str) -> tuple[str, ...]:
+    """Extract top-level source children from phrases like ``subsections (a) and (b)``."""
+    children: list[str] = []
+    for match in re.finditer(
+        r"\bsubsections?\s+((?:\([A-Za-z0-9]+\)"
+        r"(?:\s*(?:,|and|or)\s*)?)+)",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        children.extend(re.findall(r"\(([A-Za-z0-9]+)\)", match.group(1)))
+    return tuple(dict.fromkeys(child.lower() for child in children if child))
+
+
+def _formula_uses_raw_compensation_base(identifiers: set[str]) -> bool:
+    """Return whether a formula appears to use a raw payroll-style amount base."""
+    raw_base_tokens = {
+        "compensation",
+        "wage",
+        "wages",
+        "remuneration",
+        "payment",
+        "payments",
+        "paid",
+        "pay",
+        "salary",
+    }
+    for identifier in identifiers:
+        tokens = set(_normalize_identifier(identifier).split("_"))
+        if tokens.intersection(raw_base_tokens):
+            return True
+    return False
+
+
+def _formula_uses_cross_reference_base_mechanics(
+    identifiers: set[str],
+    *,
+    imports_by_fragment: dict[str, str],
+    section: str,
+) -> bool:
+    """Return whether a formula imports or references cited base mechanics."""
+    normalized_section = _normalize_identifier(section)
+    mechanics_tokens = {
+        "base",
+        "bases",
+        "cap",
+        "capped",
+        "ceiling",
+        "contribution",
+        "excess",
+        "exclude",
+        "excluded",
+        "exclusion",
+        "limit",
+        "limited",
+        "remaining",
+    }
+    for identifier in identifiers:
+        import_item = imports_by_fragment.get(identifier)
+        if import_item and f"/{section}" in import_item:
+            return True
+        normalized = _normalize_identifier(identifier)
+        tokens = set(normalized.split("_"))
+        if normalized_section and normalized_section in tokens:
+            return True
+        if tokens.intersection(mechanics_tokens) and "base" in tokens:
+            return True
+        if tokens.intersection({"excess", "excluded", "remaining", "limit"}):
+            return True
+    return False
 
 
 def find_test_input_assignment_issues(
@@ -14861,6 +15326,8 @@ class ValidatorPipeline:
         issues.extend(find_source_limitation_application_issues(content))
         issues.extend(find_partial_extent_zeroing_issues(content))
         issues.extend(find_scoped_exception_category_gate_issues(content))
+        issues.extend(find_current_purpose_placeholder_issues(content))
+        issues.extend(find_deferred_purpose_specific_limitation_issues(content))
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(find_import_shape_issues(content))
@@ -14898,6 +15365,8 @@ class ValidatorPipeline:
         issues.extend(self._check_cross_reference_exception_placeholders(rules_file))
         issues.extend(self._check_encoded_cross_reference_placeholders(rules_file))
         issues.extend(self._check_cross_reference_numeric_placeholders(rules_file))
+        issues.extend(self._check_flattened_thresholded_imported_rates(rules_file))
+        issues.extend(self._check_unapplied_cross_reference_base_mechanics(rules_file))
         issues.extend(
             find_source_relation_issues(content, policy_repo_path=self.policy_repo_path)
         )
@@ -14949,6 +15418,14 @@ class ValidatorPipeline:
                     if strict_layout_checks:
                         issues.extend(
                             find_missing_derived_companion_output_issues(
+                                content,
+                                payload,
+                                rules_file=rules_file,
+                                policy_repo_path=self.policy_repo_path,
+                            )
+                        )
+                        issues.extend(
+                            find_judgment_positive_companion_output_issues(
                                 content,
                                 payload,
                                 rules_file=rules_file,
@@ -15583,6 +16060,116 @@ class ValidatorPipeline:
                         f"`{block['name']}` uses local `{identifier}` for "
                         f"`{label}` set by a cited legal section. {resolution}"
                     )
+        return issues
+
+    def _check_flattened_thresholded_imported_rates(
+        self, rulespec_file: Path
+    ) -> list[str]:
+        """Reject formulas that flatten thresholded imported rates into flat rates."""
+        content = rulespec_file.read_text()
+        imported_rate_sources: dict[str, str] = {}
+        for import_item in self._extract_import_items(content):
+            fragment = self._import_item_fragment(import_item)
+            if not fragment or "rate" not in fragment.lower():
+                continue
+            import_file = _resolve_rulespec_import_file_static(
+                import_item,
+                rules_file=rulespec_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+            if import_file is None:
+                continue
+            with contextlib.suppress(OSError):
+                imported_content = import_file.read_text()
+                if _imported_rate_source_is_thresholded(
+                    imported_content,
+                    fragment,
+                ):
+                    imported_rate_sources[fragment] = import_item
+
+        if not imported_rate_sources:
+            return []
+
+        issues: list[str] = []
+        for block in self._extract_definition_blocks(content):
+            formula = "\n".join(str(line) for line in block["body_lines"])
+            identifiers = _formula_local_identifiers(formula)
+            for rate_name, import_item in sorted(imported_rate_sources.items()):
+                if rate_name not in identifiers:
+                    continue
+                if _formula_preserves_thresholded_rate_mechanics(formula):
+                    continue
+                issues.append(
+                    "Flattened thresholded imported rate: "
+                    f"`{block['name']}` uses imported `{rate_name}` from "
+                    f"`{import_item}` without the cited source's threshold, "
+                    "cap, base, or excess-amount mechanics. Import and compose "
+                    "the cited executable amount or the cited base/threshold "
+                    "outputs, or defer the affected output instead of applying "
+                    "the rate as a flat percentage."
+                )
+        return issues
+
+    def _check_unapplied_cross_reference_base_mechanics(
+        self,
+        rulespec_file: Path,
+    ) -> list[str]:
+        """Reject raw-base tax formulas when source requires cited base mechanics."""
+        content = rulespec_file.read_text()
+        source_text = _extract_source_verification_text(content)
+        if not source_text:
+            source_text = extract_embedded_source_text(content)
+        if not source_text:
+            return []
+
+        obligations = _extract_cross_reference_base_obligations(source_text)
+        if not obligations:
+            return []
+
+        import_items = self._extract_import_items(content)
+        imports_by_fragment = {
+            self._import_item_fragment(import_item): import_item
+            for import_item in import_items
+            if self._import_item_fragment(import_item)
+        }
+
+        issues: list[str] = []
+        for block in self._extract_definition_blocks(content):
+            source_child = self._rule_source_top_level_child(block)
+            if not source_child:
+                continue
+            dtype = str(block.get("dtype") or "").strip().lower()
+            if dtype != "money":
+                continue
+            formula = "\n".join(str(line) for line in block["body_lines"])
+            identifiers = _formula_local_identifiers(formula)
+            if not _formula_uses_raw_compensation_base(identifiers):
+                continue
+            for obligation in obligations:
+                if obligation.affected_children and source_child not in (
+                    (child,) for child in obligation.affected_children
+                ):
+                    continue
+                if _formula_uses_cross_reference_base_mechanics(
+                    identifiers,
+                    imports_by_fragment=imports_by_fragment,
+                    section=obligation.section,
+                ):
+                    continue
+                citation = f"section {obligation.section}" + (
+                    obligation.subsections if obligation.subsections else ""
+                )
+                issues.append(
+                    "Cross-reference base mechanics omitted: "
+                    f"`{block['name']}` cites source child "
+                    f"`{''.join(f'({part})' for part in source_child)}` and "
+                    "computes on a raw compensation, wage, remuneration, or "
+                    f"payment base without applying {citation}'s base mechanics. "
+                    "Import and compose the cited base, cap, exclusion, or "
+                    "excess outputs, or defer this output under "
+                    "`module.deferred_outputs` instead of multiplying the raw base."
+                )
+                break
         return issues
 
     def _extract_cross_reference_numeric_obligations(

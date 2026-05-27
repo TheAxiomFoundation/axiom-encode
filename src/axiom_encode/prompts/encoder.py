@@ -293,6 +293,18 @@ Hard requirements:
   broader meaning. Downstream provisions must import the output that matches
   their cited purpose rather than using a stale local input or an over-broad
   generic output.
+- If one purpose-specific exception, rate portion, or base branch is not
+  executable yet, do not export a generic `x_after_cap`, `x_included`,
+  `x_excluded`, `taxable_x`, or similar output that silently applies the
+  non-excepted branch to every downstream purpose. Either split the executable
+  surface into concrete purpose-scoped outputs and defer only the unresolved
+  purpose, or defer the generic surface entirely.
+- Do not use boundary inputs named like `applicable_base_for_current_purpose`,
+  `amount_for_current_context`, or `rate_under_current_use`. Those hide
+  purpose-specific legal mechanics from downstream importers. Use the concrete
+  source-stated purpose in the rule name and formula input, such as
+  `applicable_base_for_section_3201_a_non_hospital_insurance_rate_portion`, or
+  defer that purpose-specific surface.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
   `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
@@ -370,6 +382,24 @@ Hard requirements:
   input such as `tier_1_applicable_percentage`. Import the upstream output when
   it exists; otherwise defer the affected output and name the cited legal
   dependency in `reason`.
+  Before applying any imported rate to the current source's whole base, check
+  whether the cited source makes that rate thresholded, capped, base-limited, or
+  part of an amount formula that applies only above or below a specified amount.
+  If so, do not flatten the cited mechanics into `current_base * imported_rate`
+  or into a combined percentage that is later multiplied by the whole current
+  base. Import and compose the cited executable amount or the cited base,
+  threshold, cap, and excess-amount outputs faithfully. If the current schema
+  cannot pass the correct adjusted base into those cited mechanics, defer the
+  affected executable output and name the missing cited computation rather than
+  approximating it with a flat rate.
+  If the source has a cross-reference such as `For application of different
+  contribution bases ... see section X`, do not emit executable tax, amount, or
+  rate-times-compensation formulas for the referenced subsections on the raw
+  wage, compensation, remuneration, or payment base. Import and compose the
+  cited base/cap/exclusion/excess outputs; if the cited base mechanics are
+  missing, purpose-specific, or deferred, add `module.deferred_outputs[]` for
+  each affected source subsection output instead of preserving a raw-base
+  formula.
   If the current source instead states a purpose-limited replacement rate,
   percentage, or amount for a cited section using phrases like `computed at`,
   `in lieu of`, or `instead of the rate provided by`, encode that source-stated

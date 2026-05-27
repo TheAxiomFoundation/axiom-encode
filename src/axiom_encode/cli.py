@@ -3709,15 +3709,14 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
             stripped = line.strip()
             if stripped:
                 indent = len(line) - len(line.lstrip())
-                if indent <= imports_indent:
+                item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
+                if item_match and indent >= imports_indent:
+                    item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
+                    if item in unused:
+                        removed.append(item)
+                        continue
+                elif indent <= imports_indent:
                     in_imports = False
-                else:
-                    item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
-                    if item_match:
-                        item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
-                        if item in unused:
-                            removed.append(item)
-                            continue
 
         repaired_lines.append(line)
 
@@ -9219,6 +9218,143 @@ def _append_generated_derived_output_tests_if_missing(
     return repaired
 
 
+def _append_generated_judgment_positive_tests_if_missing(
+    *,
+    test_file: Path,
+    repo_path: Path,
+    axiom_rules_path: Path,
+    relative_output: Path,
+    issues: list[str],
+    test_failure_checker=None,
+) -> list[str]:
+    """Clone existing scenarios into positive Judgment companion tests."""
+    if not issues or not test_file.exists():
+        return []
+    output_targets = _judgment_positive_output_targets_from_issues(issues)
+    if not output_targets:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    existing_case_names = {
+        str(test_case.get("name") or "").strip()
+        for test_case in test_payload
+        if isinstance(test_case, dict)
+    }
+    repaired: list[str] = []
+    for target in output_targets:
+        rule_name = target.rsplit("#", 1)[-1]
+        if _test_payload_has_rule_output_value(
+            test_payload, rule_name=rule_name, normalized_value="holds"
+        ):
+            continue
+        case_name = _unique_generated_test_name(
+            f"auto_positive_{_safe_test_name(rule_name)}",
+            existing_case_names,
+        )
+        candidate_payload: list[object] | None = None
+        for test_case in test_payload:
+            if not isinstance(test_case, dict):
+                continue
+            outputs = test_case.get("output")
+            if not isinstance(outputs, dict):
+                continue
+            if _case_asserts_rule_value(
+                outputs, rule_name=rule_name, normalized_value="not_holds"
+            ):
+                continue
+            companion = copy.deepcopy(test_case)
+            companion["name"] = case_name
+            companion["output"] = {f"{target_base}#{rule_name}": "holds"}
+            trial_payload = list(test_payload)
+            trial_payload.append(companion)
+            if test_failure_checker is not None:
+                test_file.write_text(
+                    yaml.safe_dump(trial_payload, sort_keys=False, allow_unicode=False)
+                )
+                failures = test_failure_checker(
+                    test_file,
+                    root=repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                )
+                if failures:
+                    continue
+            candidate_payload = trial_payload
+            break
+
+        if candidate_payload is None:
+            test_file.write_text(
+                yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+            )
+            continue
+        test_payload = candidate_payload
+        existing_case_names.add(case_name)
+        repaired.append(case_name)
+
+    if not repaired:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _judgment_positive_output_targets_from_issues(issues: list[str]) -> list[str]:
+    targets: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        match = re.search(
+            r"Judgment rule missing positive companion output coverage:"
+            r"\s*`(?P<target>[^`]+)`",
+            str(issue),
+        )
+        if not match:
+            continue
+        target = match["target"].strip()
+        if not target or target in seen:
+            continue
+        seen.add(target)
+        targets.append(target)
+    return targets
+
+
+def _test_payload_has_rule_output_value(
+    test_payload: list[object],
+    *,
+    rule_name: str,
+    normalized_value: str,
+) -> bool:
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        if _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value=normalized_value
+        ):
+            return True
+    return False
+
+
+def _unique_generated_test_name(base_name: str, existing_case_names: set[str]) -> str:
+    if base_name not in existing_case_names:
+        return base_name
+    index = 2
+    while f"{base_name}_{index}" in existing_case_names:
+        index += 1
+    return f"{base_name}_{index}"
+
+
 def _missing_derived_output_targets_from_issues(issues: list[str]) -> list[str]:
     targets: list[str] = []
     seen: set[str] = set()
@@ -10650,6 +10786,48 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_deferred_rules: list[str] = []
+                seen_deferred_rules: set[str] = set()
+                for _repair_attempt in range(5):
+                    repaired_batch = (
+                        _try_repair_generated_unsafe_formula_outputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_batch:
+                        break
+                    new_repairs = [
+                        repair
+                        for repair in repaired_batch
+                        if repair not in seen_deferred_rules
+                    ]
+                    seen_deferred_rules.update(repaired_batch)
+                    repaired_deferred_rules.extend(new_repairs)
+                    outcome["auto_deferred_unsafe_formula_outputs"] = (
+                        repaired_deferred_rules
+                    )
+                    print(
+                        "  apply=auto_deferred_unsafe_formula_outputs:"
+                        + ",".join(repaired_batch)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                    if can_apply:
+                        break
+            if not can_apply:
                 repaired_employer_scoped_rules = (
                     _try_repair_generated_employer_scope_for_apply(
                         result,
@@ -10664,6 +10842,35 @@ def cmd_encode(args):
                     print(
                         "  apply=auto_repaired_employer_scope:"
                         + ",".join(repaired_employer_scoped_rules)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                removed_unresolved_outputs = (
+                    _try_repair_generated_unresolved_local_test_outputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if removed_unresolved_outputs:
+                    outcome["auto_repaired_unresolved_local_test_outputs"] = (
+                        removed_unresolved_outputs
+                    )
+                    print(
+                        "  apply=auto_repaired_unresolved_local_test_outputs:"
+                        + ",".join(removed_unresolved_outputs)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -10894,14 +11101,20 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                    issues=apply_issues,
-                )
-                if repaired_test_cases:
-                    outcome["auto_repaired_zero_branch_tests"] = repaired_test_cases
+                repaired_zero_cases: list[str] = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_zero_branch_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_zero_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_zero_branch_tests"] = repaired_zero_cases
                     print(
                         "  apply=auto_repaired_zero_branch_tests:"
                         + ",".join(repaired_test_cases)
@@ -10918,6 +11131,8 @@ def cmd_encode(args):
                         )
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_zero_cases:
+                    outcome["auto_repaired_zero_branch_tests"] = repaired_zero_cases
             if not can_apply:
                 repaired_test_cases = _try_repair_generated_exception_tests_for_apply(
                     result,
@@ -11015,6 +11230,44 @@ def cmd_encode(args):
                 if repaired_derived_cases:
                     outcome["auto_repaired_derived_output_tests"] = (
                         repaired_derived_cases
+                    )
+            if not can_apply:
+                repaired_positive_cases: list[str] = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_judgment_positive_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_positive_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_judgment_positive_tests"] = (
+                        repaired_positive_cases
+                    )
+                    print(
+                        "  apply=auto_repaired_judgment_positive_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_positive_cases:
+                    outcome["auto_repaired_judgment_positive_tests"] = (
+                        repaired_positive_cases
                     )
             if not can_apply:
                 repaired_input_refs: list[str] = []
@@ -11158,20 +11411,56 @@ def cmd_encode(args):
                         repaired_output_cases
                     )
             if not can_apply:
-                repaired_test_cases = _try_repair_generated_zero_branch_tests_for_apply(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                    issues=apply_issues,
-                )
-                if repaired_test_cases:
-                    prior_repairs = outcome.get("auto_repaired_zero_branch_tests")
-                    if not isinstance(prior_repairs, list):
-                        prior_repairs = []
-                    outcome["auto_repaired_zero_branch_tests"] = [
-                        *prior_repairs,
-                        *repaired_test_cases,
-                    ]
+                repaired_output_cases = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_auto_output_test_mismatches_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_output_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_auto_output_tests"] = repaired_output_cases
+                    print(
+                        "  apply=auto_repaired_auto_output_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_output_cases:
+                    outcome["auto_repaired_auto_output_tests"] = repaired_output_cases
+            if not can_apply:
+                prior_repairs = outcome.get("auto_repaired_zero_branch_tests")
+                if not isinstance(prior_repairs, list):
+                    prior_repairs = []
+                repaired_zero_cases = list(prior_repairs)
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_zero_branch_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_zero_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_zero_branch_tests"] = repaired_zero_cases
                     print(
                         "  apply=auto_repaired_zero_branch_tests:"
                         + ",".join(repaired_test_cases)
@@ -11856,6 +12145,461 @@ def _infer_deferred_output_symbol_from_summary(summary: str) -> tuple[str, str]:
     return symbol, label
 
 
+def _try_repair_generated_unsafe_formula_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Defer generated outputs that validation proved use unsafe formulas."""
+    seed_rules: set[str] = set()
+    issue_reasons: dict[str, list[str]] = defaultdict(list)
+    issue_source_values: dict[str, set[str]] = defaultdict(set)
+    for issue in issues:
+        issue_text = str(issue)
+        flattened_match = _FLATTENED_THRESHOLDED_RATE_ISSUE_PATTERN.search(issue_text)
+        if flattened_match:
+            rule_name = flattened_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("flattened_thresholded_rate")
+        base_match = _CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN.search(issue_text)
+        if base_match:
+            rule_name = base_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("cross_reference_base_mechanics")
+        placeholder_match = _CROSS_REFERENCE_PLACEHOLDER_ISSUE_PATTERN.search(
+            issue_text
+        )
+        if placeholder_match:
+            rule_name = placeholder_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("cross_reference_placeholder")
+        numeric_match = _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN.search(
+            issue_text
+        )
+        if numeric_match:
+            rule_name = numeric_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("cross_reference_numeric_placeholder")
+        generic_purpose_match = (
+            _GENERIC_DEFERRED_PURPOSE_LIMITATION_ISSUE_PATTERN.search(issue_text)
+        )
+        if generic_purpose_match:
+            rule_name = generic_purpose_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("generic_deferred_purpose_limitation")
+        sibling_match = _SIBLING_RULE_NAME_COLLISION_ISSUE_PATTERN.search(issue_text)
+        if sibling_match:
+            rule_name = sibling_match.group(1)
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("sibling_rule_name_collision")
+        unused_modifier_match = _UNUSED_SOURCE_MODIFIER_ISSUE_PATTERN.search(issue_text)
+        if unused_modifier_match:
+            source_value_rule = unused_modifier_match.group("source_value")
+            affected_rule_names = re.findall(
+                r"`([^`]+)`",
+                unused_modifier_match.group("affected"),
+            )
+            for rule_name in affected_rule_names:
+                seed_rules.add(rule_name)
+                issue_reasons[rule_name].append("unused_source_modifier")
+                issue_source_values[rule_name].add(source_value_rule)
+    if not seed_rules:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    rules_by_name = {
+        str(rule.get("name") or ""): rule
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "")
+    }
+    affected_rules = _expand_affected_generated_rule_dependencies(
+        rules_by_name=rules_by_name,
+        seed_rules=seed_rules,
+    )
+    if not affected_rules:
+        return []
+
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    module = payload.setdefault("module", {})
+    if not isinstance(module, dict):
+        return []
+    deferred_outputs = module.setdefault("deferred_outputs", [])
+    if not isinstance(deferred_outputs, list):
+        return []
+    existing_outputs = {
+        str(record.get("output") or "").strip()
+        for record in deferred_outputs
+        if isinstance(record, dict)
+    }
+
+    deferred_targets: list[str] = []
+    for rule_name in sorted(affected_rules):
+        rule = rules_by_name.get(rule_name)
+        if not isinstance(rule, dict):
+            continue
+        output = _deferred_output_target_for_generated_rule(
+            rule_name=rule_name,
+            rule=rule,
+            base_anchor=base_anchor,
+        )
+        if not output:
+            continue
+        reasons = issue_reasons.get(rule_name) or []
+        dependency_reasons = sorted(seed_rules.intersection(affected_rules))
+        if not reasons and dependency_reasons:
+            reason = (
+                "Generated rule depends on an output that validation deferred "
+                "because it flattened thresholded, capped, base-limited, or "
+                "cross-referenced base mechanics."
+            )
+        elif "cross_reference_base_mechanics" in reasons:
+            reason = (
+                "Generated rule computed the tax on a raw compensation, wage, "
+                "remuneration, or payment base even though the source applies "
+                "cited base mechanics. This output is deferred until the cited "
+                "base, cap, exclusion, or excess outputs can be composed without "
+                "multiplying an unadjusted base."
+            )
+        elif "cross_reference_numeric_placeholder" in reasons:
+            reason = (
+                "Generated rule kept a local numeric rate, percentage, amount, or "
+                "base that the source sets by cross-reference to another legal "
+                "section. This output is deferred until the cited numeric "
+                "mechanics can be imported or composed without a local placeholder."
+            )
+        elif "cross_reference_placeholder" in reasons:
+            reason = (
+                "Generated rule kept a local fact for a cited legal section. This "
+                "output is deferred until the cited source can be encoded or "
+                "imported without a local cross-reference placeholder."
+            )
+        elif "generic_deferred_purpose_limitation" in reasons:
+            reason = (
+                "Generated rule exported a broad amount, base, inclusion, or "
+                "exclusion while a source-stated purpose-specific limitation was "
+                "deferred. This generic surface is deferred until the affected "
+                "purpose-specific outputs can be encoded or split without "
+                "applying the non-excepted rule too broadly."
+            )
+        elif "sibling_rule_name_collision" in reasons:
+            reason = (
+                "Generated rule used a local name that collides with a sibling "
+                "RuleSpec export. This output is deferred until it can be "
+                "encoded with a semantic branch-specific name without creating "
+                "ambiguous sibling imports."
+            )
+        elif "unused_source_modifier" in reasons:
+            reason = (
+                "Generated rule ignored a source-stated substitution, "
+                "modification, or limitation parameter. This output is deferred "
+                "until the upstream cross-referenced mechanics can be imported "
+                "or composed without stranding the modifier."
+            )
+        else:
+            reason = (
+                "Generated rule used a thresholded, capped, base-limited, or "
+                "excess-amount imported rate as a flat percentage. This output "
+                "is deferred until the cited mechanics can be composed without "
+                "flattening the imported rate."
+            )
+        if output not in existing_outputs:
+            deferred_record = {"output": output, "reason": reason}
+            source_value_targets = _source_value_targets_for_generated_rule_names(
+                rule_names=issue_source_values.get(rule_name, set()),
+                rules_by_name=rules_by_name,
+                base_anchor=base_anchor,
+            )
+            if source_value_targets:
+                deferred_record["source_values"] = source_value_targets
+            deferred_outputs.append(deferred_record)
+            existing_outputs.add(output)
+        deferred_targets.append(output)
+
+    if not deferred_targets:
+        return []
+
+    payload["rules"] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict) and str(rule.get("name") or "") in affected_rules
+        )
+    ]
+    if not payload["rules"]:
+        module.setdefault("status", "deferred")
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+
+    _remove_generated_test_outputs_for_deferred_rules(
+        test_file=_rulespec_test_path(rules_file),
+        base_anchor=base_anchor,
+        rule_names=affected_rules,
+    )
+    return deferred_targets
+
+
+def _expand_affected_generated_rule_dependencies(
+    *,
+    rules_by_name: dict[str, dict[str, Any]],
+    seed_rules: set[str],
+) -> set[str]:
+    affected = {rule for rule in seed_rules if rule in rules_by_name}
+    changed = True
+    while changed:
+        changed = False
+        for rule_name, rule in rules_by_name.items():
+            if rule_name in affected:
+                continue
+            identifiers = _generated_rule_formula_identifiers(rule)
+            if identifiers.intersection(affected):
+                affected.add(rule_name)
+                changed = True
+    return affected
+
+
+def _generated_rule_formula_identifiers(rule: dict[str, Any]) -> set[str]:
+    identifiers: set[str] = set()
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return identifiers
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            identifiers.update(_RULESPEC_IDENTIFIER_PATTERN.findall(formula))
+    return identifiers - _RULESPEC_FORMULA_BUILTINS
+
+
+def _deferred_output_target_for_generated_rule(
+    *,
+    rule_name: str,
+    rule: dict[str, Any],
+    base_anchor: str,
+) -> str:
+    source = str(rule.get("source") or "")
+    path_suffix = _top_level_source_suffix_from_rule_source(source)
+    if path_suffix and base_anchor.endswith(path_suffix):
+        path_suffix = ""
+    return f"{base_anchor}{path_suffix}#{rule_name}"
+
+
+def _source_value_targets_for_generated_rule_names(
+    *,
+    rule_names: set[str],
+    rules_by_name: dict[str, dict[str, Any]],
+    base_anchor: str,
+) -> list[str]:
+    targets: list[str] = []
+    for rule_name in sorted(rule_names):
+        rule = rules_by_name.get(rule_name)
+        if not isinstance(rule, dict):
+            continue
+        target = _deferred_output_target_for_generated_rule(
+            rule_name=rule_name,
+            rule=rule,
+            base_anchor=base_anchor,
+        )
+        if target and target not in targets:
+            targets.append(target)
+    return targets
+
+
+def _top_level_source_suffix_from_rule_source(source: str) -> str:
+    match = re.search(
+        r"\b[0-9A-Za-z]+\s+USC\s+[0-9A-Za-z.-]+"
+        r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+        source,
+    )
+    if match is None:
+        return ""
+    parts = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("suffix"))
+    if not parts:
+        return ""
+    return "/" + str(parts[0]).lower()
+
+
+def _remove_generated_test_outputs_for_deferred_rules(
+    *,
+    test_file: Path,
+    base_anchor: str,
+    rule_names: set[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(test_cases, list):
+        return []
+
+    removed_cases: list[str] = []
+    repaired_cases: list[Any] = []
+    changed = False
+    for index, case in enumerate(test_cases):
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            repaired_cases.append(case)
+            continue
+        repaired_outputs = {
+            key: value
+            for key, value in outputs.items()
+            if not _test_output_targets_deferred_rule(
+                str(key),
+                base_anchor=base_anchor,
+                rule_names=rule_names,
+            )
+        }
+        if repaired_outputs == outputs:
+            repaired_cases.append(case)
+            continue
+        changed = True
+        case_name = str(case.get("name") or f"case[{index}]")
+        if repaired_outputs:
+            repaired_case = dict(case)
+            repaired_case["output"] = repaired_outputs
+            repaired_cases.append(repaired_case)
+        else:
+            removed_cases.append(case_name)
+
+    if not changed and not removed_cases:
+        return []
+    test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
+    return removed_cases
+
+
+def _test_output_targets_deferred_rule(
+    output_key: str,
+    *,
+    base_anchor: str,
+    rule_names: set[str],
+) -> bool:
+    if "#" not in output_key:
+        return False
+    path, fragment = output_key.split("#", 1)
+    if not path.startswith(base_anchor):
+        return False
+    return fragment in rule_names
+
+
+def _try_repair_generated_unresolved_local_test_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove generated test expectations for local outputs that no longer exist."""
+    output_refs = _unresolved_local_test_output_refs_from_issues(issues)
+    if not output_refs:
+        return []
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+    target_base = (
+        f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    local_refs = sorted(
+        ref
+        for ref in output_refs
+        if ref == target_base or ref.startswith(f"{target_base}#")
+    )
+    if not local_refs:
+        return []
+    test_file = _rulespec_test_path(Path(str(getattr(result, "output_file", "") or "")))
+    return _remove_generated_test_output_refs(
+        test_file=test_file,
+        output_refs=set(local_refs),
+    )
+
+
+def _unresolved_local_test_output_refs_from_issues(issues: list[str]) -> set[str]:
+    refs: set[str] = set()
+    for issue in issues:
+        match = _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            refs.add(match.group(1).strip())
+    return refs
+
+
+def _remove_generated_test_output_refs(
+    *,
+    test_file: Path,
+    output_refs: set[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(test_cases, list):
+        return []
+
+    removed: list[str] = []
+    repaired_cases: list[Any] = []
+    for index, case in enumerate(test_cases):
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            repaired_cases.append(case)
+            continue
+        case_name = str(case.get("name") or f"case[{index}]")
+        repaired_outputs = {}
+        for raw_key, value in outputs.items():
+            output_ref = str(raw_key).strip().strip('"').strip("'")
+            if output_ref in output_refs:
+                removed.append(f"{case_name}:{output_ref}")
+                continue
+            repaired_outputs[raw_key] = value
+        if repaired_outputs:
+            repaired_case = dict(case)
+            repaired_case["output"] = repaired_outputs
+            repaired_cases.append(repaired_case)
+
+    if not removed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+    )
+    return removed
+
+
 _PERSON_SCOPE_RATE_BASE_ISSUE_PATTERN = re.compile(
     r"Person-scoped rate base at unit scope: `([^`]+)`"
 )
@@ -11867,6 +12611,31 @@ _SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN = re.compile(
 )
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
+)
+_FLATTENED_THRESHOLDED_RATE_ISSUE_PATTERN = re.compile(
+    r"Flattened thresholded imported rate: `([^`]+)`"
+)
+_CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN = re.compile(
+    r"Cross-reference base mechanics omitted: `([^`]+)`"
+)
+_CROSS_REFERENCE_PLACEHOLDER_ISSUE_PATTERN = re.compile(
+    r"(?:Encoded )?Cross-reference placeholder: `([^`]+)`"
+)
+_CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN = re.compile(
+    r"Cross-reference numeric placeholder: `([^`]+)`"
+)
+_GENERIC_DEFERRED_PURPOSE_LIMITATION_ISSUE_PATTERN = re.compile(
+    r"Generic output with deferred purpose-specific limitation: `([^`]+)`"
+)
+_SIBLING_RULE_NAME_COLLISION_ISSUE_PATTERN = re.compile(
+    r"Sibling rule name collision: rule `([^`]+)`"
+)
+_UNUSED_SOURCE_MODIFIER_ISSUE_PATTERN = re.compile(
+    r"Source-stated modifier parameter is not used by any numeric derived output: "
+    r"`(?P<source_value>[^`]+)`.+?but (?P<affected>.+?) ignores it\.",
+)
+_UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
+    r"Test case `[^`]+` output `([^`]+)` does not resolve"
 )
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"
@@ -12704,6 +13473,45 @@ def _only_pending_missing_derived_output_coverage_issues(
     )
 
 
+def _try_repair_generated_judgment_positive_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Append deterministic positive companion tests for Judgment outputs."""
+    if not _only_pending_judgment_positive_output_coverage_issues(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _append_generated_judgment_positive_tests_if_missing(
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
+def _only_pending_judgment_positive_output_coverage_issues(
+    issues: list[str],
+) -> bool:
+    return bool(issues) and all(
+        "Judgment rule missing positive companion output coverage:" in str(issue)
+        for issue in issues
+    )
+
+
 def _try_repair_generated_import_output_inputs_for_apply(
     result,
     *,
@@ -13331,6 +14139,34 @@ def _try_repair_generated_imported_output_test_mismatches_for_apply(
     )
 
 
+def _try_repair_generated_auto_output_test_mismatches_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Update expectations for deterministic auto-generated output tests."""
+    if not issues:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _repair_auto_output_test_mismatches(
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
 def _repair_imported_output_test_mismatches(
     *,
     test_file: Path,
@@ -13398,6 +14234,70 @@ def _repair_imported_output_test_mismatches(
     return repaired_cases
 
 
+def _repair_auto_output_test_mismatches(
+    *,
+    test_file: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    anchor = _relative_output_to_anchor(
+        relative_output, policy_repo_path=policy_repo_path
+    )
+    repairs_by_case: dict[str, dict[str, object]] = {}
+    for issue in issues:
+        parsed = _parse_generated_test_output_mismatch(str(issue))
+        if parsed is None:
+            continue
+        case_name, output_ref, actual_value = parsed
+        if not case_name.startswith("auto_output_"):
+            continue
+        if not _rulespec_ref_matches_base(output_ref, anchor):
+            continue
+        repairs_by_case.setdefault(case_name, {})[output_ref] = actual_value
+    if not repairs_by_case:
+        return []
+
+    repaired_cases: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_name = str(test_case.get("name") or "").strip()
+        replacements = repairs_by_case.get(case_name)
+        if not replacements:
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            return []
+        changed = False
+        for output_ref, actual_value in replacements.items():
+            output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_ref)
+            if output_key is None:
+                return []
+            if outputs[output_key] != actual_value:
+                outputs[output_key] = actual_value
+                changed = True
+        if changed:
+            repaired_cases.append(case_name)
+
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
+
+
 def _parse_generated_test_output_mismatch(
     issue: str,
 ) -> tuple[str, str, object] | None:
@@ -13409,13 +14309,27 @@ def _parse_generated_test_output_mismatch(
         issue,
         flags=re.IGNORECASE,
     )
-    if not match:
-        return None
-    try:
-        value = _rulespec_mismatch_actual_value(match["kind"], match["value"])
-    except (InvalidOperation, ValueError):
-        return None
-    return match["case"].strip(), match["output"].strip(), value
+    if match:
+        try:
+            value = _rulespec_mismatch_actual_value(match["kind"], match["value"])
+        except (InvalidOperation, ValueError):
+            return None
+        return match["case"].strip(), match["output"].strip(), value
+
+    judgment_match = re.search(
+        r"Test case\s+`?(?P<case>[^\s`]+)`?\s+"
+        r"output\s+`?(?P<output>[^\s`]+)`?\s+"
+        r"expected\s+\w+,\s+got\s+(?P<value>holds|not_holds)\.?$",
+        issue,
+        flags=re.IGNORECASE,
+    )
+    if judgment_match:
+        return (
+            judgment_match["case"].strip(),
+            judgment_match["output"].strip(),
+            judgment_match["value"].strip().lower(),
+        )
+    return None
 
 
 def _rulespec_mismatch_actual_value(kind: str, raw_value: str) -> object:
@@ -14047,6 +14961,22 @@ def _validate_generated_encoding_in_policy_overlay(
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
                 return True, [], supplemental_files
+            changed_proof_hash_files = _repair_dependent_proof_import_hashes(
+                overlay_repo=overlay_repo,
+                dependents=dependents,
+            )
+            if changed_proof_hash_files:
+                for path in changed_proof_hash_files:
+                    supplemental_files[path.relative_to(overlay_repo)] = (
+                        path.read_text()
+                    )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             upstream_placement_repairs = _repair_upstream_placement_duplicate_imports(
                 rules_file=overlay_target,
                 test_file=_rulespec_test_path(overlay_target),
@@ -14132,6 +15062,38 @@ def _validate_generated_encoding_in_policy_overlay(
                 None,
             )
             target_test_path = _rulespec_test_path(overlay_target)
+            if (
+                target_validation is not None
+                and _repair_generated_unused_imports_for_apply(
+                    rules_file=overlay_target,
+                    validation=target_validation,
+                )
+            ):
+                supplemental_files[relative_output] = overlay_target.read_text()
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
+            if (
+                target_validation is not None
+                and _repair_missing_entity_table_rows_for_row_ordered_outputs(
+                    test_file=target_test_path,
+                    validation=target_validation,
+                )
+            ):
+                supplemental_files[target_test_path.relative_to(overlay_repo)] = (
+                    target_test_path.read_text()
+                )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             if target_validation is not None and _complete_missing_imported_test_inputs(
                 rules_file=overlay_target,
                 test_file=target_test_path,
@@ -15041,6 +16003,119 @@ def _repair_mixed_scalar_output_tests(
     return repaired_names
 
 
+def _repair_missing_entity_table_rows_for_row_ordered_outputs(
+    *,
+    test_file: Path,
+    validation: object,
+) -> list[str]:
+    """Move one-row entity test inputs from scalar input into tables.<Entity>."""
+    if not test_file.exists():
+        return []
+    repairs_by_case: dict[str, str] = {}
+    for issue in _validation_issue_strings(validation):
+        match = _ROW_ORDERED_WITHOUT_TABLE_RE.search(str(issue))
+        if match is None:
+            continue
+        repairs_by_case[match.group("case")] = match.group("entity")
+    if not repairs_by_case:
+        return []
+
+    try:
+        loaded = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    cases: list[object]
+    if isinstance(loaded, dict) and isinstance(loaded.get("cases"), list):
+        cases = loaded["cases"]
+        output_payload: object = loaded
+    elif isinstance(loaded, list):
+        cases = loaded
+        output_payload = cases
+    else:
+        return []
+
+    repaired_names: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or "").strip()
+        entity = repairs_by_case.get(case_name)
+        if not entity:
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            continue
+        row_lengths = {
+            len(value) for value in output.values() if isinstance(value, list)
+        }
+        if row_lengths != {1}:
+            continue
+        case_input = case.get("input")
+        if not isinstance(case_input, dict):
+            continue
+        row_inputs = {
+            key: value
+            for key, value in case_input.items()
+            if isinstance(key, str) and "#input." in key
+        }
+        if not row_inputs:
+            continue
+        remaining_input = {
+            key: value for key, value in case_input.items() if key not in row_inputs
+        }
+        tables = copy.deepcopy(case.get("tables") or {})
+        if not isinstance(tables, dict):
+            continue
+        existing_rows = tables.get(entity)
+        if isinstance(existing_rows, list) and existing_rows:
+            continue
+        tables[entity] = [row_inputs]
+        case["input"] = remaining_input
+        case["tables"] = tables
+        repaired_names.append(case_name)
+
+    if not repaired_names:
+        return []
+    test_file.write_text(yaml.safe_dump(output_payload, sort_keys=False))
+    return repaired_names
+
+
+def _repair_generated_unused_imports_for_apply(
+    *,
+    rules_file: Path,
+    validation: object,
+) -> list[str]:
+    """Prune generated imports that validation proves are unused."""
+    if not any(
+        "Unused import `" in issue for issue in _validation_issue_strings(validation)
+    ):
+        return []
+    try:
+        content = rules_file.read_text()
+    except OSError:
+        return []
+    repaired_content, removed_imports = _prune_unused_imports(content)
+    if not removed_imports:
+        return []
+    rules_file.write_text(repaired_content)
+    return removed_imports
+
+
+def _validation_issue_strings(validation: object) -> list[str]:
+    """Collect issue strings from a PipelineResult-like object."""
+    issues: list[str] = []
+    results = getattr(validation, "results", {})
+    if not isinstance(results, dict):
+        return issues
+    for validator_result in results.values():
+        for issue in getattr(validator_result, "issues", []) or []:
+            issues.append(str(issue))
+        error = getattr(validator_result, "error", None)
+        if error:
+            issues.append(str(error))
+    return issues
+
+
 def _repair_mixed_derived_entity_output_tests(
     *,
     rules_file: Path,
@@ -15280,6 +16355,10 @@ _INVALID_INPUT_REF_RE = re.compile(
 _ABSOLUTE_RULESPEC_REF_RE = re.compile(r"^[a-z][a-z0-9_-]*:[^\s]+$")
 _MIXED_DERIVED_OUTPUT_ENTITIES_RE = re.compile(
     r"Test case `(?P<case>[^`]+)` mixes derived output entities \([^)]+\)"
+)
+_ROW_ORDERED_WITHOUT_TABLE_RE = re.compile(
+    r"Test case `(?P<case>[^`]+)` output .+ uses a row-ordered "
+    r"list but has no `tables\.(?P<entity>[^`]+)` rows\."
 )
 
 
@@ -15533,15 +16612,21 @@ def _complete_missing_imported_test_inputs(
         entity_id = assignment.get("entity")
         if not entity_id:
             continue
-        input_name = assignment["input"]
-        for input_ref in imported_inputs.get(input_name, []):
-            updated = _insert_input_default_in_table_entity_rows(
-                updated,
-                input_ref=input_ref,
-                value=_infer_missing_input_default(input_name),
-                case_name=assignment["case"],
-                entity_id=entity_id,
-            )
+        input_names = [assignment["input"]]
+        if assignment["input"] in imported_inputs:
+            # The validator reports the first missing row input it encounters.
+            # Imported aggregate rules can require many defaults, so complete the
+            # whole imported input surface for that row in one repair pass.
+            input_names = sorted(imported_inputs)
+        for input_name in input_names:
+            for input_ref in imported_inputs.get(input_name, []):
+                updated = _insert_input_default_in_table_entity_rows(
+                    updated,
+                    input_ref=input_ref,
+                    value=_infer_missing_input_default(input_name),
+                    case_name=assignment["case"],
+                    entity_id=entity_id,
+                )
     if updated == content:
         return False
     test_file.write_text(updated)

@@ -1059,6 +1059,12 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine models employee FICA payroll taxes and excess payroll tax withheld, but not Railroad Retirement Tax Act section 3201(b) tier 2 employee tax or the section 3241 applicable percentage as a comparable output.
 
+  - legal_id: us:statutes/26/3201#tier_2_applicable_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine models employee FICA payroll taxes and excess payroll tax withheld, but not the Railroad Retirement Tax Act section 3201(b) tier 2 applicable-percentage helper as a one-to-one output.
+
   - legal_id: us:statutes/26/3211#tier_2_employee_representative_tax
     country: us
     program: tax
@@ -1070,6 +1076,12 @@ mappings:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine models employer FICA payroll taxes, but not Railroad Retirement Tax Act section 3221(b) tier 2 employer tax or the section 3241 applicable percentage as a comparable output.
+
+  - legal_id: us:statutes/26/3221#tier_1_applicable_percentage
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes component employer OASDI and Medicare payroll tax rates, but not the section 3221(a) Railroad Retirement Tax Act tier 1 applicable-percentage helper as a one-to-one output.
 
   - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax_rate
     country: us
@@ -1128,6 +1140,246 @@ mappings:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 3111(c) foreign-social-security agreement wage exemption as a separate variable.
+
+  - legal_id: us:statutes/26/3127#employer_application_meets_statutory_approval_prerequisites
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(b) encodes IRS/SSA approval prerequisites for a religious-sect payroll-tax exemption application; PolicyEngine does not expose this administrative approval predicate.
+
+  - legal_id: us:statutes/26/3127#employee_application_meets_statutory_approval_prerequisites
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(b) encodes IRS/SSA approval prerequisites for an employee religious-sect payroll-tax exemption application; PolicyEngine does not expose this administrative approval predicate.
+
+  - legal_id: us:statutes/26/3127#employer_meets_religious_exemption_requirements
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(a) classifies employers and partners by religious-sect membership, adherence, and approved application status; PolicyEngine does not model these exemption-status inputs.
+
+  - legal_id: us:statutes/26/3127#employee_meets_religious_exemption_requirements
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(a) classifies employees by religious-sect membership, adherence, and approved application status; PolicyEngine does not model these exemption-status inputs.
+
+  - legal_id: us:statutes/26/3127#wages_paid_during_section_3127_effective_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(c) defines the effective period for approved religious-sect payroll-tax exemptions; PolicyEngine does not expose this application-effective-period predicate.
+
+  - legal_id: us:statutes/26/3127#wages_exempt_from_section_3111_taxes_under_section_3127
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127 exempts qualified wages from employer FICA taxes only when religious-sect exemption status and effective-period facts are present; PolicyEngine does not model those facts or expose the exempt-wage amount separately.
+
+  - legal_id: us:statutes/26/3127#wages_exempt_from_section_3101_taxes_under_section_3127
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127 exempts qualified wages from employee FICA taxes only when religious-sect exemption status and effective-period facts are present; PolicyEngine does not model those facts or expose the exempt-wage amount separately.
+
+  - legal_id: us:statutes/26/3401/b#payroll_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(b) defines payroll-period status for chapter 24 withholding mechanics; PolicyEngine does not expose this legal-period classification as a separate output.
+
+  - legal_id: us:statutes/26/3401/b#miscellaneous_payroll_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(b) defines a residual payroll-period classification for chapter 24 withholding; PolicyEngine does not expose this cadence classification as a separate variable.
+
+  - legal_id: us:statutes/26/3401/c#employee
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(c) defines employee status for chapter 24 withholding; PolicyEngine models income and payroll tax amounts, not this legal status predicate as a separate output.
+
+  - legal_id: us:statutes/26/3402/a#amount_of_wages_for_withholding_tables
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(a) defines the wage amount used for Secretary-prescribed withholding tables or computational procedures; PolicyEngine does not model paycheck withholding table inputs as separate outputs.
+
+  - legal_id: us:statutes/26/3402/b#miscellaneous_allowance_period_days_for_nonpayroll_period_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) defines miscellaneous payroll-period days for withholding allowance calculations; PolicyEngine does not model paycheck withholding allowance periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/b#miscellaneous_allowance_period_days_for_wages_paid_without_regard_to_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) defines elapsed-day miscellaneous payroll periods for wages paid without regard to a period; PolicyEngine does not model paycheck withholding allowance periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/b#secretary_may_authorize_weekly_aggregate_computation
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) authorizes weekly aggregate withholding computation for short periods; PolicyEngine does not expose this Treasury authorization predicate.
+
+  - legal_id: us:statutes/26/3402/b#wages_computed_for_withholding_under_percentage_method
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) permits employer-elected rounding of wages for percentage-method withholding; PolicyEngine does not model paycheck withholding wage rounding as a separate output.
+
+  - legal_id: us:statutes/26/3402/c#wage_bracket_miscellaneous_period_days_for_nonpayroll_period_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) defines miscellaneous payroll-period days for wage-bracket withholding tables; PolicyEngine does not model paycheck withholding table periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/c#wage_bracket_miscellaneous_period_days_for_wages_paid_without_regard_to_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) defines elapsed-day miscellaneous payroll periods for wages paid without regard to a period under wage-bracket withholding; PolicyEngine does not model paycheck withholding table periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/c#wage_bracket_weekly_aggregate_computation_authorized
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) authorizes weekly aggregate wage-bracket withholding computation for short periods; PolicyEngine does not expose this Treasury authorization predicate.
+
+  - legal_id: us:statutes/26/3402/c#wages_computed_for_wage_bracket_withholding
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) permits employer-elected rounding of wages for wage-bracket withholding tables; PolicyEngine does not model paycheck withholding wage rounding as a separate output.
+
+  - legal_id: us:statutes/26/3402/d#required_withholding_tax_not_collected_from_employer
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(d) limits IRS collection of required withholding tax from an employer after the recipient pays the credited tax; PolicyEngine does not expose employer collection-relief predicates.
+
+  - legal_id: us:statutes/26/3402/d#employer_remains_liable_for_penalties_or_additions_for_withholding_failure
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(d) preserves employer liability for penalties or additions despite collection relief; PolicyEngine does not model employer withholding penalty-liability predicates as tax-calculation outputs.
+
+  - legal_id: us:statutes/26/3402/e#maximum_consecutive_days_for_payroll_period_deeming_rule
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) defines the 31-day payroll-period threshold for chapter 24 withholding wage-deeming administration; PolicyEngine does not expose this paycheck-period withholding threshold as a one-to-one output.
+
+  - legal_id: us:statutes/26/3402/e#payroll_period_within_deeming_rule_day_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) classifies payroll periods within the 31-day wage-deeming threshold for chapter 24 withholding; PolicyEngine does not expose this paycheck-period withholding predicate as a one-to-one output.
+
+  - legal_id: us:statutes/26/3402/e#all_remuneration_deemed_wages_for_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) deems all remuneration wages for short payroll periods when one-half or more of service remuneration constitutes wages; PolicyEngine does not expose this paycheck-period wage-construction predicate.
+
+  - legal_id: us:statutes/26/3402/e#no_remuneration_deemed_wages_for_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) deems no remuneration wages for short payroll periods when more than one-half of service remuneration does not constitute wages; PolicyEngine does not expose this paycheck-period wage-construction predicate.
+
+  - legal_id: us:statutes/26/3402/e#remuneration_amount_deemed_wages_for_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) computes a deemed-wage amount for chapter 24 withholding administration; PolicyEngine does not expose paycheck-period deemed withholding wages as a one-to-one output.
+
+  - legal_id: us:statutes/26/3403#employer_liability_for_chapter_withholding_tax_payment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3403 assigns employer liability for chapter 24 withheld tax payments; PolicyEngine computes tax liabilities, not employer withholding-payment liability as a separate output.
+
+  - legal_id: us:statutes/26/3403#employer_liability_to_any_person_for_chapter_withholding_tax_payment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3403 shields the employer from liability to other persons for withheld-tax payments; PolicyEngine does not expose this non-tax-due legal liability shield as a variable.
+
+  - legal_id: us:statutes/26/3504#secretary_may_designate_wage_control_person_to_perform_employer_acts
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3504 authorizes Treasury to designate a fiduciary, agent, or other wage-control person to perform employer acts; PolicyEngine does not expose this designation-authority predicate.
+
+  - legal_id: us:statutes/26/3504#designated_person_subject_to_employer_law_provisions
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3504 applies employer legal provisions and penalties to designated payroll agents; PolicyEngine computes payroll tax amounts, not this legal-responsibility status.
+
+  - legal_id: us:statutes/26/3504#employer_remains_subject_to_employer_law_provisions
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3504 preserves employer legal responsibility except as Treasury provides otherwise; PolicyEngine does not expose this employer-responsibility status as a variable.
+
+  - legal_id: us:statutes/26/3511#related_party_nonapplication_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(e) makes CPEO treatment inapplicable for related customers under modified section 267(b) or 707(b) relationships; PolicyEngine does not expose this related-party nonapplication predicate.
+
+  - legal_id: us:statutes/26/3511#cpeo_exclusive_employer_for_work_site_employee_remuneration
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(a) treats a CPEO as the exclusive employer for specified work-site employee remuneration; PolicyEngine does not model CPEO/customer employer identity as a separate output.
+
+  - legal_id: us:statutes/26/3511#employer_type_based_rules_apply_to_cpeo_remitted_work_site_remuneration
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(a)(2) applies employer-type exemptions, exclusions, definitions, and rules to CPEO-remitted remuneration; PolicyEngine does not expose this legal-rule-application status.
+
+  - legal_id: us:statutes/26/3511#cpeo_successor_customer_predecessor_during_service_contract
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(b)(1) gives CPEO/customer successor-predecessor treatment for wage-base purposes during service contracts; PolicyEngine does not expose this CPEO succession status.
+
+  - legal_id: us:statutes/26/3511#customer_successor_cpeo_predecessor_after_service_contract_termination
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(b)(2) gives customer/CPEO successor-predecessor treatment after service-contract termination; PolicyEngine does not expose this CPEO succession status.
+
+  - legal_id: us:statutes/26/3511#individual_not_work_site_employee_due_to_self_employment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(f) excludes individuals with self-employment earnings from the customer trade or business from work-site employee status; PolicyEngine does not expose this CPEO work-site status predicate.
+
+  - legal_id: us:statutes/26/3511#specified_credit_applies_to_customer_not_cpeo
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(d) allocates specified employment credits to the customer rather than the CPEO; PolicyEngine does not expose this CPEO/customer credit-allocation predicate.
+
+  - legal_id: us:statutes/26/3511#customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(d) tells the customer to account for CPEO-paid wages and employment taxes for specified credits; PolicyEngine does not expose this credit-input allocation status.
+
+  - legal_id: us:statutes/26/3511#cpeo_information_furnishing_required_for_customer_credit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(d) requires the CPEO to furnish information needed for customer specified credits; PolicyEngine does not expose this information-reporting obligation.
 
   - legal_id: us:statutes/26/3301#federal_unemployment_excise_tax_rate
     country: us
@@ -1722,6 +1974,16 @@ mappings:
     policyengine_variable: taxable_earnings_for_social_security
     candidate_priority: P4
     rationale: PolicyEngine exposes taxable Social Security earnings after this exclusion, not the excluded-remuneration amount separately. The ECPS tax harness uses this Axiom output to stage OASDI wage inputs before comparing sections 3101(a) and 3111(a).
+
+  - legal_id: us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.irs.payroll.social_security.cap
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same final 2024 Social Security contribution-and-benefit base, stored in PolicyEngine as the Social Security payroll cap parameter.
 
   - legal_id: us:policies/ssa/contribution-and-benefit-base/2026#base_year_contribution_and_benefit_base
     country: us
@@ -9564,6 +9826,34 @@ mappings:
     rationale: Same statutory percentage of adjusted gross income that floors deductible medical-care expenses.
 
 prefixes:
+  - legal_id_prefix: us:statutes/26/3102/a#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employee_payroll_tax
+    candidate_priority: P4
+    rationale: Section 3102(a) governs employer collection of section 3101 tax by wage deduction and special collection permissions for small cash remuneration and tips; PolicyEngine exposes final employee payroll tax amounts, not these collection-administration predicates and thresholds as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3102/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employee_payroll_tax
+    candidate_priority: P4
+    rationale: Section 3102 subsections after subsection (a) govern employer liability, indemnification, tip-tax collection, and reporting administration for section 3101 tax; PolicyEngine exposes final employee payroll tax amounts, not these collection and employer-liability administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3111/e#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3111(e) defines the qualified tax-exempt organization qualified-veteran employment credit against employer OASDI tax, including modified section 51 rates, applicable-period, qualified-veteran, exempt-purpose wage, and credit-limitation intermediates; PolicyEngine does not expose this credit or its section 51 modification surfaces as one-to-one payroll-tax outputs.
+
+  - legal_id_prefix: us:statutes/26/3111/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3111(f) defines section 41(h) research-credit offsets against employer OASDI and Medicare taxes, quarterly payroll-tax limitations, carryovers, and chapter 1 deduction coordination; PolicyEngine does not expose these employer payroll-credit allocation and carryover surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3202#
     country: us
     program: tax
@@ -9605,6 +9895,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 3231(e) defines Railroad Retirement Tax Act compensation and its purpose-specific inclusions, exclusions, tip thresholds, and local-lodge disregards; PolicyEngine does not expose RRTA compensation-definition surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3231/e/2#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3231(e)(2) defines Railroad Retirement Tax Act contribution-base application, successor-employer continuity, and hospital-insurance carveout helper surfaces; PolicyEngine does not expose these RRTA contribution-base mechanics as one-to-one outputs.
 
   - legal_id_prefix: us:statutes/26/3231/f#
     country: us
@@ -9838,6 +10134,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 224 qualified-tips deduction outputs are new statutory caps, phaseouts, eligibility predicates, and formula intermediates that PolicyEngine does not yet expose as one-to-one variables.
 
+  - legal_id_prefix: us:statutes/26/408/p#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 408(p) SIMPLE retirement account eligibility, election, contribution, or plan-definition intermediates as one-to-one payroll tax variables. These legal intermediates feed section 3121(a)(5) FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/408/p/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 408(p) SIMPLE retirement account subpart eligibility, election, contribution, or plan-definition intermediates as one-to-one payroll tax variables. These legal intermediates feed section 3121(a)(5) FICA wage construction before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/a/2#
     country: us
     program: tax
@@ -9849,6 +10157,18 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose section 3121(a)(4) post-work sickness, disability, or medical payment wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/3121/a/5#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(5) retirement-plan, annuity-plan, cafeteria-plan, SEP, SIMPLE, or governmental deferred-compensation wage-exclusion predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/3121/a/5/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 3121(a)(5) retirement-plan, annuity-plan, cafeteria-plan, SEP, SIMPLE, or governmental deferred-compensation wage-exclusion subpart predicates and amounts as one-to-one variables. These legal intermediates are inputs to FICA wage construction before downstream payroll-tax comparisons.
 
   - legal_id_prefix: us:statutes/26/3121/a/6#
     country: us
@@ -9883,6 +10203,42 @@ prefixes:
     policyengine_variable: employer_federal_unemployment_tax
     candidate_priority: P4
     rationale: Section 3302(f) defines State-specific limitation and partial-limitation rules for subsection (c)(2) credit reductions, including benefit-cost ratios, State unemployment tax rates, and intermediate capped reduction amounts; PolicyEngine exposes final employer FUTA tax, not these statutory credit-reduction limitation components separately.
+
+  - legal_id_prefix: us:statutes/26/3402/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(f) defines withholding allowance certificates, certificate effective dates, nonresident alien exemption limits, and duplicate allowance-claim restrictions for chapter 24 withholding administration; PolicyEngine does not expose these paycheck withholding certificate administration surfaces as one-to-one outputs.
+
+  - legal_id: us:statutes/26/3402/g#special_wage_payment_regulatory_withholding_rule_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(g) identifies special wage-payment situations where withholding manner and amount are determined under Secretary regulations; PolicyEngine does not expose this regulatory-applicability predicate as a separate tax output.
+
+  - legal_id_prefix: us:statutes/26/3402/h#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(h) defines alternative paycheck withholding methods based on average, annualized, cumulative, or substantially equivalent wages, including timing and intermediate method calculations; PolicyEngine computes annual tax and payroll-tax amounts, not these chapter 24 withholding-method administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/i#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(i) authorizes employee-requested increased withholding under regulations and treats that additional withholding as required chapter 24 tax; PolicyEngine does not expose this paycheck withholding election authority or legal-treatment rule as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/j#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(j) removes chapter 24 withholding requirements for certain noncash retail-salesman commission remuneration when the employer files prescribed information; PolicyEngine does not expose this paycheck withholding exemption predicate as a one-to-one output.
+
+  - legal_id_prefix: us:statutes/26/3402/k#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(k) applies chapter 24 withholding mechanics to tips, limits deduction and withholding to employer-controlled wages and employee-turned-over funds after section 3102(a) or 3202(a) collections, and allows special low-monthly-tip withholding for section 3401(a)(16)(B) tips; PolicyEngine does not expose paycheck tip-withholding administration surfaces as one-to-one outputs.
 
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
@@ -10399,6 +10755,12 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 3241(b) Railroad Retirement Tax Act applicable-percentage schedule outputs are not exposed as one-to-one PolicyEngine variables or parameters.
+
+  - legal_id_prefix: us:statutes/26/3241/a#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3241(a) Railroad Retirement Tax Act applicable-percentage outputs route to the section 3241(b) schedule for sections 3201(b), 3211(b), and 3221(b), which PolicyEngine does not expose as one-to-one variables or parameters.
 
   - legal_id_prefix: us:statutes/26/63#
     country: us

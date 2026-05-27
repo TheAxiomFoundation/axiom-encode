@@ -2095,20 +2095,25 @@ def _citation_parts_from_match(match: re.Match[str]) -> CitationParts:
 def _cited_context_candidates(policy_root: Path, candidate_rel: Path) -> list[Path]:
     """Return an exact cited RuleSpec file or child fragments when only a section exists."""
     candidate = policy_root / candidate_rel
-    if candidate.exists():
-        return [candidate]
     child_root = policy_root / candidate_rel.with_suffix("")
-    if not child_root.is_dir():
-        return []
-    candidates = [
-        path
-        for path in child_root.rglob("*.yaml")
-        if not path.name.endswith(".test.yaml")
-    ]
-    candidates.sort(
-        key=lambda path: (len(path.relative_to(child_root).parts), str(path))
-    )
-    return candidates[:8]
+    child_candidates: list[Path] = []
+    if child_root.is_dir():
+        child_candidates = [
+            path
+            for path in child_root.rglob("*.yaml")
+            if not path.name.endswith(".test.yaml")
+        ]
+        child_candidates.sort(
+            key=lambda path: (len(path.relative_to(child_root).parts), str(path))
+        )
+        child_candidates = child_candidates[:8]
+
+    if candidate.exists():
+        if _context_file_exports(str(candidate)) or not child_candidates:
+            return [candidate]
+        return [candidate, *child_candidates]
+
+    return child_candidates
 
 
 def _select_child_fragment_context_files(
@@ -3029,6 +3034,10 @@ import or re-export that exact canonical concept instead of duplicating it local
                 target_ref_prefix=target_ref_prefix,
             )
         )
+        parent_child_terminal_section = _format_parent_child_terminal_output_guidance(
+            context_files,
+            target_ref_prefix=target_ref_prefix,
+        )
         child_exception_import_section = _format_child_exception_import_guidance(
             source_text,
             context_files,
@@ -3067,6 +3076,7 @@ Context files are precedent and dependency context, not independent legal author
 {excluded_child_context_section}
 {unavailable_cited_context_section}
 {partial_extent_child_schema_section}
+{parent_child_terminal_section}
 {child_exception_import_section}
 {cycle_prone_context_import_section}
 Import and context rules:
@@ -3377,6 +3387,18 @@ RuleSpec requirements:
   broader meaning. Downstream provisions must import the output that matches
   their cited purpose rather than using a stale local input or an over-broad
   generic output.
+- If one purpose-specific exception, rate portion, or base branch is not
+  executable yet, do not export a generic `x_after_cap`, `x_included`,
+  `x_excluded`, `taxable_x`, or similar output that silently applies the
+  non-excepted branch to every downstream purpose. Either split the executable
+  surface into concrete purpose-scoped outputs and defer only the unresolved
+  purpose, or defer the generic surface entirely.
+- Do not use boundary inputs named like `applicable_base_for_current_purpose`,
+  `amount_for_current_context`, or `rate_under_current_use`. Those hide
+  purpose-specific legal mechanics from downstream importers. Use the concrete
+  source-stated purpose in the rule name and formula input, such as
+  `applicable_base_for_section_3201_a_non_hospital_insurance_rate_portion`, or
+  defer that purpose-specific surface.
 - When a child provision substitutes, increases, caps, or otherwise modifies a
   sibling or parent output, give the replacement a branch-specific name such as
   `_under_subsection_h`, `_after_temporary_amendment`, or another source-stated
@@ -3451,6 +3473,16 @@ RuleSpec requirements:
   input such as `tier_1_applicable_percentage`. Import the upstream output when
   it exists; otherwise defer the affected output and name the cited legal
   dependency in `reason`.
+  Before applying any imported rate to the current source's whole base, check
+  whether the cited source makes that rate thresholded, capped, base-limited, or
+  part of an amount formula that applies only above or below a specified amount.
+  If so, do not flatten the cited mechanics into `current_base * imported_rate`
+  or into a combined percentage that is later multiplied by the whole current
+  base. Import and compose the cited executable amount or the cited base,
+  threshold, cap, and excess-amount outputs faithfully. If the current schema
+  cannot pass the correct adjusted base into those cited mechanics, defer the
+  affected executable output and name the missing cited computation rather than
+  approximating it with a flat rate.
   When the omitted output covers a specific subsection or subparagraph, the
   `output` target path must include that source path segment, e.g.
   `us:statutes/26/3201/a#tier_1_employee_tax`, not
@@ -3591,6 +3623,13 @@ RuleSpec requirements:
   If imported child calculations cannot receive the adjusted basis faithfully
   under the current executable schema, emit `module.status: entity_not_supported`
   or `deferred` instead of an approximate executable formula.
+- If the source has a cross-reference such as `For application of different
+  contribution bases ... see section X`, do not repair it by keeping tax,
+  amount, or rate-times-compensation formulas on the raw wage, compensation,
+  remuneration, or payment base. Import and compose the cited
+  base/cap/exclusion/excess outputs; if those cited base mechanics are missing,
+  purpose-specific, or deferred, add `module.deferred_outputs[]` for each
+  affected source subsection output.
 - Do not repair that case by importing child rates or thresholds and rebuilding
   the child branch locally with an adjusted basis. That still re-encodes the
   child branch and is invalid unless the schema can explicitly wire the
@@ -4431,6 +4470,83 @@ Target-specific schema limit:
 """
 
 
+def _format_parent_child_terminal_output_guidance(
+    context_files: list[EvalContextFile],
+    *,
+    target_ref_prefix: str | None,
+) -> str:
+    """Return concrete child-output imports for aggregate parent encodings."""
+    if not target_ref_prefix:
+        return ""
+    child_prefix = f"{target_ref_prefix.rstrip('/')}/"
+    lines: list[str] = []
+    local_inputs: set[str] = set()
+    for item in context_files:
+        if item.kind.endswith("_test_context"):
+            continue
+        if not item.import_path.startswith(child_prefix):
+            continue
+        terminal_exports = _context_file_terminal_exports(item.source_path)
+        if not terminal_exports:
+            continue
+        surfaces = _context_file_executable_surfaces(item.source_path)
+        export_details: list[str] = []
+        for name in terminal_exports:
+            surface = surfaces.get(name) or {}
+            dtype = str(surface.get("dtype") or "").strip()
+            kind = str(surface.get("kind") or "").strip()
+            entity = str(surface.get("entity") or "").strip()
+            annotations = ", ".join(part for part in (kind, dtype, entity) if part)
+            suffix = f" ({annotations})" if annotations else ""
+            export_details.append(f"`{item.import_path}#{name}`{suffix}")
+        inputs = sorted(_context_file_local_inputs(item.source_path))
+        local_inputs.update(inputs)
+        input_note = ""
+        if inputs:
+            visible_inputs = ", ".join(f"`{name}`" for name in inputs[:8])
+            if len(inputs) > 8:
+                visible_inputs += ", ..."
+            input_note = f"; child-local inputs: {visible_inputs}"
+        lines.append(
+            f"- `{item.import_path}` terminal exports: "
+            + ", ".join(export_details)
+            + input_note
+        )
+    if not lines:
+        return ""
+
+    input_guidance = ""
+    if local_inputs:
+        visible_inputs = ", ".join(f"`{name}`" for name in sorted(local_inputs)[:12])
+        if len(local_inputs) > 12:
+            visible_inputs += ", ..."
+        input_guidance = (
+            "\n- These child-local input names are already owned by child files: "
+            f"{visible_inputs}. Do not recreate a child branch by copying those "
+            "inputs into the parent when a terminal child output above is "
+            "available."
+        )
+
+    return f"""
+Aggregate parent child outputs detected:
+{chr(10).join(lines)}
+- For this aggregate parent, start from the terminal child outputs above.
+  Import each terminal child output needed by the parent and compose those
+  imported bare names directly. For numeric parent outputs, prefer terminal
+  `Money`, `Rate`, or `Count` child outputs over child predicates, rates, or raw
+  factual inputs.
+- Do not rebuild a child branch in the parent from the child's local facts,
+  helper predicates, or numeric literals. If a copied child already exports a
+  terminal numeric result, the parent formula should add, cap, select, subtract,
+  or otherwise compose that imported result.
+- If a copied child only exports a terminal `Judgment` and the source requires a
+  numeric parent amount for that branch, you may use a source-stated local
+  amount fact for that judgment-only branch, but still import all available
+  terminal numeric outputs for sibling child branches instead of recomputing
+  them locally.{input_guidance}
+"""
+
+
 def _source_has_partial_extent_child_rewiring_limit(source_text: str) -> bool:
     """Return true for partial exemptions that cannot be rewired through children."""
     normalized = " ".join(source_text.split())
@@ -4733,13 +4849,17 @@ def _format_unavailable_cited_context_guidance(
         if item.import_path in seen:
             continue
         seen.add(item.import_path)
-        suffix = _citation_example_suffix(item.import_path)
+        suffixes = _citation_example_suffixes(item.import_path)
+        suffix_list = ", ".join(f"`{suffix}`" for suffix in suffixes)
+        example_suffix = suffixes[-1]
         lines.append(
             f"- Source cites `{citation.label}`; copied context target "
             f"`{item.import_path}` has {reason}. For this cited target, do not "
-            f"create local `_under_section_{suffix}`, `section_{suffix}_...`, "
-            f"`*_provided_in_section_{suffix}`, or similar cross-reference "
-            "facts."
+            f"create local cross-reference facts using suffixes {suffix_list}. "
+            f"That includes `_under_section_{example_suffix}`, "
+            f"`section_{example_suffix}_...`, "
+            f"`*_provided_in_section_{example_suffix}`, "
+            f"`*_to_which_section_{example_suffix}_applies`, or similar facts."
         )
     if not lines:
         return ""
@@ -4905,6 +5025,25 @@ def _citation_example_suffix(import_target: str) -> str:
     if len(parts) >= 3 and parts[0] == "statutes":
         return "_".join(parts[2:])
     return "_".join(parts[-2:]) if len(parts) >= 2 else "cited"
+
+
+def _citation_example_suffixes(import_target: str) -> list[str]:
+    """Return exact and ancestor identifier suffixes for a cited import target."""
+    normalized = _normalize_prompt_import_target(import_target)
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) < 3 or parts[0] != "statutes":
+        return [_citation_example_suffix(import_target)]
+
+    citation_parts = parts[2:]
+    suffixes: list[str] = []
+    # A bare section ancestor is usually too broad for prompt guidance, but
+    # subsection ancestors are exactly how models phrase local placeholders.
+    minimum_length = 2 if len(citation_parts) > 1 else 1
+    for length in range(len(citation_parts), minimum_length - 1, -1):
+        suffix = "_".join(citation_parts[:length])
+        if suffix not in suffixes:
+            suffixes.append(suffix)
+    return suffixes or [_citation_example_suffix(import_target)]
 
 
 def _format_proration_test_guidance(source_text: str) -> str:
