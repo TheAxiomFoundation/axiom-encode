@@ -2870,6 +2870,45 @@ rules:
     assert "short-title" in item["rationale"]
 
 
+def test_policyengine_coverage_classifies_3310_review_deadlines(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3310.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3310
+rules:
+  - name: state_petition_for_review_deadline_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '60'
+  - name: secretary_certification_withholding_notice_period_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '60'
+  - name: judicial_proceedings_stay_period_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '30'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all("timing rules" in item["rationale"] for item in report["items"])
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
