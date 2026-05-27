@@ -107,6 +107,12 @@ def test_source_identifier_maps_corpus_regulation_to_repo_path():
     ) == Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
 
 
+def test_source_identifier_maps_state_manual_to_policies_repo_path():
+    assert _source_identifier_to_relative_rulespec_path(
+        "us-az/manual/des/faa5/na-child-support-expense/block-2"
+    ) == Path("policies/des/faa5/na-child-support-expense/block-2.yaml")
+
+
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us/regulation/7/273/10"
@@ -145,6 +151,24 @@ def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
 
 
 class TestCorpusSourceResolution:
+    def test_resolves_state_manual_corpus_path_without_statute_rewrite(self, tmp_path):
+        corpus_path = _write_test_corpus_provision(
+            tmp_path,
+            citation_path="us-az/manual/des/faa5/na-child-support-expense/block-2",
+            body="manual child support text",
+        )
+
+        source = resolve_corpus_source_unit(
+            "us-az/manual/des/faa5/na-child-support-expense/block-2",
+            corpus_path,
+        )
+
+        assert source.citation_path == (
+            "us-az/manual/des/faa5/na-child-support-expense/block-2"
+        )
+        assert source.body == "manual child support text"
+        assert source.source == "local"
+
     def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
         provisions_dir = (
