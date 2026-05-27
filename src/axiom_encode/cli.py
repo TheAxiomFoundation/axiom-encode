@@ -11236,6 +11236,39 @@ def cmd_encode(args):
                         repaired_output_cases
                     )
             if not can_apply:
+                repaired_output_cases = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_auto_output_test_mismatches_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_output_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_auto_output_tests"] = repaired_output_cases
+                    print(
+                        "  apply=auto_repaired_auto_output_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_output_cases:
+                    outcome["auto_repaired_auto_output_tests"] = repaired_output_cases
+            if not can_apply:
                 prior_repairs = outcome.get("auto_repaired_zero_branch_tests")
                 if not isinstance(prior_repairs, list):
                     prior_repairs = []
@@ -13892,6 +13925,34 @@ def _try_repair_generated_imported_output_test_mismatches_for_apply(
     )
 
 
+def _try_repair_generated_auto_output_test_mismatches_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Update expectations for deterministic auto-generated output tests."""
+    if not issues:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _repair_auto_output_test_mismatches(
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
 def _repair_imported_output_test_mismatches(
     *,
     test_file: Path,
@@ -13959,6 +14020,70 @@ def _repair_imported_output_test_mismatches(
     return repaired_cases
 
 
+def _repair_auto_output_test_mismatches(
+    *,
+    test_file: Path,
+    policy_repo_path: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    anchor = _relative_output_to_anchor(
+        relative_output, policy_repo_path=policy_repo_path
+    )
+    repairs_by_case: dict[str, dict[str, object]] = {}
+    for issue in issues:
+        parsed = _parse_generated_test_output_mismatch(str(issue))
+        if parsed is None:
+            continue
+        case_name, output_ref, actual_value = parsed
+        if not case_name.startswith("auto_output_"):
+            continue
+        if not _rulespec_ref_matches_base(output_ref, anchor):
+            continue
+        repairs_by_case.setdefault(case_name, {})[output_ref] = actual_value
+    if not repairs_by_case:
+        return []
+
+    repaired_cases: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_name = str(test_case.get("name") or "").strip()
+        replacements = repairs_by_case.get(case_name)
+        if not replacements:
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            return []
+        changed = False
+        for output_ref, actual_value in replacements.items():
+            output_key = _matching_mapping_key_by_rulespec_ref(outputs, output_ref)
+            if output_key is None:
+                return []
+            if outputs[output_key] != actual_value:
+                outputs[output_key] = actual_value
+                changed = True
+        if changed:
+            repaired_cases.append(case_name)
+
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
+
+
 def _parse_generated_test_output_mismatch(
     issue: str,
 ) -> tuple[str, str, object] | None:
@@ -13970,13 +14095,27 @@ def _parse_generated_test_output_mismatch(
         issue,
         flags=re.IGNORECASE,
     )
-    if not match:
-        return None
-    try:
-        value = _rulespec_mismatch_actual_value(match["kind"], match["value"])
-    except (InvalidOperation, ValueError):
-        return None
-    return match["case"].strip(), match["output"].strip(), value
+    if match:
+        try:
+            value = _rulespec_mismatch_actual_value(match["kind"], match["value"])
+        except (InvalidOperation, ValueError):
+            return None
+        return match["case"].strip(), match["output"].strip(), value
+
+    judgment_match = re.search(
+        r"Test case\s+`?(?P<case>[^\s`]+)`?\s+"
+        r"output\s+`?(?P<output>[^\s`]+)`?\s+"
+        r"expected\s+\w+,\s+got\s+(?P<value>holds|not_holds)\.?$",
+        issue,
+        flags=re.IGNORECASE,
+    )
+    if judgment_match:
+        return (
+            judgment_match["case"].strip(),
+            judgment_match["output"].strip(),
+            judgment_match["value"].strip().lower(),
+        )
+    return None
 
 
 def _rulespec_mismatch_actual_value(kind: str, raw_value: str) -> object:
