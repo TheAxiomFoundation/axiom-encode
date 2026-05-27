@@ -3543,6 +3543,70 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_prunes_out_of_scope_deferred_outputs(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(True)
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "3121/t.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/26/3121
+  deferred_outputs:
+    - output: us:statutes/26/3121/a#wages
+      reason: Outside subsection t.
+    - output: us:statutes/26/3121/t#repealed_subsection_t
+      reason: Current target deferred output.
+    - output: us:statutes/26/3121/t/1#child_output
+      reason: Current target child deferred output.
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3121/t.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_out_of_scope_deferred_outputs:" in output
+        repaired = yaml.safe_load(output_file.read_text())
+        deferred_outputs = repaired["module"]["deferred_outputs"]
+        assert [record["output"] for record in deferred_outputs] == [
+            "us:statutes/26/3121/t#repealed_subsection_t",
+            "us:statutes/26/3121/t/1#child_output",
+        ]
+        assert mock_overlay.call_count == 1
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_out_of_scope_deferred_outputs"] == [
+            "deferred_outputs[0]"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_promotes_module_imports(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
