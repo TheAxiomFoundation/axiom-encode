@@ -676,6 +676,14 @@ mappings:
     candidate_priority: P4
     rationale: Arizona manual output is a Judgment indicating telephone utility allowance eligibility; PolicyEngine's individual utility allowance variable is a dollar amount conditional on its utility allowance type.
 
+  - legal_id: us-az:policies/des/faa5/dependent-care-expense/na-dependent-care#snap_allowable_monthly_dependent_care_expenses
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_dependent_care_deduction
+    candidate_priority: P4
+    rationale: Arizona manual dependent-care output is a payment-level allowable expense after source-specific recipient, activity, expense-type, reimbursement, vendor-payment, parent-availability, and proration rules; PolicyEngine's dependent-care deduction is an adjacent SPM-unit childcare-expense aggregate.
+
   - legal_id: us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#shelter_deduction_net_income_share
     country: us
     program: snap
@@ -9944,6 +9952,12 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Arizona manual medical deduction helper outputs cover source-specific verification, eligibility, and gross-threshold predicates; exact PolicyEngine mappings are registered for the comparable disregard, standard amount, and deduction outputs.
+
+  - legal_id_prefix: us-az:policies/des/faa5/dependent-care-expense/na-dependent-care#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual dependent-care helper outputs cover payment-level recipient qualification, allowable activity, allowable expense type, disallowed payment sources, parent-availability exceptions, and proration mechanics; PolicyEngine does not expose these source-specific branches as one-to-one outputs.
 
   - legal_id_prefix: us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#
     country: us

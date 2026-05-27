@@ -434,6 +434,103 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_arizona_snap_dependent_care(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/dependent-care-expense/na-dependent-care.yaml",
+        """format: rulespec/v1
+rules:
+  - name: dependent_child_under_age_limit
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 18
+  - name: dependent_care_expense_recipient_qualifies
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: care_recipient_is_dependent_child and care_recipient_age < dependent_child_under_age_limit
+  - name: dependent_care_expense_necessary_for_allowable_activity
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: necessary_to_seek_accept_or_continue_employment
+  - name: dependent_care_expense_type_is_allowable
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: billed_for_dependent_care or required_registration_fee
+  - name: out_of_home_care_disallowed_due_to_available_parent
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: care_provided_out_of_home and parent_physically_capable_of_caring_for_dependent
+  - name: dependent_care_expense_not_disallowed
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: not cost_paid_by_reimbursement and not out_of_home_care_disallowed_due_to_available_parent
+  - name: dependent_care_expense_prorated_or_billed_amount
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: billed_dependent_care_expense_amount
+  - name: snap_allowable_monthly_dependent_care_expenses
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: dependent_care_expense_prorated_or_billed_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/dependent-care-expense/na-dependent-care.test.yaml",
+        """- name: dependent_care_outputs_are_tested
+  period: 2026-01
+  input: {}
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/na-dependent-care#dependent_child_under_age_limit: 18
+    us-az:policies/des/faa5/dependent-care-expense/na-dependent-care#dependent_care_expense_recipient_qualifies: holds
+    us-az:policies/des/faa5/dependent-care-expense/na-dependent-care#snap_allowable_monthly_dependent_care_expenses: 300
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    dependent_care_items = {
+        item["rule_name"]: item
+        for item in report["items"]
+        if item["file"].endswith("na-dependent-care.yaml")
+    }
+    assert set(dependent_care_items) == {
+        "dependent_care_expense_necessary_for_allowable_activity",
+        "dependent_care_expense_not_disallowed",
+        "dependent_care_expense_prorated_or_billed_amount",
+        "dependent_care_expense_recipient_qualifies",
+        "dependent_care_expense_type_is_allowable",
+        "dependent_child_under_age_limit",
+        "out_of_home_care_disallowed_due_to_available_parent",
+        "snap_allowable_monthly_dependent_care_expenses",
+    }
+    assert {item["status"] for item in dependent_care_items.values()} == {
+        "known_not_comparable"
+    }
+    assert (
+        dependent_care_items["snap_allowable_monthly_dependent_care_expenses"][
+            "policyengine_variable"
+        ]
+        == "snap_dependent_care_deduction"
+    )
+    assert (
+        dependent_care_items["snap_allowable_monthly_dependent_care_expenses"]["tested"]
+        is True
+    )
+
+
 def test_policyengine_coverage_classifies_tax_parameter_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",
