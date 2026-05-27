@@ -10362,6 +10362,13 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3303 defines State-law reduced-rate standards, unemployment-fund account definitions, Secretary-of-Labor certification conditions, voluntary-contribution permissions, nonprofit reimbursement elections, and employer-fault noncharging predicates for FUTA additional-credit administration; PolicyEngine exposes final FUTA tax assumptions, not these State-law account and certification intermediates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3304#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3304 defines State-law approval requirements and institutional legal-status predicates for unemployment-compensation administration; PolicyEngine exposes final FUTA tax assumptions, not these State-law approval and institution-definition outputs as one-to-one variables or parameters.
+
   - legal_id_prefix: us:statutes/26/3402/f#
     country: us
     program: tax
