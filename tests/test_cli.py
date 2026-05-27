@@ -4572,6 +4572,18 @@ rules:
               min(lodging_amount_paid, lodging_medical_care_nightly_cap * lodging_nights * lodging_individuals)
           else:
               0
+  - name: lodging_medical_care_secondary_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if secondary_lodging_condition:
+              secondary_lodging_amount
+          else:
+              0
 """
         )
         test_file = output_file.with_name("213.test.yaml")
@@ -4610,6 +4622,16 @@ rules:
                         ],
                         {},
                     ),
+                    (
+                        False,
+                        [
+                            "statutes/26/213.yaml: ci: "
+                            "Zero branch test coverage missing: "
+                            "`lodging_medical_care_secondary_amount` has a formula "
+                            "branch that returns 0."
+                        ],
+                        {},
+                    ),
                     (True, [], {}),
                 ],
             ) as mock_overlay,
@@ -4628,15 +4650,24 @@ rules:
             "apply=auto_repaired_zero_branch_tests:"
             "auto_zero_lodging_medical_care_amount"
         ) in output
-        assert mock_overlay.call_count == 2
+        assert (
+            "apply=auto_repaired_zero_branch_tests:"
+            "auto_zero_lodging_medical_care_secondary_amount"
+        ) in output
+        assert mock_overlay.call_count == 3
         mock_apply.assert_called_once()
         test_content = test_file.read_text()
         assert "auto_zero_lodging_medical_care_amount" in test_content
+        assert "auto_zero_lodging_medical_care_secondary_amount" in test_content
         assert (
             "us:statutes/26/213#input.lodging_not_lavish_or_extravagant: false"
             in test_content
         )
         assert "us:statutes/26/213#lodging_medical_care_amount: 0" in test_content
+        assert (
+            "us:statutes/26/213#lodging_medical_care_secondary_amount: 0"
+            in test_content
+        )
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path
