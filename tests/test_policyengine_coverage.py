@@ -4032,6 +4032,30 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3233_short_title_output(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3233.yaml",
+        """format: rulespec/v1
+rules:
+  - name: chapter_short_title
+    kind: parameter
+    dtype: String
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '"Railroad Retirement Tax Act"'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us:statutes/26/3233#chapter_short_title"
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "short-title" in item["rationale"]
+
+
 def test_policyengine_coverage_classifies_3302_c_2_a_advance_reduction_outputs(
     tmp_path,
 ):
