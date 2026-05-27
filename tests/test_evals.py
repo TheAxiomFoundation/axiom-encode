@@ -5409,6 +5409,12 @@ rules:
             "terminal exports `us:statutes/26/3101/b/2#additional_medicare_tax`"
             in prompt
         )
+        assert "Aggregate parent child outputs detected" in prompt
+        assert (
+            "`us:statutes/26/3101/b/2#additional_medicare_tax`"
+            " (derived, Money, TaxUnit)" in prompt
+        )
+        assert "Do not rebuild a child branch in the parent" in prompt
 
     def test_build_eval_prompt_requires_child_exception_imports_for_parent_list(
         self, tmp_path
