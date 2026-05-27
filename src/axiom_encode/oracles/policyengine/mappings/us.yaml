@@ -10059,6 +10059,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3232 defines federal district-court jurisdiction and nonexclusive enforcement jurisdiction for Railroad Retirement Tax Act obligations; PolicyEngine does not expose these court-jurisdiction enforcement predicates as one-to-one tax calculation outputs.
 
+  - legal_id_prefix: us:statutes/26/3233#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3233 is the Railroad Retirement Tax Act short-title provision; PolicyEngine does not expose statutory chapter citation titles as one-to-one tax calculation outputs.
+
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
     program: snap
