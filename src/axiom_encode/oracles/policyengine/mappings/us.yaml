@@ -10599,6 +10599,12 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3308 limits United States instrumentality exemptions from section 3301 FUTA tax unless another law specifically references section 3301 or prior law; PolicyEngine exposes final employer FUTA tax, not this legal exemption-preclusion predicate separately.
 
+  - legal_id_prefix: us:statutes/26/3310#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3310 sets procedural deadlines and stays for State judicial review of Secretary of Labor certification actions; PolicyEngine does not expose these FUTA administration timing rules as tax calculation outputs.
+
   - legal_id_prefix: us:statutes/26/3311#
     country: us
     program: tax
