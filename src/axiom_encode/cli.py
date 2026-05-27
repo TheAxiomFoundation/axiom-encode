@@ -10624,6 +10624,21 @@ def cmd_encode(args):
                     "  apply=auto_repaired_nested_test_tables:"
                     + ",".join(repaired_nested_test_tables)
                 )
+            repaired_deferred_scope = (
+                _try_repair_generated_out_of_scope_deferred_outputs_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                )
+            )
+            if repaired_deferred_scope:
+                outcome["auto_repaired_out_of_scope_deferred_outputs"] = (
+                    repaired_deferred_scope
+                )
+                print(
+                    "  apply=auto_repaired_out_of_scope_deferred_outputs:"
+                    + ",".join(repaired_deferred_scope)
+                )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
                     result,
@@ -11978,6 +11993,32 @@ def _try_repair_generated_invalid_deferred_source_values_for_apply(
     return _remove_invalid_deferred_source_values(rules_file=rules_file)
 
 
+def _try_repair_generated_out_of_scope_deferred_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Remove deferred outputs outside the generated target file's scope."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    return _remove_out_of_scope_deferred_outputs(
+        rules_file=rules_file,
+        base_anchor=base_anchor,
+    )
+
+
 def _only_pending_empty_deferred_source_values_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
         "module.deferred_outputs[" in str(issue)
@@ -12051,10 +12092,62 @@ def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
 
 def _looks_like_absolute_rulespec_output_target(value: Any) -> bool:
     text = str(value or "").strip()
-    if ":" not in text or "#" not in text:
+    if ":" not in text or text.count("#") != 1:
         return False
     path, symbol = text.rsplit("#", 1)
     return bool(path.strip()) and bool(symbol.strip())
+
+
+def _remove_out_of_scope_deferred_outputs(
+    *,
+    rules_file: Path,
+    base_anchor: str,
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    deferred_outputs = module.get("deferred_outputs")
+    if not isinstance(deferred_outputs, list):
+        return []
+
+    kept: list[Any] = []
+    removed: list[str] = []
+    for index, record in enumerate(deferred_outputs):
+        if not isinstance(record, dict):
+            kept.append(record)
+            continue
+        output = str(record.get("output") or "").strip()
+        if not _looks_like_absolute_rulespec_output_target(output):
+            kept.append(record)
+            continue
+        if _rulespec_target_within_anchor(output, base_anchor=base_anchor):
+            kept.append(record)
+            continue
+        removed.append(f"deferred_outputs[{index}]")
+
+    if not removed:
+        return []
+    if kept:
+        module["deferred_outputs"] = kept
+    else:
+        module.pop("deferred_outputs", None)
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return removed
+
+
+def _rulespec_target_within_anchor(target: str, *, base_anchor: str) -> bool:
+    if not _looks_like_absolute_rulespec_output_target(target):
+        return False
+    target_path = target.rsplit("#", 1)[0].strip()
+    return target_path == base_anchor or target_path.startswith(f"{base_anchor}/")
 
 
 def _try_repair_generated_deferred_output_subsection_paths_for_apply(
