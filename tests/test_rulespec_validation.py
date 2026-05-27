@@ -11743,6 +11743,82 @@ rules:
     )
 
 
+def test_source_subparagraph_coverage_scopes_to_requested_source_under_parent_fallback(
+    tmp_path,
+):
+    """When the corpus serves a parent-fallback source slice for a sub-subsection
+    encoding target, the validator must scope subparagraph coverage to the
+    *requested* target rather than the entire parent statute. Otherwise an
+    encoder asked to produce a rule for `7 USC 2014(e)(2)(B)` would have to
+    defer or encode every top-level subparagraph of § 2014, which is out of
+    its scope.
+
+    Surfaced live by us_snap_earned_income_deduction_refresh.yaml on
+    2026-05-27: corpus lacked the (e)(2)(B) slice, so it served the whole
+    § 2014; validator then demanded coverage for (a), (c), (d), (g), (h),
+    (k), (l) — none of which the encoder was asked to touch.
+    """
+    source_text = """Eligibility disqualifications
+(a) Income standards. Households with income above thresholds are ineligible.
+(c) Gross income standard. Adjusted October 1 each year.
+(d) Exclusions from income. Various items excluded.
+(e) Deductions from income.
+    (1) Standard deduction.
+    (2) (B) Earned income deduction of 20 percent.
+(g) Allowable financial resources. Asset limits apply.
+"""
+    content = """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/7/2014
+  summary: Earned income deduction under 7 USC 2014(e)(2)(B).
+  deferred_outputs:
+    - output: us:statutes/7/2014/e/2/B#snap_earned_income_deduction
+      reason: Requires the (e)(2)(C) exception which is not in scope.
+rules: []
+"""
+
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={"us/statute/7/2014": source_text},
+        requested_source="us/statute/7/2014/e/2/B",
+    )
+
+    # All seven sibling subparagraphs (a, c, d, g) are out of scope when the
+    # request targets (e)(2)(B). The encoder must not be held responsible
+    # for them.
+    assert issues == [], (
+        "Validator complained about subparagraphs the encoder was never "
+        f"asked to cover: {issues}"
+    )
+
+
+def test_source_subparagraph_coverage_without_requested_source_keeps_strict_scope():
+    """Sanity check: when no requested_source is supplied, behaviour is
+    unchanged — the validator demands coverage of every top-level
+    subparagraph as before."""
+    source_text = """Definitions
+(a) Benefit means the amount payable.
+(b) Household means an individual or group.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+  summary: Definitions
+rules: []
+"""
+
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={"us/statute/7/2012": source_text},
+    )
+    assert len(issues) == 2
+    assert any("7 USC 2012(a)" in i for i in issues)
+    assert any("7 USC 2012(b)" in i for i in issues)
+
+
 def test_source_subparagraph_coverage_matches_irc_section_citation(tmp_path):
     source_text = """Standard deduction
 (a) Rule for taxable years.

@@ -5984,8 +5984,18 @@ def find_source_subparagraph_coverage_issues(
     *,
     rules_file: Path | None = None,
     source_texts: dict[str, str] | None = None,
+    requested_source: str | None = None,
 ) -> list[str]:
-    """Require high-signal source children to be encoded or explicitly deferred."""
+    """Require high-signal source children to be encoded or explicitly deferred.
+
+    ``requested_source`` lets the caller declare which subsection the encoder
+    was *asked* to produce, even when the corpus served a parent-fallback
+    source slice. Without it, a benchmark targeting `us/statute/7/2014/e/2/B`
+    that gets served the whole § 2014 text triggers spurious "missing
+    coverage" errors for every sibling subparagraph — the encoder was only
+    responsible for (e)(2)(B). The pipeline reads this from the nearby eval
+    workspace's ``source-metadata.json``; tests can pass it directly.
+    """
     payload = _rulespec_payload(content)
     if payload is None or payload.get("format") != "rulespec/v1":
         return []
@@ -6011,7 +6021,13 @@ def find_source_subparagraph_coverage_issues(
         return []
 
     source_children = _high_signal_top_level_subparagraphs(source_text)
-    coverage_scope_prefix = _source_subparagraph_coverage_scope_prefix(
+    # The requested-source scope takes precedence over the rules_file-derived
+    # one because it captures encoder intent precisely; the rules_file path
+    # only tells us where the artifact landed (which can collapse to the
+    # parent under corpus fallback, see issue #71).
+    coverage_scope_prefix = _scope_prefix_from_requested_source(
+        citation_path, requested_source
+    ) or _source_subparagraph_coverage_scope_prefix(
         citation_path,
         rules_file=rules_file,
     )
@@ -6172,6 +6188,32 @@ def _source_subparagraph_coverage_scope_prefix(
     rules_file: Path | None,
 ) -> tuple[str, ...]:
     return _rulespec_file_subparagraph_scope(citation_path, rules_file)
+
+
+def _scope_prefix_from_requested_source(
+    citation_path: str, requested_source: str | None
+) -> tuple[str, ...]:
+    """Derive a subparagraph scope from a requested source vs the resolved
+    citation_path. When the corpus serves a parent-fallback slice, the
+    citation_path collapses to the parent while the requested source still
+    names the encoder's actual target. The difference is the scope.
+
+    Examples (citation_path → requested_source → scope):
+      us/statute/7/2014 → us/statute/7/2014/e/2/B → ('e', '2', 'b')
+      us/statute/7/2014 → us/statute/7/2014       → ()
+      us/statute/7/2014 → us/statute/26/63        → ()  (unrelated)
+    """
+    if not requested_source:
+        return ()
+    citation_parts = tuple(part for part in citation_path.strip("/").split("/") if part)
+    requested_parts = tuple(
+        part for part in requested_source.strip("/").split("/") if part
+    )
+    if not citation_parts or len(requested_parts) <= len(citation_parts):
+        return ()
+    if requested_parts[: len(citation_parts)] != citation_parts:
+        return ()
+    return tuple(part.lower() for part in requested_parts[len(citation_parts) :])
 
 
 def _rulespec_file_subparagraph_scope(
@@ -15302,8 +15344,22 @@ class ValidatorPipeline:
         issues.extend(find_person_scoped_definition_unit_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
+        # Read the requested-source target from the nearby eval workspace
+        # so subparagraph-coverage scoping respects encoder intent even when
+        # the corpus served a parent-fallback source slice (issue #71).
+        nearby_metadata = _load_nearby_eval_source_metadata(rules_file)
+        requested_source = (
+            str(nearby_metadata.get("requested_source"))
+            if isinstance(nearby_metadata, dict)
+            and isinstance(nearby_metadata.get("requested_source"), str)
+            else None
+        )
         issues.extend(
-            find_source_subparagraph_coverage_issues(content, rules_file=rules_file)
+            find_source_subparagraph_coverage_issues(
+                content,
+                rules_file=rules_file,
+                requested_source=requested_source,
+            )
         )
         issues.extend(find_tax_status_component_local_input_issues(content))
         issues.extend(find_unused_modifier_parameter_issues(content))
