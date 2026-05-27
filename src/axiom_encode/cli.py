@@ -12204,6 +12204,18 @@ def _qualify_deferred_output_subsection_paths(
         if not isinstance(record, dict):
             continue
         output = str(record.get("output") or "").strip()
+        double_hash_prefix = f"{base_anchor}#"
+        if output.startswith(double_hash_prefix):
+            remainder = output[len(double_hash_prefix) :]
+            raw_subsection, separator, raw_symbol = remainder.partition("#")
+            subsection = raw_subsection.strip().strip("()")
+            symbol = raw_symbol.strip()
+            if separator and re.fullmatch(r"[A-Za-z0-9]+", subsection) and symbol:
+                qualified = f"{base_anchor}/{subsection}#{symbol}"
+                record["output"] = qualified
+                repaired.append(qualified)
+                continue
+
         if not output.startswith(f"{base_anchor}#"):
             continue
         reason = str(record.get("reason") or "")
