@@ -5052,7 +5052,12 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
 )
 _EMPLOYER_SCOPED_ENTITY_NAMES = {"business", "corporation", "taxunit"}
 _EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
-    r"\b(?:each|every|any|an?|the)\s+employer\b"
+    r"\b(?:each|every|any|an?)\s+employer\b"
+    r"|"
+    r"\bthe\s+employer\s+(?:shall|must|is|are|pays?|collects?|withholds?|"
+    r"deducts?|responsible|liable|required)\b"
+    r"|"
+    r"\bimposed\s+on\s+(?:each|every|any|an?|the)\s+employer\b"
     r"|"
     r"\bwith\s+respect\s+to\s+(?:having\s+individuals\s+in\s+his\s+employ|"
     r"any\s+employer|an?\s+employer)\b",

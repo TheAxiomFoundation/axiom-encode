@@ -10947,6 +10947,36 @@ rules:
     assert "TaxUnit" in issues[0]
 
 
+def test_employer_scoped_entity_ignores_employee_paid_tax_not_collected_by_employer():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (2) Collection of amounts not withheld To the extent that the amount of any
+    tax imposed by section 3101(b)(2) is not collected by the employer, such tax
+    shall be paid by the employee.
+rules:
+  - name: employee_payment_responsibility_for_uncollected_additional_medicare_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3102(f)(2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              excerpt: tax imposed by section 3101(b)(2) is not collected by the employer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, additional_medicare_tax - additional_medicare_tax_collected_by_employer)
+"""
+
+    assert find_employer_scoped_entity_issues(content) == []
+
+
 def test_employer_scoped_entity_accepts_employer():
     content = """format: rulespec/v1
 module:
