@@ -1231,6 +1231,30 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 3402(b) permits employer-elected rounding of wages for percentage-method withholding; PolicyEngine does not model paycheck withholding wage rounding as a separate output.
 
+  - legal_id: us:statutes/26/3402/c#wage_bracket_miscellaneous_period_days_for_nonpayroll_period_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) defines miscellaneous payroll-period days for wage-bracket withholding tables; PolicyEngine does not model paycheck withholding table periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/c#wage_bracket_miscellaneous_period_days_for_wages_paid_without_regard_to_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) defines elapsed-day miscellaneous payroll periods for wages paid without regard to a period under wage-bracket withholding; PolicyEngine does not model paycheck withholding table periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/c#wage_bracket_weekly_aggregate_computation_authorized
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) authorizes weekly aggregate wage-bracket withholding computation for short periods; PolicyEngine does not expose this Treasury authorization predicate.
+
+  - legal_id: us:statutes/26/3402/c#wages_computed_for_wage_bracket_withholding
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(c) permits employer-elected rounding of wages for wage-bracket withholding tables; PolicyEngine does not model paycheck withholding wage rounding as a separate output.
+
   - legal_id: us:statutes/26/3403#employer_liability_for_chapter_withholding_tax_payment
     country: us
     program: tax
