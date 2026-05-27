@@ -4690,6 +4690,33 @@ rules:
     assert item["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_408_p_subparts(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/408/p/2/A/i.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee_election_to_have_employer_make_payments_available
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_eligible_to_participate_in_arrangement
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us:statutes/26/408/p/2/A/i#employee_election_to_have_employer_make_payments_available"
+    )
+    assert item["status"] == "known_not_comparable"
+
+
 def test_policyengine_coverage_classifies_3121_a_12_tip_threshold_parameter(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3121/a/12.yaml",
