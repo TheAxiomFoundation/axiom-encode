@@ -12608,6 +12608,11 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 seed_rules.add(rule_name)
                 issue_reasons[rule_name].append("unused_source_modifier")
                 issue_source_values[rule_name].add(source_value_rule)
+        tax_status_component_match = _TAX_STATUS_COMPONENT_ISSUE_RE.search(issue_text)
+        if tax_status_component_match:
+            rule_name = tax_status_component_match.group("rule")
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("tax_status_component_placeholder")
     if not seed_rules:
         return []
 
@@ -12722,6 +12727,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "modification, or limitation parameter. This output is deferred "
                 "until the upstream cross-referenced mechanics can be imported "
                 "or composed without stranding the modifier."
+            )
+        elif "tax_status_component_placeholder" in reasons:
+            reason = (
+                "Generated rule treated a filing-status or marital-status legal "
+                "classification as a local fact. This output is deferred until "
+                "the upstream status source can be encoded or imported without "
+                "inventing local tax-status component inputs."
             )
         else:
             reason = (

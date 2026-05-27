@@ -7364,6 +7364,98 @@ rules:
             }
         ]
 
+    def test_unsafe_formula_output_repair_defers_tax_status_components(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_must_treat_employee_as_single_for_withholding_tables
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    source: 26 USC 3402(l)(1)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: not withholding_allowance_certificate_indicating_employee_is_married
+  - name: employee_considered_not_married_for_withholding_certificate
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    source: 26 USC 3402(l)(2)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_legally_separated_from_spouse
+"""
+        )
+        test_file.write_text(
+            """- name: status_component_placeholder
+  output:
+    us:statutes/26/3402/l#employer_must_treat_employee_as_single_for_withholding_tables: true
+- name: retained_local_rule
+  output:
+    us:statutes/26/3402/l#employee_considered_not_married_for_withholding_certificate: true
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3402/l.yaml: ci: Tax filing-status component is a "
+                "derived legal classification, not a local factual input: "
+                "`employer_must_treat_employee_as_single_for_withholding_tables` "
+                "references "
+                "`withholding_allowance_certificate_indicating_employee_is_married` "
+                "without defining or importing its absolute upstream RuleSpec "
+                "output."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "us:statutes/26/3402/l#employer_must_treat_employee_as_single_for_withholding_tables"
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "employee_considered_not_married_for_withholding_certificate"
+        ]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": (
+                    "us:statutes/26/3402/l#"
+                    "employer_must_treat_employee_as_single_for_withholding_tables"
+                ),
+                "reason": (
+                    "Generated rule treated a filing-status or marital-status "
+                    "legal classification as a local fact. This output is "
+                    "deferred until the upstream status source can be encoded "
+                    "or imported without inventing local tax-status component "
+                    "inputs."
+                ),
+            }
+        ]
+        assert test_cases == [
+            {
+                "name": "retained_local_rule",
+                "output": {
+                    "us:statutes/26/3402/l#employee_considered_not_married_for_withholding_certificate": True
+                },
+            }
+        ]
+
     def test_unresolved_local_test_output_repair_removes_stale_output(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3221.yaml"
