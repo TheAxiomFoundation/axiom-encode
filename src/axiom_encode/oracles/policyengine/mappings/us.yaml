@@ -10599,6 +10599,12 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3308 limits United States instrumentality exemptions from section 3301 FUTA tax unless another law specifically references section 3301 or prior law; PolicyEngine exposes final employer FUTA tax, not this legal exemption-preclusion predicate separately.
 
+  - legal_id_prefix: us:statutes/26/3311#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3311 is the Federal Unemployment Tax Act short-title provision; PolicyEngine does not expose statutory chapter citation titles as one-to-one tax calculation outputs.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax

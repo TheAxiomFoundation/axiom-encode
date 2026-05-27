@@ -2839,6 +2839,37 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3311_short_title_output(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3311.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3311
+rules:
+  - name: federal_unemployment_tax_act_short_title
+    kind: parameter
+    dtype: String
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '"Federal Unemployment Tax Act"'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us:statutes/26/3311#federal_unemployment_tax_act_short_title"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "short-title" in item["rationale"]
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
