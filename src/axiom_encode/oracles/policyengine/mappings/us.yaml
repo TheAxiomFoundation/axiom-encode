@@ -10134,6 +10134,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 224 qualified-tips deduction outputs are new statutory caps, phaseouts, eligibility predicates, and formula intermediates that PolicyEngine does not yet expose as one-to-one variables.
 
+  - legal_id_prefix: us:statutes/26/408/p#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 408(p) SIMPLE retirement account eligibility, election, contribution, or plan-definition intermediates as one-to-one payroll tax variables. These legal intermediates feed section 3121(a)(5) FICA wage construction before downstream payroll-tax comparisons.
+
+  - legal_id_prefix: us:statutes/26/408/p/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose section 408(p) SIMPLE retirement account subpart eligibility, election, contribution, or plan-definition intermediates as one-to-one payroll tax variables. These legal intermediates feed section 3121(a)(5) FICA wage construction before downstream payroll-tax comparisons.
+
   - legal_id_prefix: us:statutes/26/3121/a/2#
     country: us
     program: tax
