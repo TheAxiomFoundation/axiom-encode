@@ -1141,6 +1141,48 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 3111(c) foreign-social-security agreement wage exemption as a separate variable.
 
+  - legal_id: us:statutes/26/3127#employer_application_meets_statutory_approval_prerequisites
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(b) encodes IRS/SSA approval prerequisites for a religious-sect payroll-tax exemption application; PolicyEngine does not expose this administrative approval predicate.
+
+  - legal_id: us:statutes/26/3127#employee_application_meets_statutory_approval_prerequisites
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(b) encodes IRS/SSA approval prerequisites for an employee religious-sect payroll-tax exemption application; PolicyEngine does not expose this administrative approval predicate.
+
+  - legal_id: us:statutes/26/3127#employer_meets_religious_exemption_requirements
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(a) classifies employers and partners by religious-sect membership, adherence, and approved application status; PolicyEngine does not model these exemption-status inputs.
+
+  - legal_id: us:statutes/26/3127#employee_meets_religious_exemption_requirements
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(a) classifies employees by religious-sect membership, adherence, and approved application status; PolicyEngine does not model these exemption-status inputs.
+
+  - legal_id: us:statutes/26/3127#wages_paid_during_section_3127_effective_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127(c) defines the effective period for approved religious-sect payroll-tax exemptions; PolicyEngine does not expose this application-effective-period predicate.
+
+  - legal_id: us:statutes/26/3127#wages_exempt_from_section_3111_taxes_under_section_3127
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127 exempts qualified wages from employer FICA taxes only when religious-sect exemption status and effective-period facts are present; PolicyEngine does not model those facts or expose the exempt-wage amount separately.
+
+  - legal_id: us:statutes/26/3127#wages_exempt_from_section_3101_taxes_under_section_3127
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3127 exempts qualified wages from employee FICA taxes only when religious-sect exemption status and effective-period facts are present; PolicyEngine does not model those facts or expose the exempt-wage amount separately.
+
   - legal_id: us:statutes/26/3401/b#payroll_period
     country: us
     program: tax
