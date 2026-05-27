@@ -239,6 +239,35 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3102b_collection_liability_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3102/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employer_liable_for_payment_of_deducted_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tax_deducted_under_section_3102
+  - name: employer_indemnified_against_claims_for_deducted_tax_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_paid_tax_deducted_under_section_3102
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "employee_payroll_tax"
+    }
+
+
 def test_policyengine_coverage_maps_3306_b_1_futa_wage_base(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3306/b/1.yaml",

@@ -9834,6 +9834,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3102(a) governs employer collection of section 3101 tax by wage deduction and special collection permissions for small cash remuneration and tips; PolicyEngine exposes final employee payroll tax amounts, not these collection-administration predicates and thresholds as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3102/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employee_payroll_tax
+    candidate_priority: P4
+    rationale: Section 3102 subsections after subsection (a) govern employer liability, indemnification, tip-tax collection, and reporting administration for section 3101 tax; PolicyEngine exposes final employee payroll tax amounts, not these collection and employer-liability administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3111/e#
     country: us
     program: tax
