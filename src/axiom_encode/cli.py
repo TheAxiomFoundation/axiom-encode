@@ -10729,6 +10729,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_deferred_source_values = (
+                    _try_repair_generated_invalid_deferred_source_values_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_deferred_source_values:
+                    outcome["auto_repaired_invalid_deferred_source_values"] = (
+                        repaired_deferred_source_values
+                    )
+                    print(
+                        "  apply=auto_repaired_invalid_deferred_source_values:"
+                        + ",".join(repaired_deferred_source_values)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_deferred_outputs = (
                     _try_repair_generated_deferred_output_subsection_paths_for_apply(
                         result,
@@ -11927,6 +11955,29 @@ def _try_repair_generated_empty_deferred_source_values_for_apply(
     return _remove_empty_deferred_source_values(rules_file=rules_file)
 
 
+def _try_repair_generated_invalid_deferred_source_values_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove optional prose source_values from deferred outputs."""
+    if not any(
+        "module.deferred_outputs[" in str(issue)
+        and ".source_values entry `" in str(issue)
+        and "must be an absolute RuleSpec target" in str(issue)
+        for issue in issues
+    ):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _remove_invalid_deferred_source_values(rules_file=rules_file)
+
+
 def _only_pending_empty_deferred_source_values_issues(issues: list[str]) -> bool:
     return bool(issues) and all(
         "module.deferred_outputs[" in str(issue)
@@ -11957,6 +12008,53 @@ def _remove_empty_deferred_source_values(*, rules_file: Path) -> list[str]:
 
     rules_file.write_text("".join(repaired))
     return [f"source_values[{index}]" for index in range(removed)]
+
+
+def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    deferred_outputs = module.get("deferred_outputs")
+    if not isinstance(deferred_outputs, list):
+        return []
+
+    repaired: list[str] = []
+    for index, record in enumerate(deferred_outputs):
+        if not isinstance(record, dict):
+            continue
+        source_values = record.get("source_values")
+        if not isinstance(source_values, list):
+            continue
+        invalid_values = [
+            value
+            for value in source_values
+            if not _looks_like_absolute_rulespec_output_target(value)
+        ]
+        if not invalid_values:
+            continue
+        record.pop("source_values", None)
+        repaired.append(f"source_values[{index}]")
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _looks_like_absolute_rulespec_output_target(value: Any) -> bool:
+    text = str(value or "").strip()
+    if ":" not in text or "#" not in text:
+        return False
+    path, symbol = text.rsplit("#", 1)
+    return bool(path.strip()) and bool(symbol.strip())
 
 
 def _try_repair_generated_deferred_output_subsection_paths_for_apply(
