@@ -2806,6 +2806,43 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402c_wage_bracket_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: wage_bracket_miscellaneous_period_days_for_nonpayroll_period_wages
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: days_in_period_with_respect_to_which_wages_are_paid
+  - name: wage_bracket_miscellaneous_period_days_for_wages_paid_without_regard_to_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: days_elapsed_since_later_reference_date
+  - name: wage_bracket_weekly_aggregate_computation_authorized
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: period_is_less_than_one_week
+  - name: wages_computed_for_wage_bracket_withholding
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_computed_to_nearest_dollar
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
