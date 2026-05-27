@@ -1824,6 +1824,8 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
     parts = identifier.split("/")
     return len(parts) >= 3 and parts[1] in {
         "guidance",
+        "manual",
+        "manuals",
         "policy",
         "regulation",
         "statute",
@@ -2871,6 +2873,8 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     if len(parts) >= 3:
         document_roots = {
             "guidance": "guidance",
+            "manual": "policies",
+            "manuals": "policies",
             "policies": "policies",
             "policy": "policies",
             "regulation": "regulations",
