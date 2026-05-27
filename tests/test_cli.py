@@ -5337,6 +5337,115 @@ rules:
             "us:statutes/26/3241/b#average_account_benefits_ratio_bracket": 1
         }
 
+    def test_encode_apply_auto_repairs_auto_output_test_mismatches(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path, backend="codex", citation="26 USC 3402(k)", sync=False
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "3402"
+            / "k.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: low_monthly_reported_tip_amount_threshold
+    kind: parameter
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 20
+  - name: monthly_reported_tips_below_low_tip_threshold
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: total_tips_in_employee_statements < low_monthly_reported_tip_amount_threshold
+"""
+        )
+        test_file = output_file.with_name("k.test.yaml")
+        test_file.write_text("[]\n")
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3402/k.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/3402/k.yaml: ci: "
+                            "Derived rule missing companion output coverage: "
+                            "`us:statutes/26/3402/k#monthly_reported_tips_below_low_tip_threshold` "
+                            "is not asserted by the companion `.test.yaml` file."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/26/3402/k.yaml: ci: "
+                            "Test case `auto_output_monthly_reported_tips_below_low_tip_threshold` "
+                            "output `us:statutes/26/3402/k#monthly_reported_tips_below_low_tip_threshold` "
+                            "expected not_holds, got holds."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_derived_output_tests:"
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ) in output
+        assert (
+            "apply=auto_repaired_auto_output_tests:"
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ) in output
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["output"] == {
+            "us:statutes/26/3402/k#monthly_reported_tips_below_low_tip_threshold": "holds"
+        }
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_derived_output_tests"] == [
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ]
+        assert run.outcome["auto_repaired_auto_output_tests"] == [
+            "auto_output_monthly_reported_tips_below_low_tip_threshold"
+        ]
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_removes_local_import_output_input_placeholders(
         self, capsys, tmp_path
     ):
