@@ -3034,6 +3034,10 @@ import or re-export that exact canonical concept instead of duplicating it local
                 target_ref_prefix=target_ref_prefix,
             )
         )
+        parent_child_terminal_section = _format_parent_child_terminal_output_guidance(
+            context_files,
+            target_ref_prefix=target_ref_prefix,
+        )
         child_exception_import_section = _format_child_exception_import_guidance(
             source_text,
             context_files,
@@ -3072,6 +3076,7 @@ Context files are precedent and dependency context, not independent legal author
 {excluded_child_context_section}
 {unavailable_cited_context_section}
 {partial_extent_child_schema_section}
+{parent_child_terminal_section}
 {child_exception_import_section}
 {cycle_prone_context_import_section}
 Import and context rules:
@@ -4401,6 +4406,83 @@ Target-specific schema limit:
   `rules: []` and an empty companion test file. Do not create a
   `*_before_exemption` executable output or an adjusted local wage/base helper
   for this parent.
+"""
+
+
+def _format_parent_child_terminal_output_guidance(
+    context_files: list[EvalContextFile],
+    *,
+    target_ref_prefix: str | None,
+) -> str:
+    """Return concrete child-output imports for aggregate parent encodings."""
+    if not target_ref_prefix:
+        return ""
+    child_prefix = f"{target_ref_prefix.rstrip('/')}/"
+    lines: list[str] = []
+    local_inputs: set[str] = set()
+    for item in context_files:
+        if item.kind.endswith("_test_context"):
+            continue
+        if not item.import_path.startswith(child_prefix):
+            continue
+        terminal_exports = _context_file_terminal_exports(item.source_path)
+        if not terminal_exports:
+            continue
+        surfaces = _context_file_executable_surfaces(item.source_path)
+        export_details: list[str] = []
+        for name in terminal_exports:
+            surface = surfaces.get(name) or {}
+            dtype = str(surface.get("dtype") or "").strip()
+            kind = str(surface.get("kind") or "").strip()
+            entity = str(surface.get("entity") or "").strip()
+            annotations = ", ".join(part for part in (kind, dtype, entity) if part)
+            suffix = f" ({annotations})" if annotations else ""
+            export_details.append(f"`{item.import_path}#{name}`{suffix}")
+        inputs = sorted(_context_file_local_inputs(item.source_path))
+        local_inputs.update(inputs)
+        input_note = ""
+        if inputs:
+            visible_inputs = ", ".join(f"`{name}`" for name in inputs[:8])
+            if len(inputs) > 8:
+                visible_inputs += ", ..."
+            input_note = f"; child-local inputs: {visible_inputs}"
+        lines.append(
+            f"- `{item.import_path}` terminal exports: "
+            + ", ".join(export_details)
+            + input_note
+        )
+    if not lines:
+        return ""
+
+    input_guidance = ""
+    if local_inputs:
+        visible_inputs = ", ".join(f"`{name}`" for name in sorted(local_inputs)[:12])
+        if len(local_inputs) > 12:
+            visible_inputs += ", ..."
+        input_guidance = (
+            "\n- These child-local input names are already owned by child files: "
+            f"{visible_inputs}. Do not recreate a child branch by copying those "
+            "inputs into the parent when a terminal child output above is "
+            "available."
+        )
+
+    return f"""
+Aggregate parent child outputs detected:
+{chr(10).join(lines)}
+- For this aggregate parent, start from the terminal child outputs above.
+  Import each terminal child output needed by the parent and compose those
+  imported bare names directly. For numeric parent outputs, prefer terminal
+  `Money`, `Rate`, or `Count` child outputs over child predicates, rates, or raw
+  factual inputs.
+- Do not rebuild a child branch in the parent from the child's local facts,
+  helper predicates, or numeric literals. If a copied child already exports a
+  terminal numeric result, the parent formula should add, cap, select, subtract,
+  or otherwise compose that imported result.
+- If a copied child only exports a terminal `Judgment` and the source requires a
+  numeric parent amount for that branch, you may use a source-stated local
+  amount fact for that judgment-only branch, but still import all available
+  terminal numeric outputs for sibling child branches instead of recomputing
+  them locally.{input_guidance}
 """
 
 

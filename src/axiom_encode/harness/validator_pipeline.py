@@ -10460,9 +10460,10 @@ def find_missing_same_section_subsection_import_issues(
     if statute_path is None:
         return []
     title, section, current_fragments = statute_path
+    import_items = _extract_import_items_from_content(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
-        for import_path in _extract_import_paths_from_content(content)
+        for import_path in import_items
     }
 
     issues: list[str] = []
@@ -10995,9 +10996,10 @@ def find_child_fragment_reencoding_issues(
     except ValueError:
         return []
 
+    import_items = _extract_import_items_from_content(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
-        for import_path in _extract_import_paths_from_content(content)
+        for import_path in import_items
     }
     parent_inputs = _rulespec_local_input_slots(
         payload,
@@ -11051,8 +11053,20 @@ def find_child_fragment_reencoding_issues(
         if parent_inputs:
             shared_inputs = sorted(parent_inputs & child_inputs)
             if shared_inputs:
+                terminal_child_names = _rulespec_terminal_executable_names_from_payload(
+                    child_payload
+                )
+                child_imports_terminal_output = (
+                    _imports_include_child_terminal_output_static(
+                        import_items,
+                        child_import_base=child_import_base,
+                        terminal_names=terminal_child_names,
+                    )
+                )
+                if child_imports_terminal_output:
+                    continue
                 child_exports = _rulespec_child_export_targets(
-                    _rulespec_terminal_executable_names_from_payload(child_payload),
+                    terminal_child_names,
                     child_import_base=child_import_base,
                     policy_repo_path=policy_repo_path,
                 )
@@ -11355,9 +11369,9 @@ def _statute_path_parts_for_file(
     return title, section, tuple(fragments)
 
 
-def _extract_import_paths_from_content(content: str) -> list[str]:
-    """Extract import file references from an imports block."""
-    paths: list[str] = []
+def _extract_import_items_from_content(content: str) -> list[str]:
+    """Extract raw import references from an imports block."""
+    items: list[str] = []
     in_imports = False
     imports_indent = 0
 
@@ -11390,6 +11404,17 @@ def _extract_import_paths_from_content(content: str) -> list[str]:
             if not mapping_match:
                 continue
             item = mapping_match.group(2).strip()
+        item = item.strip().strip("\"'")
+        if item:
+            items.append(item)
+
+    return items
+
+
+def _extract_import_paths_from_content(content: str) -> list[str]:
+    """Extract import file references from an imports block."""
+    paths: list[str] = []
+    for item in _extract_import_items_from_content(content):
         import_target = item.split("#", 1)[0].strip()
         if import_target:
             paths.append(import_target)
@@ -11418,16 +11443,46 @@ def _rulespec_import_path_aliases_static(import_path: str) -> set[str]:
 
 
 def _imports_cover_path_static(imports: set[str], expected_path: str) -> bool:
-    expected_aliases = _rulespec_import_path_aliases_static(expected_path)
     for import_path in imports:
-        for import_alias in _rulespec_import_path_aliases_static(import_path):
-            for expected in expected_aliases:
-                if import_alias == expected:
-                    return True
-                if import_alias.startswith(expected + "/"):
-                    return True
-                if expected.startswith(import_alias + "/"):
-                    return True
+        if _rulespec_import_path_matches_static(import_path, expected_path):
+            return True
+    return False
+
+
+def _rulespec_import_path_matches_static(
+    import_path: str,
+    expected_path: str,
+) -> bool:
+    expected_aliases = _rulespec_import_path_aliases_static(expected_path)
+    for import_alias in _rulespec_import_path_aliases_static(import_path):
+        for expected in expected_aliases:
+            if import_alias == expected:
+                return True
+            if import_alias.startswith(expected + "/"):
+                return True
+            if expected.startswith(import_alias + "/"):
+                return True
+    return False
+
+
+def _imports_include_child_terminal_output_static(
+    import_items: list[str],
+    *,
+    child_import_base: str,
+    terminal_names: list[str],
+) -> bool:
+    """Return true when imports include at least one terminal export from a child."""
+    terminal_set = {name for name in terminal_names if name}
+    if not terminal_set:
+        return False
+    for item in import_items:
+        import_base, separator, symbol = item.partition("#")
+        if not _rulespec_import_path_matches_static(import_base, child_import_base):
+            continue
+        if not separator:
+            return True
+        if symbol.strip() in terminal_set:
+            return True
     return False
 
 

@@ -5921,6 +5921,62 @@ rules:
     )
 
 
+def test_child_fragment_reencoding_allows_shared_input_with_terminal_child_import(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3121" / "a" / "5.yaml"
+    child = repo / "statutes" / "26" / "3121" / "a" / "5" / "C.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: simplified_employee_pension_payment_branch_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_made_under_simplified_employee_pension
+
+  - name: simplified_employee_pension_payment_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if simplified_employee_pension_payment_branch_applies: payment_amount else: 0
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/3121/a/5/C#simplified_employee_pension_payment_excluded_from_wages
+rules:
+  - name: executable_paragraph_5_branch_excluded_from_wages
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          simplified_employee_pension_payment_excluded_from_wages
+          + (if annuity_plan_403a_payment_exclusion_branch_applies: payment_amount else: 0)
+"""
+
+    assert (
+        find_child_fragment_reencoding_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
 def test_child_fragment_reencoding_points_to_terminal_child_output(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "3101.yaml"
