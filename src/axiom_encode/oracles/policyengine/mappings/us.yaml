@@ -1207,6 +1207,30 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 3402(a) defines the wage amount used for Secretary-prescribed withholding tables or computational procedures; PolicyEngine does not model paycheck withholding table inputs as separate outputs.
 
+  - legal_id: us:statutes/26/3402/b#miscellaneous_allowance_period_days_for_nonpayroll_period_wages
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) defines miscellaneous payroll-period days for withholding allowance calculations; PolicyEngine does not model paycheck withholding allowance periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/b#miscellaneous_allowance_period_days_for_wages_paid_without_regard_to_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) defines elapsed-day miscellaneous payroll periods for wages paid without regard to a period; PolicyEngine does not model paycheck withholding allowance periods as separate outputs.
+
+  - legal_id: us:statutes/26/3402/b#secretary_may_authorize_weekly_aggregate_computation
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) authorizes weekly aggregate withholding computation for short periods; PolicyEngine does not expose this Treasury authorization predicate.
+
+  - legal_id: us:statutes/26/3402/b#wages_computed_for_withholding_under_percentage_method
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(b) permits employer-elected rounding of wages for percentage-method withholding; PolicyEngine does not model paycheck withholding wage rounding as a separate output.
+
   - legal_id: us:statutes/26/3403#employer_liability_for_chapter_withholding_tax_payment
     country: us
     program: tax
