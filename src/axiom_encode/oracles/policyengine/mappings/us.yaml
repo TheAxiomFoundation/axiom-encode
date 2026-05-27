@@ -10355,6 +10355,13 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3302(f) defines State-specific limitation and partial-limitation rules for subsection (c)(2) credit reductions, including benefit-cost ratios, State unemployment tax rates, and intermediate capped reduction amounts; PolicyEngine exposes final employer FUTA tax, not these statutory credit-reduction limitation components separately.
 
+  - legal_id_prefix: us:statutes/26/3303#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3303 defines State-law reduced-rate standards, unemployment-fund account definitions, Secretary-of-Labor certification conditions, voluntary-contribution permissions, nonprofit reimbursement elections, and employer-fault noncharging predicates for FUTA additional-credit administration; PolicyEngine exposes final FUTA tax assumptions, not these State-law account and certification intermediates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3402/f#
     country: us
     program: tax
