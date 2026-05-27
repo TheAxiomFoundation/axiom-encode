@@ -676,6 +676,23 @@ mappings:
     candidate_priority: P4
     rationale: Arizona manual output is a Judgment indicating telephone utility allowance eligibility; PolicyEngine's individual utility allowance variable is a dollar amount conditional on its utility allowance type.
 
+  - legal_id: us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#shelter_deduction_net_income_share
+    country: us
+    program: snap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.usda.snap.income.deductions.excess_shelter_expense.income_share_disregard
+    period: month
+    comparison: rate
+    rationale: Same Arizona SNAP excess-shelter income-share disregard used to compute the uncapped shelter deduction.
+
+  - legal_id: us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#shelter_deduction
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_excess_shelter_expense_deduction
+    candidate_priority: P4
+    rationale: Arizona manual shelter deduction output uses source-specific allowable shelter and utility inputs and cap-oriented homeless-deduction wording; PolicyEngine's final excess shelter deduction is adjacent but not a one-to-one output for this source boundary.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
@@ -9927,6 +9944,12 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Arizona manual medical deduction helper outputs cover source-specific verification, eligibility, and gross-threshold predicates; exact PolicyEngine mappings are registered for the comparable disregard, standard amount, and deduction outputs.
+
+  - legal_id_prefix: us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual shelter deduction helper outputs cover source-specific allowable shelter expenses, utility composition, uncapped excess amounts, and state manual cap mechanics; exact PolicyEngine mappings are registered only where the output boundary is comparable.
 
   - legal_id_prefix: us:statutes/26/3102/a#
     country: us

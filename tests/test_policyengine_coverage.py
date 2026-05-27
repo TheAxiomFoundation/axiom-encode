@@ -348,6 +348,92 @@ rules:
     assert utility_items["snap_standard_utility_allowance"]["tested"] is True
 
 
+def test_policyengine_coverage_classifies_arizona_snap_shelter_deduction(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction.yaml",
+        """format: rulespec/v1
+rules:
+  - name: shelter_deduction_net_income_share
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.50
+  - name: allowable_shelter_expense
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, shelter_expense - vendor_payment)
+  - name: shelter_costs_with_utility_allowance
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: allowable_shelter_expense + utility_allowance
+  - name: uncapped_shelter_deduction
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, shelter_costs_with_utility_allowance - shelter_deduction_net_income_share * net_income)
+  - name: shelter_deduction_limit_for_budgetary_unit_without_elderly_or_disabled_participant
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(maximum_shelter_deduction_amount, homeless_shelter_deduction)
+  - name: shelter_deduction
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: min(uncapped_shelter_deduction, shelter_deduction_limit_for_budgetary_unit_without_elderly_or_disabled_participant)
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction.test.yaml",
+        """- name: shelter_outputs_are_tested
+  period: 2026-01
+  input: {}
+  output:
+    us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#shelter_deduction_net_income_share: 0.5
+    us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#allowable_shelter_expense: 800
+    us-az:policies/des/faa5/shelter-expenses-and-deduction/shelter-deduction#shelter_deduction: 500
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    shelter_items = {
+        item["rule_name"]: item
+        for item in report["items"]
+        if item["file"].endswith("shelter-deduction.yaml")
+    }
+    assert set(shelter_items) == {
+        "allowable_shelter_expense",
+        "shelter_costs_with_utility_allowance",
+        "shelter_deduction",
+        "shelter_deduction_limit_for_budgetary_unit_without_elderly_or_disabled_participant",
+        "shelter_deduction_net_income_share",
+        "uncapped_shelter_deduction",
+    }
+    assert shelter_items["shelter_deduction_net_income_share"]["status"] == "comparable"
+    assert (
+        shelter_items["shelter_deduction_net_income_share"]["policyengine_parameter"]
+        == "gov.usda.snap.income.deductions.excess_shelter_expense.income_share_disregard"
+    )
+    assert shelter_items["shelter_deduction_net_income_share"]["tested"] is True
+    assert shelter_items["shelter_deduction"]["status"] == "known_not_comparable"
+    assert (
+        shelter_items["shelter_deduction"]["policyengine_variable"]
+        == "snap_excess_shelter_expense_deduction"
+    )
+    assert (
+        shelter_items["allowable_shelter_expense"]["status"] == "known_not_comparable"
+    )
+
+
 def test_policyengine_coverage_classifies_tax_parameter_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",
