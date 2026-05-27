@@ -202,6 +202,43 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3102a_collection_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3102/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: paragraph_7C_or_10_cash_remuneration_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 100
+  - name: paragraph_8B_cash_remuneration_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 150
+  - name: employer_required_to_collect_section_3101_tax_by_wage_deduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_is_employer_of_taxpayer and wages_are_paid
+  - name: paragraph_7B_cash_remuneration_tax_deduction_permitted_when_below_applicable_threshold
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: cash_remuneration < applicable_dollar_threshold
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "employee_payroll_tax"
+    }
+
+
 def test_policyengine_coverage_maps_3306_b_1_futa_wage_base(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3306/b/1.yaml",
