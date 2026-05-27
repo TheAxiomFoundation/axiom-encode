@@ -10591,6 +10591,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3307 treats employee-remuneration deductions remitted to government as paid to the employee for chapter 23; PolicyEngine exposes final FUTA taxable earnings, not this payment-level paid-to-employee deeming rule separately.
 
+  - legal_id_prefix: us:statutes/26/3308#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3308 limits United States instrumentality exemptions from section 3301 FUTA tax unless another law specifically references section 3301 or prior law; PolicyEngine exposes final employer FUTA tax, not this legal exemption-preclusion predicate separately.
+
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us
     program: tax

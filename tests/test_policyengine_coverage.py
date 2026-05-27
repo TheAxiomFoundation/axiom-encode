@@ -2796,6 +2796,49 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3308_instrumentality_exemption(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3308.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3308
+rules:
+  - name: other_law_specific_section_3301_exemption_requirement_met
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: section_3301_specific_exemption or prior_law_specific_exemption
+  - name: united_states_instrumentality_section_3301_tax_exemption_precluded
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          employer_is_instrumentality_of_united_states
+          and general_instrumentality_tax_exemption
+          and not other_law_specific_section_3301_exemption_requirement_met
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "employer_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
