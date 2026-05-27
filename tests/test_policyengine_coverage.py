@@ -146,6 +146,100 @@ rules:
     assert report["items"][0]["kind"] == "derived_relation"
 
 
+def test_policyengine_coverage_classifies_arizona_snap_medical_and_child_support(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/na-child-support-expense/allowable-deductions.yaml",
+        """format: rulespec/v1
+rules:
+  - name: allowable_child_support_expense_amount
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: verified_amount_paid
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction.yaml",
+        """format: rulespec/v1
+rules:
+  - name: medical_expense_disregard
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 35
+  - name: standard_medical_deduction_net_amount
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 145
+  - name: standard_medical_deduction_gross_amount
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 180
+  - name: medical_deduction
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, medical_expenses - medical_expense_disregard)
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction.test.yaml",
+        """- name: medical_outputs_are_tested
+  period: 2026-01
+  input: {}
+  output:
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_expense_disregard: 35
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#standard_medical_deduction_net_amount: 145
+    us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_deduction: 145
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    child_support = items_by_id[
+        "us-az:policies/des/faa5/na-child-support-expense/allowable-deductions#allowable_child_support_expense_amount"
+    ]
+    disregard = items_by_id[
+        "us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_expense_disregard"
+    ]
+    standard = items_by_id[
+        "us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#standard_medical_deduction_net_amount"
+    ]
+    gross = items_by_id[
+        "us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#standard_medical_deduction_gross_amount"
+    ]
+    deduction = items_by_id[
+        "us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_deduction"
+    ]
+
+    assert child_support["status"] == "known_not_comparable"
+    assert disregard["status"] == "comparable"
+    assert (
+        disregard["policyengine_parameter"]
+        == "gov.usda.snap.income.deductions.excess_medical_expense.disregard"
+    )
+    assert standard["status"] == "comparable"
+    assert (
+        standard["policyengine_parameter"]
+        == "gov.usda.snap.income.deductions.excess_medical_expense.standard"
+    )
+    assert gross["status"] == "known_not_comparable"
+    assert deduction["status"] == "comparable"
+    assert deduction["policyengine_variable"] == "snap_excess_medical_expense_deduction"
+    assert deduction["tested"] is True
+
+
 def test_policyengine_coverage_classifies_tax_parameter_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",
