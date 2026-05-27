@@ -10053,6 +10053,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3231(g) defines Railroad Retirement Tax Act carrier status; PolicyEngine does not expose RRTA carrier-definition surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3232#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3232 defines federal district-court jurisdiction and nonexclusive enforcement jurisdiction for Railroad Retirement Tax Act obligations; PolicyEngine does not expose these court-jurisdiction enforcement predicates as one-to-one tax calculation outputs.
+
   - legal_id_prefix: us-co:regulations/10-ccr-2506-1/
     country: us
     program: snap
