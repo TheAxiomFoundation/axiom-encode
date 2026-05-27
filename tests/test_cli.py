@@ -3477,6 +3477,72 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_removes_prose_deferred_source_values(self, capsys, tmp_path):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "3241/d.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/26/3241
+  deferred_outputs:
+    - output: us:statutes/26/3241/d#secretary_federal_register_notice
+      reason: Administrative publication duty, not an executable tax amount.
+      source_values:
+        - Notice must be published no later than December 1.
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/3241/d.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/3241/d.yaml: ci: "
+                            "module.deferred_outputs[0].source_values entry "
+                            "`Notice must be published no later than December 1.` "
+                            "must be an absolute RuleSpec target with a rule fragment."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert "apply=auto_repaired_invalid_deferred_source_values:" in output
+        assert "source_values:" not in output_file.read_text()
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_invalid_deferred_source_values"] == [
+            "source_values[0]"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_promotes_module_imports(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
