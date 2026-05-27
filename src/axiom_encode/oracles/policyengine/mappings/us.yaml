@@ -618,6 +618,64 @@ mappings:
     comparison: money
     rationale: Same Arizona SNAP excess medical expense deduction when PE-aligned medical expense and elderly or disabled inputs are supplied.
 
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#liheap_minimum_annual_payment_amount
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual LIHEAP threshold parameter for standard utility allowance eligibility; PolicyEngine does not expose this LIHEAP-specific threshold as a SNAP utility parameter.
+
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#liheap_application_month_lookback_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual LIHEAP lookback parameter for standard utility allowance eligibility; PolicyEngine does not expose this LIHEAP-specific lookback window as a SNAP utility parameter.
+
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#utility_allowance_prerequisites_met
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual predicate requiring separately billed, obligated, and verified allowable utility expenses; PolicyEngine derives utility allowance type from its own utility-expense inputs rather than exposing this source-specific prerequisite.
+
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#qualifying_liheap_sua_condition
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_utility_allowance_type
+    candidate_priority: P4
+    rationale: Arizona manual predicate for LIHEAP-based standard utility allowance eligibility; PolicyEngine's utility allowance type is adjacent but does not expose this LIHEAP branch as a one-to-one output.
+
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_standard_utility_allowance
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_standard_utility_allowance
+    candidate_priority: P4
+    rationale: Arizona manual output is a Judgment for standard utility allowance eligibility; PolicyEngine's same-named variable is a dollar amount conditional on its utility allowance type.
+
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_limited_utility_allowance
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_limited_utility_allowance
+    candidate_priority: P4
+    rationale: Arizona manual output is a Judgment for limited utility allowance eligibility; PolicyEngine's same-named variable is a dollar amount conditional on its utility allowance type.
+
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_telephone_utility_allowance_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_utility_allowance_type
+    candidate_priority: P4
+    rationale: Arizona manual output is a telephone-only eligibility predicate; PolicyEngine exposes the adjacent IUA utility allowance type and amount but not this source-specific predicate.
+
+  - legal_id: us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_individual_utility_allowance
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_individual_utility_allowance
+    candidate_priority: P4
+    rationale: Arizona manual output is a Judgment indicating telephone utility allowance eligibility; PolicyEngine's individual utility allowance variable is a dollar amount conditional on its utility allowance type.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
