@@ -38,6 +38,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _person_scoped_definition_issue_names,
+    _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
     _repair_employer_scoped_entities,
@@ -3944,6 +3945,37 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_repair_deferred_output_double_hash_subsection_path(self, tmp_path):
+        output_file = tmp_path / "3303.yaml"
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3303
+  deferred_outputs:
+    - output: us:statutes/26/3303#b#secretary_certification
+      reason: Section 3304 is not available as copied context.
+rules:
+  - name: minimum_experience_rating_years
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '3'
+"""
+        )
+
+        repaired = _qualify_deferred_output_subsection_paths(
+            rules_file=output_file,
+            base_anchor="us:statutes/26/3303",
+        )
+
+        assert repaired == ["us:statutes/26/3303/b#secretary_certification"]
+        payload = yaml.safe_load(output_file.read_text())
+        assert payload["module"]["deferred_outputs"][0]["output"] == (
+            "us:statutes/26/3303/b#secretary_certification"
+        )
 
     def test_repair_person_scoped_definition_entities_moves_helpers(self, tmp_path):
         rules_file = tmp_path / "statutes/26/1402/b.yaml"
