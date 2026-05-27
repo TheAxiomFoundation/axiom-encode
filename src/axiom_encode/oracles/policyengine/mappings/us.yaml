@@ -1213,6 +1213,24 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 3403 shields the employer from liability to other persons for withheld-tax payments; PolicyEngine does not expose this non-tax-due legal liability shield as a variable.
 
+  - legal_id: us:statutes/26/3504#secretary_may_designate_wage_control_person_to_perform_employer_acts
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3504 authorizes Treasury to designate a fiduciary, agent, or other wage-control person to perform employer acts; PolicyEngine does not expose this designation-authority predicate.
+
+  - legal_id: us:statutes/26/3504#designated_person_subject_to_employer_law_provisions
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3504 applies employer legal provisions and penalties to designated payroll agents; PolicyEngine computes payroll tax amounts, not this legal-responsibility status.
+
+  - legal_id: us:statutes/26/3504#employer_remains_subject_to_employer_law_provisions
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3504 preserves employer legal responsibility except as Treasury provides otherwise; PolicyEngine does not expose this employer-responsibility status as a variable.
+
   - legal_id: us:statutes/26/3301#federal_unemployment_excise_tax_rate
     country: us
     program: tax
