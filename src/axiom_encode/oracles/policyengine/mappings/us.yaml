@@ -10176,6 +10176,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(g) identifies special wage-payment situations where withholding manner and amount are determined under Secretary regulations; PolicyEngine does not expose this regulatory-applicability predicate as a separate tax output.
 
+  - legal_id_prefix: us:statutes/26/3402/h#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(h) defines alternative paycheck withholding methods based on average, annualized, cumulative, or substantially equivalent wages, including timing and intermediate method calculations; PolicyEngine computes annual tax and payroll-tax amounts, not these chapter 24 withholding-method administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax

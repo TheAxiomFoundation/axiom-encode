@@ -2981,6 +2981,48 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402h_alternative_withholding_methods(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/h.yaml",
+        """format: rulespec/v1
+rules:
+  - name: average_wage_method_quarterly_adjustment_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: quarterly_required_withholding - actual_withholding
+  - name: annualized_wages_for_withholding_method
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wages_for_period * payroll_periods_in_year
+  - name: annualized_wage_method_tax_to_withhold_on_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: annualized_tax / payroll_periods_in_year
+  - name: cumulative_wage_method_tax_to_withhold_on_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: cumulative_wage_method_excess_tax
+  - name: other_substantially_same_method_authorizable
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: secretary_regulations_authorize_other_method
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
