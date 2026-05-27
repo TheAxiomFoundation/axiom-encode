@@ -9220,6 +9220,7 @@ def _append_generated_derived_output_tests_if_missing(
 
 def _append_generated_judgment_positive_tests_if_missing(
     *,
+    rules_file: Path | None = None,
     test_file: Path,
     repo_path: Path,
     axiom_rules_path: Path,
@@ -9234,8 +9235,13 @@ def _append_generated_judgment_positive_tests_if_missing(
     if not output_targets:
         return []
 
+    rules_payload: dict[str, object] | None = None
     try:
         test_payload = yaml.safe_load(test_file.read_text()) or []
+        if rules_file is not None and rules_file.exists():
+            loaded_rules = yaml.safe_load(rules_file.read_text()) or {}
+            if isinstance(loaded_rules, dict):
+                rules_payload = loaded_rules
     except (OSError, ValueError, yaml.YAMLError):
         return []
     if not isinstance(test_payload, list):
@@ -9250,6 +9256,13 @@ def _append_generated_judgment_positive_tests_if_missing(
         for test_case in test_payload
         if isinstance(test_case, dict)
     }
+    rules_by_name = _rules_by_name_from_payload(rules_payload)
+    derived_rules_by_target = {
+        f"{target_base}#{rule_name}": rule
+        for rule_name, rule in rules_by_name.items()
+        if str(rule.get("kind") or "").strip().lower() == "derived"
+        and str(rule.get("dtype") or "").strip().lower() == "judgment"
+    }
     repaired: list[str] = []
     for target in output_targets:
         rule_name = target.rsplit("#", 1)[-1]
@@ -9262,7 +9275,34 @@ def _append_generated_judgment_positive_tests_if_missing(
             existing_case_names,
         )
         candidate_payload: list[object] | None = None
+        synthesized = _build_generated_positive_judgment_case(
+            case_name=case_name,
+            target=f"{target_base}#{rule_name}",
+            target_base=target_base,
+            rule=derived_rules_by_target.get(target),
+            rules_payload=rules_payload,
+            rules_by_name=rules_by_name,
+            test_payload=test_payload,
+        )
+        if synthesized is not None:
+            trial_payload = list(test_payload)
+            trial_payload.append(synthesized)
+            if test_failure_checker is not None:
+                test_file.write_text(
+                    yaml.safe_dump(trial_payload, sort_keys=False, allow_unicode=False)
+                )
+                failures = test_failure_checker(
+                    test_file,
+                    root=repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                )
+                if not failures:
+                    candidate_payload = trial_payload
+            else:
+                candidate_payload = trial_payload
         for test_case in test_payload:
+            if candidate_payload is not None:
+                break
             if not isinstance(test_case, dict):
                 continue
             outputs = test_case.get("output")
@@ -9306,6 +9346,166 @@ def _append_generated_judgment_positive_tests_if_missing(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return repaired
+
+
+def _rules_by_name_from_payload(
+    rules_payload: dict[str, object] | None,
+) -> dict[str, dict[str, object]]:
+    if not isinstance(rules_payload, dict):
+        return {}
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+    return {
+        name: rule
+        for rule in rules
+        if isinstance(rule, dict) and (name := str(rule.get("name") or "").strip())
+    }
+
+
+def _build_generated_positive_judgment_case(
+    *,
+    case_name: str,
+    target: str,
+    target_base: str,
+    rule: dict[str, object] | None,
+    rules_payload: dict[str, object] | None,
+    rules_by_name: dict[str, dict[str, object]],
+    test_payload: list[object],
+) -> dict[str, object] | None:
+    if rule is None or not isinstance(rules_payload, dict):
+        return None
+    formula = _first_rule_formula(rule)
+    if not formula:
+        return None
+
+    imported_outputs = _imported_output_names_from_payload(rules_payload)
+    assignments = _positive_judgment_formula_input_assignments(
+        formula=formula,
+        rules_payload=rules_payload,
+        rules_by_name=rules_by_name,
+        imported_outputs=imported_outputs,
+    )
+    imported_inputs = _nonlocal_input_assignments_from_existing_cases(
+        test_payload,
+        target_base=target_base,
+    )
+    if not assignments and not imported_inputs:
+        return None
+
+    inputs: dict[object, object] = dict(imported_inputs)
+    for input_name, value in sorted(assignments.items()):
+        inputs[f"{target_base}#input.{input_name}"] = value
+
+    return {
+        "name": case_name,
+        "period": {
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        "input": inputs,
+        "output": {target: "holds"},
+    }
+
+
+def _positive_judgment_formula_input_assignments(
+    *,
+    formula: str,
+    rules_payload: dict[str, object],
+    rules_by_name: dict[str, dict[str, object]],
+    imported_outputs: set[str],
+) -> dict[str, object]:
+    identifiers = _formula_identifiers(formula)
+    negated_identifiers = set(
+        re.findall(r"\bnot\s+([A-Za-z_][A-Za-z0-9_]*)\b", formula)
+    )
+    protected_positive_inputs: set[str] = set()
+    assignments: dict[str, object] = {}
+
+    for identifier in sorted(identifiers - negated_identifiers):
+        if identifier in rules_by_name or identifier in imported_outputs:
+            continue
+        assignments[identifier] = _positive_generated_test_input_value(
+            identifier,
+            rules_payload=rules_payload,
+            formula=formula,
+        )
+        protected_positive_inputs.add(identifier)
+
+    defined_symbols = set(rules_by_name) | imported_outputs
+    for identifier in sorted(negated_identifiers):
+        dependency = rules_by_name.get(identifier)
+        if dependency is None:
+            if identifier not in imported_outputs:
+                assignments[identifier] = False
+            continue
+        dependency_formula = _first_rule_formula(dependency)
+        if not dependency_formula:
+            continue
+        dependency_inputs = [
+            name
+            for name in sorted(_formula_identifiers(dependency_formula))
+            if name not in defined_symbols and name not in protected_positive_inputs
+        ]
+        if not dependency_inputs:
+            continue
+        input_name = _preferred_false_breaker_input(
+            dependency_inputs,
+            rules_payload=rules_payload,
+        )
+        assignments[input_name] = False
+
+    return assignments
+
+
+def _positive_generated_test_input_value(
+    input_name: str,
+    *,
+    rules_payload: dict[str, object],
+    formula: str,
+) -> object:
+    if not _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+        return True
+    token = re.escape(input_name)
+    if re.search(rf"\b{token}\b\s*(?:<|<=)", formula):
+        return 0
+    if re.search(rf"(?:>|>=)\s*\b{token}\b", formula):
+        return 0
+    return 999999
+
+
+def _preferred_false_breaker_input(
+    input_names: list[str],
+    *,
+    rules_payload: dict[str, object],
+) -> str:
+    for input_name in input_names:
+        if not _factual_input_appears_numeric(input_name, rules_payload=rules_payload):
+            return input_name
+    return input_names[0]
+
+
+def _nonlocal_input_assignments_from_existing_cases(
+    test_payload: list[object],
+    *,
+    target_base: str,
+) -> dict[object, object]:
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        nonlocal_inputs = {
+            key: value
+            for key, value in inputs.items()
+            if "#input." in str(key)
+            and not _rulespec_ref_matches_base(str(key), target_base)
+        }
+        if nonlocal_inputs:
+            return nonlocal_inputs
+    return {}
 
 
 def _judgment_positive_output_targets_from_issues(issues: list[str]) -> list[str]:
@@ -13698,6 +13898,7 @@ def _try_repair_generated_judgment_positive_tests_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _append_generated_judgment_positive_tests_if_missing(
+        rules_file=rules_file,
         test_file=test_file,
         repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,
@@ -14411,6 +14612,8 @@ def _repair_imported_output_test_mismatches(
         case_name = str(test_case.get("name") or "").strip()
         replacements = repairs_by_case.get(case_name)
         if not replacements:
+            continue
+        if case_name.startswith("auto_positive_"):
             continue
         inputs = test_case.get("input")
         if not _test_case_has_imported_inputs(inputs, target_anchor=anchor):

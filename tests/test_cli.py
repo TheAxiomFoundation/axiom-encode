@@ -5543,6 +5543,102 @@ rules:
         }
         assert test_payload[1]["tables"] == test_payload[0]["tables"]
 
+    def test_judgment_positive_test_repair_synthesizes_formula_inputs(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "26" / "3303.yaml"
+        test_file = repo_path / "statutes" / "26" / "3303.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3306/f#unemployment_fund
+rules:
+  - name: reserve_account
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          unemployment_fund
+          and account_is_separate
+          and account_maintained_for_employer
+  - name: guaranteed_employment_account
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          unemployment_fund
+          and account_is_separate
+          and guaranteed_hours_per_week >= 30
+  - name: pooled_fund
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          unemployment_fund
+          and not reserve_account
+          and not guaranteed_employment_account
+          and total_contributions_payable_into_fund
+          and all_contributions_are_mingled
+          and compensation_payable_to_all_eligible_individuals
+"""
+        )
+        test_file.write_text(
+            """- name: reserve_account_definition_holds
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3306/f#input.fund_is_special_fund_established_under_state_law: true
+    us:statutes/26/3306/f#input.fund_administered_by_state_agency: true
+    us:statutes/26/3303#input.account_is_separate: true
+    us:statutes/26/3303#input.account_maintained_for_employer: true
+  output:
+    us:statutes/26/3303#reserve_account: holds
+"""
+        )
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("statutes/26/3303.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/26/3303#pooled_fund` is not asserted as `holds` "
+                "by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_positive_pooled_fund"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[1]
+        assert synthesized["output"] == {"us:statutes/26/3303#pooled_fund": "holds"}
+        assert (
+            synthesized["input"][
+                "us:statutes/26/3306/f#input.fund_is_special_fund_established_under_state_law"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"][
+                "us:statutes/26/3303#input.total_contributions_payable_into_fund"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"]["us:statutes/26/3303#input.account_is_separate"]
+            is False
+        )
+        assert (
+            "us:statutes/26/3303#input.account_maintained_for_employer"
+            not in synthesized["input"]
+        )
+
     def test_encode_apply_auto_repairs_auto_output_test_mismatches(
         self, capsys, tmp_path
     ):
