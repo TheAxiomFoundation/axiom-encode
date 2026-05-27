@@ -586,6 +586,38 @@ mappings:
     policyengine_variable: snap_excess_shelter_expense_deduction
     rationale: Colorado manual rule includes Colorado source inputs and reiterative USDA cap values; PE's federal shelter deduction is adjacent but requires PE-specific housing and utility inputs.
 
+  - legal_id: us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_expense_disregard
+    country: us
+    program: snap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.usda.snap.income.deductions.excess_medical_expense.disregard
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arizona SNAP medical expense disregard used before applying the standard or actual medical deduction.
+
+  - legal_id: us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#standard_medical_deduction_net_amount
+    country: us
+    program: snap
+    mapping_type: parameter_value
+    policyengine_parameter: gov.usda.snap.income.deductions.excess_medical_expense.standard
+    parameter_key: AZ
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arizona SNAP standard medical deduction net amount after the medical expense disregard.
+
+  - legal_id: us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#medical_deduction
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_excess_medical_expense_deduction
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Same Arizona SNAP excess medical expense deduction when PE-aligned medical expense and elderly or disabled inputs are supplied.
+
   - legal_id: us:statutes/7/2017/a#snap_allotment_before_minimum
     country: us
     program: snap
@@ -9826,6 +9858,18 @@ mappings:
     rationale: Same statutory percentage of adjusted gross income that floors deductible medical-care expenses.
 
 prefixes:
+  - legal_id_prefix: us-az:policies/des/faa5/na-child-support-expense/allowable-deductions#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual child-support outputs are payment-level allowable expense determinations; PolicyEngine exposes household-level SNAP child support deductions rather than this source-specific payment boundary.
+
+  - legal_id_prefix: us-az:policies/des/faa5/na-medical-expenses-and-deduction/medical-deduction#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual medical deduction helper outputs cover source-specific verification, eligibility, and gross-threshold predicates; exact PolicyEngine mappings are registered for the comparable disregard, standard amount, and deduction outputs.
+
   - legal_id_prefix: us:statutes/26/3102/a#
     country: us
     program: tax
