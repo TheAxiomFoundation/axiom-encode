@@ -1255,6 +1255,18 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 3402(c) permits employer-elected rounding of wages for wage-bracket withholding tables; PolicyEngine does not model paycheck withholding wage rounding as a separate output.
 
+  - legal_id: us:statutes/26/3402/d#required_withholding_tax_not_collected_from_employer
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(d) limits IRS collection of required withholding tax from an employer after the recipient pays the credited tax; PolicyEngine does not expose employer collection-relief predicates.
+
+  - legal_id: us:statutes/26/3402/d#employer_remains_liable_for_penalties_or_additions_for_withholding_failure
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(d) preserves employer liability for penalties or additions despite collection relief; PolicyEngine does not model employer withholding penalty-liability predicates as tax-calculation outputs.
+
   - legal_id: us:statutes/26/3403#employer_liability_for_chapter_withholding_tax_payment
     country: us
     program: tax
