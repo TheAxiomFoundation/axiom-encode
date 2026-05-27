@@ -10419,6 +10419,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(k) applies chapter 24 withholding mechanics to tips, limits deduction and withholding to employer-controlled wages and employee-turned-over funds after section 3102(a) or 3202(a) collections, and allows special low-monthly-tip withholding for section 3401(a)(16)(B) tips; PolicyEngine does not expose paycheck tip-withholding administration surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/l#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(l) determines and discloses marital status for chapter 24 withholding certificates and paycheck withholding tables; PolicyEngine computes annual tax outcomes, not these employer certificate, marital-status disclosure, or withholding-table administration predicates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax

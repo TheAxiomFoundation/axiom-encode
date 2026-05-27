@@ -3913,6 +3913,36 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402l_marital_status_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/l.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee_considered_not_married_for_married_certificate_disclosure
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: legally_separated or nonresident_alien_status
+  - name: employee_considered_married_after_current_year_spouse_death
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: spouse_died and not subparagraph_a_disqualified
+  - name: married_to_single_new_certificate_requirement_satisfied
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: not certificate_due or new_certificate_furnished
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
