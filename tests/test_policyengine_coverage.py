@@ -2948,6 +2948,35 @@ rules:
     assert all("State-law" in item["rationale"] for item in report["items"])
 
 
+def test_policyengine_coverage_classifies_3304_state_law_approval_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3304.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3304
+rules:
+  - name: institution_of_higher_education
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: educational_institution and nonprofit
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == ("us:statutes/26/3304#institution_of_higher_education")
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "State-law approval" in item["rationale"]
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
