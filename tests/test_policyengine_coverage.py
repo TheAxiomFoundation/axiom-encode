@@ -240,6 +240,114 @@ rules:
     assert deduction["tested"] is True
 
 
+def test_policyengine_coverage_classifies_arizona_snap_utility_eligibility(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility.yaml",
+        """format: rulespec/v1
+rules:
+  - name: liheap_minimum_annual_payment_amount
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 20
+  - name: liheap_application_month_lookback_months
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 12
+  - name: utility_allowance_prerequisites_met
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: billed_separately and obligated and verified
+  - name: qualifying_liheap_sua_condition
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: liheap_annual_payment_amount >= liheap_minimum_annual_payment_amount
+  - name: snap_standard_utility_allowance
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: utility_allowance_prerequisites_met and has_heating_or_cooling
+  - name: snap_limited_utility_allowance
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: utility_allowance_prerequisites_met and has_two_non_heating_utilities
+  - name: snap_telephone_utility_allowance_eligible
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: utility_allowance_prerequisites_met and has_only_telephone
+  - name: snap_individual_utility_allowance
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: snap_telephone_utility_allowance_eligible
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-az"
+        / "policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility.test.yaml",
+        """- name: utility_outputs_are_tested
+  period: 2026-01
+  input: {}
+  output:
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#liheap_minimum_annual_payment_amount: 20
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_standard_utility_allowance: holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_limited_utility_allowance: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_telephone_utility_allowance_eligible: not_holds
+    us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility#snap_individual_utility_allowance: not_holds
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    utility_items = {
+        item["rule_name"]: item
+        for item in report["items"]
+        if item["file"].endswith("utility-allowance-eligibility.yaml")
+    }
+    assert set(utility_items) == {
+        "liheap_minimum_annual_payment_amount",
+        "liheap_application_month_lookback_months",
+        "utility_allowance_prerequisites_met",
+        "qualifying_liheap_sua_condition",
+        "snap_standard_utility_allowance",
+        "snap_limited_utility_allowance",
+        "snap_telephone_utility_allowance_eligible",
+        "snap_individual_utility_allowance",
+    }
+    assert {item["status"] for item in utility_items.values()} == {
+        "known_not_comparable"
+    }
+    assert (
+        utility_items["snap_standard_utility_allowance"]["policyengine_variable"]
+        == "snap_standard_utility_allowance"
+    )
+    assert (
+        utility_items["snap_limited_utility_allowance"]["policyengine_variable"]
+        == "snap_limited_utility_allowance"
+    )
+    assert (
+        utility_items["snap_individual_utility_allowance"]["policyengine_variable"]
+        == "snap_individual_utility_allowance"
+    )
+    assert (
+        utility_items["snap_telephone_utility_allowance_eligible"][
+            "policyengine_variable"
+        ]
+        == "snap_utility_allowance_type"
+    )
+    assert utility_items["snap_standard_utility_allowance"]["tested"] is True
+
+
 def test_policyengine_coverage_classifies_tax_parameter_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3101/a.yaml",
