@@ -10895,6 +10895,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3241(b) Railroad Retirement Tax Act applicable-percentage schedule outputs are not exposed as one-to-one PolicyEngine variables or parameters.
 
+  - legal_id_prefix: us:statutes/26/3241/c#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3241(c) defines Railroad Retirement Tax Act average account benefits ratio and account benefits ratio trust-accounting intermediates; PolicyEngine does not expose these RRTA rate-setting accounting surfaces as one-to-one variables or parameters.
+
   - legal_id_prefix: us:statutes/26/3241/a#
     country: us
     program: tax
