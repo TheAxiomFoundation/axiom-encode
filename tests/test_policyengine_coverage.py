@@ -2856,6 +2856,66 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3511.yaml",
+        """format: rulespec/v1
+rules:
+  - name: related_party_nonapplication_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: customer_bears_relationship_to_cpeo
+  - name: cpeo_exclusive_employer_for_work_site_employee_remuneration
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: organization_is_certified_professional_employer_organization
+  - name: employer_type_based_rules_apply_to_cpeo_remitted_work_site_remuneration
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: cpeo_exclusive_employer_for_work_site_employee_remuneration
+  - name: cpeo_successor_customer_predecessor_during_service_contract
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: organization_entering_into_service_contract_with_customer
+  - name: customer_successor_cpeo_predecessor_after_service_contract_termination
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: customer_service_contract_with_cpeo_terminated
+  - name: individual_not_work_site_employee_due_to_self_employment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_has_net_earnings_from_self_employment
+  - name: specified_credit_applies_to_customer_not_cpeo
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: credit_is_specified_in_subsection_d
+  - name: customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: specified_credit_applies_to_customer_not_cpeo
+  - name: cpeo_information_furnishing_required_for_customer_credit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: specified_credit_applies_to_customer_not_cpeo
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 9}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3231_c_employee_representative_outputs(
     tmp_path,
 ):

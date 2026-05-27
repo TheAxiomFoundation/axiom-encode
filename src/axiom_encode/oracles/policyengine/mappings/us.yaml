@@ -1231,6 +1231,60 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 3504 preserves employer legal responsibility except as Treasury provides otherwise; PolicyEngine does not expose this employer-responsibility status as a variable.
 
+  - legal_id: us:statutes/26/3511#related_party_nonapplication_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(e) makes CPEO treatment inapplicable for related customers under modified section 267(b) or 707(b) relationships; PolicyEngine does not expose this related-party nonapplication predicate.
+
+  - legal_id: us:statutes/26/3511#cpeo_exclusive_employer_for_work_site_employee_remuneration
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(a) treats a CPEO as the exclusive employer for specified work-site employee remuneration; PolicyEngine does not model CPEO/customer employer identity as a separate output.
+
+  - legal_id: us:statutes/26/3511#employer_type_based_rules_apply_to_cpeo_remitted_work_site_remuneration
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(a)(2) applies employer-type exemptions, exclusions, definitions, and rules to CPEO-remitted remuneration; PolicyEngine does not expose this legal-rule-application status.
+
+  - legal_id: us:statutes/26/3511#cpeo_successor_customer_predecessor_during_service_contract
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(b)(1) gives CPEO/customer successor-predecessor treatment for wage-base purposes during service contracts; PolicyEngine does not expose this CPEO succession status.
+
+  - legal_id: us:statutes/26/3511#customer_successor_cpeo_predecessor_after_service_contract_termination
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(b)(2) gives customer/CPEO successor-predecessor treatment after service-contract termination; PolicyEngine does not expose this CPEO succession status.
+
+  - legal_id: us:statutes/26/3511#individual_not_work_site_employee_due_to_self_employment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(f) excludes individuals with self-employment earnings from the customer trade or business from work-site employee status; PolicyEngine does not expose this CPEO work-site status predicate.
+
+  - legal_id: us:statutes/26/3511#specified_credit_applies_to_customer_not_cpeo
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(d) allocates specified employment credits to the customer rather than the CPEO; PolicyEngine does not expose this CPEO/customer credit-allocation predicate.
+
+  - legal_id: us:statutes/26/3511#customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(d) tells the customer to account for CPEO-paid wages and employment taxes for specified credits; PolicyEngine does not expose this credit-input allocation status.
+
+  - legal_id: us:statutes/26/3511#cpeo_information_furnishing_required_for_customer_credit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3511(d) requires the CPEO to furnish information needed for customer specified credits; PolicyEngine does not expose this information-reporting obligation.
+
   - legal_id: us:statutes/26/3301#federal_unemployment_excise_tax_rate
     country: us
     program: tax
