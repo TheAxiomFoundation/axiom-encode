@@ -3072,6 +3072,41 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402k_tip_withholding_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/k.yaml",
+        """format: rulespec/v1
+rules:
+  - name: monthly_tip_statement_threshold_for_paragraph_16_b_permission
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 20
+  - name: tips_withholding_under_subsection_a_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tips_constitute_wages
+  - name: maximum_tip_tax_deduction_and_withholding_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, employer_controlled_wages - section_3102_or_3202_tax)
+  - name: low_monthly_tip_statement_withholding_permitted_for_paragraph_16_b_tips
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: monthly_tips < monthly_tip_statement_threshold_for_paragraph_16_b_permission
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",

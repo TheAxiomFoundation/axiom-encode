@@ -10194,6 +10194,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(j) removes chapter 24 withholding requirements for certain noncash retail-salesman commission remuneration when the employer files prescribed information; PolicyEngine does not expose this paycheck withholding exemption predicate as a one-to-one output.
 
+  - legal_id_prefix: us:statutes/26/3402/k#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(k) applies chapter 24 withholding mechanics to tips, limits deduction and withholding to employer-controlled wages and employee-turned-over funds after section 3102(a) or 3202(a) collections, and allows special low-monthly-tip withholding for section 3401(a)(16)(B) tips; PolicyEngine does not expose paycheck tip-withholding administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
