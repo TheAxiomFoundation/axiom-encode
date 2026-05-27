@@ -10182,6 +10182,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(h) defines alternative paycheck withholding methods based on average, annualized, cumulative, or substantially equivalent wages, including timing and intermediate method calculations; PolicyEngine computes annual tax and payroll-tax amounts, not these chapter 24 withholding-method administration surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/i#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(i) authorizes employee-requested increased withholding under regulations and treats that additional withholding as required chapter 24 tax; PolicyEngine does not expose this paycheck withholding election authority or legal-treatment rule as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
