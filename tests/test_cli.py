@@ -23,6 +23,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _append_generated_derived_output_tests_if_missing,
+    _append_generated_judgment_positive_tests_if_missing,
     _apply_generated_encoding_result,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
@@ -5336,6 +5337,49 @@ rules:
         assert test_payload[0]["output"] == {
             "us:statutes/26/3241/b#average_account_benefits_ratio_bracket": 1
         }
+
+    def test_judgment_positive_test_repair_clones_existing_scenario(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        test_file = repo_path / "statutes" / "26" / "3102" / "f" / "1.test.yaml"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(
+            """- name: above_threshold_parameter_only
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  tables:
+    Payment:
+    - us:statutes/26/3102/f/1#input.tax_is_imposed_by_section_3101_b_2: true
+      us:statutes/26/3102/f/1#input.taxpayer_wages_received_from_employer: 250000
+  output:
+    us:statutes/26/3102/f/1#additional_medicare_employer_wage_collection_threshold: 200000
+"""
+        )
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("statutes/26/3102/f/1.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold` "
+                "is not asserted as `holds` by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == [
+            "auto_positive_subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold"
+        ]
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["name"] == "above_threshold_parameter_only"
+        assert test_payload[1]["name"] == repaired[0]
+        assert test_payload[1]["output"] == {
+            "us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold": "holds"
+        }
+        assert test_payload[1]["tables"] == test_payload[0]["tables"]
 
     def test_encode_apply_auto_repairs_auto_output_test_mismatches(
         self, capsys, tmp_path

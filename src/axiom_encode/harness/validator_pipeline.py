@@ -4418,6 +4418,72 @@ def find_missing_derived_companion_output_issues(
     return issues
 
 
+def find_judgment_positive_companion_output_issues(
+    content: str,
+    cases: list[Any],
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
+    """Require local Judgment outputs to have at least one positive case."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    positive_outputs: set[str] = set()
+    positive_fragments: set[str] = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for key, value in outputs.items():
+            if not _is_positive_judgment_value(value):
+                continue
+            key_text = str(key).strip()
+            positive_outputs.add(key_text)
+            positive_fragments.add(_test_reference_fragment(key_text))
+
+    issues: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip().lower() != "judgment":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not any(
+            isinstance(version, dict)
+            and isinstance(version.get("formula"), str)
+            and version["formula"].strip()
+            for version in versions
+        ):
+            continue
+        name = _rulespec_rule_name(rule)
+        target = _canonical_rulespec_file_target(
+            policy_repo_path=policy_repo_path,
+            rules_file=rules_file,
+            symbol=name,
+        )
+        if target is None:
+            continue
+        if target in positive_outputs or name in positive_fragments:
+            continue
+        issues.append(
+            "Judgment rule missing positive companion output coverage: "
+            f"`{target}` is not asserted as `holds` by the companion "
+            "`.test.yaml` file."
+        )
+
+    return issues
+
+
 def _rulespec_executable_signature(rule: dict[str, Any]) -> str | None:
     versions = rule.get("versions")
     if not isinstance(versions, list):
@@ -15292,6 +15358,14 @@ class ValidatorPipeline:
                     if strict_layout_checks:
                         issues.extend(
                             find_missing_derived_companion_output_issues(
+                                content,
+                                payload,
+                                rules_file=rules_file,
+                                policy_repo_path=self.policy_repo_path,
+                            )
+                        )
+                        issues.extend(
+                            find_judgment_positive_companion_output_issues(
                                 content,
                                 payload,
                                 rules_file=rules_file,

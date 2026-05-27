@@ -46,6 +46,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_helper_only_definition_issues,
     find_import_shape_issues,
     find_judgment_conditional_formula_issues,
+    find_judgment_positive_companion_output_issues,
     find_missing_child_exception_import_issues,
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
@@ -556,6 +557,89 @@ rules:
         "`us:statutes/26/63/f#blind_under_subsection_f` "
         "is not asserted by the companion `.test.yaml` file."
     ]
+
+
+def test_judgment_positive_companion_output_rejects_never_holds(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    rules_file = policy_repo / "statutes" / "26" / "3102" / "f" / "1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3102(f)(1)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          tax_is_imposed_by_section_3101_b_2
+          and wages_from_employer_in_excess_of_additional_medicare_collection_threshold > 0
+"""
+    cases = [
+        {
+            "name": "below_threshold",
+            "period": "2026",
+            "input": {},
+            "output": {
+                "us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold": "not_holds"
+            },
+        }
+    ]
+
+    issues = find_judgment_positive_companion_output_issues(
+        content,
+        cases,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert issues == [
+        "Judgment rule missing positive companion output coverage: "
+        "`us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold` "
+        "is not asserted as `holds` by the companion `.test.yaml` file."
+    ]
+
+
+def test_judgment_positive_companion_output_allows_holds_case(tmp_path):
+    policy_repo = tmp_path / "rulespec-us"
+    rules_file = policy_repo / "statutes" / "26" / "3102" / "f" / "1.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+rules:
+  - name: additional_medicare_collection_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3102(f)(1)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: wages_above_threshold > 0
+"""
+    cases = [
+        {
+            "name": "above_threshold",
+            "period": "2026",
+            "input": {},
+            "output": {
+                "us:statutes/26/3102/f/1#additional_medicare_collection_applies": [
+                    "holds"
+                ]
+            },
+        }
+    ]
+
+    assert (
+        find_judgment_positive_companion_output_issues(
+            content,
+            cases,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo,
+        )
+        == []
+    )
 
 
 def test_test_input_assignment_scopes_inputs_to_asserted_outputs():
