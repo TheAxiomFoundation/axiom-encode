@@ -10188,6 +10188,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(i) authorizes employee-requested increased withholding under regulations and treats that additional withholding as required chapter 24 tax; PolicyEngine does not expose this paycheck withholding election authority or legal-treatment rule as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/j#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(j) removes chapter 24 withholding requirements for certain noncash retail-salesman commission remuneration when the employer files prescribed information; PolicyEngine does not expose this paycheck withholding exemption predicate as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
