@@ -2870,6 +2870,48 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402e_wage_deeming_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/e.yaml",
+        """format: rulespec/v1
+rules:
+  - name: maximum_consecutive_days_for_payroll_period_deeming_rule
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 31
+  - name: payroll_period_within_deeming_rule_day_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payroll_period_consecutive_days <= maximum_consecutive_days_for_payroll_period_deeming_rule
+  - name: all_remuneration_deemed_wages_for_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: half_or_more_services_constitute_wages
+  - name: no_remuneration_deemed_wages_for_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: more_than_half_services_do_not_constitute_wages
+  - name: remuneration_amount_deemed_wages_for_period
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: remuneration_paid_by_employer_to_employee_for_period
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",

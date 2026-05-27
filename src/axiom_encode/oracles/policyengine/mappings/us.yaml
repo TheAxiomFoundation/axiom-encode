@@ -1267,6 +1267,36 @@ mappings:
     mapping_type: not_comparable
     rationale: Section 3402(d) preserves employer liability for penalties or additions despite collection relief; PolicyEngine does not model employer withholding penalty-liability predicates as tax-calculation outputs.
 
+  - legal_id: us:statutes/26/3402/e#maximum_consecutive_days_for_payroll_period_deeming_rule
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) defines the 31-day payroll-period threshold for chapter 24 withholding wage-deeming administration; PolicyEngine does not expose this paycheck-period withholding threshold as a one-to-one output.
+
+  - legal_id: us:statutes/26/3402/e#payroll_period_within_deeming_rule_day_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) classifies payroll periods within the 31-day wage-deeming threshold for chapter 24 withholding; PolicyEngine does not expose this paycheck-period withholding predicate as a one-to-one output.
+
+  - legal_id: us:statutes/26/3402/e#all_remuneration_deemed_wages_for_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) deems all remuneration wages for short payroll periods when one-half or more of service remuneration constitutes wages; PolicyEngine does not expose this paycheck-period wage-construction predicate.
+
+  - legal_id: us:statutes/26/3402/e#no_remuneration_deemed_wages_for_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) deems no remuneration wages for short payroll periods when more than one-half of service remuneration does not constitute wages; PolicyEngine does not expose this paycheck-period wage-construction predicate.
+
+  - legal_id: us:statutes/26/3402/e#remuneration_amount_deemed_wages_for_period
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(e) computes a deemed-wage amount for chapter 24 withholding administration; PolicyEngine does not expose paycheck-period deemed withholding wages as a one-to-one output.
+
   - legal_id: us:statutes/26/3403#employer_liability_for_chapter_withholding_tax_payment
     country: us
     program: tax
