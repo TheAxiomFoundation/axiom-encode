@@ -10369,6 +10369,13 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3304 defines State-law approval requirements and institutional legal-status predicates for unemployment-compensation administration; PolicyEngine exposes final FUTA tax assumptions, not these State-law approval and institution-definition outputs as one-to-one variables or parameters.
 
+  - legal_id_prefix: us:statutes/26/3305#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3305 preserves State unemployment-law compliance duties against interstate-commerce and federal-property objections and denies section 3302 credits after Labor certification failures; PolicyEngine exposes final FUTA tax assumptions, not these State-law compliance and administrative credit-denial predicates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3402/f#
     country: us
     program: tax

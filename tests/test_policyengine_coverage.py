@@ -2977,6 +2977,45 @@ rules:
     assert "State-law approval" in item["rationale"]
 
 
+def test_policyengine_coverage_classifies_3305_state_law_compliance_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3305.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3305
+rules:
+  - name: state_unemployment_fund_payment_compliance_not_relieved_by_commerce_ground
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: required_to_pay and interstate_commerce
+  - name: state_unemployment_compensation_compliance_not_relieved_by_federal_property_services
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: subject_to_state_law and federal_property_services
+  - name: state_unemployment_contribution_credits_denied_for_permission_condition_failure
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: required_to_contribute and certified_failure
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all("State-law compliance" in item["rationale"] for item in report["items"])
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
