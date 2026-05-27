@@ -9218,6 +9218,143 @@ def _append_generated_derived_output_tests_if_missing(
     return repaired
 
 
+def _append_generated_judgment_positive_tests_if_missing(
+    *,
+    test_file: Path,
+    repo_path: Path,
+    axiom_rules_path: Path,
+    relative_output: Path,
+    issues: list[str],
+    test_failure_checker=None,
+) -> list[str]:
+    """Clone existing scenarios into positive Judgment companion tests."""
+    if not issues or not test_file.exists():
+        return []
+    output_targets = _judgment_positive_output_targets_from_issues(issues)
+    if not output_targets:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    existing_case_names = {
+        str(test_case.get("name") or "").strip()
+        for test_case in test_payload
+        if isinstance(test_case, dict)
+    }
+    repaired: list[str] = []
+    for target in output_targets:
+        rule_name = target.rsplit("#", 1)[-1]
+        if _test_payload_has_rule_output_value(
+            test_payload, rule_name=rule_name, normalized_value="holds"
+        ):
+            continue
+        case_name = _unique_generated_test_name(
+            f"auto_positive_{_safe_test_name(rule_name)}",
+            existing_case_names,
+        )
+        candidate_payload: list[object] | None = None
+        for test_case in test_payload:
+            if not isinstance(test_case, dict):
+                continue
+            outputs = test_case.get("output")
+            if not isinstance(outputs, dict):
+                continue
+            if _case_asserts_rule_value(
+                outputs, rule_name=rule_name, normalized_value="not_holds"
+            ):
+                continue
+            companion = copy.deepcopy(test_case)
+            companion["name"] = case_name
+            companion["output"] = {f"{target_base}#{rule_name}": "holds"}
+            trial_payload = list(test_payload)
+            trial_payload.append(companion)
+            if test_failure_checker is not None:
+                test_file.write_text(
+                    yaml.safe_dump(trial_payload, sort_keys=False, allow_unicode=False)
+                )
+                failures = test_failure_checker(
+                    test_file,
+                    root=repo_path,
+                    axiom_rules_path=axiom_rules_path,
+                )
+                if failures:
+                    continue
+            candidate_payload = trial_payload
+            break
+
+        if candidate_payload is None:
+            test_file.write_text(
+                yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+            )
+            continue
+        test_payload = candidate_payload
+        existing_case_names.add(case_name)
+        repaired.append(case_name)
+
+    if not repaired:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired
+
+
+def _judgment_positive_output_targets_from_issues(issues: list[str]) -> list[str]:
+    targets: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        match = re.search(
+            r"Judgment rule missing positive companion output coverage:"
+            r"\s*`(?P<target>[^`]+)`",
+            str(issue),
+        )
+        if not match:
+            continue
+        target = match["target"].strip()
+        if not target or target in seen:
+            continue
+        seen.add(target)
+        targets.append(target)
+    return targets
+
+
+def _test_payload_has_rule_output_value(
+    test_payload: list[object],
+    *,
+    rule_name: str,
+    normalized_value: str,
+) -> bool:
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        if _case_asserts_rule_value(
+            outputs, rule_name=rule_name, normalized_value=normalized_value
+        ):
+            return True
+    return False
+
+
+def _unique_generated_test_name(base_name: str, existing_case_names: set[str]) -> str:
+    if base_name not in existing_case_names:
+        return base_name
+    index = 2
+    while f"{base_name}_{index}" in existing_case_names:
+        index += 1
+    return f"{base_name}_{index}"
+
+
 def _missing_derived_output_targets_from_issues(issues: list[str]) -> list[str]:
     targets: list[str] = []
     seen: set[str] = set()
@@ -11093,6 +11230,44 @@ def cmd_encode(args):
                 if repaired_derived_cases:
                     outcome["auto_repaired_derived_output_tests"] = (
                         repaired_derived_cases
+                    )
+            if not can_apply:
+                repaired_positive_cases: list[str] = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_judgment_positive_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_positive_cases.extend(repaired_test_cases)
+                    outcome["auto_repaired_judgment_positive_tests"] = (
+                        repaired_positive_cases
+                    )
+                    print(
+                        "  apply=auto_repaired_judgment_positive_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_positive_cases:
+                    outcome["auto_repaired_judgment_positive_tests"] = (
+                        repaired_positive_cases
                     )
             if not can_apply:
                 repaired_input_refs: list[str] = []
@@ -13294,6 +13469,45 @@ def _only_pending_missing_derived_output_coverage_issues(
 ) -> bool:
     return bool(issues) and all(
         "Derived rule missing companion output coverage:" in str(issue)
+        for issue in issues
+    )
+
+
+def _try_repair_generated_judgment_positive_tests_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Append deterministic positive companion tests for Judgment outputs."""
+    if not _only_pending_judgment_positive_output_coverage_issues(issues):
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _append_generated_judgment_positive_tests_if_missing(
+        test_file=test_file,
+        repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        relative_output=relative_output,
+        issues=issues,
+    )
+
+
+def _only_pending_judgment_positive_output_coverage_issues(
+    issues: list[str],
+) -> bool:
+    return bool(issues) and all(
+        "Judgment rule missing positive companion output coverage:" in str(issue)
         for issue in issues
     )
 
