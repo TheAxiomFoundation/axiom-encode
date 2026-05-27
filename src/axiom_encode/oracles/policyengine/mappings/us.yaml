@@ -10164,6 +10164,12 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3302(f) defines State-specific limitation and partial-limitation rules for subsection (c)(2) credit reductions, including benefit-cost ratios, State unemployment tax rates, and intermediate capped reduction amounts; PolicyEngine exposes final employer FUTA tax, not these statutory credit-reduction limitation components separately.
 
+  - legal_id_prefix: us:statutes/26/3402/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(f) defines withholding allowance certificates, certificate effective dates, nonresident alien exemption limits, and duplicate allowance-claim restrictions for chapter 24 withholding administration; PolicyEngine does not expose these paycheck withholding certificate administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax

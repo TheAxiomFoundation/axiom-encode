@@ -2912,6 +2912,53 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402f_withholding_certificate_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/f.yaml",
+        """format: rulespec/v1
+rules:
+  - name: change_status_new_certificate_due_days
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 10
+  - name: replacement_certificate_default_wait_days
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 30
+  - name: nonresident_alien_withholding_exemption_limit
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1
+  - name: commencement_certificate_requirement_satisfied
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: signed_certificate_furnished
+  - name: excess_allowance_new_certificate_violation
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: not new_certificate_furnished
+  - name: first_certificate_effective_for_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: first_payroll_period_after_certificate
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 6}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
