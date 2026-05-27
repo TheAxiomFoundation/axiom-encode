@@ -150,6 +150,50 @@ def test_source_identifier_handles_dotted_leaf_segments(citation, expected):
     assert str(_source_identifier_to_relative_rulespec_path(citation)) == expected
 
 
+def test_resolve_eval_output_path_uses_path_like_citation_directly():
+    """Sanity: a citation that already looks like a corpus path is used as-is."""
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+
+    assert _resolve_eval_output_path("us/statute/7/2014/e/2/B") == Path(
+        "statutes/7/2014/e/2/B.yaml"
+    )
+
+
+def test_resolve_eval_output_path_uses_requested_source_when_citation_is_free_text():
+    """Free-text source_id falls through to requested_source for path derivation.
+
+    Surfaced live by us_snap_earned_income_deduction_refresh.yaml on
+    2026-05-27 and us_snap_asset_test_current_effective_refresh.yaml.
+    The benchmarks supply a human-readable source_id like
+    "SNAP earned income deduction under 7 USC 2014(e)(2)(B)" and a
+    path-like corpus_citation_path. Before the fix, the resolver only
+    looked at the citation (free-text), couldn't parse it as a corpus
+    path or USC citation, and landed the artifact at
+    `source/<slug>.yaml` — outside any rulespec source-root directory,
+    so downstream compile validators couldn't find it.
+    """
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+
+    assert _resolve_eval_output_path(
+        "SNAP earned income deduction under 7 USC 2014(e)(2)(B)",
+        requested_source="us/statute/7/2014/e/2/B",
+    ) == Path("statutes/7/2014/e/2/B.yaml")
+
+
+def test_resolve_eval_output_path_ignores_requested_source_when_also_free_text():
+    """If both inputs are free-text, fall back to the existing USC parser
+    (which may itself error out — that's a separate bug, not this fix's job).
+    """
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+
+    # citation is path-like USC; requested_source is also path-like but
+    # different — citation wins because it's path-like.
+    assert _resolve_eval_output_path(
+        "us/statute/26/63",
+        requested_source="us/statute/7/2014",
+    ) == Path("statutes/26/63.yaml")
+
+
 class TestCorpusSourceResolution:
     def test_resolves_state_manual_corpus_path_without_statute_rewrite(self, tmp_path):
         corpus_path = _write_test_corpus_provision(
