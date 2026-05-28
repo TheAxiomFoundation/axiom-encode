@@ -10437,6 +10437,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(n) exempts qualifying wage payments from chapter 24 withholding when an employee withholding certificate certifies no prior-year income tax liability and anticipated no current-year income tax liability; PolicyEngine computes annual tax outcomes, not paycheck withholding-certificate exception predicates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/o#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(o) extends chapter 24 paycheck withholding treatment to supplemental unemployment compensation, requested annuity withholding, requested non-wage sick pay, and related request or collective-bargaining administration rules; PolicyEngine computes annual tax outcomes, not these payment-level withholding-administration predicates or request amount intermediates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
