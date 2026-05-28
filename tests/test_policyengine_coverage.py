@@ -4530,6 +4530,72 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3509_misclassification_liability_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3509.yaml",
+        """format: rulespec/v1
+rules:
+  - name: default_withholding_liability_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.015
+  - name: default_employee_social_security_tax_liability_percentage
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.20
+  - name: increased_withholding_liability_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.03
+  - name: increased_employee_social_security_tax_liability_percentage
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.40
+  - name: section_applies_to_misclassified_employee_withholding_failure
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_failed_to_deduct_and_withhold_tax
+  - name: section_applies_to_employee_social_security_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: section_applies_to_misclassified_employee_withholding_failure
+  - name: employee_tax_liability_unaffected_by_section_assessment_or_collection
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amount_of_liability_for_tax_determined_under_this_section
+  - name: employer_not_entitled_to_recover_section_tax_from_employee
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amount_of_liability_for_tax_determined_under_this_section
+  - name: section_3402_d_and_section_6521_do_not_apply_to_section_determined_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amount_of_liability_for_tax_determined_under_this_section
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 9}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "misclassification assessment surface" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3511.yaml",
