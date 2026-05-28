@@ -3891,7 +3891,7 @@ RuleSpec requirements:
 - A pure `notwithstanding subsection ...` override does not require importing
   the overridden subsection unless the formula actually needs that cited
   subsection's computed output.
-- If the cited same-section subsection is supplied in context as a RuleSpec file, add an `imports:` entry for that file and reference its exported rule; do not summarize the cited subsection into a local fact like `person_meets_...requirements`.
+- If the cited same-section subsection is supplied in context as a RuleSpec file, add an `imports:` entry for that file; do not summarize the cited subsection into a local fact like `person_meets_...requirements`. If the cited file has an exported executable rule that the formula needs, import and reference that exported rule. If the cited file is deferred or the current source only needs to preserve an exception boundary such as `except for purposes of subsection (a)`, use a file-level import without a `#symbol` fragment, such as `us:statutes/26/3401/a`, and encode the local source-stated override directly. Do not add a fragment import only for proof when the formula does not reference that symbol.
 - Do not copy the body of a cited cross-reference provision into this module's `summary` or re-encode that cited provision locally. Keep this module scoped to the requested citation and import the cited provision instead.
 - Do not fabricate sibling-file imports, do not guess unavailable import targets, and do not invent `import` statements or `imports:` blocks for uncopied same-instrument provisions.
 - Before using any imported output in arithmetic, check the copied context

@@ -3885,6 +3885,9 @@ class TestEvalPrompt:
         assert "Never drop the jurisdiction prefix" in prompt
         assert "listed under invalid copied local inputs" in prompt
         assert "do not preserve, rename, or recreate" in prompt
+        assert "file-level import without a `#symbol` fragment" in prompt
+        assert "except for purposes of subsection (a)" in prompt
+        assert "Do not add a fragment import only for proof" in prompt
         assert "treated as attributable to" in prompt
         assert "amount-level" in prompt
         assert "boolean or `dtype: Judgment` predicate" in prompt
