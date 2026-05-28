@@ -10473,6 +10473,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(t) sets withholding-rate floor and noncash fringe-benefit treatment rules for qualified stock with section 83(i) elections; PolicyEngine computes annual income tax outcomes, not this stock-specific withholding administration surface as a one-to-one output.
 
+  - legal_id_prefix: us:statutes/26/3404#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3404 authorizes officers or employees of governmental employers to make returns of chapter 24 withheld wage amounts; PolicyEngine computes annual tax outcomes, not this return-filing delegation surface as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
