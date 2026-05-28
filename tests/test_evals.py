@@ -7096,6 +7096,58 @@ rules:
         assert copied_sources[str(section_931)]["import_path"] == "us:statutes/26/931"
         assert copied_sources[str(section_933)]["import_path"] == "us:statutes/26/933"
 
+    def test_prepare_eval_workspace_adds_cross_section_ancestor_context_for_deep_citation(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        section_3511 = repo_root / "rulespec-us" / "statutes" / "26" / "3511.yaml"
+        section_3511.parent.mkdir(parents=True)
+        section_3511.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: specified_credit_applies_to_customer_not_cpeo\n"
+            "    kind: derived\n"
+            "    entity: Employer\n"
+            "    dtype: Judgment\n"
+            "    period: Year\n"
+        )
+        source_text = (
+            "Any credit allowed under this section shall be treated as a "
+            "credit described in section 3511(d)(2)."
+        )
+
+        selected = _select_cross_section_context_files(
+            "26 USC 3134(i)",
+            source_text,
+            repo_root / "rulespec-us",
+        )
+
+        assert selected == [section_3511]
+
+        runner = parse_runner_spec("codex:gpt-5.5")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="26 USC 3134(i)",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=source_text,
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(section_3511)]["kind"] == "implementation_precedent"
+        assert copied_sources[str(section_3511)]["import_path"] == "us:statutes/26/3511"
+
     def test_build_eval_prompt_warns_on_unavailable_cited_context(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = repo_root / "rulespec-us"
