@@ -818,6 +818,12 @@ _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN = re.compile(
     r")",
     flags=re.IGNORECASE,
 )
+_US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN = re.compile(
+    r"\b(?:joint(?:[\s_-]+return)?|married[\s_-]+filing[\s_-]+jointly)\b"
+    r"(?:(?!surviving[\s_-]+spouse|qualifying[\s_-]+widow(?:er)?).){0,500}?"
+    r"\bany\s+other\s+case\b",
+    flags=re.IGNORECASE | re.DOTALL,
+)
 _US_TAX_FILING_STATUS_NAME_PATTERN = re.compile(
     rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
     flags=re.IGNORECASE,
@@ -5688,7 +5694,11 @@ def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
     if payload is None:
         return []
 
-    module_source_text = extract_embedded_source_text(content) or content
+    module_source_text = (
+        _extract_source_verification_text(content)
+        or extract_embedded_source_text(content)
+        or content
+    )
     issues: list[str] = []
     for name, kind, formula, source, rule in _rulespec_rule_formula_rule_records(
         payload
@@ -5701,6 +5711,12 @@ def find_tax_filing_status_surviving_spouse_issues(content: str) -> list[str]:
             rule=rule,
             source=source,
         )
+        joint_only_issue = _filing_status_joint_only_any_other_case_branch_issue(
+            name, formula, source_context
+        )
+        if joint_only_issue is not None:
+            issues.append(joint_only_issue)
+            continue
         if not _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(source_context):
             continue
         branch_issue = _filing_status_surviving_spouse_branch_issue(name, formula)
@@ -6724,6 +6740,50 @@ def _filing_status_surviving_spouse_branch_issue(
             "mentions surviving spouse or qualifying widow(er), but the formula "
             "does not handle status code 4. Include code 4 when the source groups "
             "surviving spouse with joint return, or encode a separate explicit branch."
+        )
+    return None
+
+
+def _filing_status_joint_only_any_other_case_branch_issue(
+    rule_name: str,
+    formula: str,
+    source_context: str,
+) -> str | None:
+    if _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(source_context):
+        return None
+    if not _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN.search(source_context):
+        return None
+
+    match_blocks = _filing_status_match_blocks(formula)
+    for arms in match_blocks:
+        if 1 not in arms or 4 not in arms:
+            continue
+        if _normalize_branch_result(arms[1]) == _normalize_branch_result(arms[4]):
+            return (
+                "Filing status branch incorrectly treats surviving spouse as joint "
+                "return: "
+                f"`{rule_name}` routes status code 4 to the same result as "
+                "joint-return status code 1, but this source states a joint-return "
+                "branch and an any-other-case branch without grouping surviving "
+                "spouse or qualifying widow(er) with joint returns. Route status "
+                "code 4 through the any-other-case branch unless the source "
+                "explicitly states otherwise."
+            )
+
+    conditional_results = _filing_status_conditional_branch_results(formula)
+    if (
+        1 in conditional_results
+        and 4 in conditional_results
+        and conditional_results[1] == conditional_results[4]
+    ) or _filing_status_has_grouped_joint_surviving_spouse_condition(formula):
+        return (
+            "Filing status branch incorrectly treats surviving spouse as joint "
+            "return: "
+            f"`{rule_name}` groups status code 4 with joint-return status code 1, "
+            "but this source states a joint-return branch and an any-other-case "
+            "branch without grouping surviving spouse or qualifying widow(er) with "
+            "joint returns. Route status code 4 through the any-other-case branch "
+            "unless the source explicitly states otherwise."
         )
     return None
 
@@ -8000,6 +8060,34 @@ def _rule_source_subsection_tokens(source: Any) -> tuple[str, ...]:
     )
 
 
+def _rule_source_subsection_selectors(
+    source: Any,
+) -> tuple[tuple[str, str | None], ...]:
+    if isinstance(source, dict):
+        source_text = " ".join(
+            str(value) for value in source.values() if isinstance(value, str)
+        )
+    elif isinstance(source, str):
+        source_text = source
+    else:
+        return ()
+
+    selectors: list[tuple[str, str | None]] = []
+    for match in re.finditer(
+        r"\(([A-Za-z0-9]+)\)"
+        r"(?:\s*(?:-|\u2013|\u2014|to)\s*\(([A-Za-z0-9]+)\))?",
+        source_text,
+    ):
+        start = match.group(1)
+        end = match.group(2)
+        if not 1 <= len(start) <= 4:
+            continue
+        if end is not None and not 1 <= len(end) <= 4:
+            continue
+        selectors.append((start, end))
+    return tuple(selectors)
+
+
 def _slice_source_text_at_marker(source_text: str, token: str) -> str:
     marker_flags = 0 if token.isalpha() else re.IGNORECASE
     marker = re.compile(rf"\({re.escape(token)}\)", flags=marker_flags)
@@ -8022,26 +8110,72 @@ def _slice_source_text_at_marker(source_text: str, token: str) -> str:
         flags=marker_flags,
     )
     if next_match is None:
-        sibling_marker_pattern = ""
         if token.isdigit():
-            sibling_marker_pattern = r"\(\d+\)"
+            for sibling_match in re.finditer(
+                r"\((\d+)\)",
+                source_text[match.end() :],
+                flags=marker_flags,
+            ):
+                if int(sibling_match.group(1)) > int(token):
+                    next_match = sibling_match
+                    break
         elif len(token) == 1 and token.isalpha():
-            sibling_marker_pattern = r"\([a-z]\)" if token.islower() else r"\([A-Z]\)"
-        if sibling_marker_pattern:
-            next_match = re.search(
+            sibling_marker_pattern = (
+                r"\(([a-z])\)" if token.islower() else r"\(([A-Z])\)"
+            )
+            for sibling_match in re.finditer(
                 sibling_marker_pattern,
                 source_text[match.end() :],
                 flags=marker_flags,
-            )
+            ):
+                if ord(sibling_match.group(1)) > ord(token):
+                    next_match = sibling_match
+                    break
     if next_match is None:
         return source_text[match.start() :].strip()
     return source_text[match.start() : match.end() + next_match.start()].strip()
 
 
+def _slice_source_text_at_marker_range(
+    source_text: str,
+    start_token: str,
+    end_token: str,
+) -> str:
+    start_flags = 0 if start_token.isalpha() else re.IGNORECASE
+    start_marker = re.compile(rf"\({re.escape(start_token)}\)", flags=start_flags)
+    start_match = start_marker.search(source_text)
+    if start_match is None:
+        return ""
+
+    end_flags = 0 if end_token.isalpha() else re.IGNORECASE
+    end_marker = re.compile(rf"\({re.escape(end_token)}\)", flags=end_flags)
+    end_match = end_marker.search(source_text, start_match.end())
+    if end_match is None:
+        return _slice_source_text_at_marker(source_text, start_token)
+
+    end_segment = _slice_source_text_at_marker(
+        source_text[end_match.start() :], end_token
+    )
+    if not end_segment:
+        return _slice_source_text_at_marker(source_text, start_token)
+    return source_text[
+        start_match.start() : end_match.start() + len(end_segment)
+    ].strip()
+
+
 def _source_text_for_rule_source(source_text: str, source: Any) -> str:
     scoped_source = source_text
-    for token in _rule_source_subsection_tokens(source):
-        next_scoped_source = _slice_source_text_at_marker(scoped_source, token)
+    for start_token, end_token in _rule_source_subsection_selectors(source):
+        if end_token is None:
+            next_scoped_source = _slice_source_text_at_marker(
+                scoped_source, start_token
+            )
+        else:
+            next_scoped_source = _slice_source_text_at_marker_range(
+                scoped_source,
+                start_token,
+                end_token,
+            )
         if not next_scoped_source:
             return scoped_source
         scoped_source = next_scoped_source

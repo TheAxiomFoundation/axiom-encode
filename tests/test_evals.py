@@ -540,6 +540,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "period: Day" in prompt
     assert "never use bare `YYYY-MM-DD` shorthand" in prompt
     assert "Do not preserve existing `#input.filing_status`" in prompt
+    assert 'If the source says only "joint return"' in prompt
+    assert 'status 4 falls under any "other case" branch' in prompt
     assert "Existing executable output names are public API contracts" not in prompt
     assert "applicable_amount_in_effect_under_section_<section>" not in prompt
     assert "Do not put the date or year value in the fact name" in prompt
@@ -3873,6 +3875,8 @@ class TestEvalPrompt:
         assert "Do not use bare year periods like `2024`" in prompt
         assert "Never encode US tax filing status" in prompt
         assert "Do not create local `#input.filing_status` facts" in prompt
+        assert 'If the source says only "joint return"' in prompt
+        assert 'status 4 falls under any "other case" branch' in prompt
         assert "Hard requirement for IRC section 151(d)" not in prompt
         assert "must use the numeric `filing_status` enum input directly" not in prompt
         assert "Importing an adjacent upstream output only as proof" in prompt
