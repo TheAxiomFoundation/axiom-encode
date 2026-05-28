@@ -10449,6 +10449,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(p) provides voluntary chapter 24 withholding rules for specified Federal payments, unemployment compensation, and other agreed non-wage payments; PolicyEngine computes annual tax outcomes, not these payment-level voluntary withholding request predicates, rates, and amount intermediates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/q#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(q) extends chapter 24 withholding administration to certain gambling winnings, including wager-proceeds thresholds, 300-to-1 ratio tests, gambling-category predicates, and coordination/exemption rules; PolicyEngine computes annual income tax outcomes, not these payment-level gambling withholding administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax

@@ -4041,6 +4041,38 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402q_gambling_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/q.yaml",
+        """format: rulespec/v1
+rules:
+  - name: withholding_winnings_proceeds_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 5000
+  - name: winnings_subject_to_withholding
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wager_proceeds > withholding_winnings_proceeds_threshold
+  - name: payment_of_winnings_treated_as_wages_for_section_3403
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: winnings_subject_to_withholding
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
