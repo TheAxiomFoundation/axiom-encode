@@ -15544,6 +15544,29 @@ rules:
     assert 0.5 in extract_numeric_occurrences_from_text("The amount is ½.")
 
 
+def test_ungrounded_numeric_accepts_source_ordinal_word():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3510
+rules:
+  - name: return_filing_deadline_months_after_employer_taxable_year_close
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          4
+"""
+    source_text = (
+        "The return shall be filed on or before the 15th day of the "
+        "fourth month following the close of the employer's taxable year."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 4 in extract_numeric_occurrences_from_text(source_text)
+
+
 def test_ungrounded_numeric_accepts_source_mixed_unicode_fraction_percentage():
     content = """format: rulespec/v1
 module:
