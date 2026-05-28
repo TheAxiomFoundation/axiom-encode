@@ -4278,6 +4278,37 @@ rules:
     assert "withholding administration" in item["rationale"]
 
 
+def test_policyengine_coverage_classifies_3406_child_backup_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3406/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: backup_withholding_requirement_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: reportable_payment and payee_fails_to_furnish_tin_to_payor
+  - name: underreporting_or_certification_failure_applies_to_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: reportable_interest_or_dividend_payment and notified_payee_underreporting
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "backup withholding administration" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3127_religious_exemption_outputs(
     tmp_path,
 ):
