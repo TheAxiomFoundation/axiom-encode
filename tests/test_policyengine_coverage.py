@@ -4132,6 +4132,38 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402t_qualified_stock_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/t.yaml",
+        """format: rulespec/v1
+rules:
+  - name: qualified_stock_with_section_83_i_election
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: stock_is_qualified_stock and section_83_i_election_made
+  - name: section_1_maximum_rate_floor_applies_to_qualified_stock_with_section_83_i_election
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_stock_with_section_83_i_election
+  - name: qualified_stock_treated_as_noncash_fringe_benefit_for_section_3501_b
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_stock_with_section_83_i_election
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
