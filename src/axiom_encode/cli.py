@@ -3795,6 +3795,11 @@ def cmd_repair_proof_import_hashes(args):
             issues = [
                 result.error for result in validation.results.values() if result.error
             ]
+            rewritten_import_output_refs = _rewrite_import_output_test_input_refs(
+                test_file=test_file,
+                repo_path=repo_path,
+                issues=issues,
+            )
             removed_refs = _remove_invalid_import_output_test_input_refs(
                 test_file=test_file,
                 repo_path=repo_path,
@@ -3823,7 +3828,8 @@ def cmd_repair_proof_import_hashes(args):
                 issues=issues,
             )
             if (
-                not removed_refs
+                not rewritten_import_output_refs
+                and not removed_refs
                 and not repaired_exclusion_refs
                 and not removed_invalid_refs
                 and not completed_missing_inputs
@@ -4024,6 +4030,11 @@ def cmd_repair_imported_test_inputs(args):
         issues = [
             result.error for result in validation.results.values() if result.error
         ]
+        rewritten_import_output_refs = _rewrite_import_output_test_input_refs(
+            test_file=test_file,
+            repo_path=repo_path,
+            issues=issues,
+        )
         removed_refs = _remove_invalid_import_output_test_input_refs(
             test_file=test_file,
             repo_path=repo_path,
@@ -4050,7 +4061,8 @@ def cmd_repair_imported_test_inputs(args):
             issues=issues,
         )
         if (
-            not removed_invalid_refs
+            not rewritten_import_output_refs
+            and not removed_invalid_refs
             and not removed_refs
             and not repaired_exclusion_refs
             and not completed_missing_inputs
@@ -9731,6 +9743,80 @@ def _remove_invalid_test_input_refs(
     return sorted(removable_refs)
 
 
+def _rewrite_import_output_test_input_refs(
+    *,
+    test_file: Path,
+    repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Drop the `input.` prefix when a test ref overrides an imported output.
+
+    The encoder sometimes writes `<producer>#input.X` to override an imported
+    producer's output X in a test case. The runtime rejects this because the
+    producer file does not declare X as an input slot — X is its output. The
+    correct shape for overriding an imported producer's output is
+    `<producer>#X` (no `input.` prefix).
+
+    This repair finds invalid `#input.X` refs that name a rule produced by
+    the referenced file, rewrites the key in place, and returns a list of
+    `<old> -> <new>` strings for telemetry. Runs before
+    `_remove_invalid_import_output_test_input_refs` so the test case keeps
+    its fidelity instead of losing the override entirely.
+    """
+    if not test_file.exists():
+        return []
+    candidate_refs = {
+        ref
+        for ref in _invalid_input_refs_from_issues(issues)
+        if _input_ref_targets_producer_output(ref, repo_path=repo_path)
+    }
+    if not candidate_refs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    rename_map: dict[str, str] = {
+        ref: ref.replace("#input.", "#", 1) for ref in candidate_refs
+    }
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        inputs = test_case.get("input")
+        if _rename_mapping_keys_recursive(inputs, rename_map):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(f"{old} -> {new}" for old, new in rename_map.items())
+
+
+def _rename_mapping_keys_recursive(value: object, rename_map: dict[str, str]) -> bool:
+    """Rename keys in dict and any nested dicts/lists. Returns True if changed."""
+    changed = False
+    if isinstance(value, dict):
+        for old_key, new_key in rename_map.items():
+            if old_key in value:
+                value[new_key] = value.pop(old_key)
+                changed = True
+        for v in value.values():
+            if _rename_mapping_keys_recursive(v, rename_map):
+                changed = True
+    elif isinstance(value, list):
+        for v in value:
+            if _rename_mapping_keys_recursive(v, rename_map):
+                changed = True
+    return changed
+
+
 def _remove_invalid_import_output_test_input_refs(
     *,
     test_file: Path,
@@ -9948,6 +10034,52 @@ def _imported_output_names_from_payload(payload: object) -> set[str]:
         fragment = raw_import.rsplit("#", 1)[1].strip()
         if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", fragment):
             names.add(fragment)
+    return names
+
+
+def _input_ref_targets_producer_output(
+    input_ref: str,
+    *,
+    repo_path: Path,
+) -> bool:
+    """True when `<base>#input.X` names a rule produced by the file at <base>.
+
+    Distinct from `_input_ref_is_import_output_placeholder` which checks the
+    producer's *imports*. Here we check the producer's own `rules:` block —
+    if X is produced as a rule output, the consumer should reference it
+    without the `input.` prefix.
+    """
+    if "#input." not in input_ref:
+        return False
+    import_base, input_name = input_ref.split("#input.", 1)
+    import_base = import_base.strip()
+    input_name = input_name.strip()
+    if not import_base or not input_name:
+        return False
+    import_file = _import_base_to_repo_file(import_base, repo_path=repo_path)
+    if import_file is None or not import_file.exists():
+        return False
+    return input_name in _producer_rule_names(import_file)
+
+
+def _producer_rule_names(rules_file: Path) -> set[str]:
+    """Return the set of `rules[].name` values declared in a RuleSpec file."""
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = rule.get("name")
+        if isinstance(name, str) and name:
+            names.add(name)
     return names
 
 

@@ -58,6 +58,7 @@ from axiom_encode.cli import (
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
+    _rewrite_import_output_test_input_refs,
     _sha256_file,
     _sha256_text,
     _sign_applied_encoding_manifest,
@@ -4142,6 +4143,79 @@ rules:
             "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
             in repaired
         )
+
+    def test_rewrite_import_output_test_input_refs_drops_input_prefix(self, tmp_path):
+        """When a test case writes <producer>#input.X to override an imported
+        producer's output, the runtime rejects it because the producer file
+        does not declare X as an input slot (X is its OUTPUT). The correct
+        ref shape for overriding an imported producer's output is
+        <producer>#X (no `input.` prefix). Surfaced live on 7 USC 2014(c)
+        test cases that referenced
+        us:statutes/7/2014/e/6/A#input.snap_net_income 2026-05-28.
+        """
+        repo = tmp_path / "rulespec-us"
+        consumer_file = repo / "statutes/7/2014/c.yaml"
+        consumer_test_file = repo / "statutes/7/2014/c.test.yaml"
+        producer_file = repo / "statutes/7/2014/e/6/A.yaml"
+        consumer_file.parent.mkdir(parents=True)
+        producer_file.parent.mkdir(parents=True)
+        producer_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: snap_net_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: "0"
+"""
+        )
+        consumer_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2014/e/6/A#snap_net_income
+rules:
+  - name: snap_net_income_exceeds_standard
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: "snap_net_income > 0"
+"""
+        )
+        consumer_test_file.write_text(
+            """- name: override_imported_output
+  period: 2024-10
+  input:
+    us:statutes/7/2014/e/6/A#input.snap_net_income: 1500
+  output:
+    us:statutes/7/2014/c#snap_net_income_exceeds_standard: holds
+"""
+        )
+        issues = [
+            "Test case `override_imported_output` input invalid: input "
+            "`us:statutes/7/2014/e/6/A#input.snap_net_income` does not "
+            "resolve to an input slot in statutes/7/2014/e/6/A.yaml."
+        ]
+
+        rewritten = _rewrite_import_output_test_input_refs(
+            test_file=consumer_test_file,
+            repo_path=repo,
+            issues=issues,
+        )
+
+        assert rewritten == [
+            "us:statutes/7/2014/e/6/A#input.snap_net_income"
+            " -> us:statutes/7/2014/e/6/A#snap_net_income"
+        ]
+        repaired = yaml.safe_load(consumer_test_file.read_text())
+        assert repaired[0]["input"] == {
+            "us:statutes/7/2014/e/6/A#snap_net_income": 1500
+        }
 
     def test_complete_missing_dependent_test_inputs_uses_transitive_import_ref(
         self, tmp_path
