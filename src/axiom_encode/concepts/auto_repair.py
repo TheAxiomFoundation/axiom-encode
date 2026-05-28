@@ -54,7 +54,11 @@ def auto_repair_test_yaml_canonical_violations(
 
 def _rewrite_anchored_refs(text: str, registry: ConceptRegistry) -> str:
     def repl(match: re.Match[str]) -> str:
-        anchor, input_prefix, name = match.group(1), match.group(2) or "", match.group(3)
+        anchor, input_prefix, name = (
+            match.group(1),
+            match.group(2) or "",
+            match.group(3),
+        )
         blocked = registry.lookup_synonym(name)
         if blocked is not None:
             new_anchor = blocked.producer_anchor or anchor
