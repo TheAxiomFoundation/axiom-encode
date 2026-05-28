@@ -10431,6 +10431,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(m) authorizes additional withholding allowances or reductions under Secretary-prescribed regulations and related certificate administration; PolicyEngine computes annual tax outcomes, not paycheck withholding allowance or reduction entitlement predicates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/n#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(n) exempts qualifying wage payments from chapter 24 withholding when an employee withholding certificate certifies no prior-year income tax liability and anticipated no current-year income tax liability; PolicyEngine computes annual tax outcomes, not paycheck withholding-certificate exception predicates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
