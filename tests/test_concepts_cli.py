@@ -66,6 +66,46 @@ def test_apply_hook_silent_on_canonical_only(tmp_path: Path):
     )
 
 
+def test_apply_hook_auto_repairs_test_yaml_blocked_synonym(tmp_path: Path):
+    """The apply hook must auto-rewrite blocked synonyms in *.test.yaml files
+    so encode --apply unblocks once the producer YAML itself is clean."""
+    generated = tmp_path / "10.yaml"
+    generated.write_text(
+        textwrap.dedent(
+            """
+            format: rulespec/v1
+            rules:
+              - name: snap_total_gross_income
+                kind: parameter
+                versions:
+                  - effective_from: '2025-10-01'
+                    formula: "0"
+            """
+        )
+    )
+    test_file = tmp_path / "10.test.yaml"
+    test_file.write_text(
+        textwrap.dedent(
+            """
+            format: rulespec/v1
+            cases:
+              - inputs:
+                  us:regulations/7-cfr/273/10#snap_gross_monthly_income: 1000
+            """
+        )
+    )
+    relative_output = Path("regulations/7-cfr/273/10.yaml")
+
+    _enforce_canonical_concept_registry(
+        candidate_files=[generated, test_file],
+        relative_output=relative_output,
+    )
+
+    rewritten = test_file.read_text()
+    assert "snap_gross_monthly_income" not in rewritten
+    assert "snap_total_gross_income" in rewritten
+
+
 def test_apply_hook_raises_on_canonical_under_wrong_anchor(tmp_path: Path):
     generated = tmp_path / "9.yaml"
     generated.write_text(

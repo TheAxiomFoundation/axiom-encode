@@ -1,0 +1,1 @@
+Auto-repair blocked synonyms and bad anchors in generated `*.test.yaml` files before the apply gate fires, so a clean producer encode is not blocked by drift that only shows up in invented test cases. Producer YAML still fails loudly.

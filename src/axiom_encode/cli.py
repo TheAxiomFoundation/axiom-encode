@@ -43,6 +43,7 @@ from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
 from .concepts import (
+    auto_repair_test_yaml_canonical_violations,
     load_concept_registry,
     validate_generated_against_registry,
 )
@@ -14965,6 +14966,12 @@ def _enforce_canonical_concept_registry(
         policy_repo_path=policy_repo_path,
     )
     files = [f for f in candidate_files if f and f.exists()]
+    repaired = auto_repair_test_yaml_canonical_violations(files, registry)
+    if repaired:
+        print(
+            "  apply=auto_repaired_test_yaml_canonical_refs:"
+            + ",".join(p.name for p in repaired)
+        )
     violations = validate_generated_against_registry(
         files, registry, apply_anchor=apply_anchor
     )
