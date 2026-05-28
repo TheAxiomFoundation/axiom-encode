@@ -665,7 +665,7 @@ _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_REFERENCE_TARGET_PATTERN = (
-    r"(?:(?:\([^)]+\))+|"
+    r"(?:(?:\([A-Za-z0-9ivxlcdmIVXLCDM]+\))+|"
     r"\d+[A-Za-z./-]*(?:\([^)]+\))*(?=$|[\s,.;:])"
     r"(?!\s*(?:percent|per\s*cent(?:um)?))|"
     r"[ivxlcdm]+\b|[A-Z]{1,4}\b|[a-z]\b)"
