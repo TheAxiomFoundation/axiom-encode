@@ -4596,6 +4596,30 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3510_domestic_service_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3510.yaml",
+        """format: rulespec/v1
+rules:
+  - name: amount_withheld_from_domestic_service_remuneration_under_section_3402_p_agreement
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, amount_withheld_from_remuneration_for_domestic_service_in_private_home_pursuant_to_section_3402_p_agreement)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "domestic-service withholding-administration component" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3511.yaml",
