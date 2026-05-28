@@ -13035,7 +13035,7 @@ _CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN = re.compile(
     r"Cross-reference base mechanics omitted: `([^`]+)`"
 )
 _CROSS_REFERENCE_PLACEHOLDER_ISSUE_PATTERN = re.compile(
-    r"(?:Encoded )?Cross-reference placeholder: `([^`]+)`"
+    r"(?:Encoded )?[Cc]ross-reference placeholder: `([^`]+)`"
 )
 _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN = re.compile(
     r"Cross-reference numeric placeholder: `([^`]+)`"
