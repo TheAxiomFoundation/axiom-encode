@@ -12502,6 +12502,145 @@ def find_aggregate_exception_predicate_issues(content: str) -> list[str]:
     return issues
 
 
+def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
+    """Require local exception outputs to block matching exported apply rules."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    formulas_by_name: dict[str, list[str]] = {}
+    exception_names: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        formulas = _rule_formula_texts(rule)
+        if formulas:
+            formulas_by_name[name] = formulas
+        if "_exception_to_" in name and _rule_has_shall_not_apply_exception_atom(rule):
+            exception_names.append(name)
+
+    if not exception_names:
+        return []
+
+    issues: list[str] = []
+    for exception_name in exception_names:
+        target_fragments = _exception_output_target_fragments(exception_name)
+        if not target_fragments:
+            continue
+        for rule_name, formulas in sorted(formulas_by_name.items()):
+            if rule_name == exception_name or not rule_name.endswith("_applies"):
+                continue
+            if not _exception_fragments_match_rule_name(
+                target_fragments,
+                rule_name,
+            ):
+                continue
+            if any(
+                _formula_negates_identifier(formula, exception_name)
+                for formula in formulas
+            ):
+                continue
+            issues.append(
+                "Unconsumed local exception output: "
+                f"`{exception_name}` appears to carve out `{rule_name}`, but "
+                f"`{rule_name}` does not negate it. Compose the exception into "
+                "the affected exported rule instead of exposing both outputs "
+                "independently."
+            )
+    return issues
+
+
+def _rule_formula_texts(rule: dict[Any, Any]) -> list[str]:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return []
+    formulas: list[str] = []
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            formulas.append(formula)
+    return formulas
+
+
+def _rule_has_shall_not_apply_exception_atom(rule: dict[Any, Any]) -> bool:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return False
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return False
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        if str(atom.get("kind") or "").strip().lower() != "exception":
+            continue
+        source = atom.get("source")
+        if not isinstance(source, dict):
+            continue
+        excerpt = str(source.get("excerpt") or "")
+        if re.search(
+            r"\b(?:shall|does)\s+not\s+(?:be\s+)?appl(?:y|icable)\b",
+            excerpt,
+            flags=re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
+def _exception_output_target_fragments(exception_name: str) -> list[set[str]]:
+    _, _, suffix = exception_name.partition("_exception_to_")
+    if not suffix:
+        return []
+    fragments: list[set[str]] = []
+    for raw_fragment in suffix.split("_and_"):
+        fragment = re.sub(
+            r"^(?:subsection|section|paragraph|subparagraph|clause)_",
+            "",
+            raw_fragment,
+            flags=re.IGNORECASE,
+        )
+        tokens = _identifier_token_set(fragment)
+        if len(tokens) >= 2:
+            fragments.append(tokens)
+    return fragments
+
+
+def _exception_fragments_match_rule_name(
+    target_fragments: list[set[str]],
+    rule_name: str,
+) -> bool:
+    rule_tokens = _identifier_token_set(rule_name)
+    return any(fragment <= rule_tokens for fragment in target_fragments)
+
+
+def _identifier_token_set(identifier: str) -> set[str]:
+    return {token.lower() for token in re.findall(r"[A-Za-z0-9]+", identifier) if token}
+
+
+def _formula_negates_identifier(formula: str, identifier: str) -> bool:
+    return bool(
+        re.search(
+            rf"\bnot\s+{re.escape(identifier)}\b",
+            formula,
+        )
+    )
+
+
 def find_missing_child_exception_import_issues(
     content: str,
     *,
@@ -15771,6 +15910,7 @@ class ValidatorPipeline:
             )
         )
         issues.extend(find_aggregate_exception_predicate_issues(content))
+        issues.extend(find_unconsumed_local_exception_output_issues(content))
         issues.extend(self._check_cross_reference_exception_placeholders(rules_file))
         issues.extend(self._check_encoded_cross_reference_placeholders(rules_file))
         issues.extend(self._check_cross_reference_numeric_placeholders(rules_file))

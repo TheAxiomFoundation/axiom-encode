@@ -77,6 +77,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_tax_status_component_local_input_issues,
     find_temporal_value_fact_name_issues,
     find_test_input_assignment_issues,
+    find_unconsumed_local_exception_output_issues,
     find_ungrounded_numeric_issues,
     find_unused_import_issues,
     find_unused_modifier_parameter_issues,
@@ -5255,6 +5256,80 @@ rules:
     assert (
         "section_2015_b_d_2_g_r_and_2012_m_4_do_not_preclude_eligibility" in issues[0]
     )
+
+
+def test_unconsumed_local_exception_output_flags_matching_applies_rule():
+    content = """format: rulespec/v1
+rules:
+  - name: readily_tradable_instrument_subsection_a_1_D_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          reportable_interest_or_dividend_payment
+          and payment_on_readily_tradable_instrument
+  - name: existing_account_exception_to_subsection_d_and_a_1_D
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: This subsection and subsection (a)(1)(D) shall not apply.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: account_established_before_transition_date
+"""
+
+    issues = find_unconsumed_local_exception_output_issues(content)
+
+    assert len(issues) == 1
+    assert "Unconsumed local exception output" in issues[0]
+    assert "existing_account_exception_to_subsection_d_and_a_1_D" in issues[0]
+    assert "readily_tradable_instrument_subsection_a_1_D_applies" in issues[0]
+
+
+def test_unconsumed_local_exception_output_allows_negated_exception():
+    content = """format: rulespec/v1
+rules:
+  - name: readily_tradable_instrument_subsection_a_1_D_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          reportable_interest_or_dividend_payment
+          and payment_on_readily_tradable_instrument
+          and not existing_account_exception_to_subsection_d_and_a_1_D
+  - name: existing_account_exception_to_subsection_d_and_a_1_D
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: This subsection and subsection (a)(1)(D) shall not apply.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: account_established_before_transition_date
+"""
+
+    assert find_unconsumed_local_exception_output_issues(content) == []
 
 
 def test_parent_exception_list_requires_child_exception_imports(tmp_path):

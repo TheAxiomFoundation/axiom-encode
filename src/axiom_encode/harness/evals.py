@@ -3282,6 +3282,12 @@ Test file rules:
 - For every encoded `except`, `unless`, or `notwithstanding` carve-out, include
   companion tests for the positive path and the carve-out path so exclusions
   cannot be silently dropped.
+- When a source says a subsection, paragraph, payment, credit, benefit,
+  eligibility path, or other output "shall not apply" or "does not apply",
+  the exported rule that says that target applies, is allowed, is included, or
+  is eligible must negate the exception. Do not expose the exception only as a
+  standalone helper while leaving the affected `*_applies`, eligibility,
+  inclusion, exclusion, or amount output true under the exception.
 - For scoped exceptions, include a control case proving a non-excepted
   qualifying item is not reduced or blocked even when the exception amount or
   exception fact is positive/nonzero, plus a case where the same exception
@@ -3842,6 +3848,12 @@ RuleSpec requirements:
 - Represent every substantive source amount, rate, threshold, cap, or limit as a named `parameter` rule, then reference that parameter from derived formulas.
 - If the same numeric value appears twice in materially different legal roles, including separate numbered exceptions or subparagraphs, give those roles distinct named scalars; otherwise reuse that named scalar everywhere the rule compares against or computes with that number.
 - Adjacent bracket thresholds repeated as both an upper bound and the next bracket's lower bound are separate source-stated legal roles; define distinct semantic scalars for those occurrences and use them in the branch conditions.
+- When a source says a subsection, paragraph, payment, credit, benefit,
+  eligibility path, or other output "shall not apply" or "does not apply",
+  the exported rule that says that target applies, is allowed, is included, or
+  is eligible must negate the exception. Do not expose the exception only as a
+  standalone helper while leaving the affected `*_applies`, eligibility,
+  inclusion, exclusion, or amount output true under the exception.
 - For scoped exceptions, include a control case proving a non-excepted
   qualifying item is not reduced or blocked even when the exception amount or
   exception fact is positive/nonzero, plus a case where the same exception

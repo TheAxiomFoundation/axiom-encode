@@ -11377,13 +11377,11 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_same_section_imports = (
-                    _try_repair_generated_missing_same_section_subsection_imports_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
-                    )
+                repaired_same_section_imports = _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
                 )
                 if repaired_same_section_imports:
                     outcome["auto_repaired_missing_same_section_imports"] = (
