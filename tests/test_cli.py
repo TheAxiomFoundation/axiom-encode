@@ -55,6 +55,7 @@ from axiom_encode.cli import (
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
+    _repair_tax_filing_status_branches,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
@@ -9739,6 +9740,50 @@ rules:
         assert payload["tool"] == "axiom-encode repair-tax-filing-status-branches"
         assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
             "statutes/26/3101/b/2.yaml"
+        ]
+
+    def test_repair_tax_filing_status_branches_routes_joint_only_status_four_to_other(
+        self,
+    ):
+        content = """format: rulespec/v1
+module:
+  summary: joint / surviving spouse and any other case
+  source_verification:
+    corpus_citation_path: us/statute/26/3101
+rules:
+  - name: additional_medicare_wage_tax_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 3101(b)(2)(A)-(C)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          match filing_status:
+              1 => additional_medicare_wage_tax_joint_threshold
+              4 => additional_medicare_wage_tax_joint_threshold
+              2 => additional_medicare_wage_tax_joint_threshold / 2
+              0 => additional_medicare_wage_tax_other_threshold
+              3 => additional_medicare_wage_tax_other_threshold
+"""
+
+        with patch(
+            "axiom_encode.cli._extract_source_verification_text",
+            return_value=(
+                "(2) Additional tax ... in excess of-- "
+                "(A) in the case of a joint return, $250,000, "
+                "(B) in the case of a married taxpayer filing a separate return, "
+                "1/2 of the dollar amount determined under subparagraph (A), and "
+                "(C) in any other case, $200,000."
+            ),
+        ):
+            repaired, repairs = _repair_tax_filing_status_branches(content)
+
+        assert "4 => additional_medicare_wage_tax_joint_threshold" not in repaired
+        assert "4 => additional_medicare_wage_tax_other_threshold" in repaired
+        assert repairs == [
+            "additional_medicare_wage_tax_threshold:surviving_spouse_to_other_case"
         ]
 
     def test_repair_tax_filing_status_branches_does_not_mutate_without_signing_key(
