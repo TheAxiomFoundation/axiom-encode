@@ -10527,6 +10527,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3508 classifies qualified real estate agents and direct sellers and excludes qualifying services from employee and employer treatment; PolicyEngine computes payroll taxes from modeled employer and wage facts, not these worker-classification predicates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3509#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3509 sets substitute employer liability rates and collection rules for employee misclassification withholding failures; PolicyEngine computes regular payroll taxes from modeled employment and wages, not this reduced-liability misclassification assessment surface as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
