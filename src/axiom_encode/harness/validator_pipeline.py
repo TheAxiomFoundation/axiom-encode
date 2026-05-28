@@ -6955,6 +6955,11 @@ def _taxable_income_expression_has_zero_floor(expression: str) -> bool:
 
 
 def _repair_nonnegative_amount_reduction_formula(formula: str) -> str:
+    if _nonnegative_income_base_missing_zero_floor(formula):
+        repaired_formula = _repair_nonnegative_income_base_expression(formula.strip())
+        if repaired_formula != formula.strip():
+            return repaired_formula
+
     repaired_lines: list[str] = []
     changed = False
     for line in formula.splitlines() or [formula]:

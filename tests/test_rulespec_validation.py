@@ -12869,6 +12869,34 @@ rules:
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
+def test_repair_nonnegative_amount_reductions_floors_multiline_income_base_in_credit():
+    content = """format: rulespec/v1
+rules:
+  - name: qualified_family_leave_wages_credit_limited_to_employment_taxes
+    kind: derived
+    entity: Employer
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          min(
+            qualified_family_leave_wages_credit_against_applicable_employment_taxes,
+            applicable_employment_taxes_after_section_3131_credits
+          )
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["qualified_family_leave_wages_credit_limited_to_employment_taxes"]
+    assert (
+        "min(max(0, "
+        "qualified_family_leave_wages_credit_against_applicable_employment_taxes),"
+        in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
 def test_current_year_final_amount_table_rejects_recomputed_maximum(tmp_path):
     repo = tmp_path / "rulespec-us"
     imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
