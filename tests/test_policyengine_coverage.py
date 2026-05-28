@@ -3546,6 +3546,22 @@ rules:
 """,
     )
     _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3401/d.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employer_for_subsection_a
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_for_whom_individual_performs_or_performed_service_as_employee
+  - name: employer
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_has_control_of_payment_of_wages_for_services
+""",
+    )
+    _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3401/f.yaml",
         """format: rulespec/v1
 rules:
@@ -3592,7 +3608,7 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["status_counts"] == {"known_not_comparable": 9}
+    assert report["status_counts"] == {"known_not_comparable": 11}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
