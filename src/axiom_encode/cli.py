@@ -69,16 +69,22 @@ from .harness.evals import (
 )
 from .harness.proof_validator import validate_rulespec_proofs
 from .harness.validator_pipeline import (
+    _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
+    _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
     ValidatorPipeline,
     _candidate_upstream_rulespec_roots,
     _canonical_rulespec_compile_path,
     _canonical_rulespec_target,
+    _extract_source_verification_text,
+    _filing_status_rule_source_context,
     _is_executable_rulespec_rule,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
+    _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
+    extract_embedded_source_text,
     find_proof_import_reference_issues,
     find_tax_filing_status_local_input_issues,
     find_tax_status_component_local_input_issues,
@@ -6851,10 +6857,16 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
     lines = content.splitlines(keepends=True)
     repaired: list[str] = []
     repaired_rules: list[str] = []
-    needs_surviving_spouse = (
-        "surviving spouse" in content.lower() or "qualifying widow" in content.lower()
+    fallback_mode = (
+        "surviving_joint"
+        if (
+            "surviving spouse" in content.lower()
+            or "qualifying widow" in content.lower()
+        )
+        else None
     )
-    needs_other_case = "any other case" in content.lower()
+    fallback_needs_other_case = "any other case" in content.lower()
+    repair_modes = _tax_filing_status_branch_repair_modes(content)
     current_rule_name: str | None = None
     index = 0
 
@@ -6875,12 +6887,15 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
                 index += 1
             repaired_block, block_repairs = _repair_tax_filing_status_match_block(
                 match_block,
-                needs_surviving_spouse=needs_surviving_spouse,
-                needs_other_case=needs_other_case,
+                repair_mode=repair_modes.get(current_rule_name or "") or fallback_mode,
+                needs_other_case=repair_modes.get(current_rule_name or "")
+                == "joint_only_other"
+                or fallback_needs_other_case,
             )
             repaired.extend(repaired_block)
             repaired_rules.extend(
-                current_rule_name or "<unknown>" for _ in block_repairs
+                f"{current_rule_name or '<unknown>'}:{repair}"
+                for repair in block_repairs
             )
             continue
 
@@ -6890,10 +6905,42 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
     return "".join(repaired), repaired_rules
 
 
+def _tax_filing_status_branch_repair_modes(content: str) -> dict[str, str]:
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return {}
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return {}
+
+    module_source_text = (
+        _extract_source_verification_text(content)
+        or extract_embedded_source_text(content)
+        or content
+    )
+    modes: dict[str, str] = {}
+    for name, kind, formula, source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived" or "filing_status" not in formula:
+            continue
+        source_context = _filing_status_rule_source_context(
+            content=content,
+            module_source_text=module_source_text,
+            rule=rule,
+            source=source,
+        )
+        if _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN.search(source_context):
+            modes[name] = "surviving_joint"
+        elif _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN.search(source_context):
+            modes[name] = "joint_only_other"
+    return modes
+
+
 def _repair_tax_filing_status_match_block(
     block: list[str],
     *,
-    needs_surviving_spouse: bool,
+    repair_mode: str | None,
     needs_other_case: bool,
 ) -> tuple[list[str], list[str]]:
     arms: dict[int, tuple[str, str]] = {}
@@ -6904,20 +6951,51 @@ def _repair_tax_filing_status_match_block(
         indent, code, expression = arm_match.groups()
         arms[int(code)] = (indent, expression)
 
-    should_add_surviving_spouse = needs_surviving_spouse and 1 in arms and 4 not in arms
+    other_case_expression = None
+    if 0 in arms:
+        other_case_expression = arms[0][1]
+    elif 3 in arms:
+        other_case_expression = arms[3][1]
+
+    should_add_surviving_spouse = (
+        repair_mode == "surviving_joint" and 1 in arms and 4 not in arms
+    )
+    should_add_surviving_spouse_to_other = (
+        repair_mode == "joint_only_other"
+        and 1 in arms
+        and 4 not in arms
+        and other_case_expression is not None
+    )
+    should_route_surviving_spouse_to_other = (
+        repair_mode == "joint_only_other"
+        and 1 in arms
+        and 4 in arms
+        and other_case_expression is not None
+        and arms[4][1].strip() == arms[1][1].strip()
+    )
     should_add_other_case = needs_other_case and 0 in arms and 3 not in arms
 
     repaired: list[str] = []
     repairs: list[str] = []
     for line in block:
-        repaired.append(line)
         arm_match = re.match(r"(\s*)(\d+)\s*=>\s*(.+)$", line.rstrip("\n"))
+        if arm_match is not None:
+            indent, code, expression = arm_match.groups()
+            if code == "4" and should_route_surviving_spouse_to_other:
+                repaired.append(f"{indent}4 => {other_case_expression}\n")
+                repairs.append("surviving_spouse_to_other_case")
+                continue
+
+        repaired.append(line)
         if arm_match is None:
             continue
         indent, code, expression = arm_match.groups()
         if code == "1" and should_add_surviving_spouse:
             repaired.append(f"{indent}4 => {expression}\n")
             repairs.append("surviving_spouse")
+        if code == "1" and should_add_surviving_spouse_to_other:
+            repaired.append(f"{indent}4 => {other_case_expression}\n")
+            repairs.append("surviving_spouse_to_other_case")
         if code == "0" and should_add_other_case:
             repaired.append(f"{indent}3 => {expression}\n")
             repairs.append("other_case")
