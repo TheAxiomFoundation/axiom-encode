@@ -4823,6 +4823,215 @@ def find_source_condition_coverage_issues(
     return issues
 
 
+_ANAPHORIC_SCOPE_PHRASE_PATTERN = re.compile(
+    r"\b(?P<connector>through|with\s+respect\s+to|in\s+connection\s+with|on)"
+    r"\s+such\s+"
+    r"(?P<object>account|accounts|instrument|instruments|payment|payments|"
+    r"property|properties|contract|contracts|membership|memberships|stock|"
+    r"payee|payor|broker|acquisition|transaction|transactions|plan|plans|"
+    r"service|services|item|items|year|period|employee|employer|individual|"
+    r"child|household|unit)\b",
+    flags=re.IGNORECASE,
+)
+_ANAPHORIC_EVENT_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "any",
+        "as",
+        "be",
+        "by",
+        "during",
+        "for",
+        "if",
+        "in",
+        "is",
+        "of",
+        "or",
+        "such",
+        "that",
+        "the",
+        "to",
+        "was",
+        "were",
+        "which",
+        "with",
+    }
+)
+_ANAPHORIC_SCOPE_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "in",
+        "of",
+        "such",
+        "the",
+        "to",
+        "with",
+    }
+)
+
+
+def find_anaphoric_scope_omission_issues(
+    content: str,
+    *,
+    source_texts: dict[str, str] | None = None,
+) -> list[str]:
+    """Flag predicates that drop source-stated same-object scope.
+
+    This catches cases like a proof excerpt for broker activity where the full
+    source sentence continues with "through such account", but the generated
+    predicate only says the broker acted for the payee generally.
+    """
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    source_verification = _source_verification_block(payload)
+    if source_verification is None:
+        return []
+    citation_paths, source_label = _source_verification_source_fields(
+        source_verification
+    )
+    source_text = _source_verification_text(
+        citation_paths=citation_paths,
+        source_label=source_label,
+        source_texts=source_texts,
+    )
+    if not source_text:
+        return []
+
+    issues: list[str] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for rule_name, kind, formula, _source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        identifiers = sorted(_formula_local_identifiers(formula))
+        if not identifiers:
+            continue
+        for excerpt in _rule_proof_source_excerpts(rule):
+            scope_phrase = _anaphoric_scope_phrase_for_excerpt(
+                source_text=source_text,
+                excerpt=excerpt,
+            )
+            if scope_phrase is None:
+                continue
+            excerpt_tokens = _anaphoric_event_tokens(excerpt)
+            if len(excerpt_tokens) < 3:
+                continue
+            required_scope_tokens = _anaphoric_scope_tokens(scope_phrase)
+            if not required_scope_tokens:
+                continue
+            required_overlap = min(4, len(excerpt_tokens))
+            for identifier in identifiers:
+                identifier_tokens = _anaphoric_identifier_tokens(identifier)
+                if len(excerpt_tokens & identifier_tokens) < required_overlap:
+                    continue
+                if required_scope_tokens <= identifier_tokens:
+                    continue
+                issue_key = (rule_name, excerpt, scope_phrase, identifier)
+                if issue_key in seen:
+                    continue
+                seen.add(issue_key)
+                issues.append(
+                    "Anaphoric scope omitted: "
+                    f"`{rule_name}` uses predicate `{identifier}` for proof excerpt "
+                    f"`{excerpt}`, but the supporting source states "
+                    f"`{scope_phrase}`. Preserve that same-object relationship in "
+                    "the predicate name/formula and companion tests instead of "
+                    "broadening the condition."
+                )
+    return issues
+
+
+def _anaphoric_scope_phrase_for_excerpt(
+    *,
+    source_text: str,
+    excerpt: str,
+) -> str | None:
+    excerpt_text = _collapse_source_sentence_text(excerpt)
+    if not excerpt_text:
+        return None
+    if excerpt_match := _ANAPHORIC_SCOPE_PHRASE_PATTERN.search(excerpt_text):
+        return _collapse_source_sentence_text(excerpt_match.group(0))
+
+    source = _collapse_source_sentence_text(source_text)
+    match = re.search(re.escape(excerpt_text), source, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    tail = source[match.end() : match.end() + 240]
+    scope_match = _ANAPHORIC_SCOPE_PHRASE_PATTERN.search(tail)
+    if scope_match is None:
+        return None
+
+    sentence_boundary = _first_sentence_boundary_index(tail)
+    if sentence_boundary is not None and scope_match.start() > sentence_boundary:
+        return None
+    if _anaphoric_tail_crosses_clause_boundary(tail[: scope_match.start()]):
+        return None
+    return _collapse_source_sentence_text(scope_match.group(0))
+
+
+def _collapse_source_sentence_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _first_sentence_boundary_index(value: str) -> int | None:
+    indexes = [
+        index for marker in (".", ";", "\n") if (index := value.find(marker)) != -1
+    ]
+    return min(indexes) if indexes else None
+
+
+def _anaphoric_tail_crosses_clause_boundary(value: str) -> bool:
+    return bool(
+        re.search(
+            r"\([A-Z0-9ivx]+\)|\b(?:then|shall|must|may)\b",
+            value,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _anaphoric_event_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in _anaphoric_normalized_tokens(value)
+        if token not in _ANAPHORIC_EVENT_STOPWORDS and not token.isdigit()
+    }
+
+
+def _anaphoric_scope_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in _anaphoric_normalized_tokens(value)
+        if token not in _ANAPHORIC_SCOPE_STOPWORDS
+    }
+
+
+def _anaphoric_identifier_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in _anaphoric_normalized_tokens(value)
+        if token not in _ANAPHORIC_EVENT_STOPWORDS
+    }
+
+
+def _anaphoric_normalized_tokens(value: str) -> set[str]:
+    tokens: set[str] = set()
+    for raw_token in re.findall(r"[A-Za-z0-9]+", value.lower()):
+        tokens.add(raw_token)
+        if len(raw_token) > 4 and raw_token.endswith("ies"):
+            tokens.add(raw_token[:-3] + "y")
+        elif len(raw_token) > 3 and raw_token.endswith("s"):
+            tokens.add(raw_token[:-1])
+    return tokens
+
+
 _UNSUPPORTED_RELATION_SUM_PATTERN = re.compile(
     r"\bsum\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,",
     flags=re.IGNORECASE,
@@ -15863,6 +16072,7 @@ class ValidatorPipeline:
         issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
         issues.extend(find_source_verification_issues(content))
         issues.extend(find_source_condition_coverage_issues(content))
+        issues.extend(find_anaphoric_scope_omission_issues(content))
         issues.extend(find_filtered_entity_dependency_issues(content))
         issues.extend(find_source_scope_consistency_issues(content))
         issues.extend(find_employer_scoped_entity_issues(content))

@@ -28,6 +28,7 @@ from axiom_encode.harness.validator_pipeline import (
     extract_numbers_from_text,
     extract_numeric_occurrences_from_text,
     find_aggregate_exception_predicate_issues,
+    find_anaphoric_scope_omission_issues,
     find_broad_application_passthrough_issues,
     find_child_fragment_reencoding_issues,
     find_copied_cross_reference_source_issues,
@@ -5422,6 +5423,94 @@ rules:
 """
 
     assert find_unconsumed_local_exception_output_issues(content) == []
+
+
+def test_anaphoric_scope_omission_rejects_broad_condition_predicate():
+    source_text = (
+        "Subparagraph (B) of paragraph (2) shall not apply with respect to a "
+        "readily tradable instrument which was acquired through an account with "
+        "a broker if- (A) such account was established before January 1, 1984, "
+        "and (B) during 1983, such broker bought or sold instruments for the "
+        "payee (or acted as a nominee for the payee) through such account."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3406
+rules:
+  - name: existing_brokerage_account_exception_to_broker_notification
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: "during 1983, such broker bought or sold instruments for the payee"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          readily_tradable_instrument_acquired_through_broker_account
+          and broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year
+"""
+
+    issues = find_anaphoric_scope_omission_issues(
+        content,
+        source_texts={"us/statute/26/3406": source_text},
+    )
+
+    assert len(issues) == 1
+    assert "Anaphoric scope omitted" in issues[0]
+    assert "through such account" in issues[0]
+    assert (
+        "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year"
+        in issues[0]
+    )
+
+
+def test_anaphoric_scope_omission_accepts_same_account_predicate():
+    source_text = (
+        "Subparagraph (B) of paragraph (2) shall not apply with respect to a "
+        "readily tradable instrument which was acquired through an account with "
+        "a broker if- (A) such account was established before January 1, 1984, "
+        "and (B) during 1983, such broker bought or sold instruments for the "
+        "payee (or acted as a nominee for the payee) through such account."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3406
+rules:
+  - name: existing_brokerage_account_exception_to_broker_notification
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: "during 1983, such broker bought or sold instruments for the payee"
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year
+"""
+
+    assert (
+        find_anaphoric_scope_omission_issues(
+            content,
+            source_texts={"us/statute/26/3406": source_text},
+        )
+        == []
+    )
 
 
 def test_parent_exception_list_requires_child_exception_imports(tmp_path):
