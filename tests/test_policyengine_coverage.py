@@ -4425,6 +4425,38 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3503_cross_chapter_refund_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3503.yaml",
+        """format: rulespec/v1
+rules:
+  - name: chapter_21_or_22_tax_paid_for_period_without_liability
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: if tax_paid_under_chapter_21_or_22_for_period_with_no_liability_under_that_chapter then max(0, tax_paid_under_chapter_21_or_22_for_period) else 0
+  - name: credit_against_tax_imposed_by_other_chapter
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(chapter_21_or_22_tax_paid_for_period_without_liability, max(0, tax_imposed_by_other_chapter_on_taxpayer))
+  - name: refund_balance_after_other_chapter_credit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, chapter_21_or_22_tax_paid_for_period_without_liability - credit_against_tax_imposed_by_other_chapter)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3505_third_party_liability_outputs(
     tmp_path,
 ):
