@@ -10416,6 +10416,12 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3309 defines services covered for State unemployment-compensation purposes, source-specific exceptions, organization employee-count thresholds, and tribal delinquency predicates; PolicyEngine exposes final FUTA taxable earnings and tax assumptions, not these source-specific coverage thresholds and legal predicates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3401/f#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(f) treats employee tips as wages for chapter 24 withholding and sets deemed-payment timing; PolicyEngine models annual income and payroll tax amounts, not this withholding-specific tip timing surface as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3402/f#
     country: us
     program: tax

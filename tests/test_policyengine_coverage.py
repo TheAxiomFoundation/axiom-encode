@@ -3545,10 +3545,32 @@ rules:
         formula: person_is_officer_of_corporation
 """,
     )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3401/f.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tips_included_in_wages_for_subsection_a
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if tips_received_by_employee_in_course_of_employment: tips_received_amount else: 0
+  - name: tips_deemed_paid_when_written_statement_furnished
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tips_received_by_employee_in_course_of_employment and written_statement_furnished
+  - name: tips_deemed_paid_when_received
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tips_received_by_employee_in_course_of_employment and not written_statement_furnished
+""",
+    )
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert report["status_counts"] == {"known_not_comparable": 6}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
