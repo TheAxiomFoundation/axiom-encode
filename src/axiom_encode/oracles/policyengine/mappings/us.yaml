@@ -10548,6 +10548,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3502 disallows subtitle A deductions for chapter 21 and 22 employment taxes and chapter 24 withheld tax; PolicyEngine computes income-tax deductions and payroll taxes from modeled tax bases, not these legal disallowance outputs as one-to-one variables.
 
+  - legal_id_prefix: us:statutes/26/3503#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3503 credits or refunds tax paid under chapter 21 or 22 for periods without liability under that chapter; PolicyEngine computes payroll tax liabilities from modeled facts, not this cross-chapter refund and credit administration surface as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3505#
     country: us
     program: tax
