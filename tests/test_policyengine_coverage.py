@@ -4213,6 +4213,47 @@ rules:
     assert "return-filing delegation" in item["rationale"]
 
 
+def test_policyengine_coverage_classifies_3405b_nonperiodic_distribution_withholding(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3405/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: nonperiodic_distribution_withholding_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.10
+  - name: nonperiodic_distribution_withholding
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: nonperiodic_distribution_amount * nonperiodic_distribution_withholding_rate
+  - name: election_scope_for_current_nonperiodic_distribution
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_elects_no_withholding_for_nonperiodic_distribution
+  - name: election_scope_for_subsequent_nonperiodic_distributions
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: election_scope_for_current_nonperiodic_distribution and same_arrangement
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "distribution withholding administration" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3127_religious_exemption_outputs(
     tmp_path,
 ):
