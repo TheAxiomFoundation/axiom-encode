@@ -664,6 +664,11 @@ Hard requirements:
   qualifying item is not reduced or blocked even when the exception amount or
   exception fact is positive/nonzero, plus a case where the same exception
   applies to the source-stated excepted category.
+- Preserve anaphoric scope in source predicates. If the source says "such
+  account", "such instrument", "through such account", "with respect to such
+  payment", or similar same-object language, the predicate name and companion
+  tests must keep that same-object relationship. Do not shorten it to broad
+  activity for the person, broker, household, or entity generally.
 - When a local formula has five or fewer independent source-stated boolean
   gates joined by `and`, include one all-gates-positive case and enough negative
   cases to toggle each gate at least once. Do not leave a source-stated gate

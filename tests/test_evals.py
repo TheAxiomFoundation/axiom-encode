@@ -3943,6 +3943,7 @@ class TestEvalPrompt:
         )
         assert 'shall not apply" or "does not apply"' in prompt
         assert "that helper as `holds`" in prompt
+        assert '"through such account"' in prompt
         assert "sets that exception input true" in prompt
         assert "Do not collapse a list of cited exceptions" in prompt
         assert "Do not create derived `dtype: Boolean` helper rules" in prompt
