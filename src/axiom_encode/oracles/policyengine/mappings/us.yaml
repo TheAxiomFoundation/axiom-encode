@@ -10509,6 +10509,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3406 child subsections set backup withholding rules for reportable payments, TIN failures, underreporting notices, certifications, payor deductions, and withholding administration; PolicyEngine computes annual tax outcomes, not these payor-level backup withholding administration surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3505#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3505 assigns third-party liability to lenders, sureties, and other non-employer persons that directly pay wages or supply funds for wage payments, and credits resulting payments against employer liability; PolicyEngine computes payroll tax amounts, not this third-party legal-liability and credit-allocation surface as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax

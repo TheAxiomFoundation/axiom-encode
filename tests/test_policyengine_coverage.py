@@ -4393,6 +4393,66 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3505_third_party_liability_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3505.yaml",
+        """format: rulespec/v1
+rules:
+  - name: supplied_funds_liability_limit_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.25
+  - name: direct_wage_payment_third_party_liability_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: third_party_pays_wages_directly_to_employee_group_or_agent
+  - name: direct_wage_payment_third_party_liability
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: taxes_together_with_interest_required_to_be_deducted_and_withheld_from_directly_paid_wages
+  - name: supplied_funds_third_party_liability_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: funds_supplied_for_specific_purpose_of_paying_employer_wages
+  - name: supplied_funds_third_party_liability_before_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: taxes_together_with_interest_not_paid_over_by_employer
+  - name: supplied_funds_third_party_liability_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: supplied_funds_liability_limit_rate * amount_supplied
+  - name: supplied_funds_third_party_liability
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(supplied_funds_third_party_liability_before_limit, supplied_funds_third_party_liability_limit)
+  - name: employer_liability_credit_for_section_3505_payments
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amounts_paid_to_united_states_pursuant_to_section_3505
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 8}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "third-party legal-liability" in item["rationale"] for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3511.yaml",
