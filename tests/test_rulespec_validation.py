@@ -16085,6 +16085,30 @@ rules:
     assert 4 in extract_numeric_occurrences_from_text(source_text)
 
 
+def test_ungrounded_numeric_preserves_substantive_parenthetical_days():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3406
+rules:
+  - name: broker_notice_deadline_days
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          15
+"""
+    source_text = (
+        "such broker shall, within such period as the Secretary may prescribe by "
+        "regulations (but not later than 15 days after such acquisition), notify "
+        "the payor"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 15 in extract_numeric_occurrences_from_text(source_text)
+
+
 def test_ungrounded_numeric_accepts_source_mixed_unicode_fraction_percentage():
     content = """format: rulespec/v1
 module:
