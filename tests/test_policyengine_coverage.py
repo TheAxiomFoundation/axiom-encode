@@ -4393,6 +4393,38 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3502_deduction_disallowance_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3502.yaml",
+        """format: rulespec/v1
+rules:
+  - name: chapter_21_and_22_employment_taxes_allowed_as_subtitle_a_deduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0
+  - name: employer_chapter_24_withheld_tax_allowed_as_subtitle_a_deduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0
+  - name: income_recipient_chapter_24_withheld_tax_allowed_as_subtitle_a_deduction
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3505_third_party_liability_outputs(
     tmp_path,
 ):
