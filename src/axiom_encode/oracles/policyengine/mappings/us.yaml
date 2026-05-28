@@ -10485,6 +10485,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3405(b) sets payment-level withholding and election-scope rules for nonperiodic pension and annuity distributions; PolicyEngine computes annual tax outcomes and pension income, not this distribution withholding administration surface as a one-to-one output.
 
+  - legal_id_prefix: us:statutes/26/3405#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3405 sets payment-level withholding, election, notice, liability, and definition rules for pension and annuity distributions; PolicyEngine computes annual tax outcomes and pension income, not this withholding administration surface as a one-to-one output.
+
+  - legal_id_prefix: us:statutes/26/3405/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3405 child subsections set payment-level withholding, election, notice, liability, and definition rules for pension and annuity distributions; PolicyEngine computes annual tax outcomes and pension income, not these withholding administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
