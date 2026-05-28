@@ -4254,6 +4254,30 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3405_child_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3405/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: eligible_rollover_distribution_withholding_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.20
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    [item] = report["items"]
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "withholding administration" in item["rationale"]
+
+
 def test_policyengine_coverage_classifies_3127_religious_exemption_outputs(
     tmp_path,
 ):
