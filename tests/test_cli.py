@@ -9747,7 +9747,12 @@ rules:
     ):
         content = """format: rulespec/v1
 module:
-  summary: joint / surviving spouse and any other case
+  summary: |-
+    Filing-status encoding convention:
+      1 = joint / surviving spouse
+      2 = married filing separately
+
+    Any other case uses the other threshold.
   source_verification:
     corpus_citation_path: us/statute/26/3101
 rules:
@@ -9782,8 +9787,173 @@ rules:
 
         assert "4 => additional_medicare_wage_tax_joint_threshold" not in repaired
         assert "4 => additional_medicare_wage_tax_other_threshold" in repaired
+        assert "joint / surviving spouse" not in repaired
+        assert "      1 = joint\n      2 = married filing separately\n" in repaired
+        assert "      4 = surviving spouse / qualifying widow(er)" in repaired
         assert repairs == [
-            "additional_medicare_wage_tax_threshold:surviving_spouse_to_other_case"
+            "summary:surviving_spouse_to_other_case",
+            "additional_medicare_wage_tax_threshold:surviving_spouse_to_other_case",
+        ]
+
+    def test_repair_tax_filing_status_branches_updates_status_four_test_outputs(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "statutes/26/3101/b/2.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    Internal Revenue Code 3101(b)(2) - additional Medicare tax on wages
+    above a filing-status-specific threshold.
+
+    Filing-status encoding convention (matches PolicyEngine US):
+        0 = single
+        1 = joint / surviving spouse
+        2 = married filing separately
+        3 = head of household
+
+    0.9% rate applied to wages above the threshold; thresholds set by
+    26 USC 3101(b)(2)(A)-(C): $250,000 for a joint return or surviving
+    spouse, one-half of that amount for a married individual filing
+    separately, and $200,000 in any other case.
+  source_verification:
+    corpus_citation_path: us/statute/26/3101
+rules:
+  - name: additional_medicare_wage_tax_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 3101(b)(2)(A)-(C)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |-
+          match filing_status:
+              1 => additional_medicare_wage_tax_joint_threshold
+              4 => additional_medicare_wage_tax_joint_threshold
+              2 => additional_medicare_wage_tax_joint_threshold / 2
+              0 => additional_medicare_wage_tax_other_threshold
+              3 => additional_medicare_wage_tax_other_threshold
+"""
+        )
+        test_file = policy_repo / "statutes/26/3101/b/2.test.yaml"
+        test_file.write_text(
+            """- name: surviving_spouse_uses_joint_threshold
+  period:
+    period_kind: tax_year
+    start: 2026-01-01
+    end: 2026-12-31
+  input:
+    us:statutes/26/3101/b/2#input.filing_status: 4
+    us:statutes/26/3101/b/2#input.wages: 300000
+  output:
+    us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold: 250000
+    us:statutes/26/3101/b/2#additional_medicare_excess_wages: 50000
+    us:statutes/26/3101/b/2#additional_medicare_tax: 450
+    us:statutes/26/3101/b/2#status_four_flag: false
+    us:statutes/26/3101/b/2#status_four_label: joint
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/26/3101/b/2.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+        mismatch_results = [
+            (
+                "Test case `surviving_spouse_uses_joint_threshold` output "
+                "`us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold` "
+                "expected integer 250000, got integer 200000."
+            ),
+            (
+                "Test case `surviving_spouse_uses_joint_threshold` output "
+                "`us:statutes/26/3101/b/2#additional_medicare_excess_wages` "
+                "expected integer 50000, got integer 100000."
+            ),
+            (
+                "Test case `surviving_spouse_uses_joint_threshold` output "
+                "`us:statutes/26/3101/b/2#additional_medicare_tax` "
+                "expected integer 450, got integer 900."
+            ),
+            (
+                "Test case `surviving_spouse_uses_joint_threshold` output "
+                "`us:statutes/26/3101/b/2#status_four_flag` "
+                "expected bool false, got bool true."
+            ),
+            (
+                "Test case `surviving_spouse_uses_joint_threshold` output "
+                "`us:statutes/26/3101/b/2#status_four_label` "
+                "expected text joint, got text other."
+            ),
+        ]
+
+        class FakePipeline:
+            calls = 0
+
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                if FakePipeline.calls < len(mismatch_results):
+                    error = mismatch_results[FakePipeline.calls]
+                    FakePipeline.calls += 1
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={"ci": SimpleNamespace(error=error)},
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._extract_source_verification_text",
+                return_value=(
+                    "(2) Additional tax ... in excess of-- "
+                    "(A) in the case of a joint return, $250,000, "
+                    "(B) in the case of a married taxpayer filing a separate return, "
+                    "1/2 of the dollar amount determined under subparagraph (A), and "
+                    "(C) in any other case, $200,000."
+                ),
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_tax_filing_status_branches(args)
+
+        content = target.read_text()
+        assert "1 = joint / surviving spouse" not in content
+        assert "1 = joint" in content
+        assert "4 = surviving spouse / qualifying widow(er)" in content
+        assert "$250,000 for a joint return or surviving" not in content
+        assert "$250,000 for a joint return, one-half" in content
+        repaired_test = yaml.safe_load(test_file.read_text())
+        outputs = repaired_test[0]["output"]
+        assert (
+            outputs["us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold"]
+            == 200000
+        )
+        assert (
+            outputs["us:statutes/26/3101/b/2#additional_medicare_excess_wages"]
+            == 100000
+        )
+        assert outputs["us:statutes/26/3101/b/2#additional_medicare_tax"] == 900
+        assert outputs["us:statutes/26/3101/b/2#status_four_flag"] is True
+        assert outputs["us:statutes/26/3101/b/2#status_four_label"] == "other"
+        manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/3101/b/2.json"
+        payload = json.loads(manifest.read_text())
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "statutes/26/3101/b/2.yaml",
+            "statutes/26/3101/b/2.test.yaml",
         ]
 
     def test_repair_tax_filing_status_branches_does_not_mutate_without_signing_key(
