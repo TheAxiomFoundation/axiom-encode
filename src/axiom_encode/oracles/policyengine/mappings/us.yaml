@@ -10467,6 +10467,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(s) governs employer elections not to withhold chapter 24 tax on vehicle fringe benefits, section 6051 wage-statement treatment, and the vehicle fringe benefit definition; PolicyEngine computes annual tax outcomes, not these employer paycheck withholding and reporting administration surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/t#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(t) sets withholding-rate floor and noncash fringe-benefit treatment rules for qualified stock with section 83(i) elections; PolicyEngine computes annual income tax outcomes, not this stock-specific withholding administration surface as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
