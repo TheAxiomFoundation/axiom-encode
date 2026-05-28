@@ -3775,10 +3775,15 @@ RuleSpec requirements:
   `surviving_spouse`. If a source provision itself defines a legal status or
   return category, encode that source-backed output at its absolute RuleSpec
   path and import it downstream. If a shared numeric filing-status output is
-  available, import it and use the structural enum in formulas, e.g.
+  available, import it and use the structural enum in formulas when the source
+  supports that grouping, e.g.
   `match filing_status: 1 => joint_amount; 4 => joint_amount; ...`. If the source
   groups surviving spouse with joint return, every branch or match that handles
   status 1 must also handle status 4 in that same branch with the same result.
+  If the source says only "joint return" without also naming surviving spouse
+  or qualifying widow(er), do not route status 4 to the joint-return branch;
+  status 4 falls under any "other case" branch unless the source states
+  otherwise.
 - Do not replace filing-status components with local status inputs such as
   `taxpayer_is_surviving_spouse`, `surviving_spouse`, or `head_of_household`.
   This also prohibits compound status predicates such as
