@@ -67,6 +67,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_missing_deferred_outputs_for_apply,
+    _try_repair_generated_missing_same_section_subsection_imports_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
@@ -7227,6 +7228,50 @@ rules: []
             }
         ]
         assert payload["rules"] == []
+
+    def test_missing_same_section_import_repair_adds_existing_file_import(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3406/d.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        cited_file = policy_repo / "statutes" / "26" / "3406" / "a.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text("format: rulespec/v1\nrules: []\n")
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: Section 3406(d) certification failures.
+rules: []
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = (
+            _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                issues=[
+                    "statutes/26/3406/d.yaml: ci: Same-section subsection import "
+                    "missing: source text cites subsection `statutes/26/3406/a` "
+                    "in an exception/cross-reference clause, but the file does "
+                    "not import it."
+                ],
+            )
+        )
+
+        assert repaired == ["us:statutes/26/3406/a"]
+        assert rules_file.read_text().startswith(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3406/a
+"""
+        )
 
     def test_unsafe_formula_output_repair_defers_rules_and_tests(self, tmp_path):
         output_root = tmp_path / "out"
