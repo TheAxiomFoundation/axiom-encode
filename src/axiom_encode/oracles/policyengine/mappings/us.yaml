@@ -10461,6 +10461,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(r) extends chapter 24 withholding administration to certain taxable payments of Indian casino profits, including payment-source predicates, annualized-payment exceptions, annualized tax, alternate Secretary procedures, and wage-treatment rules; PolicyEngine computes annual income tax outcomes, not these payment-level withholding administration surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/s#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(s) governs employer elections not to withhold chapter 24 tax on vehicle fringe benefits, section 6051 wage-statement treatment, and the vehicle fringe benefit definition; PolicyEngine computes annual tax outcomes, not these employer paycheck withholding and reporting administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
