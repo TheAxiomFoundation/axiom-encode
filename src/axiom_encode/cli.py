@@ -6433,6 +6433,27 @@ def cmd_repair_tax_filing_status_branches(args):
         test_file.write_text(repaired_test_content)
         validation = validation_pipeline.validate(rules_file, skip_reviewers=True)
 
+    if (
+        validation.all_passed
+        and repaired_test_content is not None
+        and repaired_test_rules
+        and any(
+            repair.endswith(":surviving_spouse_to_other_case")
+            for repair in repaired_rules
+        )
+    ):
+        next_test_content, rename_repairs = _rename_tax_filing_status_branch_test_cases(
+            repaired_test_content
+        )
+        if rename_repairs:
+            repaired_test_content = next_test_content
+            repaired_test_rules.extend(rename_repairs)
+            test_file.write_text(repaired_test_content)
+            validation = validation_pipeline.validate(
+                rules_file,
+                skip_reviewers=True,
+            )
+
     if not validation.all_passed:
         rules_file.write_text(original_content)
         if original_test_content is not None:
@@ -6987,6 +7008,13 @@ def _repair_tax_filing_status_branch_summary(
     )
     for old, new in [
         (
+            "$250,000 for a joint return or surviving\n"
+            "    spouse, one-half of that amount for a married individual filing\n"
+            "    separately, and $200,000 in any other case.",
+            "$250,000 for a joint return, one-half of that amount for a married\n"
+            "    individual filing separately, and $200,000 in any other case.",
+        ),
+        (
             "$250,000 for a joint return or surviving\n    spouse, ",
             "$250,000 for a joint return, ",
         ),
@@ -7012,6 +7040,9 @@ def _repair_tax_filing_status_branch_summary(
 _FILING_STATUS_SUMMARY_JOINT_SURVIVING_PATTERN = re.compile(
     r"(?m)^(?P<indent>[ \t]*)1\s*=\s*joint\s*/\s*surviving spouse"
     r"(?P<newline>\r?\n)(?P=indent)2\s*=\s*married filing separately"
+    r"(?P<line2_tail>[^\r\n]*)"
+    r"(?:(?P=newline)(?P=indent)3\s*=\s*head of household"
+    r"(?P<line3_tail>[^\r\n]*))?"
 )
 _FILING_STATUS_SUMMARY_ENUM_LINE_PATTERN = re.compile(r"^[ \t]*\d+\s*=")
 
@@ -7021,11 +7052,15 @@ def _repair_tax_filing_status_branch_summary_enum_match(
 ) -> str:
     indent = match.group("indent")
     newline = match.group("newline")
-    return (
-        f"{indent}1 = joint{newline}"
-        f"{indent}2 = married filing separately{newline}"
-        f"{indent}4 = surviving spouse / qualifying widow(er)"
-    )
+    lines = [
+        f"{indent}1 = joint",
+        f"{indent}2 = married filing separately{match.group('line2_tail') or ''}",
+    ]
+    line3_tail = match.group("line3_tail")
+    if line3_tail is not None:
+        lines.append(f"{indent}3 = head of household{line3_tail}")
+    lines.append(f"{indent}4 = surviving spouse / qualifying widow(er)")
+    return newline.join(lines)
 
 
 def _replace_tax_filing_status_summary_phrase(text: str, old: str, new: str) -> str:
@@ -7113,6 +7148,39 @@ def _repair_tax_filing_status_branch_test_output_mismatches(
             continue
         outputs[output_name] = actual_value
         repairs.append(f"test:{case_name}:{output_name}")
+
+    if not repairs:
+        return test_content, []
+    return yaml.safe_dump(payload, sort_keys=False), repairs
+
+
+def _rename_tax_filing_status_branch_test_cases(
+    test_content: str,
+) -> tuple[str, list[str]]:
+    try:
+        payload = yaml.safe_load(test_content)
+    except (yaml.YAMLError, ValueError):
+        return test_content, []
+    if not isinstance(payload, list):
+        return test_content, []
+
+    repairs: list[str] = []
+    for case in payload:
+        if not isinstance(case, dict) or not _test_case_has_filing_status(case, 4):
+            continue
+        case_name = str(case.get("name") or "")
+        if (
+            "surviving_spouse" not in case_name and "qualifying_widow" not in case_name
+        ) or "joint_threshold" not in case_name:
+            continue
+        new_case_name = case_name.replace(
+            "uses_joint_threshold",
+            "uses_other_threshold",
+        ).replace("joint_threshold", "other_threshold")
+        if new_case_name == case_name:
+            continue
+        case["name"] = new_case_name
+        repairs.append(f"test:{case_name}->{new_case_name}")
 
     if not repairs:
         return test_content, []

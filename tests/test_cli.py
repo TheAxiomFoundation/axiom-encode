@@ -9751,6 +9751,7 @@ module:
     Filing-status encoding convention:
       1 = joint / surviving spouse
       2 = married filing separately
+      3 = head of household
 
     Any other case uses the other threshold.
   source_verification:
@@ -9788,8 +9789,12 @@ rules:
         assert "4 => additional_medicare_wage_tax_joint_threshold" not in repaired
         assert "4 => additional_medicare_wage_tax_other_threshold" in repaired
         assert "joint / surviving spouse" not in repaired
-        assert "      1 = joint\n      2 = married filing separately\n" in repaired
-        assert "      4 = surviving spouse / qualifying widow(er)" in repaired
+        assert (
+            "      1 = joint\n"
+            "      2 = married filing separately\n"
+            "      3 = head of household\n"
+            "      4 = surviving spouse / qualifying widow(er)"
+        ) in repaired
         assert repairs == [
             "summary:surviving_spouse_to_other_case",
             "additional_medicare_wage_tax_threshold:surviving_spouse_to_other_case",
@@ -9936,7 +9941,13 @@ rules:
         assert "4 = surviving spouse / qualifying widow(er)" in content
         assert "$250,000 for a joint return or surviving" not in content
         assert "$250,000 for a joint return, one-half" in content
+        assert (
+            "$250,000 for a joint return, one-half of that amount for a married "
+            "individual filing" not in content
+        )
+        assert "surviving_spouse_uses_joint_threshold" not in test_file.read_text()
         repaired_test = yaml.safe_load(test_file.read_text())
+        assert repaired_test[0]["name"] == "surviving_spouse_uses_other_threshold"
         outputs = repaired_test[0]["output"]
         assert (
             outputs["us:statutes/26/3101/b/2#additional_medicare_wage_tax_threshold"]
