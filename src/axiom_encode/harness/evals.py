@@ -2043,15 +2043,32 @@ def _select_cross_section_context_files(
         cited_parts = CitationParts(
             parts.title, cited_parts.section, cited_parts.fragments
         )
-        candidate_rel = citation_to_relative_rulespec_path(cited_parts)
-        if candidate_rel == target_rel:
-            continue
-        for candidate in _cited_context_candidates(policy_root, candidate_rel):
-            resolved = candidate.resolve()
-            if resolved not in seen:
-                selected.append(candidate)
-                seen.add(resolved)
+        for candidate_rel in _cited_context_candidate_paths(cited_parts):
+            if candidate_rel == target_rel:
+                continue
+            candidates = _cited_context_candidates(policy_root, candidate_rel)
+            if not candidates:
+                continue
+            for candidate in candidates:
+                resolved = candidate.resolve()
+                if resolved not in seen:
+                    selected.append(candidate)
+                    seen.add(resolved)
+            break
     return selected
+
+
+def _cited_context_candidate_paths(cited_parts: CitationParts) -> list[Path]:
+    """Return exact and ancestor RuleSpec paths for a cited USC provision."""
+    paths: list[Path] = []
+    for length in range(len(cited_parts.fragments), -1, -1):
+        candidate_parts = CitationParts(
+            cited_parts.title,
+            cited_parts.section,
+            cited_parts.fragments[:length],
+        )
+        paths.append(citation_to_relative_rulespec_path(candidate_parts))
+    return paths
 
 
 def _iter_cited_usc_sections(
