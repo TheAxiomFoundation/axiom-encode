@@ -4189,6 +4189,30 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3404_government_return_maker(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3404.yaml",
+        """format: rulespec/v1
+rules:
+  - name: government_employer_withholding_return_maker_authorized
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_is_officer_or_employee and person_has_control_of_wages
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    [item] = report["items"]
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "return-filing delegation" in item["rationale"]
+
+
 def test_policyengine_coverage_classifies_3127_religious_exemption_outputs(
     tmp_path,
 ):
