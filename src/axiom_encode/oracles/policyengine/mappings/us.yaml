@@ -10542,6 +10542,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3406 child subsections set backup withholding rules for reportable payments, TIN failures, underreporting notices, certifications, payor deductions, and withholding administration; PolicyEngine computes annual tax outcomes, not these payor-level backup withholding administration surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3502#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3502 disallows subtitle A deductions for chapter 21 and 22 employment taxes and chapter 24 withheld tax; PolicyEngine computes income-tax deductions and payroll taxes from modeled tax bases, not these legal disallowance outputs as one-to-one variables.
+
   - legal_id_prefix: us:statutes/26/3505#
     country: us
     program: tax
