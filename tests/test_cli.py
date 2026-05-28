@@ -37,6 +37,7 @@ from axiom_encode.cli import (
     _infer_missing_input_default,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
+    _looks_like_absolute_rulespec_output_target,
     _person_scoped_definition_issue_names,
     _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
@@ -3543,6 +3544,21 @@ rules: []
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_rulespec_output_target_check_rejects_dict_source_values(self):
+        assert _looks_like_absolute_rulespec_output_target(
+            "us:statutes/26/3132/c#modified_section_110_b_aggregate_limit_amount"
+        )
+        assert not _looks_like_absolute_rulespec_output_target(
+            {
+                "output": (
+                    "us:statutes/26/3132/c#"
+                    "modified_section_110_b_aggregate_limit_amount"
+                ),
+                "value": 12000,
+                "source": "26 USC 3132(c)(2)(A)(ii)(III)",
+            }
+        )
 
     def test_encode_apply_prunes_out_of_scope_deferred_outputs(
         self,
