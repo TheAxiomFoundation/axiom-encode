@@ -10443,6 +10443,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3402(o) extends chapter 24 paycheck withholding treatment to supplemental unemployment compensation, requested annuity withholding, requested non-wage sick pay, and related request or collective-bargaining administration rules; PolicyEngine computes annual tax outcomes, not these payment-level withholding-administration predicates or request amount intermediates as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3402/p#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(p) provides voluntary chapter 24 withholding rules for specified Federal payments, unemployment compensation, and other agreed non-wage payments; PolicyEngine computes annual tax outcomes, not these payment-level voluntary withholding request predicates, rates, and amount intermediates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
