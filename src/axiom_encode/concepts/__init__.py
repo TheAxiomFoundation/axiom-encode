@@ -23,6 +23,7 @@ from .audit import (
     DriftFinding,
     audit_corpus,
 )
+from .auto_repair import auto_repair_test_yaml_canonical_violations
 from .registry import (
     Concept,
     ConceptRegistry,
@@ -39,6 +40,7 @@ __all__ = [
     "DriftFinding",
     "CanonicalNameViolation",
     "audit_corpus",
+    "auto_repair_test_yaml_canonical_violations",
     "load_concept_registry",
     "validate_generated_against_registry",
 ]
