@@ -7266,6 +7266,114 @@ rules:
         ]
         assert test_cases == []
 
+    def test_unsafe_formula_output_repair_defers_unrelated_same_section_imports(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3134/b.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3134/b.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account
+module:
+  proof_validation:
+    required: true
+  summary: Section 3134(b) limitations.
+rules:
+  - name: employee_qualified_wages_quarter_limit
+    kind: parameter
+    dtype: Money
+    source: 26 USC 3134(b)(1)(A)
+    versions:
+      - effective_from: '2021-01-01'
+        formula: '10000'
+  - name: qualified_wages_taken_into_account_after_employee_limit
+    kind: derived
+    entity: Person
+    dtype: Money
+    source: 26 USC 3134(b)(1)(A)
+    versions:
+      - effective_from: '2021-01-01'
+        formula: min(employee_qualified_wages_quarter_limit, qualified_wages_and_health_costs_taken_into_account)
+  - name: employee_retention_credit_after_employee_wage_limit
+    kind: derived
+    entity: Employer
+    dtype: Money
+    source: 26 USC 3134(b)(1)(A)
+    versions:
+      - effective_from: '2021-01-01'
+        formula: qualified_wages_taken_into_account_after_employee_limit * 0.7
+"""
+        )
+        test_file.write_text(
+            """- name: unrelated_same_section_import
+  output:
+    us:statutes/26/3134/b#employee_qualified_wages_quarter_limit: 10000
+    us:statutes/26/3134/b#qualified_wages_taken_into_account_after_employee_limit: 10000
+    us:statutes/26/3134/b#employee_retention_credit_after_employee_wage_limit: 7000
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3134/b.yaml: ci: Unrelated same-section term "
+                "import: "
+                "`us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account` "
+                "overlaps same-section term `qualified_wages` defined or "
+                "deferred in `statutes/26/3134/c.yaml`."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "us:statutes/26/3134/b#employee_retention_credit_after_employee_wage_limit",
+            "us:statutes/26/3134/b#qualified_wages_taken_into_account_after_employee_limit",
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "employee_qualified_wages_quarter_limit"
+        ]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": "us:statutes/26/3134/b#employee_retention_credit_after_employee_wage_limit",
+                "reason": (
+                    "Generated rule depends on an output that validation deferred "
+                    "because it flattened thresholded, capped, base-limited, or "
+                    "cross-referenced mechanics, or borrowed an unrelated "
+                    "same-named section term."
+                ),
+            },
+            {
+                "output": "us:statutes/26/3134/b#qualified_wages_taken_into_account_after_employee_limit",
+                "reason": (
+                    "Generated rule imported another section's same-named term "
+                    "even though the current section already defines or defers "
+                    "that term. This output is deferred until the same-section "
+                    "definition can be imported or composed without borrowing the "
+                    "unrelated concept."
+                ),
+            },
+        ]
+        assert test_cases == [
+            {
+                "name": "unrelated_same_section_import",
+                "output": {
+                    "us:statutes/26/3134/b#employee_qualified_wages_quarter_limit": 10000
+                },
+            }
+        ]
+
     def test_unsafe_formula_output_repair_defers_encoded_cross_reference_placeholders(
         self, tmp_path
     ):
