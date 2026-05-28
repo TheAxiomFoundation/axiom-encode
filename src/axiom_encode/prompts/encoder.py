@@ -657,6 +657,9 @@ Hard requirements:
   is eligible must negate the exception. Do not expose the exception only as a
   standalone helper while leaving the affected `*_applies`, eligibility,
   inclusion, exclusion, or amount output true under the exception.
+- When that exception is encoded as a local derived helper, include a blocking
+  companion test asserting both that helper as `holds` and the directly affected
+  Judgment output as `not_holds`.
 - For scoped exceptions, include a control case proving a non-excepted
   qualifying item is not reduced or blocked even when the exception amount or
   exception fact is positive/nonzero, plus a case where the same exception

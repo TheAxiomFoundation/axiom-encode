@@ -12516,6 +12516,7 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
         return []
 
     formulas_by_name: dict[str, list[str]] = {}
+    imported_outputs_by_name: dict[str, set[str]] = {}
     exception_names: list[str] = []
     for rule in rules:
         if not isinstance(rule, dict):
@@ -12526,7 +12527,10 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
         formulas = _rule_formula_texts(rule)
         if formulas:
             formulas_by_name[name] = formulas
-        if "_exception_to_" in name and _rule_has_shall_not_apply_exception_atom(rule):
+        imported_outputs_by_name[name] = _rule_imported_outputs(rule)
+        if _is_exception_identifier(name) and _rule_has_shall_not_apply_exception_atom(
+            rule
+        ):
             exception_names.append(name)
 
     if not exception_names:
@@ -12535,15 +12539,22 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
     issues: list[str] = []
     for exception_name in exception_names:
         target_fragments = _exception_output_target_fragments(exception_name)
-        if not target_fragments:
-            continue
         for rule_name, formulas in sorted(formulas_by_name.items()):
-            if rule_name == exception_name or not rule_name.endswith("_applies"):
+            if rule_name == exception_name:
                 continue
-            if not _exception_fragments_match_rule_name(
-                target_fragments,
+            imports_exception = exception_name in imported_outputs_by_name.get(
                 rule_name,
-            ):
+                set(),
+            )
+            name_matches_exception_target = bool(
+                target_fragments
+                and rule_name.endswith("_applies")
+                and _exception_fragments_match_rule_name(
+                    target_fragments,
+                    rule_name,
+                )
+            )
+            if not imports_exception and not name_matches_exception_target:
                 continue
             if any(
                 _formula_negates_identifier(formula, exception_name)
@@ -12572,6 +12583,30 @@ def _rule_formula_texts(rule: dict[Any, Any]) -> list[str]:
         if isinstance(formula, str):
             formulas.append(formula)
     return formulas
+
+
+def _rule_imported_outputs(rule: dict[Any, Any]) -> set[str]:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return set()
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return set()
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return set()
+
+    outputs: set[str] = set()
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        imported = atom.get("import")
+        if not isinstance(imported, dict):
+            continue
+        output = str(imported.get("output") or "").strip()
+        if output:
+            outputs.add(output)
+    return outputs
 
 
 def _rule_has_shall_not_apply_exception_atom(rule: dict[Any, Any]) -> bool:
@@ -12635,7 +12670,7 @@ def _identifier_token_set(identifier: str) -> set[str]:
 def _formula_negates_identifier(formula: str, identifier: str) -> bool:
     return bool(
         re.search(
-            rf"\bnot\s+{re.escape(identifier)}\b",
+            rf"\bnot\s+(?:\(\s*)?{re.escape(identifier)}\b",
             formula,
         )
     )

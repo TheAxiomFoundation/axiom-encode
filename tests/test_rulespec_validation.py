@@ -5332,6 +5332,98 @@ rules:
     assert find_unconsumed_local_exception_output_issues(content) == []
 
 
+def test_unconsumed_local_exception_output_flags_imported_exception_helper():
+    content = """format: rulespec/v1
+rules:
+  - name: existing_account_or_instrument_exception_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: This subsection and subsection (a)(1)(D) shall not apply.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: payment_paid_or_credited
+  - name: subsection_a_1_D_applies_to_readily_tradable_instrument_payment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3406/d#existing_account_or_instrument_exception_applies
+              output: existing_account_or_instrument_exception_applies
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          reportable_interest_or_dividend_payment
+          and payment_to_payee_on_readily_tradable_instrument
+"""
+
+    issues = find_unconsumed_local_exception_output_issues(content)
+
+    assert len(issues) == 1
+    assert "existing_account_or_instrument_exception_applies" in issues[0]
+    assert (
+        "subsection_a_1_D_applies_to_readily_tradable_instrument_payment" in issues[0]
+    )
+
+
+def test_unconsumed_local_exception_output_allows_imported_negated_helper():
+    content = """format: rulespec/v1
+rules:
+  - name: existing_brokerage_account_exception_to_broker_notice_applies
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: Subparagraph (B) of paragraph (2) shall not apply.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: broker_account_established_before_pre_cutoff_date
+  - name: broker_must_notify_payor_of_backup_withholding_status
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3406/d#existing_brokerage_account_exception_to_broker_notice_applies
+              output: existing_brokerage_account_exception_to_broker_notice_applies
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          payee_acquires_readily_tradable_instrument_through_broker
+          and not existing_brokerage_account_exception_to_broker_notice_applies
+"""
+
+    assert find_unconsumed_local_exception_output_issues(content) == []
+
+
 def test_parent_exception_list_requires_child_exception_imports(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "163" / "h" / "4" / "B.yaml"
