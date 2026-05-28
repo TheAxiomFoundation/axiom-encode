@@ -1,0 +1,1 @@
+Move the 7 USC 2014(a)/(d)/(g) `legal_id_prefix` classifications added in 0.2.378 from the `mappings:` section to the `prefixes:` section so the oracle-coverage CLI actually matches them. Without this, the prefix entries were silently ignored and rulespec-us#259 still showed 14 unmapped outputs.
