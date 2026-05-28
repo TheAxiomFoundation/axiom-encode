@@ -8,8 +8,16 @@ mechanically against the registry, so a clean encode --apply isn't blocked by
 drift that only shows up in test cases.
 
 The rewrite is intentionally surgical: it operates on anchored references of
-the form `<jurisdiction>:<path>#[input.]<name>` and only swaps the synonym for
-its canonical, or the anchor for the canonical's producer_anchor.
+the form `<jurisdiction>:<path>#[input.]<name>`.
+
+Input refs are special. `<anchor>#input.X` declares an input slot on the
+consumer at `<anchor>` — `<anchor>` names the file that *reads* X, not the
+canonical producer of X. Rewriting the anchor on an input ref would move the
+slot to the producer's file, which is nonsense (a file does not consume its
+own output). For input refs we only rename the synonym; the consumer anchor
+is preserved. For non-input (output) refs the anchor is the consumer's
+reference to a producer, so we also redirect the anchor to the canonical
+producer.
 """
 
 from __future__ import annotations
@@ -59,15 +67,17 @@ def _rewrite_anchored_refs(text: str, registry: ConceptRegistry) -> str:
             match.group(2) or "",
             match.group(3),
         )
+        is_input_ref = bool(input_prefix)
         blocked = registry.lookup_synonym(name)
         if blocked is not None:
-            new_anchor = blocked.producer_anchor or anchor
+            new_anchor = anchor if is_input_ref else (blocked.producer_anchor or anchor)
             return f"{new_anchor}#{input_prefix}{blocked.canonical_name}"
         canonical = registry.lookup_canonical(name)
         if (
             canonical is not None
             and canonical.has_producer
             and canonical.producer_anchor != anchor
+            and not is_input_ref
         ):
             return f"{canonical.producer_anchor}#{input_prefix}{name}"
         return match.group(0)

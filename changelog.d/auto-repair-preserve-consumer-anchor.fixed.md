@@ -1,0 +1,1 @@
+Auto-repair preserves the consumer anchor when rewriting blocked synonyms on `#input.X` references in test YAML. Previously the repair unconditionally swapped the anchor to the canonical producer's location, corrupting input slot declarations by pointing them at the wrong file. Output (non-input) refs still get the anchor redirected to the canonical producer as before.
