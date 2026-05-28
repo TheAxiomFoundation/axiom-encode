@@ -11377,6 +11377,33 @@ def cmd_encode(args):
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_same_section_imports = _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_same_section_imports:
+                    outcome["auto_repaired_missing_same_section_imports"] = (
+                        repaired_same_section_imports
+                    )
+                    print(
+                        "  apply=auto_repaired_missing_same_section_imports:"
+                        + ",".join(repaired_same_section_imports)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_table_relation_tests = (
                     _try_repair_generated_table_relation_tests_for_apply(
                         result,
@@ -14575,6 +14602,66 @@ def _try_repair_generated_import_output_inputs_for_apply(
         relative_output=relative_output,
         issues=issues,
     )
+
+
+_MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE = re.compile(
+    r"Same-section subsection import missing: source text cites subsection "
+    r"`(?P<target>statutes/[^`]+)`"
+)
+
+
+def _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Add file-level imports for validator-proven same-section dependencies."""
+    if not issues:
+        return []
+
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+
+    content = rules_file.read_text()
+    repaired = content
+    jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)
+    added: list[str] = []
+    for issue in issues:
+        match = _MISSING_SAME_SECTION_SUBSECTION_IMPORT_RE.search(str(issue))
+        if match is None:
+            continue
+        target = match.group("target").strip().strip("/")
+        if target.endswith((".yaml", ".yml")):
+            target = Path(target).with_suffix("").as_posix()
+        relative_target = Path(f"{target}.yaml")
+        if (
+            relative_target.is_absolute()
+            or any(part in {"", ".", ".."} for part in relative_target.parts)
+            or relative_target == relative_output
+        ):
+            continue
+        if not (policy_repo_path / relative_target).is_file():
+            continue
+        import_item = f"{jurisdiction}:{target}"
+        before = repaired
+        repaired = _ensure_rulespec_import(repaired, import_item)
+        if repaired != before:
+            added.append(import_item)
+
+    if not added:
+        return []
+    rules_file.write_text(repaired)
+    return added
 
 
 def _try_repair_generated_unreferenced_proof_imports_for_apply(
