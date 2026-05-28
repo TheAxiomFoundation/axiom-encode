@@ -5916,9 +5916,20 @@ _US_TAX_STATUS_COMPONENT_FRAGMENT_PATTERN = re.compile(
 
 
 def find_tax_status_component_local_input_issues(content: str) -> list[str]:
-    """Reject local inputs for legal filing-status component classifications."""
+    """Reject local inputs for legal filing-status component classifications.
+
+    Scope: U.S. tax code (Title 26). Other titles use \"surviving spouse\"
+    and similar terms in non-tax-status legal contexts — e.g. 7 USC 2012(j)
+    defines a SNAP \"elderly or disabled member\" partly by reference to a
+    person who is the surviving spouse of a veteran with specified Title 38
+    disability status. That is a SNAP demographic predicate, not a tax
+    filing status; the validator must not block it.
+    """
     payload = _rulespec_payload(content)
     if payload is None:
+        return []
+
+    if not _module_source_is_us_tax_code(payload):
         return []
 
     module_source_text = extract_embedded_source_text(content) or content
@@ -5957,6 +5968,31 @@ def find_tax_status_component_local_input_issues(content: str) -> list[str]:
             )
 
     return issues
+
+
+def _module_source_is_us_tax_code(payload: dict[str, Any]) -> bool:
+    """True iff the RuleSpec module's corpus citation lives in US Title 26 (IRC).
+
+    Filing-status component checks are IRC-specific; SNAP (Title 7), labor
+    (Title 29), and similar codes use overlapping vocabulary (\"surviving
+    spouse\", etc.) in unrelated legal senses. Restricting the validator
+    to Title 26 avoids the cross-title false positive that surfaced on
+    7 USC 2012(j) (SNAP elderly/disabled member, encoded 2026-05-28).
+    """
+    module = payload.get("module") if isinstance(payload, dict) else None
+    if not isinstance(module, dict):
+        return False
+    sv = module.get("source_verification")
+    if not isinstance(sv, dict):
+        return False
+    paths: list[str] = []
+    single = sv.get("corpus_citation_path")
+    if isinstance(single, str):
+        paths.append(single)
+    plural = sv.get("corpus_citation_paths")
+    if isinstance(plural, list):
+        paths.extend(p for p in plural if isinstance(p, str))
+    return any(path.strip().startswith("us/statute/26/") for path in paths)
 
 
 def _source_context_allows_local_tax_status_component(

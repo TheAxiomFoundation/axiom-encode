@@ -11559,6 +11559,9 @@ rules:
 
 def test_tax_status_component_local_input_rejects_surviving_spouse_fact():
     content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/63
 rules:
   - name: additional_standard_deduction_amount
     kind: derived
@@ -11579,8 +11582,45 @@ rules:
     )
 
 
+def test_tax_status_component_local_input_allows_snap_elderly_disabled_rule():
+    """The tax-status validator should not fire on Title 7 (SNAP) rules.
+
+    7 USC 2012(j) defines "elderly or disabled member" partly by reference
+    to a person who is the surviving spouse of a veteran with specified
+    Title 38 status. The `surviving_spouse` substring in the input slot
+    name overlaps tax-filing-status vocabulary but the legal context is
+    SNAP demographic eligibility, not income-tax filing status. Validator
+    must restrict to Title 26 sources.
+    """
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2012
+rules:
+  - name: elderly_or_disabled_member
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: |-
+          person_is_sixty_years_of_age_or_older
+          or person_is_surviving_spouse_of_veteran_with_specified_title_38_status
+"""
+
+    issues = find_tax_status_component_local_input_issues(content)
+
+    assert issues == [], (
+        f"Title 7 SNAP rules must not trigger the tax-status validator: {issues}"
+    )
+
+
 def test_tax_status_component_local_input_rejects_compound_status_fact():
     content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/63
 rules:
   - name: applicable_aged_or_blind_additional_amount
     kind: derived
