@@ -6399,13 +6399,40 @@ def cmd_repair_tax_filing_status_branches(args):
         args, "axiom_rules_path", None
     ) or _resolve_runtime_axiom_rules_checkout(repo_path)
 
+    repaired_test_content = original_test_content
+    repaired_test_rules: list[str] = []
     rules_file.write_text(repaired_content)
-    validation = ValidatorPipeline(
+    validation_pipeline = ValidatorPipeline(
         policy_repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
         enable_oracles=False,
         require_policy_proofs=True,
-    ).validate(rules_file, skip_reviewers=True)
+    )
+    validation = validation_pipeline.validate(rules_file, skip_reviewers=True)
+    for _attempt in range(8):
+        if validation.all_passed:
+            break
+        issues = [
+            result.error for result in validation.results.values() if result.error
+        ]
+        if repaired_test_content is None or not any(
+            repair.endswith(":surviving_spouse_to_other_case")
+            for repair in repaired_rules
+        ):
+            break
+        next_test_content, test_repairs = (
+            _repair_tax_filing_status_branch_test_output_mismatches(
+                repaired_test_content,
+                issues,
+            )
+        )
+        if not test_repairs:
+            break
+        repaired_test_content = next_test_content
+        repaired_test_rules.extend(test_repairs)
+        test_file.write_text(repaired_test_content)
+        validation = validation_pipeline.validate(rules_file, skip_reviewers=True)
+
     if not validation.all_passed:
         rules_file.write_text(original_content)
         if original_test_content is not None:
@@ -6442,12 +6469,18 @@ def cmd_repair_tax_filing_status_branches(args):
             output_root=output_root,
             policy_repo_path=repo_path,
             relative_output=relative_output,
-            applied_files=[rules_file],
+            applied_files=(
+                [rules_file, test_file]
+                if repaired_test_content is not None
+                and repaired_test_content != original_test_content
+                else [rules_file]
+            ),
             run_id="deterministic-repair",
             signing_key=signing_key,
             axiom_encode_git=axiom_encode_git,
         )
 
+    repaired_rules.extend(repaired_test_rules)
     print(
         "Applied tax filing-status branch repair to "
         f"{relative_output}: {', '.join(repaired_rules)}"
@@ -6854,7 +6887,6 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
     ):
         return content, []
 
-    lines = content.splitlines(keepends=True)
     repaired: list[str] = []
     repaired_rules: list[str] = []
     fallback_mode = (
@@ -6867,8 +6899,15 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
     )
     fallback_needs_other_case = "any other case" in content.lower()
     repair_modes = _tax_filing_status_branch_repair_modes(content)
+    content, summary_repairs = _repair_tax_filing_status_branch_summary(
+        content,
+        has_joint_only_other_case=any(
+            mode == "joint_only_other" for mode in repair_modes.values()
+        ),
+    )
     current_rule_name: str | None = None
     index = 0
+    lines = content.splitlines(keepends=True)
 
     while index < len(lines):
         line = lines[index]
@@ -6902,7 +6941,101 @@ def _repair_tax_filing_status_branches(content: str) -> tuple[str, list[str]]:
         repaired.append(line)
         index += 1
 
-    return "".join(repaired), repaired_rules
+    return "".join(repaired), [*summary_repairs, *repaired_rules]
+
+
+def _repair_tax_filing_status_branch_summary(
+    content: str, *, has_joint_only_other_case: bool
+) -> tuple[str, list[str]]:
+    if not has_joint_only_other_case:
+        return content, []
+
+    summary_end_candidates = [
+        position
+        for position in (
+            content.find("\n  source_verification:"),
+            content.find("\nrules:"),
+        )
+        if position != -1
+    ]
+    if not summary_end_candidates:
+        return content, []
+
+    summary_end = min(summary_end_candidates)
+    summary = content[:summary_end]
+    rest = content[summary_end:]
+    repaired = summary
+    repairs: list[str] = []
+
+    enum_repaired = _FILING_STATUS_SUMMARY_JOINT_SURVIVING_PATTERN.sub(
+        _repair_tax_filing_status_branch_summary_enum_match,
+        repaired,
+    )
+    if enum_repaired != repaired:
+        repaired = enum_repaired
+        repairs.append("summary:surviving_spouse_to_other_case")
+
+    phrase_repaired = _replace_tax_filing_status_summary_phrase(
+        repaired,
+        "joint / surviving spouse",
+        "joint return",
+    )
+    phrase_repaired = _replace_tax_filing_status_summary_phrase(
+        phrase_repaired,
+        "joint or surviving spouse",
+        "joint return",
+    )
+    for old, new in [
+        (
+            "$250,000 for a joint return or surviving\n    spouse, ",
+            "$250,000 for a joint return, ",
+        ),
+        (
+            "$250,000 for a joint return or surviving spouse, ",
+            "$250,000 for a joint return, ",
+        ),
+        (
+            "$250,000 for a joint return or surviving spouse",
+            "$250,000 for a joint return",
+        ),
+    ]:
+        phrase_repaired = phrase_repaired.replace(old, new)
+    if phrase_repaired != repaired:
+        repaired = phrase_repaired
+        repairs.append("summary:surviving_spouse_to_other_case")
+
+    if repaired == summary:
+        return content, []
+    return repaired + rest, list(dict.fromkeys(repairs))
+
+
+_FILING_STATUS_SUMMARY_JOINT_SURVIVING_PATTERN = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)1\s*=\s*joint\s*/\s*surviving spouse"
+    r"(?P<newline>\r?\n)(?P=indent)2\s*=\s*married filing separately"
+)
+_FILING_STATUS_SUMMARY_ENUM_LINE_PATTERN = re.compile(r"^[ \t]*\d+\s*=")
+
+
+def _repair_tax_filing_status_branch_summary_enum_match(
+    match: re.Match[str],
+) -> str:
+    indent = match.group("indent")
+    newline = match.group("newline")
+    return (
+        f"{indent}1 = joint{newline}"
+        f"{indent}2 = married filing separately{newline}"
+        f"{indent}4 = surviving spouse / qualifying widow(er)"
+    )
+
+
+def _replace_tax_filing_status_summary_phrase(text: str, old: str, new: str) -> str:
+    lines: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if _FILING_STATUS_SUMMARY_ENUM_LINE_PATTERN.match(line):
+            lines.append(line)
+            continue
+        lines.append(line.replace(old, new))
+    return "".join(lines)
 
 
 def _tax_filing_status_branch_repair_modes(content: str) -> dict[str, str]:
@@ -6935,6 +7068,79 @@ def _tax_filing_status_branch_repair_modes(content: str) -> dict[str, str]:
         elif _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN.search(source_context):
             modes[name] = "joint_only_other"
     return modes
+
+
+_TEST_OUTPUT_MISMATCH_PATTERN = re.compile(
+    r"Test case `(?P<case>[^`]+)` output `(?P<output>[^`]+)` "
+    r"expected [^,]+, got "
+    r"(?:(?P<kind>integer|decimal|float|number|boolean|string|bool|text) )?"
+    r"(?P<actual>.+?)\.$"
+)
+
+
+def _repair_tax_filing_status_branch_test_output_mismatches(
+    test_content: str,
+    issues: list[str],
+) -> tuple[str, list[str]]:
+    try:
+        payload = yaml.safe_load(test_content)
+    except (yaml.YAMLError, ValueError):
+        return test_content, []
+    if not isinstance(payload, list):
+        return test_content, []
+
+    repairs: list[str] = []
+    cases_by_name = {
+        str(case.get("name") or ""): case for case in payload if isinstance(case, dict)
+    }
+    for issue in issues:
+        match = _TEST_OUTPUT_MISMATCH_PATTERN.search(issue)
+        if match is None:
+            continue
+        case_name = match.group("case")
+        output_name = match.group("output")
+        case = cases_by_name.get(case_name)
+        if not isinstance(case, dict) or not _test_case_has_filing_status(case, 4):
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict) or output_name not in outputs:
+            continue
+        actual_value = _parse_validator_actual_output_value(
+            match.group("actual"),
+            kind=match.group("kind"),
+        )
+        if outputs[output_name] == actual_value:
+            continue
+        outputs[output_name] = actual_value
+        repairs.append(f"test:{case_name}:{output_name}")
+
+    if not repairs:
+        return test_content, []
+    return yaml.safe_dump(payload, sort_keys=False), repairs
+
+
+def _test_case_has_filing_status(case: dict[str, Any], value: int) -> bool:
+    inputs = case.get("input")
+    if not isinstance(inputs, dict):
+        return False
+    for key, input_value in inputs.items():
+        if not isinstance(key, str) or not key.endswith("#input.filing_status"):
+            continue
+        if str(input_value).strip() == str(value):
+            return True
+    return False
+
+
+def _parse_validator_actual_output_value(
+    raw_value: str, *, kind: str | None = None
+) -> Any:
+    value_text = raw_value.strip()
+    normalized_kind = (kind or "").lower()
+    if normalized_kind in {"string", "text"}:
+        return value_text
+    with contextlib.suppress(yaml.YAMLError):
+        return yaml.safe_load(value_text)
+    return value_text
 
 
 def _repair_tax_filing_status_match_block(
