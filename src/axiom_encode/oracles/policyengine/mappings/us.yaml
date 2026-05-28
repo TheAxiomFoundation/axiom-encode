@@ -10497,6 +10497,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3405 child subsections set payment-level withholding, election, notice, liability, and definition rules for pension and annuity distributions; PolicyEngine computes annual tax outcomes and pension income, not these withholding administration surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3406#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3406 sets backup withholding rules for reportable payments, TIN failures, underreporting notices, certifications, payor deductions, and withholding administration; PolicyEngine computes annual tax outcomes, not these payor-level backup withholding administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3406/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3406 child subsections set backup withholding rules for reportable payments, TIN failures, underreporting notices, certifications, payor deductions, and withholding administration; PolicyEngine computes annual tax outcomes, not these payor-level backup withholding administration surfaces as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
