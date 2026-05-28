@@ -4489,6 +4489,47 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3508_worker_classification_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3508.yaml",
+        """format: rulespec/v1
+rules:
+  - name: qualified_real_estate_agent
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_is_licensed_real_estate_agent
+  - name: direct_seller_engaged_trade_or_business
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: engaged_in_consumer_products_home_or_nonpermanent_retail_trade_or_business
+  - name: direct_seller
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: direct_seller_engaged_trade_or_business
+  - name: services_performed_as_qualified_real_estate_agent_or_direct_seller
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_real_estate_agent or direct_seller
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "worker-classification predicates" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3511.yaml",

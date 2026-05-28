@@ -10521,6 +10521,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3506 defines sitter-placement businesses and excludes qualifying placement persons from employer treatment for sitters; PolicyEngine computes employment taxes from modeled employer and wage facts, not this placement-service employer-status classification as a one-to-one output.
 
+  - legal_id_prefix: us:statutes/26/3508#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3508 classifies qualified real estate agents and direct sellers and excludes qualifying services from employee and employer treatment; PolicyEngine computes payroll taxes from modeled employer and wage facts, not these worker-classification predicates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
