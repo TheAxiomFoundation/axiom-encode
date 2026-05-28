@@ -3567,10 +3567,32 @@ rules:
         formula: tips_received_by_employee_in_course_of_employment and not written_statement_furnished
 """,
     )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3401/h.yaml",
+        """format: rulespec/v1
+rules:
+  - name: active_duty_period_minimum_days_for_differential_wage_payment
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 30
+  - name: differential_wage_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_is_made_by_employer and active_duty_period_days > active_duty_period_minimum_days_for_differential_wage_payment
+  - name: differential_wage_payment_treated_as_wages_for_subsection_a
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if differential_wage_payment: differential_wage_payment_amount else: 0
+""",
+    )
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["status_counts"] == {"known_not_comparable": 6}
+    assert report["status_counts"] == {"known_not_comparable": 9}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 

@@ -10422,6 +10422,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3401(f) treats employee tips as wages for chapter 24 withholding and sets deemed-payment timing; PolicyEngine models annual income and payroll tax amounts, not this withholding-specific tip timing surface as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3401/h#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3401(h) defines differential wage payments and treats them as wages for chapter 24 withholding; PolicyEngine has military income variables but does not expose this employer-payment predicate, active-duty threshold, or withholding-specific wage-treatment surface as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3402/f#
     country: us
     program: tax
