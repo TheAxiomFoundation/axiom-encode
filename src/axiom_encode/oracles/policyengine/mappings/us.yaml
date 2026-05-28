@@ -10533,6 +10533,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3509 sets substitute employer liability rates and collection rules for employee misclassification withholding failures; PolicyEngine computes regular payroll taxes from modeled employment and wages, not this reduced-liability misclassification assessment surface as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3510#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3510 sets administrative return, deposit, estimated-tax, and domestic-service voluntary withholding treatment rules for household employers; PolicyEngine computes annual tax outcomes and regular payroll taxes, not this domestic-service withholding-administration component as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
