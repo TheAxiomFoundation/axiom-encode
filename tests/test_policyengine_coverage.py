@@ -3987,6 +3987,33 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402o_nonwage_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/o.yaml",
+        """format: rulespec/v1
+rules:
+  - name: supplemental_unemployment_compensation_benefit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: supplemental_unemployment_compensation_benefit_amount > 0
+  - name: request_specified_withholding_amount_for_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: requested_amount
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
