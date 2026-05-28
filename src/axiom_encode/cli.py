@@ -12562,6 +12562,7 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
     seed_rules: set[str] = set()
     issue_reasons: dict[str, list[str]] = defaultdict(list)
     issue_source_values: dict[str, set[str]] = defaultdict(set)
+    unrelated_same_section_imports: list[str] = []
     for issue in issues:
         issue_text = str(issue)
         flattened_match = _FLATTENED_THRESHOLDED_RATE_ISSUE_PATTERN.search(issue_text)
@@ -12616,8 +12617,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             rule_name = tax_status_component_match.group("rule")
             seed_rules.add(rule_name)
             issue_reasons[rule_name].append("tax_status_component_placeholder")
-    if not seed_rules:
-        return []
+        unrelated_same_section_match = (
+            _UNRELATED_SAME_SECTION_TERM_IMPORT_ISSUE_PATTERN.search(issue_text)
+        )
+        if unrelated_same_section_match:
+            unrelated_same_section_imports.append(
+                unrelated_same_section_match.group("import")
+            )
 
     try:
         relative_output = _relative_generated_output_path(
@@ -12645,6 +12651,25 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         for rule in rules
         if isinstance(rule, dict) and str(rule.get("name") or "")
     }
+    for import_item in unrelated_same_section_imports:
+        imported_symbols = _imported_symbols_for_unrelated_same_section_issue(
+            import_item,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if not imported_symbols:
+            continue
+        for rule_name, rule in rules_by_name.items():
+            if not isinstance(rule, dict):
+                continue
+            identifiers = _generated_rule_formula_identifiers(rule)
+            if not identifiers.intersection(imported_symbols):
+                continue
+            seed_rules.add(rule_name)
+            issue_reasons[rule_name].append("unrelated_same_section_term_import")
+    if not seed_rules:
+        return []
+
     affected_rules = _expand_affected_generated_rule_dependencies(
         rules_by_name=rules_by_name,
         seed_rules=seed_rules,
@@ -12686,7 +12711,8 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
             reason = (
                 "Generated rule depends on an output that validation deferred "
                 "because it flattened thresholded, capped, base-limited, or "
-                "cross-referenced base mechanics."
+                "cross-referenced mechanics, or borrowed an unrelated "
+                "same-named section term."
             )
         elif "cross_reference_base_mechanics" in reasons:
             reason = (
@@ -12738,6 +12764,13 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
                 "the upstream status source can be encoded or imported without "
                 "inventing local tax-status component inputs."
             )
+        elif "unrelated_same_section_term_import" in reasons:
+            reason = (
+                "Generated rule imported another section's same-named term even "
+                "though the current section already defines or defers that term. "
+                "This output is deferred until the same-section definition can be "
+                "imported or composed without borrowing the unrelated concept."
+            )
         else:
             reason = (
                 "Generated rule used a thresholded, capped, base-limited, or "
@@ -12778,6 +12811,62 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         rule_names=affected_rules,
     )
     return deferred_targets
+
+
+def _imported_symbols_for_unrelated_same_section_issue(
+    import_item: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> set[str]:
+    if "#" in import_item:
+        fragment = import_item.rsplit("#", 1)[1].strip()
+        return {fragment} if fragment else set()
+
+    import_file = _import_base_to_repo_file(
+        import_item.split("#", 1)[0],
+        repo_path=policy_repo_path,
+    )
+    if import_file is None:
+        return set()
+    if not import_file.exists():
+        with contextlib.suppress(ValueError):
+            relative_parent = rules_file.parent.resolve().relative_to(
+                policy_repo_path.resolve()
+            )
+            import_file = policy_repo_path / relative_parent / import_file.name
+    if import_file is None or not import_file.exists():
+        return set()
+
+    try:
+        payload = yaml.safe_load(import_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+
+    symbols = {
+        str(rule.get("name") or "").strip()
+        for rule in payload.get("rules", [])
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    module = payload.get("module")
+    deferred_outputs = (
+        module.get("deferred_outputs") if isinstance(module, dict) else None
+    )
+    if isinstance(deferred_outputs, list):
+        for record in deferred_outputs:
+            output = None
+            if isinstance(record, dict):
+                output = record.get("output")
+            elif isinstance(record, str):
+                output = record
+            if not isinstance(output, str):
+                continue
+            fragment = output.rsplit("#", 1)[1].strip() if "#" in output else output
+            if fragment:
+                symbols.add(fragment)
+    return symbols
 
 
 def _expand_affected_generated_rule_dependencies(
@@ -13051,6 +13140,10 @@ _SIBLING_RULE_NAME_COLLISION_ISSUE_PATTERN = re.compile(
 _UNUSED_SOURCE_MODIFIER_ISSUE_PATTERN = re.compile(
     r"Source-stated modifier parameter is not used by any numeric derived output: "
     r"`(?P<source_value>[^`]+)`.+?but (?P<affected>.+?) ignores it\.",
+)
+_UNRELATED_SAME_SECTION_TERM_IMPORT_ISSUE_PATTERN = re.compile(
+    r"Unrelated same-section term import: `(?P<import>[^`]+)` "
+    r"overlaps same-section term `(?P<term>[^`]+)`"
 )
 _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
     r"Test case `[^`]+` output `([^`]+)` does not resolve"
