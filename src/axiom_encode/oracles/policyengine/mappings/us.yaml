@@ -10515,6 +10515,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3505 assigns third-party liability to lenders, sureties, and other non-employer persons that directly pay wages or supply funds for wage payments, and credits resulting payments against employer liability; PolicyEngine computes payroll tax amounts, not this third-party legal-liability and credit-allocation surface as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3506#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3506 defines sitter-placement businesses and excludes qualifying placement persons from employer treatment for sitters; PolicyEngine computes employment taxes from modeled employer and wage facts, not this placement-service employer-status classification as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax

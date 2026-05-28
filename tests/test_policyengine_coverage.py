@@ -4453,6 +4453,42 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3506_sitter_placement_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3506.yaml",
+        """format: rulespec/v1
+rules:
+  - name: sitters
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_furnishes_personal_attendance_companionship_or_household_care_services
+  - name: sitter_placement_person_not_treated_as_employer
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_engaged_in_trade_or_business_of_putting_sitters_in_touch_with_individuals_who_wish_to_employ_them
+  - name: sitter_not_treated_as_employee_of_placement_person
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: sitters and not placement_person_pays_or_receives_salary_or_wages_of_sitters
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "placement-service employer-status classification" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3511.yaml",
