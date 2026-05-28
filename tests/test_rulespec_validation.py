@@ -187,6 +187,362 @@ def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp
     assert str(stale_root) in roots
 
 
+def test_unrelated_same_section_term_import_rejects_other_section_standin(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/3134"
+    section_root.mkdir(parents=True)
+    (section_root / "c.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definitions for section 3134.
+  deferred_outputs:
+    - output: us:statutes/26/3134/c#qualified_wages
+      reason: Needs calendar-quarter mechanics.
+rules: []
+"""
+    )
+    rules_file = section_root / "b.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account
+module:
+  summary: Qualified wages with respect to any employee shall not exceed $10,000.
+rules:
+  - name: qualified_wages_taken_into_account_for_employee
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: min(10000, qualified_wages_and_health_costs_taken_into_account)
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unrelated_same_section_term_imports(rules_file)
+
+    assert issues == [
+        "Unrelated same-section term import: "
+        "`us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account` "
+        "overlaps same-section term `qualified_wages` defined or deferred in "
+        "`statutes/26/3134/c.yaml`. Import the same-section output or defer the "
+        "dependent output instead of using an unrelated section's same-named concept."
+    ]
+
+
+def test_unrelated_same_section_term_import_checks_policy_repo_for_temp_output(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/3134"
+    section_root.mkdir(parents=True)
+    (section_root / "c.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definitions for section 3134.
+  deferred_outputs:
+    - output: us:statutes/26/3134/c#qualified_wages
+      reason: Needs calendar-quarter mechanics.
+rules: []
+"""
+    )
+    generated_section_root = tmp_path / "run/codex/statutes/26/3134"
+    generated_section_root.mkdir(parents=True)
+    rules_file = generated_section_root / "b.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account
+module:
+  summary: Qualified wages with respect to any employee shall not exceed $10,000.
+rules:
+  - name: qualified_wages_taken_into_account_for_employee
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: min(10000, qualified_wages_and_health_costs_taken_into_account)
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unrelated_same_section_term_imports(rules_file)
+
+    assert issues == [
+        "Unrelated same-section term import: "
+        "`us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account` "
+        "overlaps same-section term `qualified_wages` defined or deferred in "
+        "`statutes/26/3134/c.yaml`. Import the same-section output or defer the "
+        "dependent output instead of using an unrelated section's same-named concept."
+    ]
+
+
+def test_unrelated_same_section_term_import_rejects_file_level_standin(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/3134"
+    section_root.mkdir(parents=True)
+    (section_root / "c.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definitions for section 3134.
+  deferred_outputs:
+    - output: us:statutes/26/3134/c#qualified_wages
+      reason: Needs calendar-quarter mechanics.
+rules: []
+"""
+    )
+    other_root = repo / "statutes/26/45A"
+    other_root.mkdir(parents=True)
+    (other_root / "b.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Section 45A wage amount.
+rules:
+  - name: qualified_wages_and_health_costs_taken_into_account
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: wages
+"""
+    )
+    rules_file = section_root / "b.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/45A/b
+module:
+  summary: Qualified wages with respect to any employee shall not exceed $10,000.
+rules:
+  - name: qualified_wages_taken_into_account_for_employee
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: min(10000, qualified_wages_and_health_costs_taken_into_account)
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unrelated_same_section_term_imports(rules_file)
+
+    assert issues == [
+        "Unrelated same-section term import: "
+        "`us:statutes/26/45A/b` overlaps same-section term `qualified_wages` "
+        "defined or deferred in `statutes/26/3134/c.yaml`. Import the "
+        "same-section output or defer the dependent output instead of using an "
+        "unrelated section's same-named concept."
+    ]
+
+
+def test_unrelated_same_section_term_import_rejects_exclusion_citation(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/3134"
+    section_root.mkdir(parents=True)
+    (section_root / "c.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definitions for section 3134.
+  deferred_outputs:
+    - output: us:statutes/26/3134/c#qualified_wages
+      reason: Needs calendar-quarter mechanics.
+rules: []
+"""
+    )
+    rules_file = section_root / "b.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account
+module:
+  summary: Qualified wages exclude wages taken into account under section 45A.
+rules:
+  - name: qualified_wages_taken_into_account_for_employee
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: min(10000, qualified_wages_and_health_costs_taken_into_account)
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_unrelated_same_section_term_imports(rules_file)
+
+    assert issues == [
+        "Unrelated same-section term import: "
+        "`us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account` "
+        "overlaps same-section term `qualified_wages` defined or deferred in "
+        "`statutes/26/3134/c.yaml`. Import the same-section output or defer the "
+        "dependent output instead of using an unrelated section's same-named concept."
+    ]
+
+
+def test_unrelated_same_section_term_import_allows_same_section_definition(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/3134"
+    section_root.mkdir(parents=True)
+    (section_root / "c.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definitions for section 3134.
+rules:
+  - name: qualified_wages
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: wages
+"""
+    )
+    rules_file = section_root / "b.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3134/c#qualified_wages
+module:
+  summary: Qualified wages with respect to any employee shall not exceed $10,000.
+rules:
+  - name: qualified_wages_taken_into_account_for_employee
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: min(10000, qualified_wages)
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_unrelated_same_section_term_imports(rules_file) == []
+
+
+def test_unrelated_same_section_term_import_allows_defined_cross_reference(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/3134"
+    section_root.mkdir(parents=True)
+    (section_root / "c.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definitions for section 3134.
+  deferred_outputs:
+    - output: us:statutes/26/3134/c#qualified_wages
+      reason: Needs calendar-quarter mechanics.
+rules: []
+"""
+    )
+    rules_file = section_root / "b.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/45A/b#qualified_wages_and_health_costs_taken_into_account
+module:
+  summary: Qualified wages have the meaning given by section 45A.
+rules:
+  - name: qualified_wages_taken_into_account_for_employee
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: min(10000, qualified_wages_and_health_costs_taken_into_account)
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_unrelated_same_section_term_imports(rules_file) == []
+
+
+def test_unrelated_same_section_term_import_allows_narrower_cross_reference_credit(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/3134"
+    section_root.mkdir(parents=True)
+    (section_root / "c.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definitions for section 3134.
+  deferred_outputs:
+    - output: us:statutes/26/3134/c#qualified_wages
+      reason: Needs calendar-quarter mechanics.
+rules: []
+"""
+    )
+    rules_file = section_root / "b.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3131/e#qualified_sick_leave_wages_credit_with_collectively_bargained_contributions_increase
+module:
+  summary: Applicable employment taxes are reduced by credits allowed under sections 3131 and 3132.
+rules:
+  - name: employment_tax_limit_for_credit
+    kind: derived
+    entity: Employer
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2021-01-01'
+        formula: max(0, applicable_employment_taxes - qualified_sick_leave_wages_credit_with_collectively_bargained_contributions_increase)
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_unrelated_same_section_term_imports(rules_file) == []
+
+
 def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
     monkeypatch, tmp_path
 ):

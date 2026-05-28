@@ -11653,6 +11653,53 @@ def _normalize_identifier(value: str) -> str:
     return re.sub(r"_+", "_", normalized).strip("_")
 
 
+_SAME_SECTION_TERM_STOPWORDS = frozenset(
+    {
+        "amount",
+        "amounts",
+        "and",
+        "applicable",
+        "base",
+        "cap",
+        "component",
+        "credit",
+        "credits",
+        "for",
+        "in",
+        "limit",
+        "limitation",
+        "of",
+        "or",
+        "rate",
+        "section",
+        "tax",
+        "taxes",
+        "the",
+        "to",
+        "under",
+    }
+)
+
+
+def _same_section_term_is_specific(identifier: str) -> bool:
+    """Return whether a symbol is specific enough to guard against drift."""
+    tokens = [
+        token
+        for token in _normalize_identifier(identifier).split("_")
+        if token and token not in _SAME_SECTION_TERM_STOPWORDS
+    ]
+    return len(tokens) >= 2
+
+
+def _identifier_phrase_occurs(term: str, identifier: str) -> bool:
+    """Return whether `term` appears as an underscore-delimited phrase."""
+    normalized_term = _normalize_identifier(term)
+    normalized_identifier = _normalize_identifier(identifier)
+    if not normalized_term or not normalized_identifier:
+        return False
+    return f"_{normalized_term}_" in f"_{normalized_identifier}_"
+
+
 def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
     """Return whether an imported rate file also encodes limited rate mechanics."""
     if rate_name not in _formula_local_identifiers(content):
@@ -15467,6 +15514,7 @@ class ValidatorPipeline:
         issues.extend(self._check_cross_reference_exception_placeholders(rules_file))
         issues.extend(self._check_encoded_cross_reference_placeholders(rules_file))
         issues.extend(self._check_cross_reference_numeric_placeholders(rules_file))
+        issues.extend(self._check_unrelated_same_section_term_imports(rules_file))
         issues.extend(self._check_flattened_thresholded_imported_rates(rules_file))
         issues.extend(self._check_unapplied_cross_reference_base_mechanics(rules_file))
         issues.extend(
@@ -16211,6 +16259,298 @@ class ValidatorPipeline:
                     "the rate as a flat percentage."
                 )
         return issues
+
+    def _check_unrelated_same_section_term_imports(
+        self,
+        rulespec_file: Path,
+    ) -> list[str]:
+        """Reject imports that substitute an unrelated same-named section term.
+
+        A common failure mode is importing another credit's `qualified_wages_*`
+        output because the words match, even though the current section already
+        defines or defers its own `qualified_wages`. In that case the generated
+        artifact should import the same-section definition or defer, not borrow
+        a same-named concept from an unrelated section.
+        """
+        content = rulespec_file.read_text()
+        source_root = self._validation_source_root(rulespec_file)
+        relative_info = self._rulespec_relative_parts_and_root(
+            rulespec_file,
+            source_root=source_root,
+        )
+        if relative_info is None:
+            return []
+        relative_parts, rulespec_root = relative_info
+        if len(relative_parts) < 4 or relative_parts[0] != "statutes":
+            return []
+
+        current_section_parts = relative_parts[:3]
+        same_section_terms: dict[str, Path] = {}
+        for (
+            section_source_root,
+            current_section_root,
+        ) in self._same_section_candidate_roots(
+            current_section_parts,
+            rulespec_root=rulespec_root,
+        ):
+            for term, term_file in self._same_section_output_terms(
+                current_section_root=current_section_root,
+                current_file=rulespec_file,
+                source_root=section_source_root,
+            ).items():
+                same_section_terms.setdefault(term, term_file)
+        if not same_section_terms:
+            return []
+
+        source_text = extract_embedded_source_text(content)
+        formula_identifiers = self._rulespec_formula_identifiers(content)
+        issues: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        for import_item in self._extract_import_items(content):
+            import_parts = self._normalized_import_parts(import_item)
+            if len(import_parts) < 3 or import_parts[0] != "statutes":
+                continue
+            if import_parts[:3] == current_section_parts:
+                continue
+
+            imported_section = import_parts[2]
+            imported_symbols = self._imported_symbols_for_same_section_term_check(
+                import_item,
+                rulespec_file=rulespec_file,
+                formula_identifiers=formula_identifiers,
+            )
+            for local_term, local_file in same_section_terms.items():
+                overlapping_symbols = [
+                    symbol
+                    for symbol in imported_symbols
+                    if _identifier_phrase_occurs(local_term, symbol)
+                ]
+                if not overlapping_symbols:
+                    continue
+                if self._source_summary_cites_import_for_term(
+                    source_text,
+                    section=imported_section,
+                    term=local_term,
+                ):
+                    continue
+                key = (import_item, local_term)
+                if key in seen:
+                    continue
+                seen.add(key)
+                relative_local = self._rulespec_relative_display_path(
+                    local_file,
+                    rulespec_root,
+                    source_root,
+                    self.policy_repo_path,
+                )
+                issues.append(
+                    "Unrelated same-section term import: "
+                    f"`{import_item}` overlaps same-section term `{local_term}` "
+                    f"defined or deferred in `{relative_local}`. Import the "
+                    "same-section output or defer the dependent output instead "
+                    "of using an unrelated section's same-named concept."
+                )
+        return issues
+
+    def _rulespec_formula_identifiers(self, content: str) -> set[str]:
+        identifiers: set[str] = set()
+        for block in self._extract_definition_blocks(content):
+            formula = "\n".join(str(line) for line in block["body_lines"])
+            identifiers.update(_formula_local_identifiers(formula))
+        return identifiers
+
+    def _imported_symbols_for_same_section_term_check(
+        self,
+        import_item: str,
+        *,
+        rulespec_file: Path,
+        formula_identifiers: set[str],
+    ) -> list[str]:
+        fragment = self._import_item_fragment(import_item)
+        if fragment:
+            return [fragment]
+
+        import_file = _resolve_rulespec_import_file_static(
+            import_item,
+            rules_file=rulespec_file,
+            policy_repo_path=self.policy_repo_path,
+        )
+        if import_file is None:
+            return []
+        try:
+            imported_content = import_file.read_text()
+        except OSError:
+            return []
+
+        symbols = [
+            *self._extract_defined_symbols(imported_content),
+            *self._extract_deferred_output_symbols(imported_content),
+        ]
+        return [
+            symbol
+            for symbol in symbols
+            if symbol in formula_identifiers
+            or _normalize_identifier(symbol) in formula_identifiers
+        ]
+
+    def _rulespec_relative_parts_and_root(
+        self,
+        rulespec_file: Path,
+        *,
+        source_root: Path,
+    ) -> tuple[tuple[str, ...], Path] | None:
+        resolved = rulespec_file.resolve()
+        source_root_resolved = source_root.resolve()
+        with contextlib.suppress(ValueError):
+            relative = resolved.relative_to(source_root_resolved)
+            if relative.parts and relative.parts[0] == "statutes":
+                return tuple(relative.parts), source_root
+
+        parts = resolved.parts
+        for index in range(len(parts) - 1, -1, -1):
+            if parts[index] != "statutes":
+                continue
+            relative_parts = tuple(parts[index:])
+            if len(relative_parts) < 4:
+                continue
+            return relative_parts, Path(*parts[:index])
+        return None
+
+    def _same_section_candidate_roots(
+        self,
+        current_section_parts: tuple[str, ...],
+        *,
+        rulespec_root: Path,
+    ) -> list[tuple[Path, Path]]:
+        candidates: list[tuple[Path, Path]] = []
+        seen: set[Path] = set()
+        for source_root in (rulespec_root, self.policy_repo_path):
+            section_root = source_root.joinpath(*current_section_parts)
+            if not section_root.is_dir():
+                continue
+            resolved = section_root.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            candidates.append((source_root, section_root))
+        return candidates
+
+    def _same_section_output_terms(
+        self,
+        *,
+        current_section_root: Path,
+        current_file: Path,
+        source_root: Path,
+    ) -> dict[str, Path]:
+        terms: dict[str, Path] = {}
+        for candidate_file in sorted(current_section_root.rglob("*.yaml")):
+            if candidate_file.name.endswith(".test.yaml"):
+                continue
+            if candidate_file.resolve() == current_file.resolve():
+                continue
+            try:
+                content = candidate_file.read_text()
+            except OSError:
+                continue
+            for symbol in (
+                *self._extract_defined_symbols(content),
+                *self._extract_deferred_output_symbols(content),
+            ):
+                term = _normalize_identifier(symbol)
+                if not _same_section_term_is_specific(term):
+                    continue
+                terms.setdefault(term, candidate_file)
+        return terms
+
+    def _rulespec_relative_display_path(self, path: Path, *roots: Path) -> str:
+        resolved = path.resolve()
+        for root in roots:
+            with contextlib.suppress(ValueError):
+                return resolved.relative_to(root.resolve()).as_posix()
+        parts = resolved.parts
+        for index, part in enumerate(parts):
+            if part == "statutes":
+                return Path(*parts[index:]).as_posix()
+        return path.as_posix()
+
+    def _extract_deferred_output_symbols(self, content: str) -> list[str]:
+        try:
+            payload = yaml.safe_load(content)
+        except (yaml.YAMLError, ValueError, TypeError):
+            return []
+        if not isinstance(payload, dict):
+            return []
+        module = payload.get("module")
+        if not isinstance(module, dict):
+            return []
+        deferred_outputs = module.get("deferred_outputs")
+        if not isinstance(deferred_outputs, list):
+            return []
+        symbols: list[str] = []
+        for item in deferred_outputs:
+            output = None
+            if isinstance(item, dict):
+                output = item.get("output")
+            elif isinstance(item, str):
+                output = item
+            if not isinstance(output, str):
+                continue
+            fragment = output.split("#", 1)[1] if "#" in output else output
+            fragment = fragment.strip()
+            if fragment:
+                symbols.append(fragment)
+        return symbols
+
+    def _normalized_import_parts(self, import_item: str) -> tuple[str, ...]:
+        normalized = self._normalize_rulespec_import_path(import_item)
+        parts = tuple(Path(normalized).with_suffix("").parts)
+        if parts and parts[0] == "statutes":
+            return parts
+        if len(parts) >= 2 and re.fullmatch(r"[0-9A-Za-z.-]+", parts[0]):
+            return ("statutes", *parts)
+        return parts
+
+    def _source_summary_cites_import_for_term(
+        self,
+        source_text: str,
+        *,
+        section: str,
+        term: str,
+    ) -> bool:
+        if not source_text.strip():
+            return False
+        term_phrase = term.replace("_", r"\s+")
+        section_phrase = rf"(?:section|sections)\s+{re.escape(section)}\b"
+        citation_pattern = re.compile(
+            rf"{term_phrase}.{{0,120}}{section_phrase}|"
+            rf"{section_phrase}.{{0,120}}{term_phrase}",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        definitional_pattern = re.compile(
+            r"\b(?:"
+            r"as\s+defined|defined\s+(?:in|under|by)|"
+            r"meaning\s+(?:given|provided)|same\s+meaning|"
+            r"determined\s+(?:under|by|in|with\s+reference\s+to)|"
+            r"computed\s+(?:under|by)|calculated\s+(?:under|by)"
+            r")\b",
+            flags=re.IGNORECASE,
+        )
+        exclusion_pattern = re.compile(
+            r"\b(?:"
+            r"coordination|double\s+benefit|disallow(?:ed|ance)?|"
+            r"exclud(?:e|es|ed|ing)|except|not\s+taken|offset|"
+            r"reduc(?:e|es|ed|ing|tion)|shall\s+not|"
+            r"taken\s+into\s+account\s+under|without"
+            r")\b",
+            flags=re.IGNORECASE,
+        )
+        for match in citation_pattern.finditer(source_text):
+            window = match.group(0)
+            if exclusion_pattern.search(window):
+                continue
+            if definitional_pattern.search(window):
+                return True
+        return False
 
     def _check_unapplied_cross_reference_base_mechanics(
         self,
