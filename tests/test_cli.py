@@ -131,8 +131,27 @@ def test_package_version_metadata_matches_pyproject():
     pyproject = tomllib.loads(
         (Path(__file__).parents[1] / "pyproject.toml").read_text()
     )
+    lockfile = tomllib.loads((Path(__file__).parents[1] / "uv.lock").read_text())
+    lock_version = next(
+        package["version"]
+        for package in lockfile["package"]
+        if package["name"] == "axiom-encode"
+    )
 
     assert pyproject["project"]["version"] == AXIOM_ENCODE_TEST_VERSION
+    assert lock_version == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_current_encoder_affecting_changes_are_behind_version_bump():
+    repo = Path(__file__).parents[1]
+    try:
+        _git(repo, "rev-parse", "--is-inside-work-tree")
+    except subprocess.CalledProcessError:
+        pytest.skip("version provenance check requires a git checkout")
+
+    provenance = _require_axiom_encode_version_provenance(repo)
+
+    assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
 
 
 def _signed_manifest_payload(payload: dict) -> dict:
@@ -3266,6 +3285,40 @@ class TestCmdEncode:
         _write_test_encoder_source(repo, "unversioned guard")
         _git(repo, "add", "src/axiom_encode/prompts/encoder.py")
         _git(repo, "commit", "-m", "Change encoder without version")
+
+        with pytest.raises(RuntimeError, match="encoder-affecting files changed"):
+            _require_axiom_encode_version_provenance(repo)
+
+    def test_apply_version_provenance_rejects_stale_lockfile(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        _init_test_git_repo(repo)
+        _write_test_encoder_version(repo, "0.2.68")
+        _write_test_encoder_source(repo, "old guard")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "Initial encoder version")
+
+        _write_test_encoder_version(repo, AXIOM_ENCODE_TEST_VERSION)
+        (repo / "uv.lock").write_text(
+            '[[package]]\nname = "axiom-encode"\nversion = "0.2.68"\n'
+        )
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "Leave lockfile stale")
+
+        with pytest.raises(RuntimeError, match="lock=0.2.68"):
+            _require_axiom_encode_version_provenance(repo)
+
+    def test_apply_version_provenance_rejects_version_downgrade(self, tmp_path):
+        repo = tmp_path / "axiom-encode"
+        _init_test_git_repo(repo)
+        _write_test_encoder_version(repo, "99.0.0")
+        _write_test_encoder_source(repo, "future guard")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "Initial future encoder version")
+
+        _write_test_encoder_version(repo, AXIOM_ENCODE_TEST_VERSION)
+        _write_test_encoder_source(repo, "downgraded guard")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "Downgrade encoder version")
 
         with pytest.raises(RuntimeError, match="encoder-affecting files changed"):
             _require_axiom_encode_version_provenance(repo)

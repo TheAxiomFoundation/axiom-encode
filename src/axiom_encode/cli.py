@@ -10639,6 +10639,7 @@ def _git_repo_provenance(path: Path) -> dict[str, object] | None:
 _AXIOM_ENCODE_VERSION_FILES = (
     "pyproject.toml",
     "src/axiom_encode/__init__.py",
+    "uv.lock",
 )
 _AXIOM_ENCODE_VERSIONED_PREFIXES = ("src/axiom_encode/",)
 _AXIOM_ENCODE_VERSIONED_FILES = {
@@ -10655,17 +10656,23 @@ def _require_axiom_encode_version_provenance(
     current_versions = _axiom_encode_versions_at_ref(repo, "HEAD")
     pyproject_version = current_versions.get("pyproject")
     package_version = current_versions.get("package")
-    if not pyproject_version or not package_version:
+    lock_version = current_versions.get("lock")
+    if not pyproject_version or not package_version or not lock_version:
         raise RuntimeError(
             "Cannot apply generated RuleSpec: axiom-encode version metadata is "
-            "incomplete; pyproject.toml and src/axiom_encode/__init__.py must "
-            "both declare the encoder version."
+            "incomplete; pyproject.toml, src/axiom_encode/__init__.py, and "
+            "uv.lock must declare the encoder version."
         )
-    if pyproject_version != package_version or pyproject_version != __version__:
+    if (
+        pyproject_version != package_version
+        or pyproject_version != lock_version
+        or pyproject_version != __version__
+    ):
         raise RuntimeError(
             "Cannot apply generated RuleSpec: axiom-encode version metadata is "
             f"inconsistent (pyproject={pyproject_version}, "
-            f"package={package_version}, runtime={__version__})."
+            f"package={package_version}, lock={lock_version}, "
+            f"runtime={__version__})."
         )
 
     version_commit = _latest_axiom_encode_version_commit(repo)
@@ -10718,9 +10725,33 @@ def _latest_axiom_encode_version_commit(repo: Path) -> str | None:
         if parent is None:
             return commit
         previous = _axiom_encode_versions_at_ref(repo, parent)
-        if current != previous:
+        if _axiom_encode_version_increased(current, previous):
             return commit
     return None
+
+
+def _axiom_encode_version_increased(
+    current: dict[str, str | None],
+    previous: dict[str, str | None],
+) -> bool:
+    current_version = current.get("pyproject")
+    previous_version = previous.get("pyproject")
+    if not current_version:
+        return False
+    if not previous_version:
+        return True
+    current_key = _parse_numeric_version(current_version)
+    previous_key = _parse_numeric_version(previous_version)
+    if current_key is None or previous_key is None:
+        return current_version > previous_version
+    return current_key > previous_key
+
+
+def _parse_numeric_version(version: str) -> tuple[int, ...] | None:
+    parts = version.split(".")
+    if not parts or any(not re.fullmatch(r"\d+", part) for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
 
 
 def _git_first_parent(repo: Path, commit: str) -> str | None:
@@ -10745,6 +10776,7 @@ def _axiom_encode_versions_at_ref(repo: Path, ref: str) -> dict[str, str | None]
         "package": _extract_package_init_version(
             _git_show_text(repo, ref, "src/axiom_encode/__init__.py") or ""
         ),
+        "lock": _extract_uv_lock_version(_git_show_text(repo, ref, "uv.lock") or ""),
     }
 
 
@@ -10782,6 +10814,14 @@ def _extract_pyproject_version(content: str) -> str | None:
 def _extract_package_init_version(content: str) -> str | None:
     match = re.search(r'(?m)^__version__\s*=\s*"([^"]+)"\s*$', content)
     return match.group(1) if match else None
+
+
+def _extract_uv_lock_version(content: str) -> str | None:
+    package_block = re.search(
+        r'(?ms)^\[\[package\]\]\s*^name\s*=\s*"axiom-encode"\s*^version\s*=\s*"([^"]+)"',
+        content,
+    )
+    return package_block.group(1) if package_block else None
 
 
 def _is_axiom_encode_versioned_path(path: str) -> bool:
