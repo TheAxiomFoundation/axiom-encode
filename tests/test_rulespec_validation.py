@@ -12725,6 +12725,99 @@ rules:
     assert find_tax_filing_status_surviving_spouse_issues(content) == []
 
 
+def test_filing_status_branch_rejects_surviving_spouse_for_joint_only_any_other_case():
+    content = """format: rulespec/v1
+module:
+  summary: The threshold is $250,000 in the case of a joint return and $200,000 in any other case.
+rules:
+  - name: additional_medicare_wage_tax_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 3101(b)(2)(A)-(C)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => joint_threshold
+              4 => joint_threshold
+              2 => separate_threshold
+              3 => other_threshold
+              0 => other_threshold
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any(
+        "incorrectly treats surviving spouse as joint return" in issue
+        for issue in issues
+    )
+
+
+def test_filing_status_branch_uses_subparagraph_range_source_context():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (a) Old-age, survivors, and disability insurance.
+    (b) Hospital insurance (1) In general. (2) Additional tax
+    The tax applies to wages which are in excess of--
+    (A) in the case of a joint return, $250,000,
+    (B) in the case of a married taxpayer filing a separate return, one-half
+    of the dollar amount determined under subparagraph (A), and
+    (C) in any other case, $200,000.
+    (c) Relief from taxes.
+rules:
+  - name: additional_medicare_wage_tax_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 3101(b)(2)(A)-(C)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => joint_threshold
+              4 => joint_threshold
+              2 => separate_threshold
+              3 => other_threshold
+              0 => other_threshold
+"""
+
+    issues = find_tax_filing_status_surviving_spouse_issues(content)
+
+    assert any(
+        "incorrectly treats surviving spouse as joint return" in issue
+        for issue in issues
+    )
+
+
+def test_filing_status_branch_allows_surviving_spouse_as_other_case_for_joint_only():
+    content = """format: rulespec/v1
+module:
+  summary: The threshold is $250,000 in the case of a joint return and $200,000 in any other case.
+rules:
+  - name: additional_medicare_wage_tax_threshold
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 3101(b)(2)(A)-(C)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match filing_status:
+              1 => joint_threshold
+              4 => other_threshold
+              2 => separate_threshold
+              3 => other_threshold
+              0 => other_threshold
+"""
+
+    assert find_tax_filing_status_surviving_spouse_issues(content) == []
+
+
 def test_filing_status_branch_rejects_unrelated_surviving_spouse_code():
     content = """format: rulespec/v1
 module:
