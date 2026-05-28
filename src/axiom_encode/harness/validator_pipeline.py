@@ -5981,10 +5981,12 @@ def _module_source_is_us_tax_code(payload: dict[str, Any]) -> bool:
     """
     module = payload.get("module") if isinstance(payload, dict) else None
     if not isinstance(module, dict):
-        return False
+        # No module block: legacy/test content; run the validator
+        # unconditionally to preserve historical behavior.
+        return True
     sv = module.get("source_verification")
     if not isinstance(sv, dict):
-        return False
+        return True
     paths: list[str] = []
     single = sv.get("corpus_citation_path")
     if isinstance(single, str):
@@ -5992,7 +5994,22 @@ def _module_source_is_us_tax_code(payload: dict[str, Any]) -> bool:
     plural = sv.get("corpus_citation_paths")
     if isinstance(plural, list):
         paths.extend(p for p in plural if isinstance(p, str))
-    return any(path.strip().startswith("us/statute/26/") for path in paths)
+    if not paths:
+        return True
+    return any(_is_us_tax_code_path(path) for path in paths)
+
+
+def _is_us_tax_code_path(path: str) -> bool:
+    """True for paths anchored in U.S. tax-code material (IRC + Treasury regs
+    + IRS guidance). Excludes SNAP (Title 7), labor (Title 29), SSA, USDA,
+    and other non-tax titles where overlapping vocabulary like \"surviving
+    spouse\" appears in unrelated legal senses."""
+    p = path.strip().lower()
+    return (
+        p.startswith("us/statute/26/")
+        or p.startswith("us/regulation/26/")
+        or p.startswith("us/guidance/irs/")
+    )
 
 
 def _source_context_allows_local_tax_status_component(
