@@ -11819,6 +11819,47 @@ rules: []
     assert any("7 USC 2012(b)" in i for i in issues)
 
 
+def test_source_subparagraph_coverage_accepts_human_readable_requested_source():
+    """When the eval workspace writes requested_source in human form
+    ('7 USC 2014(c)') rather than corpus-path form ('us/statute/7/2014/c'),
+    the validator must still recognize it and scope subparagraph coverage to
+    the requested fragment. Surfaced live on 7 USC 2014(c) encode 2026-05-28:
+    workspace stored requested_source as the human form, scope function did
+    not match, and all six sibling subparagraphs were flagged as missing.
+    """
+    source_text = """Eligibility disqualifications
+(a) Income standards. Households with income above thresholds are ineligible.
+(c) Gross income standard. Adjusted October 1 each year.
+(d) Exclusions from income.
+(g) Allowable financial resources.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2014
+  summary: Gross and net income standards under 7 USC 2014(c).
+rules:
+  - name: snap_net_income_exceeds_income_standard
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: 7 USC 2014(c)
+    versions:
+      - effective_from: '2008-10-01'
+        formula: "snap_net_income > applicable_poverty_line"
+"""
+
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={"us/statute/7/2014": source_text},
+        requested_source="7 USC 2014(c)",
+    )
+    assert issues == [], (
+        f"Validator should scope to (c) but flagged out-of-scope siblings: {issues}"
+    )
+
+
 def test_source_subparagraph_coverage_matches_irc_section_citation(tmp_path):
     source_text = """Standard deduction
 (a) Rule for taxable years.
