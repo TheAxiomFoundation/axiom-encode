@@ -41,18 +41,6 @@ mappings:
     comparison: money
     rationale: Same SNAP net income output.
 
-  - legal_id_prefix: us:statutes/7/2014/a#
-    country: us
-    program: snap
-    mapping_type: not_comparable
-    rationale: Section 2014(a) categorical-eligibility sub-predicates (income/categorical-benefit basis, IV-A/SSI/general assistance criteria) are intermediate composites; PolicyEngine exposes only the final snap_eligible decision, not the sub-clause that qualified the household.
-
-  - legal_id_prefix: us:statutes/7/2014/d#
-    country: us
-    program: snap
-    mapping_type: not_comparable
-    rationale: Section 2014(d) income-exclusion intermediates (irregular income exclusion, student-child earned income exclusion, age limit and quarter cap thresholds) are internal computation steps inside PolicyEngine's snap_countable_earned_income / snap_countable_unearned_income aggregations; no one-to-one PE variable.
-
   - legal_id: us:statutes/7/2014/e/2/B#snap_earned_income_deduction_rate
     country: us
     program: snap
@@ -61,12 +49,6 @@ mappings:
     period: month
     comparison: rate
     rationale: Same federal SNAP earned-income deduction rate at the (e)(2)(B) anchor.
-
-  - legal_id_prefix: us:statutes/7/2014/g#
-    country: us
-    program: snap
-    mapping_type: not_comparable
-    rationale: Section 2014(g) resource-test intermediates (vehicle countable amount, fair-market-value threshold, indexed base-amount components, rounding increments) are internal pieces of PolicyEngine's asset-limit aggregation; PE exposes the final snap_assets and snap_asset_limit but not these per-vehicle and base-amount computation steps.
 
   - legal_id: us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction
     country: us
@@ -11187,3 +11169,21 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 911(d)(6) double-benefit-denial outputs are foreign-income exclusion predicates and disallowance intermediates not exposed as one-to-one PolicyEngine variables.
+
+  - legal_id_prefix: us:statutes/7/2014/a#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Section 2014(a) categorical-eligibility sub-predicates (income/categorical-benefit basis, IV-A/SSI/general assistance criteria) are intermediate composites; PolicyEngine exposes only the final snap_eligible decision, not the sub-clause that qualified the household.
+
+  - legal_id_prefix: us:statutes/7/2014/d#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Section 2014(d) income-exclusion intermediates (irregular income exclusion, student-child earned income exclusion, age limit and quarter cap thresholds) are internal computation steps inside PolicyEngine's snap_countable_earned_income / snap_countable_unearned_income aggregations; no one-to-one PE variable.
+
+  - legal_id_prefix: us:statutes/7/2014/g#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Section 2014(g) resource-test intermediates (vehicle countable amount, fair-market-value threshold, indexed base-amount components, rounding increments) are internal pieces of PolicyEngine's asset-limit aggregation; PE exposes the final snap_assets and snap_asset_limit but not these per-vehicle and base-amount computation steps.
