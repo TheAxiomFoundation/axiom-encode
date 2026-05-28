@@ -10479,6 +10479,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3404 authorizes officers or employees of governmental employers to make returns of chapter 24 withheld wage amounts; PolicyEngine computes annual tax outcomes, not this return-filing delegation surface as a one-to-one output.
 
+  - legal_id_prefix: us:statutes/26/3405/b#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3405(b) sets payment-level withholding and election-scope rules for nonperiodic pension and annuity distributions; PolicyEngine computes annual tax outcomes and pension income, not this distribution withholding administration surface as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
     program: tax
