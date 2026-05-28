@@ -9993,6 +9993,30 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3111(f) defines section 41(h) research-credit offsets against employer OASDI and Medicare taxes, quarterly payroll-tax limitations, carryovers, and chapter 1 deduction coordination; PolicyEngine does not expose these employer payroll-credit allocation and carryover surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3131
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3131 defines temporary COVID qualified sick leave employer credits against applicable employment taxes; PolicyEngine computes regular payroll taxes from wages and does not expose these employer paid-leave credit surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3132
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3132 defines temporary COVID qualified family leave employer credits against applicable employment taxes; PolicyEngine computes regular payroll taxes from wages and does not expose these employer paid-leave credit surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3133
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3133 increases temporary COVID paid-leave credits by employer payroll taxes on qualified leave wages; PolicyEngine computes regular payroll taxes from wages and does not expose these credit-increase surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3134
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3134 defines the temporary COVID employee retention credit against applicable employment taxes; PolicyEngine computes regular payroll taxes from wages and does not expose this employer retention-credit surface as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3202#
     country: us
     program: tax

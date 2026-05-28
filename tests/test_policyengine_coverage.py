@@ -4530,6 +4530,37 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3131_paid_leave_credit_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3131/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: qualified_sick_leave_wages_credit_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1
+  - name: qualified_sick_leave_wages_credit_against_applicable_employment_taxes
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_sick_leave_wages_credit_rate * qualified_sick_leave_wages
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "employer paid-leave credit surfaces" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3509_misclassification_liability_outputs(
     tmp_path,
 ):
