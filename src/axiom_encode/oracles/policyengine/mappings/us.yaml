@@ -10355,6 +10355,34 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3302(f) defines State-specific limitation and partial-limitation rules for subsection (c)(2) credit reductions, including benefit-cost ratios, State unemployment tax rates, and intermediate capped reduction amounts; PolicyEngine exposes final employer FUTA tax, not these statutory credit-reduction limitation components separately.
 
+  - legal_id_prefix: us:statutes/26/3303#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3303 defines State-law reduced-rate standards, unemployment-fund account definitions, Secretary-of-Labor certification conditions, voluntary-contribution permissions, nonprofit reimbursement elections, and employer-fault noncharging predicates for FUTA additional-credit administration; PolicyEngine exposes final FUTA tax assumptions, not these State-law account and certification intermediates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3304#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3304 defines State-law approval requirements and institutional legal-status predicates for unemployment-compensation administration; PolicyEngine exposes final FUTA tax assumptions, not these State-law approval and institution-definition outputs as one-to-one variables or parameters.
+
+  - legal_id_prefix: us:statutes/26/3305#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3305 preserves State unemployment-law compliance duties against interstate-commerce and federal-property objections and denies section 3302 credits after Labor certification failures; PolicyEngine exposes final FUTA tax assumptions, not these State-law compliance and administrative credit-denial predicates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3309#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Section 3309 defines services covered for State unemployment-compensation purposes, source-specific exceptions, organization employee-count thresholds, and tribal delinquency predicates; PolicyEngine exposes final FUTA taxable earnings and tax assumptions, not these source-specific coverage thresholds and legal predicates as one-to-one outputs.
+
   - legal_id_prefix: us:statutes/26/3402/f#
     country: us
     program: tax
@@ -10390,6 +10418,66 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 3402(k) applies chapter 24 withholding mechanics to tips, limits deduction and withholding to employer-controlled wages and employee-turned-over funds after section 3102(a) or 3202(a) collections, and allows special low-monthly-tip withholding for section 3401(a)(16)(B) tips; PolicyEngine does not expose paycheck tip-withholding administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/l#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(l) determines and discloses marital status for chapter 24 withholding certificates and paycheck withholding tables; PolicyEngine computes annual tax outcomes, not these employer certificate, marital-status disclosure, or withholding-table administration predicates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/m#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(m) authorizes additional withholding allowances or reductions under Secretary-prescribed regulations and related certificate administration; PolicyEngine computes annual tax outcomes, not paycheck withholding allowance or reduction entitlement predicates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/n#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(n) exempts qualifying wage payments from chapter 24 withholding when an employee withholding certificate certifies no prior-year income tax liability and anticipated no current-year income tax liability; PolicyEngine computes annual tax outcomes, not paycheck withholding-certificate exception predicates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/o#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(o) extends chapter 24 paycheck withholding treatment to supplemental unemployment compensation, requested annuity withholding, requested non-wage sick pay, and related request or collective-bargaining administration rules; PolicyEngine computes annual tax outcomes, not these payment-level withholding-administration predicates or request amount intermediates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/p#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(p) provides voluntary chapter 24 withholding rules for specified Federal payments, unemployment compensation, and other agreed non-wage payments; PolicyEngine computes annual tax outcomes, not these payment-level voluntary withholding request predicates, rates, and amount intermediates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/q#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(q) extends chapter 24 withholding administration to certain gambling winnings, including wager-proceeds thresholds, 300-to-1 ratio tests, gambling-category predicates, and coordination/exemption rules; PolicyEngine computes annual income tax outcomes, not these payment-level gambling withholding administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/r#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(r) extends chapter 24 withholding administration to certain taxable payments of Indian casino profits, including payment-source predicates, annualized-payment exceptions, annualized tax, alternate Secretary procedures, and wage-treatment rules; PolicyEngine computes annual income tax outcomes, not these payment-level withholding administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/s#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(s) governs employer elections not to withhold chapter 24 tax on vehicle fringe benefits, section 6051 wage-statement treatment, and the vehicle fringe benefit definition; PolicyEngine computes annual tax outcomes, not these employer paycheck withholding and reporting administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3402/t#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3402(t) sets withholding-rate floor and noncash fringe-benefit treatment rules for qualified stock with section 83(i) elections; PolicyEngine computes annual income tax outcomes, not this stock-specific withholding administration surface as a one-to-one output.
+
+  - legal_id_prefix: us:statutes/26/3404#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3404 authorizes officers or employees of governmental employers to make returns of chapter 24 withheld wage amounts; PolicyEngine computes annual tax outcomes, not this return-filing delegation surface as a one-to-one output.
 
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us
@@ -10582,6 +10670,34 @@ prefixes:
     policyengine_variable: employer_federal_unemployment_tax
     candidate_priority: P4
     rationale: Section 3306(g) defines payment-level State-law unemployment fund contributions for chapter 23 credit calculations; PolicyEngine exposes final employer FUTA tax, not these State contribution amounts separately.
+
+  - legal_id_prefix: us:statutes/26/3307#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3307 treats employee-remuneration deductions remitted to government as paid to the employee for chapter 23; PolicyEngine exposes final FUTA taxable earnings, not this payment-level paid-to-employee deeming rule separately.
+
+  - legal_id_prefix: us:statutes/26/3308#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: employer_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3308 limits United States instrumentality exemptions from section 3301 FUTA tax unless another law specifically references section 3301 or prior law; PolicyEngine exposes final employer FUTA tax, not this legal exemption-preclusion predicate separately.
+
+  - legal_id_prefix: us:statutes/26/3310#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3310 sets procedural deadlines and stays for State judicial review of Secretary of Labor certification actions; PolicyEngine does not expose these FUTA administration timing rules as tax calculation outputs.
+
+  - legal_id_prefix: us:statutes/26/3311#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3311 is the Federal Unemployment Tax Act short-title provision; PolicyEngine does not expose statutory chapter citation titles as one-to-one tax calculation outputs.
 
   - legal_id_prefix: us:statutes/26/3121/a/10#
     country: us

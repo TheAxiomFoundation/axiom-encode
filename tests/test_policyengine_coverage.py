@@ -2754,6 +2754,319 @@ rules:
     assert item["policyengine_variable"] == "employer_federal_unemployment_tax"
 
 
+def test_policyengine_coverage_classifies_3307_deduction_payment_treatment(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3307.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3307
+rules:
+  - name: remuneration_deduction_payment_treatment_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_required_to_deduct and amount_paid_to_government
+  - name: remuneration_deduction_considered_paid_to_employee_for_chapter
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if remuneration_deduction_payment_treatment_applies: amount_deducted else: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
+def test_policyengine_coverage_classifies_3308_instrumentality_exemption(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3308.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3308
+rules:
+  - name: other_law_specific_section_3301_exemption_requirement_met
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: section_3301_specific_exemption or prior_law_specific_exemption
+  - name: united_states_instrumentality_section_3301_tax_exemption_precluded
+    kind: derived
+    entity: Employer
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          employer_is_instrumentality_of_united_states
+          and general_instrumentality_tax_exemption
+          and not other_law_specific_section_3301_exemption_requirement_met
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "employer_federal_unemployment_tax"
+    }
+
+
+def test_policyengine_coverage_classifies_3311_short_title_output(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3311.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3311
+rules:
+  - name: federal_unemployment_tax_act_short_title
+    kind: parameter
+    dtype: String
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '"Federal Unemployment Tax Act"'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us:statutes/26/3311#federal_unemployment_tax_act_short_title"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "short-title" in item["rationale"]
+
+
+def test_policyengine_coverage_classifies_3310_review_deadlines(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3310.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3310
+rules:
+  - name: state_petition_for_review_deadline_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '60'
+  - name: secretary_certification_withholding_notice_period_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '60'
+  - name: judicial_proceedings_stay_period_days
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '30'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all("timing rules" in item["rationale"] for item in report["items"])
+
+
+def test_policyengine_coverage_classifies_3303_state_reduced_rate_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3303.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3303
+rules:
+  - name: pooled_or_partially_pooled_minimum_experience_years
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '3'
+  - name: pooled_fund
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: unemployment_fund and all_contributions_are_mingled
+  - name: employer_account_not_relieved_due_to_fault_pattern
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_fault and pattern
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all("State-law" in item["rationale"] for item in report["items"])
+
+
+def test_policyengine_coverage_classifies_3304_state_law_approval_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3304.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3304
+rules:
+  - name: institution_of_higher_education
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: educational_institution and nonprofit
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == ("us:statutes/26/3304#institution_of_higher_education")
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "State-law approval" in item["rationale"]
+
+
+def test_policyengine_coverage_classifies_3305_state_law_compliance_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3305.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3305
+rules:
+  - name: state_unemployment_fund_payment_compliance_not_relieved_by_commerce_ground
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: required_to_pay and interstate_commerce
+  - name: state_unemployment_compensation_compliance_not_relieved_by_federal_property_services
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: subject_to_state_law and federal_property_services
+  - name: state_unemployment_contribution_credits_denied_for_permission_condition_failure
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: required_to_contribute and certified_failure
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all("State-law compliance" in item["rationale"] for item in report["items"])
+
+
+def test_policyengine_coverage_classifies_3309_coverage_predicate_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3309.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3309
+rules:
+  - name: policymaking_advisory_position_weekly_hours_limit
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 8
+  - name: election_official_worker_remuneration_annual_limit
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1000
+  - name: service_category_excludes_section_application
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: religious_service or inmate_service
+  - name: organization_has_minimum_employment_for_section_application
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: counted_days >= 20 and workers >= 4
+  - name: tribal_uncorrected_failure_prevents_governmental_service_exception
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tribal_delinquency and not corrected
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 5}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all("coverage thresholds" in item["rationale"] for item in report["items"])
+
+
 def test_policyengine_coverage_classifies_3301_gross_futa_tax(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3301.yaml",
@@ -3600,6 +3913,257 @@ rules:
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
+def test_policyengine_coverage_classifies_3402l_marital_status_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/l.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee_considered_not_married_for_married_certificate_disclosure
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: legally_separated or nonresident_alien_status
+  - name: employee_considered_married_after_current_year_spouse_death
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: spouse_died and not subparagraph_a_disqualified
+  - name: married_to_single_new_certificate_requirement_satisfied
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: not certificate_due or new_certificate_furnished
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402m_withholding_allowance_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/m.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employee_entitled_to_additional_withholding_adjustment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee and secretary_regulations_prescribe_adjustment
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402n_no_liability_certificate_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/n.yaml",
+        """format: rulespec/v1
+rules:
+  - name: employer_withholding_not_required_for_no_liability_certificate_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_is_wages and no_liability_certificate_in_effect
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402o_nonwage_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/o.yaml",
+        """format: rulespec/v1
+rules:
+  - name: supplemental_unemployment_compensation_benefit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: supplemental_unemployment_compensation_benefit_amount > 0
+  - name: request_specified_withholding_amount_for_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: requested_amount
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402p_voluntary_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/p.yaml",
+        """format: rulespec/v1
+rules:
+  - name: unemployment_compensation_voluntary_withholding_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.10
+  - name: specified_federal_payment_voluntary_withholding_amount
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_amount * requested_rate
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402q_gambling_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/q.yaml",
+        """format: rulespec/v1
+rules:
+  - name: withholding_winnings_proceeds_threshold
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 5000
+  - name: winnings_subject_to_withholding
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: wager_proceeds > withholding_winnings_proceeds_threshold
+  - name: payment_of_winnings_treated_as_wages_for_section_3403
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: winnings_subject_to_withholding
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402r_indian_casino_profit_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/r.yaml",
+        """format: rulespec/v1
+rules:
+  - name: indian_casino_profit_payment_withholding_predicate
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payer_makes_payment and payment_is_to_member_of_indian_tribe
+  - name: tax_to_deduct_and_withhold_from_indian_casino_profit_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_proportionate_share_of_annualized_tax
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402s_vehicle_fringe_benefit_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/s.yaml",
+        """format: rulespec/v1
+rules:
+  - name: vehicle_fringe_benefit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_is_fringe_benefit and fringe_benefit_constitutes_wages
+  - name: vehicle_fringe_benefit_treated_as_wages_for_section_6051
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: vehicle_fringe_benefit
+  - name: employer_vehicle_fringe_benefit_nonwithholding_election_available
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: vehicle_fringe_benefit and employee_notified_by_employer
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3402t_qualified_stock_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3402/t.yaml",
+        """format: rulespec/v1
+rules:
+  - name: qualified_stock_with_section_83_i_election
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: stock_is_qualified_stock and section_83_i_election_made
+  - name: section_1_maximum_rate_floor_applies_to_qualified_stock_with_section_83_i_election
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_stock_with_section_83_i_election
+  - name: qualified_stock_treated_as_noncash_fringe_benefit_for_section_3501_b
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_stock_with_section_83_i_election
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3403_withholding_liability(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3403.yaml",
@@ -3623,6 +4187,30 @@ rules:
     assert report["status_counts"] == {"known_not_comparable": 2}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3404_government_return_maker(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3404.yaml",
+        """format: rulespec/v1
+rules:
+  - name: government_employer_withholding_return_maker_authorized
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_is_officer_or_employee and person_has_control_of_wages
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    [item] = report["items"]
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
+    assert "return-filing delegation" in item["rationale"]
 
 
 def test_policyengine_coverage_classifies_3127_religious_exemption_outputs(

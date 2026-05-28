@@ -38,6 +38,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
     _person_scoped_definition_issue_names,
+    _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
     _repair_employer_scoped_entities,
@@ -3945,6 +3946,37 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_repair_deferred_output_double_hash_subsection_path(self, tmp_path):
+        output_file = tmp_path / "3303.yaml"
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3303
+  deferred_outputs:
+    - output: us:statutes/26/3303#b#secretary_certification
+      reason: Section 3304 is not available as copied context.
+rules:
+  - name: minimum_experience_rating_years
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: '3'
+"""
+        )
+
+        repaired = _qualify_deferred_output_subsection_paths(
+            rules_file=output_file,
+            base_anchor="us:statutes/26/3303",
+        )
+
+        assert repaired == ["us:statutes/26/3303/b#secretary_certification"]
+        payload = yaml.safe_load(output_file.read_text())
+        assert payload["module"]["deferred_outputs"][0]["output"] == (
+            "us:statutes/26/3303/b#secretary_certification"
+        )
+
     def test_repair_person_scoped_definition_entities_moves_helpers(self, tmp_path):
         rules_file = tmp_path / "statutes/26/1402/b.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -5510,6 +5542,102 @@ rules:
             "us:statutes/26/3102/f/1#subsection_a_applies_to_additional_medicare_tax_wages_above_employer_threshold": "holds"
         }
         assert test_payload[1]["tables"] == test_payload[0]["tables"]
+
+    def test_judgment_positive_test_repair_synthesizes_formula_inputs(self, tmp_path):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "26" / "3303.yaml"
+        test_file = repo_path / "statutes" / "26" / "3303.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3306/f#unemployment_fund
+rules:
+  - name: reserve_account
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          unemployment_fund
+          and account_is_separate
+          and account_maintained_for_employer
+  - name: guaranteed_employment_account
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          unemployment_fund
+          and account_is_separate
+          and guaranteed_hours_per_week >= 30
+  - name: pooled_fund
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          unemployment_fund
+          and not reserve_account
+          and not guaranteed_employment_account
+          and total_contributions_payable_into_fund
+          and all_contributions_are_mingled
+          and compensation_payable_to_all_eligible_individuals
+"""
+        )
+        test_file.write_text(
+            """- name: reserve_account_definition_holds
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3306/f#input.fund_is_special_fund_established_under_state_law: true
+    us:statutes/26/3306/f#input.fund_administered_by_state_agency: true
+    us:statutes/26/3303#input.account_is_separate: true
+    us:statutes/26/3303#input.account_maintained_for_employer: true
+  output:
+    us:statutes/26/3303#reserve_account: holds
+"""
+        )
+
+        repaired = _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            relative_output=Path("statutes/26/3303.yaml"),
+            issues=[
+                "Judgment rule missing positive companion output coverage: "
+                "`us:statutes/26/3303#pooled_fund` is not asserted as `holds` "
+                "by the companion `.test.yaml` file."
+            ],
+        )
+
+        assert repaired == ["auto_positive_pooled_fund"]
+        test_payload = yaml.safe_load(test_file.read_text())
+        synthesized = test_payload[1]
+        assert synthesized["output"] == {"us:statutes/26/3303#pooled_fund": "holds"}
+        assert (
+            synthesized["input"][
+                "us:statutes/26/3306/f#input.fund_is_special_fund_established_under_state_law"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"][
+                "us:statutes/26/3303#input.total_contributions_payable_into_fund"
+            ]
+            is True
+        )
+        assert (
+            synthesized["input"]["us:statutes/26/3303#input.account_is_separate"]
+            is False
+        )
+        assert (
+            "us:statutes/26/3303#input.account_maintained_for_employer"
+            not in synthesized["input"]
+        )
 
     def test_encode_apply_auto_repairs_auto_output_test_mismatches(
         self, capsys, tmp_path
@@ -7232,6 +7360,98 @@ rules:
                 "name": "unused_source_modifier",
                 "output": {
                     "us:statutes/26/3111/e#qualified_veteran_credit_substituted_section_51_a_rate": 0.26
+                },
+            }
+        ]
+
+    def test_unsafe_formula_output_repair_defers_tax_status_components(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: employer_must_treat_employee_as_single_for_withholding_tables
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    source: 26 USC 3402(l)(1)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: not withholding_allowance_certificate_indicating_employee_is_married
+  - name: employee_considered_not_married_for_withholding_certificate
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    source: 26 USC 3402(l)(2)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employee_legally_separated_from_spouse
+"""
+        )
+        test_file.write_text(
+            """- name: status_component_placeholder
+  output:
+    us:statutes/26/3402/l#employer_must_treat_employee_as_single_for_withholding_tables: true
+- name: retained_local_rule
+  output:
+    us:statutes/26/3402/l#employee_considered_not_married_for_withholding_certificate: true
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3402/l.yaml: ci: Tax filing-status component is a "
+                "derived legal classification, not a local factual input: "
+                "`employer_must_treat_employee_as_single_for_withholding_tables` "
+                "references "
+                "`withholding_allowance_certificate_indicating_employee_is_married` "
+                "without defining or importing its absolute upstream RuleSpec "
+                "output."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "us:statutes/26/3402/l#employer_must_treat_employee_as_single_for_withholding_tables"
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "employee_considered_not_married_for_withholding_certificate"
+        ]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": (
+                    "us:statutes/26/3402/l#"
+                    "employer_must_treat_employee_as_single_for_withholding_tables"
+                ),
+                "reason": (
+                    "Generated rule treated a filing-status or marital-status "
+                    "legal classification as a local fact. This output is "
+                    "deferred until the upstream status source can be encoded "
+                    "or imported without inventing local tax-status component "
+                    "inputs."
+                ),
+            }
+        ]
+        assert test_cases == [
+            {
+                "name": "retained_local_rule",
+                "output": {
+                    "us:statutes/26/3402/l#employee_considered_not_married_for_withholding_certificate": True
                 },
             }
         ]
