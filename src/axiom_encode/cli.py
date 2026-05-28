@@ -12292,6 +12292,8 @@ def _remove_invalid_deferred_source_values(*, rules_file: Path) -> list[str]:
 
 
 def _looks_like_absolute_rulespec_output_target(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
     text = str(value or "").strip()
     if ":" not in text or text.count("#") != 1:
         return False
@@ -13035,7 +13037,7 @@ _CROSS_REFERENCE_BASE_MECHANICS_ISSUE_PATTERN = re.compile(
     r"Cross-reference base mechanics omitted: `([^`]+)`"
 )
 _CROSS_REFERENCE_PLACEHOLDER_ISSUE_PATTERN = re.compile(
-    r"(?:Encoded )?Cross-reference placeholder: `([^`]+)`"
+    r"(?:Encoded )?[Cc]ross-reference placeholder: `([^`]+)`"
 )
 _CROSS_REFERENCE_NUMERIC_PLACEHOLDER_ISSUE_PATTERN = re.compile(
     r"Cross-reference numeric placeholder: `([^`]+)`"

@@ -730,6 +730,39 @@ _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
 )
 _ORDINAL_NUMBER_PATTERN = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.IGNORECASE)
+_ORDINAL_WORD_VALUES = {
+    "first": 1.0,
+    "second": 2.0,
+    "third": 3.0,
+    "fourth": 4.0,
+    "fifth": 5.0,
+    "sixth": 6.0,
+    "seventh": 7.0,
+    "eighth": 8.0,
+    "ninth": 9.0,
+    "tenth": 10.0,
+    "eleventh": 11.0,
+    "twelfth": 12.0,
+    "thirteenth": 13.0,
+    "fourteenth": 14.0,
+    "fifteenth": 15.0,
+    "sixteenth": 16.0,
+    "seventeenth": 17.0,
+    "eighteenth": 18.0,
+    "nineteenth": 19.0,
+    "twentieth": 20.0,
+    "thirtieth": 30.0,
+    "fortieth": 40.0,
+    "fiftieth": 50.0,
+    "sixtieth": 60.0,
+    "seventieth": 70.0,
+    "eightieth": 80.0,
+    "ninetieth": 90.0,
+}
+_ORDINAL_WORD_PATTERN = re.compile(
+    r"\b(" + "|".join(re.escape(word) for word in _ORDINAL_WORD_VALUES) + r")\b",
+    re.IGNORECASE,
+)
 _SCHEDULE_BLOCK_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9_ ]+:\s*$")
 _SCHEDULE_SIZE_ROW_PATTERN = re.compile(
     r"^\s*[-*]?\s*(?:size|household size|unit size)(?:\s+\d+(?:\s+or\s+more)?)?\s*:\s*"
@@ -1673,6 +1706,9 @@ def extract_numbers_from_text(text: str) -> set[float]:
         with contextlib.suppress(ValueError):
             numbers.add(float(match.group(1)))
 
+    for match in _ORDINAL_WORD_PATTERN.finditer(text):
+        numbers.add(_ORDINAL_WORD_VALUES[match.group(1).lower()])
+
     fraction_words = {
         "one-half": 0.5,
         "one half": 0.5,
@@ -1933,6 +1969,11 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
                 continue
             if _ordinal_is_calendar_day_reference(cleaned, match.end(), value):
                 continue
+            occurrences.append(value)
+
+    for match in _ORDINAL_WORD_PATTERN.finditer(cleaned):
+        value = _ORDINAL_WORD_VALUES[match.group(1).lower()]
+        if value not in GROUNDING_ALLOWED_VALUES:
             occurrences.append(value)
 
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
@@ -6987,6 +7028,11 @@ def _taxable_income_expression_has_zero_floor(expression: str) -> bool:
 
 
 def _repair_nonnegative_amount_reduction_formula(formula: str) -> str:
+    if _nonnegative_income_base_missing_zero_floor(formula):
+        repaired_formula = _repair_nonnegative_income_base_expression(formula.strip())
+        if repaired_formula != formula.strip():
+            return repaired_formula
+
     repaired_lines: list[str] = []
     changed = False
     for line in formula.splitlines() or [formula]:

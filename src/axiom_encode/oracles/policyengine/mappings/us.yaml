@@ -9993,6 +9993,30 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 3111(f) defines section 41(h) research-credit offsets against employer OASDI and Medicare taxes, quarterly payroll-tax limitations, carryovers, and chapter 1 deduction coordination; PolicyEngine does not expose these employer payroll-credit allocation and carryover surfaces as one-to-one outputs.
 
+  - legal_id_prefix: us:statutes/26/3131
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3131 defines temporary COVID qualified sick leave employer credits against applicable employment taxes; PolicyEngine computes regular payroll taxes from wages and does not expose these employer paid-leave credit surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3132
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3132 defines temporary COVID qualified family leave employer credits against applicable employment taxes; PolicyEngine computes regular payroll taxes from wages and does not expose these employer paid-leave credit surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3133
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3133 increases temporary COVID paid-leave credits by employer payroll taxes on qualified leave wages; PolicyEngine computes regular payroll taxes from wages and does not expose these credit-increase surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3134
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3134 defines the temporary COVID employee retention credit against applicable employment taxes; PolicyEngine computes regular payroll taxes from wages and does not expose this employer retention-credit surface as a one-to-one output.
+
   - legal_id_prefix: us:statutes/26/3202#
     country: us
     program: tax
@@ -10496,6 +10520,48 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Section 3405 child subsections set payment-level withholding, election, notice, liability, and definition rules for pension and annuity distributions; PolicyEngine computes annual tax outcomes and pension income, not these withholding administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3406#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3406 sets backup withholding rules for reportable payments, TIN failures, underreporting notices, certifications, payor deductions, and withholding administration; PolicyEngine computes annual tax outcomes, not these payor-level backup withholding administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3406/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3406 child subsections set backup withholding rules for reportable payments, TIN failures, underreporting notices, certifications, payor deductions, and withholding administration; PolicyEngine computes annual tax outcomes, not these payor-level backup withholding administration surfaces as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3505#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3505 assigns third-party liability to lenders, sureties, and other non-employer persons that directly pay wages or supply funds for wage payments, and credits resulting payments against employer liability; PolicyEngine computes payroll tax amounts, not this third-party legal-liability and credit-allocation surface as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3506#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3506 defines sitter-placement businesses and excludes qualifying placement persons from employer treatment for sitters; PolicyEngine computes employment taxes from modeled employer and wage facts, not this placement-service employer-status classification as a one-to-one output.
+
+  - legal_id_prefix: us:statutes/26/3508#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3508 classifies qualified real estate agents and direct sellers and excludes qualifying services from employee and employer treatment; PolicyEngine computes payroll taxes from modeled employer and wage facts, not these worker-classification predicates as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3509#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3509 sets substitute employer liability rates and collection rules for employee misclassification withholding failures; PolicyEngine computes regular payroll taxes from modeled employment and wages, not this reduced-liability misclassification assessment surface as one-to-one outputs.
+
+  - legal_id_prefix: us:statutes/26/3510#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3510 sets administrative return, deposit, estimated-tax, and domestic-service voluntary withholding treatment rules for household employers; PolicyEngine computes annual tax outcomes and regular payroll taxes, not this domestic-service withholding-administration component as a one-to-one output.
 
   - legal_id_prefix: us:statutes/26/3306/a#
     country: us

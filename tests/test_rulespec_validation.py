@@ -12910,6 +12910,34 @@ rules:
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
+def test_repair_nonnegative_amount_reductions_floors_multiline_income_base_in_credit():
+    content = """format: rulespec/v1
+rules:
+  - name: qualified_family_leave_wages_credit_limited_to_employment_taxes
+    kind: derived
+    entity: Employer
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          min(
+            qualified_family_leave_wages_credit_against_applicable_employment_taxes,
+            applicable_employment_taxes_after_section_3131_credits
+          )
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["qualified_family_leave_wages_credit_limited_to_employment_taxes"]
+    assert (
+        "min(max(0, "
+        "qualified_family_leave_wages_credit_against_applicable_employment_taxes),"
+        in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
 def test_current_year_final_amount_table_rejects_recomputed_maximum(tmp_path):
     repo = tmp_path / "rulespec-us"
     imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
@@ -15583,6 +15611,29 @@ rules:
         == []
     )
     assert 0.5 in extract_numeric_occurrences_from_text("The amount is ½.")
+
+
+def test_ungrounded_numeric_accepts_source_ordinal_word():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3510
+rules:
+  - name: return_filing_deadline_months_after_employer_taxable_year_close
+    kind: parameter
+    dtype: Integer
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          4
+"""
+    source_text = (
+        "The return shall be filed on or before the 15th day of the "
+        "fourth month following the close of the employer's taxable year."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 4 in extract_numeric_occurrences_from_text(source_text)
 
 
 def test_ungrounded_numeric_accepts_source_mixed_unicode_fraction_percentage():

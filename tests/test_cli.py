@@ -37,6 +37,7 @@ from axiom_encode.cli import (
     _infer_missing_input_default,
     _insert_false_input_default,
     _local_factual_input_names_from_rules_content,
+    _looks_like_absolute_rulespec_output_target,
     _person_scoped_definition_issue_names,
     _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
@@ -3543,6 +3544,21 @@ rules: []
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_rulespec_output_target_check_rejects_dict_source_values(self):
+        assert _looks_like_absolute_rulespec_output_target(
+            "us:statutes/26/3132/c#modified_section_110_b_aggregate_limit_amount"
+        )
+        assert not _looks_like_absolute_rulespec_output_target(
+            {
+                "output": (
+                    "us:statutes/26/3132/c#"
+                    "modified_section_110_b_aggregate_limit_amount"
+                ),
+                "value": 12000,
+                "source": "26 USC 3132(c)(2)(A)(ii)(III)",
+            }
+        )
 
     def test_encode_apply_prunes_out_of_scope_deferred_outputs(
         self,
@@ -7241,6 +7257,74 @@ rules:
         assert payload["module"]["deferred_outputs"] == [
             {
                 "output": "us:statutes/26/3121/b#employment",
+                "reason": (
+                    "Generated rule kept a local fact for a cited legal section. "
+                    "This output is deferred until the cited source can be encoded "
+                    "or imported without a local cross-reference placeholder."
+                ),
+            }
+        ]
+        assert test_cases == []
+
+    def test_unsafe_formula_output_repair_defers_encoded_cross_reference_placeholders(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3510.yaml"
+        test_file = output_root / "openai-gpt-5.5" / "statutes/26/3510.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  summary: Section 3510 domestic service employment taxes.
+rules:
+  - name: domestic_service_employment_taxes
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    source: 26 USC 3510
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amount_withheld_from_domestic_service_private_home_remuneration_under_section_3402_p_agreement
+"""
+        )
+        test_file.write_text(
+            """- name: encoded_cross_reference_placeholder
+  output:
+    us:statutes/26/3510#domestic_service_employment_taxes: 100
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_unsafe_formula_outputs_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/26/3510.yaml: ci: Encoded cross-reference placeholder: "
+                "`domestic_service_employment_taxes` uses local "
+                "`amount_withheld_from_domestic_service_private_home_remuneration_under_section_3402_p_agreement` "
+                "for an already encoded or required cited source. Import "
+                "`statutes/26/3402/p` and reference the upstream output instead "
+                "of keeping a local cross-reference input."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["us:statutes/26/3510#domestic_service_employment_taxes"]
+        assert payload["module"]["status"] == "deferred"
+        assert payload["rules"] == []
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": "us:statutes/26/3510#domestic_service_employment_taxes",
                 "reason": (
                     "Generated rule kept a local fact for a cited legal section. "
                     "This output is deferred until the cited source can be encoded "

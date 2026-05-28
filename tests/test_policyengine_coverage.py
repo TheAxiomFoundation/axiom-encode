@@ -4278,6 +4278,37 @@ rules:
     assert "withholding administration" in item["rationale"]
 
 
+def test_policyengine_coverage_classifies_3406_child_backup_withholding_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3406/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: backup_withholding_requirement_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: reportable_payment and payee_fails_to_furnish_tin_to_payor
+  - name: underreporting_or_certification_failure_applies_to_payment
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: reportable_interest_or_dividend_payment and notified_payee_underreporting
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "backup withholding administration" in item["rationale"]
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_3127_religious_exemption_outputs(
     tmp_path,
 ):
@@ -4360,6 +4391,264 @@ rules:
     assert report["status_counts"] == {"known_not_comparable": 3}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3505_third_party_liability_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3505.yaml",
+        """format: rulespec/v1
+rules:
+  - name: supplied_funds_liability_limit_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.25
+  - name: direct_wage_payment_third_party_liability_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: third_party_pays_wages_directly_to_employee_group_or_agent
+  - name: direct_wage_payment_third_party_liability
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: taxes_together_with_interest_required_to_be_deducted_and_withheld_from_directly_paid_wages
+  - name: supplied_funds_third_party_liability_applies
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: funds_supplied_for_specific_purpose_of_paying_employer_wages
+  - name: supplied_funds_third_party_liability_before_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: taxes_together_with_interest_not_paid_over_by_employer
+  - name: supplied_funds_third_party_liability_limit
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: supplied_funds_liability_limit_rate * amount_supplied
+  - name: supplied_funds_third_party_liability
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: min(supplied_funds_third_party_liability_before_limit, supplied_funds_third_party_liability_limit)
+  - name: employer_liability_credit_for_section_3505_payments
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amounts_paid_to_united_states_pursuant_to_section_3505
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 8}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "third-party legal-liability" in item["rationale"] for item in report["items"]
+    )
+
+
+def test_policyengine_coverage_classifies_3506_sitter_placement_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3506.yaml",
+        """format: rulespec/v1
+rules:
+  - name: sitters
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_furnishes_personal_attendance_companionship_or_household_care_services
+  - name: sitter_placement_person_not_treated_as_employer
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: person_engaged_in_trade_or_business_of_putting_sitters_in_touch_with_individuals_who_wish_to_employ_them
+  - name: sitter_not_treated_as_employee_of_placement_person
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: sitters and not placement_person_pays_or_receives_salary_or_wages_of_sitters
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "placement-service employer-status classification" in item["rationale"]
+        for item in report["items"]
+    )
+
+
+def test_policyengine_coverage_classifies_3508_worker_classification_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3508.yaml",
+        """format: rulespec/v1
+rules:
+  - name: qualified_real_estate_agent
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_is_licensed_real_estate_agent
+  - name: direct_seller_engaged_trade_or_business
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: engaged_in_consumer_products_home_or_nonpermanent_retail_trade_or_business
+  - name: direct_seller
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: direct_seller_engaged_trade_or_business
+  - name: services_performed_as_qualified_real_estate_agent_or_direct_seller
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_real_estate_agent or direct_seller
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "worker-classification predicates" in item["rationale"]
+        for item in report["items"]
+    )
+
+
+def test_policyengine_coverage_classifies_3131_paid_leave_credit_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3131/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: qualified_sick_leave_wages_credit_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1
+  - name: qualified_sick_leave_wages_credit_against_applicable_employment_taxes
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: qualified_sick_leave_wages_credit_rate * qualified_sick_leave_wages
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "employer paid-leave credit surfaces" in item["rationale"]
+        for item in report["items"]
+    )
+
+
+def test_policyengine_coverage_classifies_3509_misclassification_liability_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3509.yaml",
+        """format: rulespec/v1
+rules:
+  - name: default_withholding_liability_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.015
+  - name: default_employee_social_security_tax_liability_percentage
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.20
+  - name: increased_withholding_liability_rate
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.03
+  - name: increased_employee_social_security_tax_liability_percentage
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.40
+  - name: section_applies_to_misclassified_employee_withholding_failure
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: employer_failed_to_deduct_and_withhold_tax
+  - name: section_applies_to_employee_social_security_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: section_applies_to_misclassified_employee_withholding_failure
+  - name: employee_tax_liability_unaffected_by_section_assessment_or_collection
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amount_of_liability_for_tax_determined_under_this_section
+  - name: employer_not_entitled_to_recover_section_tax_from_employee
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amount_of_liability_for_tax_determined_under_this_section
+  - name: section_3402_d_and_section_6521_do_not_apply_to_section_determined_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: amount_of_liability_for_tax_determined_under_this_section
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 9}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "misclassification assessment surface" in item["rationale"]
+        for item in report["items"]
+    )
+
+
+def test_policyengine_coverage_classifies_3510_domestic_service_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3510.yaml",
+        """format: rulespec/v1
+rules:
+  - name: amount_withheld_from_domestic_service_remuneration_under_section_3402_p_agreement
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, amount_withheld_from_remuneration_for_domestic_service_in_private_home_pursuant_to_section_3402_p_agreement)
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+    assert all(
+        "domestic-service withholding-administration component" in item["rationale"]
+        for item in report["items"]
+    )
 
 
 def test_policyengine_coverage_classifies_3511_cpeo_outputs(tmp_path):
