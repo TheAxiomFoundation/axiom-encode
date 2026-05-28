@@ -1,0 +1,1 @@
+Scope source-subparagraph coverage to the actual requested workspace: pick the manifest matching the rules file (not first alphabetical) and accept human USC citations like `7 USC 2014(c)` in `requested_source`. Without this, validating sibling subsection encodes under a shared /tmp eval root silently loads the wrong workspace's metadata and rejects out-of-scope subparagraphs.

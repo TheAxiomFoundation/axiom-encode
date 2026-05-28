@@ -61,6 +61,7 @@ from axiom_encode.repo_routing import (
     canonical_rulespec_repo_name,
     find_policy_repo_root,
 )
+from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 from .dependency_stubs import (
     has_corpus_provision_for_import_target,
@@ -949,7 +950,17 @@ _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
 
 
 def _load_nearby_eval_source_metadata(rulespec_file: Path) -> dict[str, object] | None:
-    """Load source-metadata from a nearby eval workspace when present."""
+    """Load source-metadata from a nearby eval workspace when present.
+
+    When several workspaces share a parent directory (e.g. /tmp encode runs
+    for siblings a, c, d under one eval root), pick the manifest whose
+    citation maps to the same RuleSpec output path as `rulespec_file`. Falling
+    back to the first alphabetical manifest mixes up sibling subsections —
+    validate of c.yaml would silently load a/'s metadata and reject (c) for
+    not covering (a)'s siblings.
+    """
+    rulespec_norm = _rulespec_file_normalized_target(rulespec_file)
+    fallback: dict[str, object] | None = None
     for ancestor in rulespec_file.parents:
         eval_root = ancestor / "_eval_workspaces"
         if not eval_root.exists():
@@ -960,9 +971,41 @@ def _load_nearby_eval_source_metadata(rulespec_file: Path) -> dict[str, object] 
             except Exception:
                 continue
             metadata = payload.get("source_metadata")
-            if isinstance(metadata, dict):
+            if not isinstance(metadata, dict):
+                continue
+            if fallback is None:
+                fallback = metadata
+            if rulespec_norm is None:
+                continue
+            citation_raw = payload.get("citation")
+            manifest_norm = (
+                _citation_to_normalized_target(citation_raw)
+                if isinstance(citation_raw, str)
+                else None
+            )
+            if manifest_norm == rulespec_norm:
                 return metadata
+    return fallback
+
+
+def _rulespec_file_normalized_target(rulespec_file: Path) -> tuple[str, ...] | None:
+    """Best-effort tuple of statute/regulations path parts for matching."""
+    parts = list(rulespec_file.with_suffix("").parts)
+    for idx, part in enumerate(parts):
+        if part in {"statutes", "regulations", "policies"}:
+            return tuple(p.lower() for p in parts[idx:] if p)
     return None
+
+
+def _citation_to_normalized_target(citation: str) -> tuple[str, ...] | None:
+    try:
+        parts = parse_usc_citation(citation)
+    except Exception:
+        return None
+    if parts is None:
+        return None
+    pieces = ["statutes", parts.title, parts.section, *parts.fragments]
+    return tuple(p.lower() for p in pieces if p)
 
 
 def _source_metadata_sets_target_symbol(
@@ -6231,6 +6274,29 @@ def _source_subparagraph_coverage_scope_prefix(
     return _rulespec_file_subparagraph_scope(citation_path, rules_file)
 
 
+def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
+    """Return a corpus-path form for a requested_source string.
+
+    The eval workspace stores requested_source as the raw caller input —
+    typically the human USC citation (``7 USC 2014(c)``). Subparagraph-scope
+    matching needs the corpus-path form (``us/statute/7/2014/c``). If parsing
+    fails the input is returned unchanged so corpus-path inputs pass through.
+    """
+    candidate = requested_source.strip()
+    if not candidate or candidate.startswith(("us/", "us-")):
+        return candidate
+    try:
+        parts = parse_usc_citation(candidate)
+    except (ValueError, Exception):
+        return candidate
+    if parts is None:
+        return candidate
+    try:
+        return citation_to_citation_path(parts)
+    except (ValueError, Exception):
+        return candidate
+
+
 def _scope_prefix_from_requested_source(
     citation_path: str, requested_source: str | None
 ) -> tuple[str, ...]:
@@ -6239,16 +6305,23 @@ def _scope_prefix_from_requested_source(
     citation_path collapses to the parent while the requested source still
     names the encoder's actual target. The difference is the scope.
 
+    `requested_source` may be either a corpus-path form
+    (``us/statute/7/2014/e/2/B``) or the human USC form (``7 USC 2014(e)(2)(B)``)
+    — the eval workspace stores it as the raw caller input, which is usually
+    human form. Normalize both to corpus paths before comparing.
+
     Examples (citation_path → requested_source → scope):
       us/statute/7/2014 → us/statute/7/2014/e/2/B → ('e', '2', 'b')
+      us/statute/7/2014 → 7 USC 2014(e)(2)(B)    → ('e', '2', 'b')
       us/statute/7/2014 → us/statute/7/2014       → ()
       us/statute/7/2014 → us/statute/26/63        → ()  (unrelated)
     """
     if not requested_source:
         return ()
+    normalized_request = _normalize_requested_source_to_corpus_path(requested_source)
     citation_parts = tuple(part for part in citation_path.strip("/").split("/") if part)
     requested_parts = tuple(
-        part for part in requested_source.strip("/").split("/") if part
+        part for part in normalized_request.strip("/").split("/") if part
     )
     if not citation_parts or len(requested_parts) <= len(citation_parts):
         return ()
