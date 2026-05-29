@@ -3134,6 +3134,7 @@ def cmd_repair_colorado_snap_federal_refs(args):
             repo_path / COLORADO_SNAP_PROGRAM_RELATIVE
         )
         _repair_colorado_snap_2072(repo_path / COLORADO_SNAP_CCR_ROOT / "4.207.2.yaml")
+        _repair_colorado_snap_401(repo_path / COLORADO_SNAP_CCR_ROOT / "4.401.yaml")
         _repair_colorado_snap_4073(repo_path / COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml")
         _repair_colorado_snap_program_tests(
             _rulespec_test_path(repo_path / COLORADO_SNAP_PROGRAM_RELATIVE)
@@ -3349,6 +3350,56 @@ def _repair_colorado_snap_2072(path: Path) -> None:
             ),
             source="10 CCR 2506-1 sections 4.207.2 and 4.207.3(B)",
         ),
+    )
+    path.write_text(content)
+
+
+def _repair_colorado_snap_401(path: Path) -> None:
+    content = path.read_text()
+    content = _upsert_rule_text(
+        content,
+        {
+            "name": "co_resident_gross_income_limit_165_percent_fpl_48_states_dc",
+            "kind": "derived",
+            "entity": "Household",
+            "dtype": "Money",
+            "period": "Month",
+            "unit": "USD",
+            "source": "10 CCR 2506-1 section 4.401(A)(4)",
+            "versions": [
+                {
+                    "effective_from": "2025-10-01",
+                    "formula": (
+                        "snap_gross_income_limit_165_percent_fpl_48_states_dc_table"
+                        "[max(min(co_resident_group_size, 8), 1)]\n"
+                        "+ (max(co_resident_group_size - 8, 0) * "
+                        "snap_gross_income_limit_165_percent_fpl_48_states_dc_additional_member)"
+                    ),
+                }
+            ],
+        },
+        before_rule="snap_elderly_disabled_separate_household_allowed",
+    )
+    content = _upsert_rule_text(
+        content,
+        {
+            "name": "snap_elderly_disabled_separate_household_allowed",
+            "kind": "derived",
+            "entity": "Household",
+            "dtype": "Judgment",
+            "period": "Month",
+            "source": "10 CCR 2506-1 section 4.401(A)(4)",
+            "versions": [
+                {
+                    "effective_from": "2025-10-01",
+                    "formula": (
+                        "elderly_disabled_person_unable_to_purchase_and_prepare_meals\n"
+                        "and co_resident_gross_income <= "
+                        "co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
+                    ),
+                }
+            ],
+        },
     )
     path.write_text(content)
 
@@ -3964,7 +4015,91 @@ def _repair_colorado_snap_401_tests(path: Path) -> None:
                 0,
                 gross - _numeric_test_value(shelter),
             )
+        outputs = case.get("output")
+        if (
+            isinstance(outputs, dict)
+            and (
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#snap_elderly_disabled_separate_household_allowed"
+            )
+            in outputs
+        ):
+            group_size_key = (
+                "us-co:regulations/10-ccr-2506-1/4.401#input.co_resident_group_size"
+            )
+            inputs.setdefault(
+                group_size_key,
+                inputs.get(
+                    "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards"
+                    "#input.household_size",
+                    1,
+                ),
+            )
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#co_resident_gross_income_limit_165_percent_fpl_48_states_dc",
+                _snap_fy2026_165_percent_fpl_limit(inputs[group_size_key]),
+            )
+    _upsert_test_case(
+        cases,
+        {
+            "name": "separate_household_allowed_uses_co_resident_group_size",
+            "period": "2026-01",
+            "input": {
+                "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards"
+                "#input.household_size": 1,
+                "us-co:regulations/10-ccr-2506-1/4.401#input.co_resident_group_size": 3,
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#input.elderly_disabled_person_unable_to_purchase_and_prepare_meals": True,
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#input.co_resident_gross_income": 3000,
+            },
+            "output": {
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#co_resident_gross_income_limit_165_percent_fpl_48_states_dc": 3665,
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#snap_elderly_disabled_separate_household_allowed": "holds",
+            },
+        },
+    )
+    _upsert_test_case(
+        cases,
+        {
+            "name": "separate_household_denied_when_co_resident_group_income_exceeds_limit",
+            "period": "2026-01",
+            "input": {
+                "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards"
+                "#input.household_size": 1,
+                "us-co:regulations/10-ccr-2506-1/4.401#input.co_resident_group_size": 3,
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#input.elderly_disabled_person_unable_to_purchase_and_prepare_meals": True,
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#input.co_resident_gross_income": 3666,
+            },
+            "output": {
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#co_resident_gross_income_limit_165_percent_fpl_48_states_dc": 3665,
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#snap_elderly_disabled_separate_household_allowed": "not_holds",
+            },
+        },
+    )
     _write_yaml_payload(path, cases)
+
+
+def _snap_fy2026_165_percent_fpl_limit(group_size: object) -> int:
+    size = int(_numeric_test_value(group_size))
+    table = {
+        1: 2152,
+        2: 2909,
+        3: 3665,
+        4: 4421,
+        5: 5177,
+        6: 5934,
+        7: 6690,
+        8: 7446,
+    }
+    return table[max(min(size, 8), 1)] + (max(size - 8, 0) * 757)
 
 
 def _repair_colorado_snap_4073_tests(path: Path) -> None:
