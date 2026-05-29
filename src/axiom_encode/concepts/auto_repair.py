@@ -70,6 +70,8 @@ def _rewrite_anchored_refs(text: str, registry: ConceptRegistry) -> str:
         is_input_ref = bool(input_prefix)
         blocked = registry.lookup_synonym(name)
         if blocked is not None:
+            if is_input_ref and blocked.producer_anchor == anchor:
+                return match.group(0)
             new_anchor = anchor if is_input_ref else (blocked.producer_anchor or anchor)
             return f"{new_anchor}#{input_prefix}{blocked.canonical_name}"
         canonical = registry.lookup_canonical(name)
