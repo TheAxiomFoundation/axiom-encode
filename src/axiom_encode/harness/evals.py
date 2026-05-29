@@ -1672,13 +1672,13 @@ def _slice_parent_corpus_text_for_requested_path(
     requested_path: str,
     resolved_path: str,
 ) -> str:
-    """Slice section-granular USC source text to the requested child fragment."""
+    """Slice section-granular source text to the requested child fragment."""
     requested_parts = requested_path.strip("/").split("/")
     resolved_parts = resolved_path.strip("/").split("/")
     if (
         len(requested_parts) <= len(resolved_parts)
         or requested_parts[: len(resolved_parts)] != resolved_parts
-        or resolved_parts[:2] != ["us", "statute"]
+        or resolved_parts[:2] not in (["us", "statute"], ["us", "regulation"])
     ):
         return text
     missing_fragments = tuple(requested_parts[len(resolved_parts) :])
@@ -1778,11 +1778,15 @@ def _sibling_parenthetical_marker_pattern(
     top_level: bool,
 ) -> re.Pattern[str]:
     if fragment.isdigit():
-        marker = r"\(\d+\)"
+        marker = rf"\({int(fragment) + 1}\)"
     elif len(fragment) == 1 and fragment.isalpha() and fragment.isupper():
-        marker = r"\([A-Z]\)"
+        marker = (
+            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([A-Z]\)"
+        )
     elif len(fragment) == 1 and fragment.isalpha() and fragment.islower():
-        marker = r"\([a-z]\)"
+        marker = (
+            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([a-z]\)"
+        )
     elif re.fullmatch(r"[ivxlcdm]+", fragment, re.IGNORECASE):
         marker = r"\([ivxlcdm]+\)"
     else:
@@ -1790,6 +1794,15 @@ def _sibling_parenthetical_marker_pattern(
     if top_level:
         return re.compile(rf"\n\s*\n({marker}\s+)")
     return re.compile(rf"(?<![A-Za-z0-9])({marker}\s+)")
+
+
+def _next_alpha_parenthetical_marker(fragment: str) -> str:
+    next_codepoint = ord(fragment) + 1
+    if fragment.islower() and next_codepoint <= ord("z"):
+        return rf"\({chr(next_codepoint)}\)"
+    if fragment.isupper() and next_codepoint <= ord("Z"):
+        return rf"\({chr(next_codepoint)}\)"
+    return r"\b\B"
 
 
 def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
@@ -3095,7 +3108,8 @@ def _canonical_target_ref_prefix(source_id: str, relative_path: Path) -> str | N
         return None
     if relative_path.parts and relative_path.parts[0] == "source":
         return None
-    return f"{parts[0]}:{_relative_rulespec_path_to_import_target(relative_path)}"
+    jurisdiction = parts[0].split(":", 1)[0]
+    return f"{jurisdiction}:{_relative_rulespec_path_to_import_target(relative_path)}"
 
 
 def _rulespec_test_path(path: Path) -> Path:
@@ -6304,6 +6318,7 @@ def _run_codex_prompt_eval(
         stderr_path = Path(stderr_file.name)
         process = subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=stdout_file,
             stderr=stderr_file,
             text=True,
