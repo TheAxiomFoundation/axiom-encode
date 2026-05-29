@@ -7629,11 +7629,14 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
             )
             if repaired_formula == formula:
                 continue
-            repaired_content = _replace_formula_text_once(
+            updated_content = _replace_formula_text_once(
                 repaired_content,
                 formula,
                 repaired_formula,
             )
+            if updated_content == repaired_content:
+                continue
+            repaired_content = updated_content
             repaired_rules.append(name or "<unknown>")
     return repaired_content, repaired_rules
 
@@ -8067,6 +8070,9 @@ def _replace_formula_text_once(content: str, old: str, new: str) -> str:
     replaced_block = _replace_indented_block_text_once(content, old, new)
     if replaced_block != content:
         return replaced_block
+    replaced_folded_scalar = _replace_folded_formula_scalar_text_once(content, old, new)
+    if replaced_folded_scalar != content:
+        return replaced_folded_scalar
     updated = content
     for old_line, new_line in zip(old.splitlines(), new.splitlines(), strict=False):
         if old_line == new_line:
@@ -8085,6 +8091,31 @@ def _replace_formula_text_once(content: str, old: str, new: str) -> str:
             updated = "".join(lines)
             break
     return updated
+
+
+def _replace_folded_formula_scalar_text_once(content: str, old: str, new: str) -> str:
+    old_normalized = _normalize_yaml_folded_scalar_text(old)
+    if not old_normalized:
+        return content
+    formula_scalar_pattern = re.compile(
+        r"formula:\s*(?P<quote>['\"])(?P<body>.*?)(?P=quote)",
+        flags=re.DOTALL,
+    )
+    for match in formula_scalar_pattern.finditer(content):
+        body = match.group("body")
+        if _normalize_yaml_folded_scalar_text(body) != old_normalized:
+            continue
+        line_start = content.rfind("\n", 0, match.start()) + 1
+        indent_match = re.match(r"[ \t]*", content[line_start : match.start()])
+        indent = indent_match.group(0) if indent_match is not None else ""
+        replacement_lines = [f"{indent}  {line}" for line in new.splitlines()]
+        replacement = "formula: |-\n" + "\n".join(replacement_lines)
+        return content[: match.start()] + replacement + content[match.end() :]
+    return content
+
+
+def _normalize_yaml_folded_scalar_text(value: str) -> str:
+    return " ".join(value.split())
 
 
 def _replace_indented_block_text_once(content: str, old: str, new: str) -> str:
@@ -8322,8 +8353,7 @@ def _formula_result_expressions(formula: str) -> list[str]:
         line = raw_line.strip()
         if not line:
             continue
-        inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(line)
-        if inline_conditional is not None:
+        if _inline_conditional_result_parts(line) is not None:
             expressions.extend(_split_inline_conditional_result_expressions(line))
             continue
         match_arm = re.match(r"^(?:\d+|default|otherwise|_)\s*=>\s*(.+)$", line)
@@ -8430,34 +8460,92 @@ def _formula_bracket_depth_delta(expression: str) -> int:
     return depth
 
 
-_INLINE_CONDITIONAL_RESULT_PATTERN = re.compile(
-    r"^(?:if\b.+?|elif\b.+?)\s*:\s*(.+?)\s+else\s*:\s*(.+)$",
-    flags=re.IGNORECASE,
-)
+_INLINE_CONDITIONAL_START_PATTERN = re.compile(r"^(?:if|elif)\b", flags=re.IGNORECASE)
 
 
 def _branch_result_expression(branch_tail: str) -> str:
-    if _INLINE_CONDITIONAL_RESULT_PATTERN.match(branch_tail):
+    if _inline_conditional_result_parts(branch_tail) is not None:
         return branch_tail
-    return re.split(
-        r"\s+else\s*:",
-        branch_tail,
-        maxsplit=1,
-        flags=re.IGNORECASE,
-    )[0].strip()
+    top_level_else = _top_level_else_bounds(branch_tail)
+    if top_level_else is None:
+        return branch_tail.strip()
+    else_start, _else_end = top_level_else
+    return branch_tail[:else_start].strip()
 
 
 def _split_inline_conditional_result_expressions(expression: str) -> list[str]:
     expression = expression.strip()
     if not expression:
         return []
-    inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(expression)
+    inline_conditional = _inline_conditional_result_parts(expression)
     if inline_conditional is None:
         return [expression]
+    then_expression, else_expression = inline_conditional
     return [
-        *(_split_inline_conditional_result_expressions(inline_conditional.group(1))),
-        *(_split_inline_conditional_result_expressions(inline_conditional.group(2))),
+        *(_split_inline_conditional_result_expressions(then_expression)),
+        *(_split_inline_conditional_result_expressions(else_expression)),
     ]
+
+
+def _inline_conditional_result_parts(expression: str) -> tuple[str, str] | None:
+    expression = expression.strip()
+    if _INLINE_CONDITIONAL_START_PATTERN.match(expression) is None:
+        return None
+
+    colon_index = _top_level_conditional_colon_index(expression)
+    if colon_index is None:
+        return None
+    top_level_else = _top_level_else_bounds(expression[colon_index + 1 :])
+    if top_level_else is None:
+        return None
+
+    else_start, else_end = top_level_else
+    then_expression = expression[colon_index + 1 : colon_index + 1 + else_start]
+    else_expression = expression[colon_index + 1 + else_end :]
+    return then_expression.strip(), else_expression.strip()
+
+
+def _top_level_conditional_colon_index(expression: str) -> int | None:
+    for index, char, depth in _formula_scan_chars(expression):
+        if char == ":" and depth == 0:
+            return index
+    return None
+
+
+def _top_level_else_bounds(expression: str) -> tuple[int, int] | None:
+    for index, char, depth in _formula_scan_chars(expression):
+        if depth != 0 or char.lower() != "e":
+            continue
+        prefix_ok = index == 0 or expression[index - 1].isspace()
+        if not prefix_ok:
+            continue
+        match = re.match(r"else\s*:", expression[index:], flags=re.IGNORECASE)
+        if match is not None:
+            return index, index + match.end()
+    return None
+
+
+def _formula_scan_chars(expression: str) -> Iterable[tuple[int, str, int]]:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(expression):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            yield index, char, depth
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}" and depth:
+            depth -= 1
+        yield index, char, depth
 
 
 def _final_expression_has_zero_floor(expression: str) -> bool:

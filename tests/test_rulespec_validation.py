@@ -13461,6 +13461,23 @@ rules:
     assert find_nonnegative_amount_reduction_issues(content) == []
 
 
+def test_nonnegative_amount_reduction_allows_zero_floor_with_nested_inline_condition():
+    content = """format: rulespec/v1
+rules:
+  - name: charitable_contribution_standard_deduction_subtraction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2001-01-01'
+        formula: |-
+          if eligible: max(0, charitable_contribution_amount - (if credit_claimed: food_contribution_amount else: 0) - charitable_contribution_floor) else: 0
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
 def test_nonnegative_amount_reduction_rejects_unfloored_taxable_income_branch():
     content = """format: rulespec/v1
 rules:
@@ -13501,6 +13518,32 @@ rules:
         "if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: "
         "max(0, taxable_income_for_individual_who_does_not_itemize) "
         "else: max(0, taxable_income_general_rule)" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
+def test_repair_nonnegative_amount_reductions_floors_folded_taxable_income_formula():
+    content = """format: rulespec/v1
+rules:
+  - name: itemized_deduction_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2022-01-01'
+        formula: 'if subsection_p5_does_not_displace_this_subsection: itemized_deduction_addition_under_subsection_p
+          else: initial_window_addition_to_federal_taxable_income'
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["itemized_deduction_addition_to_federal_taxable_income"]
+    assert "formula: |-" in repaired
+    assert (
+        "if subsection_p5_does_not_displace_this_subsection: "
+        "max(0, itemized_deduction_addition_under_subsection_p) "
+        "else: max(0, initial_window_addition_to_federal_taxable_income)" in repaired
     )
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 

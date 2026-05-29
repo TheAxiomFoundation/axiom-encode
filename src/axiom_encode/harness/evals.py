@@ -3425,8 +3425,8 @@ Test file rules:
   without this paired positive/negative companion.
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, use that as a signal to repair the dependency graph, not as a requirement to preserve old names. Keep an old output only when it remains the cleanest source-faithful RuleSpec surface.
-- Do not preserve existing factual input slots referenced by copied formulas or companion tests when a cleaner source-faithful encoding removes them. This is especially important for names listed under invalid copied local inputs.
-- For cross-reference boundary facts that remain local because the cited source is not present in context at all, keep the legal pointer in the identifier. If context for the cited source is present but unsupported, deferred, empty, or missing the needed export, do not preserve, rename, or recreate the local cross-reference fact; import a real export, defer the affected executable surface, or encode a source-grounded overriding branch that avoids it.
+- Do not preserve existing factual input slots referenced by copied formulas or companion tests when a cleaner source-faithful encoding removes them. For names listed under invalid copied local inputs, do not preserve, rename, or recreate them.
+- For cross-reference boundary facts that remain local because the cited source is not present in context at all, keep the legal pointer in the identifier. If context for the cited source is present but unsupported, deferred, empty, or missing the exact displacement or exception export, encode a source-grounded local boundary predicate for whether that cited source displaces or blocks the requested source's formula; do not defer the requested formula merely because the copied cited file exports only its own separate amount.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
   use bare friendly keys or absolute-looking placeholders.
@@ -3818,6 +3818,18 @@ RuleSpec requirements:
   subtype, carve-out, or branch, defer only that branch or expose a
   source-named boundary input for that branch. Do not defer an unrelated
   source-stated cap/base computation that can be executed from the source text.
+- When the requested source states its own amount, cap, threshold, or formula
+  but begins with an exception such as `except as otherwise provided in section
+  X` or `except as otherwise provided in subsection X`, do not defer the
+  requested formula merely because section X has unresolved effective versions,
+  ballot triggers, repeal facts, or program conditions. Encode the requested
+  source's own formula and represent the cross-reference boundary with a
+  source-named predicate such as
+  `subsection_x_does_not_displace_this_subsection` unless an import supplies the
+  exact displacement predicate. A cited provision's separate amount, addition,
+  deduction, or benefit output is not itself a displacement predicate and is not
+  a reason to defer the requested source's own formula. Include a companion case
+  where the cross-reference boundary blocks the local output.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,
@@ -4680,7 +4692,10 @@ def _format_partial_extent_child_schema_limit_guidance(
     """Return target-specific guidance for unsupported partial child rewiring."""
     if not target_ref_prefix:
         return ""
-    if not _source_has_partial_extent_child_rewiring_limit(source_text):
+    scoped_source_text = _target_source_scope_for_heuristics(
+        source_text, target_ref_prefix
+    )
+    if not _source_has_partial_extent_child_rewiring_limit(scoped_source_text):
         return ""
     child_prefix = f"{target_ref_prefix.rstrip('/')}/"
     child_terminal_refs: list[str] = []
@@ -4783,6 +4798,70 @@ Aggregate parent child outputs detected:
   terminal numeric outputs for sibling child branches instead of recomputing
   them locally.{input_guidance}
 """
+
+
+def _target_source_scope_for_heuristics(
+    source_text: str, target_ref_prefix: str
+) -> str:
+    """Return the apparent target paragraph slice for prompt heuristics.
+
+    Some corpus pages contain a whole section even when the requested target is
+    a child paragraph. Prompt heuristics should not let unrelated sibling text
+    trigger target-specific instructions.
+    """
+    fragments = _legal_fragments_from_rulespec_ref(target_ref_prefix)
+    if not fragments:
+        return source_text
+
+    start = 0
+    for fragment in fragments:
+        match = re.search(
+            rf"\({re.escape(fragment)}\)",
+            source_text[start:],
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return source_text
+        start += match.start()
+        search_from = start + len(match.group(0))
+
+    sibling_pattern = _sibling_marker_pattern(fragments[-1])
+    end = len(source_text)
+    if sibling_pattern:
+        sibling = re.search(
+            sibling_pattern,
+            source_text[search_from:],
+            flags=re.IGNORECASE,
+        )
+        if sibling:
+            end = search_from + sibling.start()
+    return source_text[start:end]
+
+
+def _legal_fragments_from_rulespec_ref(target_ref_prefix: str) -> list[str]:
+    """Return legal child fragments after the title/section prefix."""
+    path = target_ref_prefix.split(":", 1)[-1]
+    parts = [part for part in path.split("/") if part]
+    if "statutes" in parts:
+        idx = parts.index("statutes")
+        if len(parts) > idx + 3:
+            return parts[idx + 3 :]
+    if "regulations" in parts:
+        idx = parts.index("regulations")
+        if len(parts) > idx + 3:
+            return parts[idx + 3 :]
+    return []
+
+
+def _sibling_marker_pattern(fragment: str) -> str | None:
+    """Return a parenthetical marker pattern for the next same-level sibling."""
+    if re.fullmatch(r"\d+(?:\.\d+)?", fragment):
+        return r"\(\d+(?:\.\d+)?\)"
+    if re.fullmatch(r"[a-z](?:\.\d+)?", fragment, flags=re.IGNORECASE):
+        if fragment.isupper():
+            return r"\([A-Z](?:\.\d+)?\)"
+        return r"\([a-z](?:\.\d+)?\)"
+    return None
 
 
 def _source_has_partial_extent_child_rewiring_limit(source_text: str) -> bool:
