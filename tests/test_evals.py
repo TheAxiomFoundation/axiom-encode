@@ -27,6 +27,7 @@ from axiom_encode.harness.evals import (
     _clean_generated_file_content,
     _codex_prompt_timeouts,
     _command_looks_out_of_bounds,
+    _canonical_target_ref_prefix,
     _context_file_executable_surfaces,
     _eval_result_from_payload,
     _hydrate_eval_root,
@@ -120,6 +121,16 @@ def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us/regulation/7/273/10"
     ) == Path("regulations/7-cfr/273/10.yaml")
+
+
+def test_canonical_target_ref_prefix_handles_canonical_source_id():
+    assert (
+        _canonical_target_ref_prefix(
+            "us:regulations/7-cfr/273/9/d/6/iii",
+            Path("regulations/7-cfr/273/9/d/6/iii.yaml"),
+        )
+        == "us:regulations/7-cfr/273/9/d/6/iii"
+    )
 
 
 @pytest.mark.parametrize(
@@ -297,6 +308,48 @@ class TestCorpusSourceResolution:
 
         assert source.citation_path == "us/statute/7/2015"
         assert source.body == "(C) Student exemption states 20 hours."
+
+    def test_resolves_nested_cfr_child_path_to_sliced_section_provision(
+        self, tmp_path
+    ):
+        corpus_path = tmp_path / "axiom-corpus"
+        provisions_dir = (
+            corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+        )
+        provisions_dir.mkdir(parents=True)
+        (provisions_dir / "2026-01-01.jsonl").write_text(
+            json.dumps(
+                {
+                    "citation_path": "us/regulation/7/273/9",
+                    "body": (
+                        "(a) Income standards.\n\n"
+                        "(d) Deductions. "
+                        "(5) Child support deduction.\n\n"
+                        "(i) Not a top-level sibling. "
+                        "(6) Shelter costs--"
+                        "(i) Homeless shelter deduction. "
+                        "(ii) Excess shelter deduction. "
+                        "(iii) Standard utility allowances. "
+                        "(A) Utility standard. "
+                        "(1) Heating. (2) Cooling. (3) Other utilities.\n\n"
+                        "(e) Benefit calculation."
+                    ),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        source = resolve_corpus_source_unit(
+            "us/regulation/7/273/9/d/6",
+            corpus_path,
+        )
+
+        assert source.citation_path == "us/regulation/7/273/9"
+        assert source.body.startswith("(6) Shelter costs")
+        assert "(3) Other utilities" in source.body
+        assert "(5) Child support deduction" not in source.body
+        assert "(e) Benefit calculation" not in source.body
 
     def test_nested_slicing_ignores_parenthetical_cross_reference_list(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
