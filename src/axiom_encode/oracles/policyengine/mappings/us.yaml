@@ -11264,3 +11264,1281 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Section 2014(g) resource-test intermediates (vehicle countable amount, fair-market-value threshold, indexed base-amount components, rounding increments) are internal pieces of PolicyEngine's asset-limit aggregation; PE exposes the final snap_assets and snap_asset_limit but not these per-vehicle and base-amount computation steps.
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/010/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/020/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/030/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/100/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/120/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/210/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/240/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/250/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/300/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/500/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/510/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/600/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/800/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/360/950/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP general-provisions outputs cover source-specific definitions, scope, and administrative predicates; PolicyEngine does not expose these as one-to-one comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/080/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/100/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/110/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/120/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/130/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/140/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/150/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/160/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/180/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/190/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/210/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/220/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/230/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/240/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/310/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/320/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/330/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/350/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/370/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/400/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/500/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/510/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/520/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/540/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/550/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/600/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/610/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/620/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/630/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/640/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/650/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/660/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/700/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/800/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/900/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/910/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/920/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/930/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/940/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/950/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/361/960/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP application-process outputs cover source-specific filing, interview, and verification mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/050/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/100/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/110/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/120/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/210/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/220/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/270/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/300/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/310/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/330/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/340/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/400/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/420/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/362/500/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP non-financial-eligibility outputs cover source-specific residency, work, and household-composition predicates; PolicyEngine exposes aggregate eligibility rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/100/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/110/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/130/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/140/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/210/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/220/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/363/230/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP financial-eligibility outputs cover source-specific income and asset gating predicates; PolicyEngine exposes aggregate gross- and net-income tests rather than these per-condition branches.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/050/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/120/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/300/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/310/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/320/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/330/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/340/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/350/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/360/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/370/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/400/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/410/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/420/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/430/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/450/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/500/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/550/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/600/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/650/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/700/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/820/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/830/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/840/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/850/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/860/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/870/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/880/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/895/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/900/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/910/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/946/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/950/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/970/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/975/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/976/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/980/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/364/990/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP household-eligibility-and-benefit-level outputs cover source-specific deduction-helper and benefit-calculation steps; PolicyEngine exposes aggregate snap_normal_allotment rather than these intermediate outputs.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/030/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/110/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/120/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/130/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/140/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/150/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/160/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/170/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/180/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/190/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/410/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/430/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/500/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/510/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/550/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/600/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/605/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/610/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/620/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/660/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/670/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/700/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/730/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/800/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/810/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/830/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/840/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/850/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/900/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/910/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/920/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/940/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/365/970/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP special-situation-household outputs cover source-specific categorical, transitional, and migrant predicates; PolicyEngine does not expose these per-condition branches as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/050/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/100/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/110/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/115/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/120/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/130/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/140/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/150/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/210/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/215/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/220/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/300/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/310/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/320/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/330/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/340/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/510/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/530/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/550/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/560/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/570/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/580/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/600/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/610/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/620/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/900/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/910/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/366/920/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP additional-certification outputs cover source-specific recertification, reporting, and case-action mechanics; PolicyEngine does not expose these procedural predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/025/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/050/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/075/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/100/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/125/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/200/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/250/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/275/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/325/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/350/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/400/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/485/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/490/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/495/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/500/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/510/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/515/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/520/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/525/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/550/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/600/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/625/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/650/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/660/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/675/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/700/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/725/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/750/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/800/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/900/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/925/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
+  - legal_id_prefix: us-ma:regulations/106-cmr/367/950/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+
