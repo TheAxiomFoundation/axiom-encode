@@ -587,6 +587,44 @@ rules:
     )
 
 
+def test_policyengine_coverage_maps_colorado_income_tax_rate_parameter(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.7/c.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_estate_trust_income_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '2022-01-01'
+        formula: '0.044'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.7/c.test.yaml",
+        """- name: rate for tax year beginning after january 2022
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/1.7/c#individual_estate_trust_income_tax_rate: 0.044
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us-co:statutes/39/39-22-104/1.7/c#individual_estate_trust_income_tax_rate"
+    )
+    assert item["policyengine_parameter"] == "gov.states.co.tax.income.rate"
+    assert item["tested"] is True
+    assert item["test_output_count"] == 1
+
+
 def test_policyengine_coverage_classifies_3102a_collection_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3102/a.yaml",
