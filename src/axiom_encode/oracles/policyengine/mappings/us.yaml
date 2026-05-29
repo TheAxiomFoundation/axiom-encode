@@ -12839,6 +12839,384 @@ mappings:
     mapping_type: not_comparable
     rationale: "Source-specific intermediate output (rule `person_may_qualify_for_breast_and_cervical_cancer_treatment_medicaid`, grounded against `Fla. Admin. Code r. 65A-1.711 (exception that individuals who are neither aged nor disabled may qualify for breast and cervical cancer treatment)`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#student_minimum_age
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `student_minimum_age`, grounded against `IDAPA 16.03.04.012.17`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#student_maximum_age
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `student_maximum_age`, grounded against `IDAPA 16.03.04.012.17`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#timely_notice_minimum_days
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `timely_notice_minimum_days`, grounded against `IDAPA 16.03.04.012.22`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#person_qualifies_as_student
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `person_qualifies_as_student`, grounded against `IDAPA 16.03.04.012.17`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#household_is_seasonal_farmworker_household
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `household_is_seasonal_farmworker_household`, grounded against `IDAPA 16.03.04.012.12`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#persons_are_spouses
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `persons_are_spouses`, grounded against `IDAPA 16.03.04.012.14`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#person_is_self_employed
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `person_is_self_employed`, grounded against `IDAPA 16.03.04.012.13`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-13#notice_is_timely
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `notice_is_timely`, grounded against `IDAPA 16.03.04.012.22`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-16#authorized_representative_removal_maximum_period
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `authorized_representative_removal_maximum_period`, grounded against `IDAPA 16.03.04.115.04`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-16#application_denied_for_refusal_to_cooperate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `application_denied_for_refusal_to_cooperate`, grounded against `IDAPA 16.03.04.113`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-16#household_eligible_after_refusal_to_cooperate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `household_eligible_after_refusal_to_cooperate`, grounded against `IDAPA 16.03.04.113`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-16#application_may_be_withdrawn
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `application_may_be_withdrawn`, grounded against `IDAPA 16.03.04.114`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-16#person_has_conflict_of_interest_as_authorized_representative
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `person_has_conflict_of_interest_as_authorized_representative`, grounded against `IDAPA 16.03.04.115.02`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-16#person_may_act_as_authorized_representative
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `person_may_act_as_authorized_representative`, grounded against `IDAPA 16.03.04.115.02`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-16#authorized_representative_may_be_removed
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `authorized_representative_may_be_removed`, grounded against `IDAPA 16.03.04.115.04`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#postponed_proof_days_non_migrant
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `postponed_proof_days_non_migrant`, grounded against `IDAPA 16.03.04.160.02.b`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#postponed_proof_days_migrant_in_state
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `postponed_proof_days_migrant_in_state`, grounded against `IDAPA 16.03.04.160.03.b, .04.b`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#postponed_proof_days_migrant_out_of_state
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `postponed_proof_days_migrant_out_of_state`, grounded against `IDAPA 16.03.04.160.03.b, .04.b`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#migrant_late_out_of_state_issuance_days
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `migrant_late_out_of_state_issuance_days`, grounded against `IDAPA 16.03.04.160.03.c, .04.c`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#non_migrant_case_closes_for_postponed_proof
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `non_migrant_case_closes_for_postponed_proof`, grounded against `IDAPA 16.03.04.160.02.c`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#migrant_case_closes_for_in_state_proof
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `migrant_case_closes_for_in_state_proof`, grounded against `IDAPA 16.03.04.160.03.c, .04.c`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#migrant_case_closes_for_out_of_state_proof
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `migrant_case_closes_for_out_of_state_proof`, grounded against `IDAPA 16.03.04.160.03.c, .04.c`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-id:regulations/idapa/16/03/04/page-20#reapplying_household_requires_postponed_proof_for_expedited
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `reapplying_household_requires_postponed_proof_for_expedited`, grounded against `IDAPA 16.03.04.160.05`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/1/03/block-1#first_violation_minimum_disqualification_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `first_violation_minimum_disqualification_months`, grounded against `AL 660-4-1-.03 first violation`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/1/03/block-1#second_violation_minimum_disqualification_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `second_violation_minimum_disqualification_months`, grounded against `AL 660-4-1-.03 second violation`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/1/03/block-1#third_violation_minimum_disqualification_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `third_violation_minimum_disqualification_months`, grounded against `AL 660-4-1-.03 third violation`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/1/03/block-1#abawd_caseload_exemption_share
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `abawd_caseload_exemption_share`, grounded against `AL 660-4-1-.03 Balanced Budget Act of 1997 ABAWD exemption`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/1/03/block-1#abawd_time_limit_period_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `abawd_time_limit_period_months`, grounded against `AL 660-4-1-.03 ABAWD 36-month period`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/1/03/block-1#abawd_work_hours_threshold_per_week
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `abawd_work_hours_threshold_per_week`, grounded against `AL 660-4-1-.03 ABAWD work hours threshold`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/1/03/block-1#minimum_disqualification_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `minimum_disqualification_months`, grounded against `AL 660-4-1-.03 violation tier selection`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/03/block-1#member_disqualified_for_ssn_noncompliance
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `member_disqualified_for_ssn_noncompliance`, grounded against `Alabama FAP Manual 660-4-2-.03`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/03/block-1#member_satisfies_ssn_requirement
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `member_satisfies_ssn_requirement`, grounded against `Alabama FAP Manual 660-4-2-.03`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#self_employment_cost_of_doing_business_rate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `self_employment_cost_of_doing_business_rate`, grounded against `AL 660-4-2-.06 Allowable Costs of Producing Self-employment Income`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#earned_income_deduction_rate
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `earned_income_deduction_rate`, grounded against `AL 660-4-2-.06 Other Household Income and Self-employment Income`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#self_employed_farmer_minimum_annual_gross_proceeds
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `self_employed_farmer_minimum_annual_gross_proceeds`, grounded against `AL 660-4-2-.06 Special Provision for Farmers`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#self_employment_annualization_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `self_employment_annualization_months`, grounded against `AL 660-4-2-.06 S Corporations`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#maximum_self_employment_certification_months
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `maximum_self_employment_certification_months`, grounded against `AL 660-4-2-.06 Assigning Certification Periods`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#s_corporation_countable_earned_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `s_corporation_countable_earned_income`, grounded against `AL 660-4-2-.06 S Corporations and Other Corporations`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#self_employment_cost_of_doing_business_deduction
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `self_employment_cost_of_doing_business_deduction`, grounded against `AL 660-4-2-.06 Determining Monthly Income from Self-employment`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#monthly_net_self_employment_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `monthly_net_self_employment_income`, grounded against `AL 660-4-2-.06 Determining Monthly Income from Self-employment`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#is_self_employed_farmer
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `is_self_employed_farmer`, grounded against `AL 660-4-2-.06 Special Provision for Farmers`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#is_self_employed_fisherman
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `is_self_employed_fisherman`, grounded against `AL 660-4-2-.06 Special Provision for Farmers`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#farm_disaster_payment_excluded_from_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `farm_disaster_payment_excluded_from_income`, grounded against `AL 660-4-2-.06 Special Provision for Farmers (Disaster Relief Act of 1974)`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#recaptured_depreciation_counted_as_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `recaptured_depreciation_counted_as_income`, grounded against `AL 660-4-2-.06 Recaptured Depreciation`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#recaptured_investment_credit_counted_as_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `recaptured_investment_credit_counted_as_income`, grounded against `AL 660-4-2-.06 Recaptured Investment Credit`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/06/block-1#capital_gain_countable_amount
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `capital_gain_countable_amount`, grounded against `AL 660-4-2-.06 Capital Gains`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/11/block-1#member_resources_included_in_household_resource_determination
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `member_resources_included_in_household_resource_determination`, grounded against `Alabama Admin. Code r. 660-4-2-.11 (Treatment of Resources)`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/11/block-1#income_counted_as_resource_same_month
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `income_counted_as_resource_same_month`, grounded against `Alabama Admin. Code r. 660-4-2-.11 (Treatment of Resources)`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/12/block-1#child_support_payment_deduction
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `child_support_payment_deduction`, grounded against `Alabama Food Assistance Manual 660-4-2-.12 (implementing Section 13921 of the Leland Act, Pub. L. 103-66 Title I, Chapter 3, August 10, 1993, amending Section 5`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/2/12/block-1#child_support_deduction_allowed
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `child_support_deduction_allowed`, grounded against `Alabama Food Assistance Manual 660-4-2-.12`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/05/block-1#six_month_report_form_due_day
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `six_month_report_form_due_day`, grounded against `Ala. Admin. Code 660-4-7-.05`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/05/block-1#six_month_report_notice_generation_day
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `six_month_report_notice_generation_day`, grounded against `Ala. Admin. Code 660-4-7-.05`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/05/block-1#six_month_report_notice_generated
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `six_month_report_notice_generated`, grounded against `Ala. Admin. Code 660-4-7-.05`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/05/block-1#six_month_report_benefits_terminated
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `six_month_report_benefits_terminated`, grounded against `Ala. Admin. Code 660-4-7-.05`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/07/block-1#county_office_processing_days
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `county_office_processing_days`, grounded against `Alabama SNAP Manual 660-4-7-07 - \"must return the incomplete form within 10 days\" / \"must process the complete form within 10 days\"`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/07/block-1#processing_month_cutoff_day
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `processing_month_cutoff_day`, grounded against `Alabama SNAP Manual 660-4-7-07 - \"received by the 10th of the processing month\"`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/07/block-1#benefits_must_be_prorated_for_seventh_month_reinstatement
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `benefits_must_be_prorated_for_seventh_month_reinstatement`, grounded against `Alabama SNAP Manual 660-4-7-07 - \"If eligible, benefits for the month of reinstatement must be prorated.\"`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/07/block-1#case_must_close_for_failure_to_report
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `case_must_close_for_failure_to_report`, grounded against `Alabama SNAP Manual 660-4-7-07 - \"the case will close for failure to provide a complete six-month report\"`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/07/block-1#report_considered_timely_when_received_on_first_workday_after_weekend_or_holiday
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `report_considered_timely_when_received_on_first_workday_after_weekend_or_holiday`, grounded against `Alabama SNAP Manual 660-4-7-07 - \"When the last day of the month falls on a weekend or a holiday, those reports received ... on the first workday after the fina`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/07/block-1#case_must_remain_closed_after_seventh_month
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `case_must_remain_closed_after_seventh_month`, grounded against `Alabama SNAP Manual 660-4-7-07 - \"If the household fails to return a complete form with the required documentation and verification by the end of the seventh mo`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/08/block-1#timely_recertification_application_first_day_of_month
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `timely_recertification_application_first_day_of_month`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/08/block-1#timely_recertification_application_last_day_of_month
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `timely_recertification_application_last_day_of_month`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
+  - legal_id: us-al:regulations/660-4/7/08/block-1#timely_application_for_recertification
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: "Source-specific intermediate output (rule `timely_application_for_recertification`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
+
 prefixes:
   - legal_id_prefix: us-az:policies/des/faa5/na-child-support-expense/allowable-deductions#
     country: us

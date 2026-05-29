@@ -4038,6 +4038,7 @@ RuleSpec requirements:
 - If metadata or context names an absolute canonical target that this source `sets`, `amends`, `implements`, or `restates`, add a separate `kind: source_relation` record with `source_relation.type` and `source_relation.target`. Do not put source graph edges in executable rule metadata.
 - Preserve existing or copied `kind: source_relation` records unless `./source.txt` proves the legal/provenance edge is wrong.
 - For state-set standards, allowances, thresholds, or options implementing federal delegation, include `source_relation.value` pointing to the local executable RuleSpec output and `source_relation.basis.delegation` when context identifies the upstream delegated slot.
+- Federal provisions that authorize state agencies to set a value create the delegated slot; encode those source graph records with `source_relation.type: delegates`. Reserve `source_relation.type: sets` or `implements` for the state or implementing authority that fills that slot, and always include `source_relation.basis.delegation` for `sets` or `implements`.
 - When the source says a value is determined `in accordance with section X`, emit the upstream import instead of restating the concept locally when that import target is available.
 - When the source uses `except` or `unless` with cited sections or same-section
   subsections, do not create local `section_...` or `subsection_...` inputs for

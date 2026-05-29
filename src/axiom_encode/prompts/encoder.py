@@ -591,6 +591,12 @@ Hard requirements:
   federal delegation, include `source_relation.value` pointing to the local
   executable RuleSpec output and `source_relation.basis.delegation` when context
   identifies the upstream delegated slot.
+- Federal provisions that authorize state agencies to set a value create the
+  delegated slot; encode those source graph records with
+  `source_relation.type: delegates`. Reserve `source_relation.type: sets` or
+  `implements` for the state or implementing authority that fills that slot,
+  and always include `source_relation.basis.delegation` for `sets` or
+  `implements`.
 - Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
 - Top-level `imports:` entries must be scalar strings, never map entries like
   `- target:` plus `symbols:`. Import a copied export as one exact string such
