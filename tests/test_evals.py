@@ -21,6 +21,7 @@ from axiom_encode.harness.evals import (
     EvalSuiteManifest,
     EvalWorkspace,
     GroundingMetric,
+    _build_empty_artifact_retry_prompt,
     _build_eval_prompt,
     _clean_generated_file_content,
     _codex_prompt_timeouts,
@@ -1688,6 +1689,29 @@ def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_pa
     retry_prompt = mock_prompt_eval.call_args_list[1].args[2]
     assert "previous response did not contain a RuleSpec artifact" in retry_prompt
     assert "Do not narrate your plan" in retry_prompt
+
+
+def test_empty_artifact_retry_prompt_uses_minimal_source_scope_protocol():
+    from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
+
+    original_prompt = (
+        "Task preface.\n"
+        f"{SOURCE_SCOPE_PROTOCOL}\n"
+        "Additional encoding guidance:\n"
+        "- Keep this instruction.\n"
+    )
+
+    retry_prompt = _build_empty_artifact_retry_prompt(
+        original_prompt,
+        target_file_name="sample.yaml",
+        include_tests=True,
+    )
+
+    assert "Source-scope protocol (minimal):" in retry_prompt
+    assert "Additional encoding guidance:" in retry_prompt
+    assert "- Keep this instruction." in retry_prompt
+    assert "do not promote it to a household, unit" not in retry_prompt
+    assert "Return exactly this two-file bundle" in retry_prompt
 
 
 def test_run_source_eval_retries_once_when_first_response_times_out(tmp_path):

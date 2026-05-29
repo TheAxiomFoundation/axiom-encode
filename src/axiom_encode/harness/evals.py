@@ -2569,6 +2569,56 @@ def _relative_rulespec_source_path(path: Path) -> Path | None:
     return None
 
 
+_MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
+- Match each executable rule's `entity:` to the legal subject stated by the supplied source text.
+- If the source uses the word "household" or "household's", use `entity: Household`. Prefer `Household` over `SnapUnit` for plain household-level SNAP rules.
+- If the source uses "individual", "person", "member", "claimant", "child", "dependent", "spouse", or "employee", use `entity: Person` (or `Employer` for employer amounts).
+- Any rule that uses `entity: SnapUnit` (or another filtered entity) requires the same file to also declare that entity via a `kind: derived_relation` rule. The declaration shape is:
+
+```yaml
+- name: snap_unit
+  kind: derived_relation
+  derived_relation:
+    arity: 2
+    source_relation: us:statutes/7/2012/j#relation.member_of_household
+    entity: SnapUnit
+    member_relation: members
+    slot_entities:
+      - Person
+      - Household
+  source: us:statutes/7/2012/m
+  versions:
+    - effective_from: '<earliest applicable date>'
+      formula: <member-eligibility predicate>
+```
+
+Either declare `snap_unit` inline like that (and define a real per-member eligibility predicate as its formula) or switch the executable rule's entity to `Household` and drop the SnapUnit reference. Do not leave a bare `entity: SnapUnit` rule without the matching declaration.
+
+"""
+
+
+def _strip_source_scope_protocol(prompt: str) -> str:
+    """Replace the multi-page SOURCE_SCOPE_PROTOCOL block with a minimal hint.
+
+    The full protocol guides entity-scope decisions for tax/credit/employer-style
+    sources but adds ~600 lines of guidance that does not apply to simple
+    single-entity judgment rules. For short SNAP/benefit sources, the bulk of
+    the protocol pushes the model into emitting no artifact at all. On retry we
+    swap the full protocol for a tight 4-bullet version that preserves the
+    important entity-scope discipline (especially "do not invent SnapUnit") so
+    the retry can succeed without regressing entity choices.
+    """
+    start_marker = "Source-scope protocol:"
+    start = prompt.find(start_marker)
+    if start == -1:
+        return prompt
+    end_marker = "Additional encoding guidance:"
+    end = prompt.find(end_marker, start)
+    if end == -1:
+        return prompt
+    return prompt[:start] + _MINIMAL_SCOPE_HINT + prompt[end:]
+
+
 def _build_empty_artifact_retry_prompt(
     original_prompt: str,
     target_file_name: str,
@@ -2584,6 +2634,7 @@ def _build_empty_artifact_retry_prompt(
             "with `format: rulespec/v1`."
         )
     )
+    trimmed_prompt = _strip_source_scope_protocol(original_prompt)
     return f"""The previous response did not contain a RuleSpec artifact, so the harness could not parse or write `{target_file_name}`.
 
 Emit the artifact now.
@@ -2595,7 +2646,7 @@ Emit the artifact now.
 Use the same source, context, schema, and validation constraints from the original task below.
 
 === BEGIN ORIGINAL TASK ===
-{original_prompt}
+{trimmed_prompt}
 === END ORIGINAL TASK ===
 """
 
