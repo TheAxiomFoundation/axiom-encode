@@ -11820,6 +11820,69 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_anaphoric_scope: list[str] = []
+                while not can_apply:
+                    repaired_refs = _try_repair_generated_anaphoric_scope_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_anaphoric_scope.extend(repaired_refs)
+                    outcome["auto_repaired_anaphoric_scope"] = repaired_anaphoric_scope
+                    print(
+                        "  apply=auto_repaired_anaphoric_scope:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_anaphoric_scope:
+                    outcome["auto_repaired_anaphoric_scope"] = repaired_anaphoric_scope
+            if not can_apply:
+                repaired_same_section_imports = _try_repair_generated_missing_same_section_subsection_imports_for_apply(
+                    result,
+                    output_root=args.output,
+                    policy_repo_path=policy_repo_path,
+                    issues=apply_issues,
+                )
+                if repaired_same_section_imports:
+                    prior_repairs = outcome.get(
+                        "auto_repaired_missing_same_section_imports"
+                    )
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_repaired_missing_same_section_imports"] = [
+                        *prior_repairs,
+                        *repaired_same_section_imports,
+                    ]
+                    print(
+                        "  apply=auto_repaired_missing_same_section_imports:"
+                        + ",".join(repaired_same_section_imports)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_rules = _try_repair_generated_nonnegative_floors_for_apply(
                     result,
                     output_root=args.output,
@@ -13702,6 +13765,11 @@ _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"
 )
+_ANAPHORIC_SCOPE_OMISSION_ISSUE_PATTERN = re.compile(
+    r"Anaphoric scope omitted: `(?P<rule>[^`]+)` uses predicate "
+    r"`(?P<identifier>[^`]+)` for proof excerpt `(?P<excerpt>[^`]+)`, "
+    r"but the supporting source states `(?P<scope>[^`]+)`\."
+)
 _INPUT_FIELD_ACCESS_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_])input\.([A-Za-z_][A-Za-z0-9_]*)"
 )
@@ -13757,6 +13825,227 @@ def _try_repair_generated_input_field_access_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     return _repair_input_field_accesses_in_formulas(rules_file=rules_file)
+
+
+def _try_repair_generated_anaphoric_scope_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rename broad generated predicates to preserve same-object scope."""
+    repairs = _anaphoric_scope_repairs_from_issues(issues)
+    if not repairs:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _repair_anaphoric_scope_identifiers(
+        rules_file=rules_file,
+        test_file=test_file,
+        repairs=repairs,
+    )
+
+
+def _anaphoric_scope_repairs_from_issues(
+    issues: list[str],
+) -> list[dict[str, str]]:
+    repairs: list[dict[str, str]] = []
+    seen_identifiers: set[str] = set()
+    for issue in issues:
+        match = _ANAPHORIC_SCOPE_OMISSION_ISSUE_PATTERN.search(str(issue))
+        if match is None:
+            continue
+        identifier = match.group("identifier")
+        if identifier in seen_identifiers:
+            continue
+        seen_identifiers.add(identifier)
+        scope_fragment = _anaphoric_scope_identifier_fragment(match.group("scope"))
+        if not scope_fragment or _identifier_contains_fragment(
+            identifier,
+            scope_fragment,
+        ):
+            continue
+        repairs.append(
+            {
+                "rule": match.group("rule"),
+                "old": identifier,
+                "new": _insert_identifier_scope_fragment(identifier, scope_fragment),
+                "excerpt": match.group("excerpt"),
+                "scope": match.group("scope"),
+            }
+        )
+    return repairs
+
+
+def _repair_anaphoric_scope_identifiers(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repairs: list[dict[str, str]],
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    changed: list[str] = []
+    for path in (rules_file, test_file):
+        if not path.exists():
+            continue
+        try:
+            content = path.read_text()
+        except OSError:
+            continue
+        repaired_content = content
+        for repair in repairs:
+            repaired_content = _replace_rulespec_identifier(
+                repaired_content,
+                old=repair["old"],
+                new=repair["new"],
+            )
+        if repaired_content != content:
+            path.write_text(repaired_content)
+
+    _extend_anaphoric_scope_proof_excerpts(rules_file=rules_file, repairs=repairs)
+    for repair in repairs:
+        if _rulespec_file_contains_identifier(rules_file, repair["new"]) or (
+            test_file.exists()
+            and _rulespec_file_contains_identifier(test_file, repair["new"])
+        ):
+            changed.append(f"{repair['old']}->{repair['new']}")
+    return changed
+
+
+def _anaphoric_scope_identifier_fragment(scope_phrase: str) -> str:
+    fragment = re.sub(r"[^a-z0-9]+", "_", scope_phrase.lower()).strip("_")
+    return re.sub(r"_+", "_", fragment)
+
+
+def _identifier_contains_fragment(identifier: str, fragment: str) -> bool:
+    return bool(
+        re.search(
+            rf"(?:^|_){re.escape(fragment)}(?:_|$)",
+            identifier,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _insert_identifier_scope_fragment(identifier: str, fragment: str) -> str:
+    for separator in ("_during_", "_after_", "_before_", "_within_"):
+        if separator in identifier:
+            prefix, suffix = identifier.split(separator, 1)
+            return f"{prefix}_{fragment}{separator}{suffix}"
+    return f"{identifier}_{fragment}"
+
+
+def _replace_rulespec_identifier(content: str, *, old: str, new: str) -> str:
+    return re.sub(
+        rf"(?<![A-Za-z0-9_]){re.escape(old)}(?![A-Za-z0-9_])",
+        new,
+        content,
+    )
+
+
+def _rulespec_file_contains_identifier(path: Path, identifier: str) -> bool:
+    with contextlib.suppress(OSError):
+        return bool(
+            re.search(
+                rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])",
+                path.read_text(),
+            )
+        )
+    return False
+
+
+def _extend_anaphoric_scope_proof_excerpts(
+    *,
+    rules_file: Path,
+    repairs: list[dict[str, str]],
+) -> None:
+    try:
+        content = rules_file.read_text()
+        payload = yaml.safe_load(content) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(payload, dict):
+        return
+    source_text = _extract_source_verification_text(content)
+    if not source_text:
+        return
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return
+
+    changed = False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if not isinstance(excerpt, str):
+                continue
+            for repair in repairs:
+                if rule_name != repair["rule"] or excerpt != repair["excerpt"]:
+                    continue
+                if repair["scope"].lower() in excerpt.lower():
+                    continue
+                extended = _extend_excerpt_to_anaphoric_scope(
+                    source_text=source_text,
+                    excerpt=excerpt,
+                    scope_phrase=repair["scope"],
+                )
+                if extended and extended != excerpt:
+                    source["excerpt"] = extended
+                    changed = True
+    if changed:
+        rules_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
+
+
+def _extend_excerpt_to_anaphoric_scope(
+    *,
+    source_text: str,
+    excerpt: str,
+    scope_phrase: str,
+) -> str | None:
+    source = re.sub(r"\s+", " ", source_text).strip()
+    excerpt_text = re.sub(r"\s+", " ", excerpt).strip()
+    scope_text = re.sub(r"\s+", " ", scope_phrase).strip()
+    if not source or not excerpt_text or not scope_text:
+        return None
+    match = re.search(re.escape(excerpt_text), source, flags=re.IGNORECASE)
+    if match is None:
+        return None
+    tail = source[match.end() : match.end() + 240]
+    scope_match = re.search(re.escape(scope_text), tail, flags=re.IGNORECASE)
+    if scope_match is None:
+        return None
+    sentence_tail = tail[: scope_match.end()]
+    if _anaphoric_repair_tail_crosses_boundary(sentence_tail):
+        return None
+    return source[match.start() : match.end() + scope_match.end()].strip()
+
+
+def _anaphoric_repair_tail_crosses_boundary(value: str) -> bool:
+    boundary_indexes = [
+        index for marker in (".", ";", "\n") if (index := value.find(marker)) != -1
+    ]
+    return bool(boundary_indexes and min(boundary_indexes) < len(value) - 1)
 
 
 def _repair_input_field_accesses_in_formulas(*, rules_file: Path) -> list[str]:

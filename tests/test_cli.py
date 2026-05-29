@@ -42,6 +42,7 @@ from axiom_encode.cli import (
     _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
+    _repair_anaphoric_scope_identifiers,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
     _repair_generated_unused_imports_for_apply,
@@ -4540,6 +4541,101 @@ rules:
         assert test_payload[0]["oracle_inputs"]["policyengine"] == {
             "self_employment_income": 1000,
         }
+
+    def test_repair_anaphoric_scope_identifiers_renames_rules_and_tests(
+        self, monkeypatch, tmp_path
+    ):
+        import axiom_encode.cli as cli_module
+
+        source_text = (
+            "Subparagraph (B) of paragraph (2) shall not apply with respect to a "
+            "readily tradable instrument which was acquired through an account with "
+            "a broker if- (A) such account was established before January 1, 1984, "
+            "and (B) during 1983, such broker bought or sold instruments for the "
+            "payee (or acted as a nominee for the payee) through such account."
+        )
+        monkeypatch.setattr(
+            cli_module,
+            "_extract_source_verification_text",
+            lambda _content: source_text,
+        )
+
+        rules_file = tmp_path / "d.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3406
+rules:
+  - name: existing_brokerage_account_exception_to_broker_notification
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: "during 1983, such broker bought or sold instruments for the payee"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year
+"""
+        )
+        test_file = tmp_path / "d.test.yaml"
+        test_file.write_text(
+            """- name: existing_brokerage_exception_blocks_broker_notification_duty
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/3406/d#input.broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year: true
+  output:
+    us:statutes/26/3406/d#existing_brokerage_account_exception_to_broker_notification: holds
+"""
+        )
+
+        repaired = _repair_anaphoric_scope_identifiers(
+            rules_file=rules_file,
+            test_file=test_file,
+            repairs=[
+                {
+                    "rule": "existing_brokerage_account_exception_to_broker_notification",
+                    "old": "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year",
+                    "new": "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year",
+                    "excerpt": "during 1983, such broker bought or sold instruments for the payee",
+                    "scope": "through such account",
+                }
+            ],
+        )
+
+        assert repaired == [
+            "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year"
+            "->broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year"
+        ]
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        formula = rules_payload["rules"][0]["versions"][0]["formula"]
+        assert (
+            "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year"
+            in formula
+        )
+        excerpt = rules_payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+            "excerpt"
+        ]
+        assert (
+            excerpt
+            == "during 1983, such broker bought or sold instruments for the payee "
+            "(or acted as a nominee for the payee) through such account"
+        )
+        assert (
+            "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year"
+            in test_file.read_text()
+        )
 
     def test_apply_repair_uses_uncapped_1402b_income_for_section_1401_b_1(
         self, tmp_path
