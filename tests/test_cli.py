@@ -13303,6 +13303,87 @@ rules:
             "statutes/26/32.test.yaml",
         ]
 
+    def test_repair_oracle_parameter_tests_appends_scalar_parameter_case(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        target = policy_repo / "statutes/39/39-22-104/4/y.yaml"
+        test_file = policy_repo / "statutes/39/39-22-104/4/y.test.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: military_retirement_benefits_cap_initial_phase
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2019-01-01'
+        formula: '4500'
+"""
+        )
+        test_file.write_text(
+            """- name: existing
+  output:
+    us-co:statutes/39/39-22-104/4/y#some_other_output: 1
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            file=Path("statutes/39/39-22-104/4/y.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakeRegistry:
+            def mapping_for_legal_id(self, legal_id, *, country=None):
+                assert country == "us"
+                if (
+                    legal_id
+                    == "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase"
+                ):
+                    return SimpleNamespace(mapping_type="parameter_value")
+                return None
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli.load_policyengine_registry",
+                return_value=FakeRegistry(),
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_oracle_parameter_tests(args)
+
+        payload = yaml.safe_load(test_file.read_text())
+        added = payload[-1]
+        assert (
+            added["name"]
+            == "oracle_parameter_military_retirement_benefits_cap_initial_phase"
+        )
+        assert added["input"] == {}
+        assert added["output"] == {
+            "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase": 4500
+        }
+
     def test_repair_oracle_parameter_tests_does_not_mutate_without_signing_key(
         self, tmp_path
     ):

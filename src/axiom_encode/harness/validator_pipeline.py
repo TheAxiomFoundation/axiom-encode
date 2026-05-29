@@ -6867,7 +6867,17 @@ def _normalize_requested_source_to_corpus_path(requested_source: str) -> str:
     fails the input is returned unchanged so corpus-path inputs pass through.
     """
     candidate = requested_source.strip()
-    if not candidate or candidate.startswith(("us/", "us-")):
+    if not candidate:
+        return candidate
+    target_ref = _parse_rulespec_target(candidate)
+    if target_ref is not None:
+        target_parts = target_ref.relative_path.with_suffix("").parts
+        if len(target_parts) >= 3 and target_parts[0] == "statutes":
+            return "/".join((target_ref.prefix, "statute", *target_parts[1:]))
+        if len(target_parts) >= 4 and target_parts[0] == "regulations":
+            title = target_parts[1].removesuffix("-cfr")
+            return "/".join((target_ref.prefix, "regulation", title, *target_parts[2:]))
+    if candidate.startswith(("us/", "us-")):
         return candidate
     try:
         parts = parse_usc_citation(candidate)
@@ -6966,6 +6976,13 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
             r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
             flags=re.IGNORECASE,
         )
+    if len(parts) >= 4 and parts[0].startswith("us-") and parts[1] == "statute":
+        section = re.escape(parts[3])
+        return re.compile(
+            rf"(?<![\w.-])(?:{section}|C\.?\s*R\.?\s*S\.?\s*{section})"
+            r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+            flags=re.IGNORECASE,
+        )
     if len(parts) >= 5 and parts[:2] == ["us", "regulation"]:
         title = re.escape(parts[2])
         section = re.escape(f"{parts[3]}.{parts[4]}")
@@ -6979,7 +6996,11 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
 
 def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
     parts = citation_path.strip("/").split("/")
-    if len(parts) >= 4 and parts[:2] == ["us", "statute"]:
+    if (
+        len(parts) >= 4
+        and parts[1] == "statute"
+        and (parts[0] == "us" or parts[0].startswith("us-"))
+    ):
         return ("statutes", parts[2], parts[3])
     if len(parts) >= 5 and parts[:2] == ["us", "regulation"]:
         return ("regulations", f"{parts[2]}-cfr", parts[3], parts[4])
@@ -7005,6 +7026,8 @@ def _format_source_subparagraph_citation(citation_path: str, label: str) -> str:
     parts = citation_path.strip("/").split("/")
     if len(parts) >= 4 and parts[:2] == ["us", "statute"]:
         return f"{parts[2]} USC {parts[3]}({label})"
+    if len(parts) >= 4 and parts[0].startswith("us-") and parts[1] == "statute":
+        return f"{parts[3]}({label})"
     if len(parts) >= 5 and parts[:2] == ["us", "regulation"]:
         return f"{parts[2]} CFR {parts[3]}.{parts[4]}({label})"
     return f"{citation_path}({label})"

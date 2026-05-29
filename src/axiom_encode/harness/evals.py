@@ -6884,7 +6884,64 @@ def _clean_generated_file_content(content: str) -> str:
         lambda match: match.group(1),
         stripped,
     )
+    stripped = _normalize_backslash_escaped_yaml_apostrophes(stripped)
     return stripped + ("\n" if stripped and not stripped.endswith("\n") else "")
+
+
+def _normalize_backslash_escaped_yaml_apostrophes(content: str) -> str:
+    """Repair LLM-emitted YAML quote escapes that PyYAML cannot parse."""
+    if "\\'" not in content:
+        return content
+
+    repaired_lines: list[str] = []
+    for line in content.splitlines(keepends=True):
+        if "\\'" not in line:
+            repaired_lines.append(line)
+            continue
+        repaired_lines.append(
+            _normalize_backslash_escaped_yaml_apostrophes_in_line(line)
+        )
+    return "".join(repaired_lines)
+
+
+def _normalize_backslash_escaped_yaml_apostrophes_in_line(line: str) -> str:
+    output: list[str] = []
+    quote: str | None = None
+    index = 0
+    while index < len(line):
+        char = line[index]
+        next_char = line[index + 1] if index + 1 < len(line) else ""
+        if quote is None:
+            if char in {"'", '"'}:
+                quote = char
+            output.append(char)
+            index += 1
+            continue
+
+        if quote == "'":
+            if char == "\\" and next_char == "'":
+                output.append("''")
+                index += 2
+                continue
+            if char == "'" and next_char == "'":
+                output.append("''")
+                index += 2
+                continue
+            if char == "'":
+                quote = None
+            output.append(char)
+            index += 1
+            continue
+
+        if char == "\\" and next_char == "'":
+            output.append("'")
+            index += 2
+            continue
+        if char == '"':
+            quote = None
+        output.append(char)
+        index += 1
+    return "".join(output)
 
 
 def _normalize_comma_numeric_literals(content: str) -> str:

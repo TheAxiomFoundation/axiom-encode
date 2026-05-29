@@ -3549,6 +3549,33 @@ class TestGeneratedBundleCleaning:
         assert "26.05 GBP" not in cleaned.split("formula:", 1)[1]
         assert "formula: 26.05" in cleaned
 
+    def test_clean_generated_file_content_repairs_yaml_apostrophe_escapes(self):
+        content = (
+            "format: rulespec/v1\n"
+            "module:\n"
+            '  summary: "Double quoted taxpayer\\\'s amount"\n'
+            "rules:\n"
+            "  - name: military_retirement_benefits_definition\n"
+            "    kind: derived\n"
+            "    metadata:\n"
+            "      proof:\n"
+            "        atoms:\n"
+            "          - source:\n"
+            "              excerpt: 'benefits received as a result of the individual\\'s service'\n"
+            "    versions:\n"
+            "      - effective_from: '2019-01-01'\n"
+            "        formula: benefit_amount\n"
+        )
+
+        cleaned = _clean_generated_file_content(content)
+        payload = yaml.safe_load(cleaned)
+
+        assert payload["module"]["summary"] == "Double quoted taxpayer's amount"
+        excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+            "excerpt"
+        ]
+        assert excerpt == "benefits received as a result of the individual's service"
+
     def test_materialize_eval_artifact_rejects_non_rulespec_bundle(self, tmp_path):
         output_file = tmp_path / "source" / "example.yaml"
         response = (
