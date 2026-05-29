@@ -2041,6 +2041,44 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert gross_income_limit_mapping.policyengine_variable == "snap_fpg"
     assert gross_income_limit_mapping.result_multiplier == 1.3
+    section_2014c_net_failure_mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2014/c#snap_net_income_exceeds_poverty_line",
+        country="us",
+    )
+    assert section_2014c_net_failure_mapping.mapping_type == "not_comparable"
+    assert (
+        section_2014c_net_failure_mapping.policyengine_variable
+        == "meets_snap_net_income_test"
+    )
+    section_2014c_gross_failure_mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2014/c#household_fails_gross_income_standard",
+        country="us",
+    )
+    assert section_2014c_gross_failure_mapping.mapping_type == "not_comparable"
+    assert (
+        section_2014c_gross_failure_mapping.policyengine_variable
+        == "meets_snap_gross_income_test"
+    )
+    section_2014c_income_ineligible_mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2014/c#household_ineligible_to_participate_due_to_income_standards",
+        country="us",
+    )
+    assert section_2014c_income_ineligible_mapping.mapping_type == "not_comparable"
+    assert (
+        section_2014c_income_ineligible_mapping.policyengine_variable
+        == "is_snap_eligible"
+    )
+    section_2014c_rate_mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2014/c#snap_gross_income_excess_rate_over_poverty_line",
+        country="us",
+    )
+    assert section_2014c_rate_mapping.mapping_type == "not_comparable"
+    section_2014c_poverty_line_mapping = registry.mapping_for_legal_id(
+        "us:statutes/7/2014/c#snap_income_standard_poverty_line_with_territory_cap",
+        country="us",
+    )
+    assert section_2014c_poverty_line_mapping.mapping_type == "not_comparable"
+    assert section_2014c_poverty_line_mapping.policyengine_variable == "snap_fpg"
     shelter_cap_mapping = registry.mapping_for_legal_id(
         "us:policies/usda/snap/fy-2026-cola/deductions#snap_maximum_excess_shelter_deduction_alaska",
         country="us",
