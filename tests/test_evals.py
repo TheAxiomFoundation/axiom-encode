@@ -30,6 +30,7 @@ from axiom_encode.harness.evals import (
     _command_looks_out_of_bounds,
     _context_file_executable_surfaces,
     _eval_result_from_payload,
+    _format_subparagraph_coverage_checklist,
     _hydrate_eval_root,
     _is_single_amount_table_slice,
     _materialize_eval_artifact,
@@ -157,6 +158,17 @@ def test_canonical_target_ref_prefix_omits_repo_relative_source_without_repo():
         )
         is None
     )
+
+
+def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
+    checklist = _format_subparagraph_coverage_checklist(
+        "(a) First category is eligible.\n(b) Second category is ineligible.",
+        "us-ny/regulation/18-nycrr/387/14/a/5",
+    )
+
+    assert "copy the relevant string exactly" in checklist
+    assert "human-readable source like `18 NYCRR 387.14(a)(5)(i)(a)`" in checklist
+    assert "us-ny/regulation/18-nycrr/387/14/a/5(a)" in checklist
 
 
 @pytest.mark.parametrize(

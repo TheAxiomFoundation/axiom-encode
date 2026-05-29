@@ -4354,6 +4354,15 @@ source-subparagraph-coverage validator. There is no implicit "covered by
 the umbrella rule" path — composite rules cite the parent section, not
 the children.
 
+The citation strings below are exact validator keys, not examples. To satisfy
+coverage with an executable rule, copy the relevant string exactly into that
+rule's `source:` field, such as `source: us-ny/regulation/.../5(a)`. A
+human-readable source like `18 NYCRR 387.14(a)(5)(i)(a)` may be useful in prose
+but does not satisfy this checklist. If a top-level checklist item has nested
+legal clauses, at least one rule for that top-level item must cite the exact
+top-level checklist string, or the item must be listed under
+`module.deferred_outputs`.
+
 Subparagraphs requiring action:
 {rows_text}
 
