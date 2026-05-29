@@ -3011,6 +3011,8 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
                 tail = _canonical_us_regulation_tail(tail)
             if tail:
+                if _preserve_state_statute_dotted_leaf(parts[0], root, tail):
+                    return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
                 return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     return Path("source") / f"{_slugify(source_id)}.yaml"
 
@@ -3041,6 +3043,21 @@ def _preserve_dotted_leaf_filename(tail: list[str]) -> bool:
         re.fullmatch(r"\d+-ccr-\d+-\d+", tail[0], flags=re.IGNORECASE)
         and re.fullmatch(r"\d+(?:\.\d+)+", tail[-1])
     )
+
+
+def _preserve_state_statute_dotted_leaf(
+    jurisdiction: str,
+    root: str,
+    tail: list[str],
+) -> bool:
+    """Return true when a dotted state statute segment is a legal citation label."""
+    if jurisdiction != "us-co" or root != "statutes" or len(tail) < 2:
+        return False
+    if len(tail) == 2 and tail[0].isdigit():
+        return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)+", tail[-1]))
+    if not re.fullmatch(r"\d+(?:\.\d+)+", tail[-1]):
+        return False
+    return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)?", tail[-2]))
 
 
 def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:

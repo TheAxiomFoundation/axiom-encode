@@ -147,6 +147,16 @@ def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
             "us-co/regulation/10-ccr-2506-1/4.403.11/b/c/3",
             "regulations/10-ccr-2506-1/4.403.11/b/c/3.yaml",
         ),
+        # Colorado statutes also use dotted legal labels for sections and
+        # subsections; those labels are file stems, not nested MPP-style parts.
+        (
+            "us-co/statute/39/39-22-104.5",
+            "statutes/39/39-22-104.5.yaml",
+        ),
+        (
+            "us-co/statute/39/39-22-104/1.5",
+            "statutes/39/39-22-104/1.5.yaml",
+        ),
         # Slash-separated citations (USC, NYCRR, CFR) are unaffected — these
         # are regression cases for the dot-stripping fix.
         (
