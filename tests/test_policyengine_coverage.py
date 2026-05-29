@@ -625,6 +625,61 @@ rules:
     assert item["test_output_count"] == 1
 
 
+def test_policyengine_coverage_maps_colorado_1999_income_tax_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: subsection_1_5_individual_income_tax_rate
+    kind: parameter
+    versions:
+      - effective_from: '1999-01-01'
+        formula: '0.0475'
+  - name: subsection_1_5_individual_income_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1999-01-01'
+        formula: 'if taxable_year_commences_in_subsection_1_5_window: max(0, federal_taxable_income_after_subsection_2_modifications) * subsection_1_5_individual_income_tax_rate else: 0'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.5.test.yaml",
+        """- name: rate applies to positive modified income
+  period:
+    period_kind: tax_year
+    start: '1999-01-01'
+    end: '1999-12-31'
+  input:
+    us-co:statutes/39/39-22-104/1.5#input.taxable_year_commences_in_subsection_1_5_window: true
+    us-co:statutes/39/39-22-104/1.5#input.federal_taxable_income_after_subsection_2_modifications: 100000
+  output:
+    us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax_rate: 0.0475
+    us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax: 4750
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    rate = items_by_id[
+        "us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax_rate"
+    ]
+    tax = items_by_id[
+        "us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax"
+    ]
+    assert rate["policyengine_parameter"] == "gov.states.co.tax.income.rate"
+    assert rate["tested"] is True
+    assert rate["test_output_count"] == 1
+    assert tax["policyengine_variable"] == "co_income_tax_before_non_refundable_credits"
+    assert tax["tested"] is True
+    assert tax["test_output_count"] == 1
+
+
 def test_policyengine_coverage_classifies_colorado_base_rates_not_comparable(
     tmp_path,
 ):
