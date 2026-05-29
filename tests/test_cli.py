@@ -49,6 +49,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_2072_tests,
     _repair_colorado_snap_program_tests,
     _repair_employer_scoped_entities,
+    _repair_future_effective_output_tests,
     _repair_generated_import_symbol_near_misses,
     _repair_generated_unused_imports_for_apply,
     _repair_imported_rule_name_collisions,
@@ -7384,6 +7385,141 @@ rules:
         )
         assert cases[1]["output"] == {
             "us:statutes/26/3121/a/7#cash_nontrade_service_annual_threshold": 100
+        }
+
+    def test_mixed_scalar_output_test_repair_moves_scalar_case_to_effective_period(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        rules_file = policy_repo / "statutes/39/39-22-104/4/f.yaml"
+        test_file = policy_repo / "statutes/39/39-22-104/4/f.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: social_security_cap_increase_individual_agi_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '75000'
+  - name: pension_annuity_subtraction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1989-01-01'
+        formula: min(pension, social_security_cap_increase_individual_agi_threshold)
+"""
+        )
+        test_file.write_text(
+            """- name: age_fifty_five_to_sixty_four_pension_subtraction_is_capped
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-co:statutes/39/39-22-104/4/f#input.pension: 30000
+  output:
+    us-co:statutes/39/39-22-104/4/f#social_security_cap_increase_individual_agi_threshold: 75000
+    us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction: 30000
+"""
+        )
+
+        repaired = _repair_mixed_scalar_output_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/39/39-22-104/4/f.yaml"),
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "age_fifty_five_to_sixty_four_pension_subtraction_is_capped"
+        ]
+        assert cases[0]["period"]["start"] == "2024-01-01"
+        assert cases[0]["output"] == {
+            "us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction": 30000
+        }
+        assert cases[1]["name"] == (
+            "age_fifty_five_to_sixty_four_pension_subtraction_is_capped_scalar_outputs"
+        )
+        assert cases[1]["period"] == {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+        }
+        assert cases[1]["output"] == {
+            "us-co:statutes/39/39-22-104/4/f#social_security_cap_increase_individual_agi_threshold": 75000
+        }
+
+    def test_future_effective_output_test_repair_splits_mixed_period_outputs(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us-co"
+        rules_file = policy_repo / "statutes/39/39-22-104/4/f.yaml"
+        test_file = policy_repo / "statutes/39/39-22-104/4/f.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: adjusted_gross_income_within_social_security_cap_limit
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2025-01-01'
+        formula: adjusted_gross_income <= 75000
+  - name: pension_annuity_subtraction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1989-01-01'
+        formula: min(pension, 20000)
+"""
+        )
+        test_file.write_text(
+            """- name: basic_cap_limits_subtraction
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-co:statutes/39/39-22-104/4/f#input.adjusted_gross_income: 70000
+    us-co:statutes/39/39-22-104/4/f#input.pension: 30000
+  output:
+    us-co:statutes/39/39-22-104/4/f#adjusted_gross_income_within_social_security_cap_limit: holds
+    us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction: 20000
+"""
+        )
+
+        repaired = _repair_future_effective_output_tests(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/39/39-22-104/4/f.yaml"),
+        )
+
+        cases = yaml.safe_load(test_file.read_text())
+        assert repaired == ["basic_cap_limits_subtraction"]
+        assert cases[0]["name"] == "basic_cap_limits_subtraction"
+        assert cases[0]["period"]["start"] == "2024-01-01"
+        assert cases[0]["output"] == {
+            "us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction": 20000
+        }
+        assert cases[1]["name"] == "basic_cap_limits_subtraction_effective_outputs"
+        assert cases[1]["period"] == {
+            "period_kind": "tax_year",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+        }
+        assert cases[1]["output"] == {
+            "us-co:statutes/39/39-22-104/4/f#adjusted_gross_income_within_social_security_cap_limit": "holds"
         }
 
     def test_mixed_scalar_output_test_repair_drops_nonterminating_fraction_parameter(

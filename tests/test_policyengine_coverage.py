@@ -828,6 +828,100 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_colorado_pension_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/f.yaml",
+        """format: rulespec/v1
+rules:
+  - name: pension_annuity_subtraction_cap_for_age_fifty_five_to_sixty_four
+    kind: parameter
+    versions:
+      - effective_from: '1989-01-01'
+        formula: '20000'
+  - name: pension_annuity_subtraction_cap_for_age_sixty_five_or_older
+    kind: parameter
+    versions:
+      - effective_from: '1989-01-01'
+        formula: '24000'
+  - name: individual_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '75000'
+  - name: joint_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase
+    kind: parameter
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '95000'
+  - name: individual_qualifies_for_pension_annuity_subtraction
+    kind: derived
+    versions:
+      - effective_from: '1989-01-01'
+        formula: individual_is_fifty_five_or_older
+  - name: pension_annuity_subtraction_applicable_cap
+    kind: derived
+    versions:
+      - effective_from: '1989-01-01'
+        formula: pension_annuity_subtraction_cap_for_age_fifty_five_to_sixty_four
+  - name: pension_annuity_subtraction
+    kind: derived
+    versions:
+      - effective_from: '1989-01-01'
+        formula: pension_annuity_subtraction_applicable_cap
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/f.test.yaml",
+        """- name: pension outputs
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_fifty_five_to_sixty_four: 20000
+    us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_sixty_five_or_older: 24000
+    us-co:statutes/39/39-22-104/4/f#individual_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase: 75000
+    us-co:statutes/39/39-22-104/4/f#joint_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase: 95000
+    us-co:statutes/39/39-22-104/4/f#individual_qualifies_for_pension_annuity_subtraction: holds
+    us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_applicable_cap: 20000
+    us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction: 20000
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 5,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    younger_cap = items_by_id[
+        "us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_fifty_five_to_sixty_four"
+    ]
+    older_cap = items_by_id[
+        "us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_sixty_five_or_older"
+    ]
+    individual_agi_limit = items_by_id[
+        "us-co:statutes/39/39-22-104/4/f#individual_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase"
+    ]
+    subtraction = items_by_id[
+        "us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction"
+    ]
+    assert (
+        younger_cap["policyengine_parameter"]
+        == "gov.states.co.tax.income.subtractions.pension.cap.younger"
+    )
+    assert (
+        older_cap["policyengine_parameter"]
+        == "gov.states.co.tax.income.subtractions.pension.cap.older"
+    )
+    assert individual_agi_limit["status"] == "known_not_comparable"
+    assert individual_agi_limit["program"] == "tax"
+    assert subtraction["status"] == "known_not_comparable"
+    assert subtraction["policyengine_variable"] == "co_pension_subtraction"
+
+
 def test_policyengine_coverage_classifies_3102a_collection_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3102/a.yaml",

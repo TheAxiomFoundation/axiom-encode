@@ -1,0 +1,1 @@
+Repair apply-time generated companion tests that assert scalar parameters or outputs before the RuleSpec output has a live version, and classify Colorado pension-subtraction outputs for PolicyEngine oracle coverage.
