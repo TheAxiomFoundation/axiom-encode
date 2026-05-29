@@ -1,0 +1,301 @@
+mappings:
+  - legal_id: uk:statutes/ukpga/2007/3/35#personal_allowance_base_amount
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.income_tax.allowances.personal_allowance.amount
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax personal allowance base amount.
+
+  - legal_id: uk:statutes/ukpga/2007/3/35#adjusted_net_income_reduction_threshold
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.income_tax.allowances.personal_allowance.maximum_ANI
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same adjusted net income threshold above which the UK personal allowance is reduced.
+
+  - legal_id: uk:statutes/ukpga/2007/3/35#excess_income_reduction_fraction
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.income_tax.allowances.personal_allowance.reduction_rate
+    period: year
+    comparison: rate
+    rationale: Same UK personal allowance taper rate.
+
+  - legal_id: uk:statutes/ukpga/2007/3/35#personal_allowance
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: personal_allowance
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax personal allowance output.
+
+  - legal_id: uk:regulations/uksi/2006/965/2#child_benefit_enhanced_weekly_rate
+    country: uk
+    program: child_benefit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.child_benefit.amount.eldest
+    aliases:
+      - uk:regulations/uksi/2006/965/2#child_benefit_weekly_rate
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same eldest or enhanced child benefit weekly amount. Companion tests exercise it through the branch-selected weekly rate output.
+
+  - legal_id: uk:regulations/uksi/2006/965/2#child_benefit_other_weekly_rate
+    country: uk
+    program: child_benefit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.child_benefit.amount.additional
+    aliases:
+      - uk:regulations/uksi/2006/965/2#child_benefit_weekly_rate
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same additional or other-child child benefit weekly amount. Companion tests exercise it through the branch-selected weekly rate output.
+
+  - legal_id: uk:regulations/uksi/2006/965/2#child_benefit_weekly_rate
+    country: uk
+    program: child_benefit
+    mapping_type: direct_variable
+    policyengine_variable: child_benefit_respective_amount
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same branch-selected statutory child benefit weekly amount for a child or qualifying young person.
+
+  - legal_id: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_with_partner
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.minimum_guarantee.COUPLE
+    aliases:
+      - uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit guarantee credit minimum guarantee for a claimant with a partner. Companion tests exercise it through the branch-selected standard minimum guarantee output.
+
+  - legal_id: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee_no_partner
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.minimum_guarantee.SINGLE
+    aliases:
+      - uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit guarantee credit minimum guarantee for a claimant without a partner. Companion tests exercise the same branch-selected standard minimum guarantee surface.
+
+  - legal_id: uk:regulations/uksi/2002/1792/6#standard_minimum_guarantee
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: standard_minimum_guarantee
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit standard minimum guarantee output.
+
+  - legal_id: uk:regulations/uksi/2002/1792/6#severe_disability_additional_amount_single
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.severe_disability.addition
+    aliases:
+      - uk:regulations/uksi/2002/1792/6#severe_disability_additional_amount
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same per-person Pension Credit severe disability addition. Companion tests exercise severe-disability additions through the branch-selected additional amount output.
+
+  - legal_id: uk:regulations/uksi/2002/1792/6#severe_disability_additional_amount
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: severe_disability_minimum_guarantee_addition
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit severe disability addition output after applying claimant circumstances.
+
+  - legal_id: uk:regulations/uksi/2002/1792/6#carer_additional_amount_per_partner
+    country: uk
+    program: pension_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.pension_credit.guarantee_credit.carer.addition
+    aliases:
+      - uk:regulations/uksi/2002/1792/6#carer_additional_amount
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit carer addition amount. Companion tests exercise it through the branch-selected carer additional amount output.
+
+  - legal_id: uk:regulations/uksi/2002/1792/6#carer_additional_amount
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: carer_minimum_guarantee_addition
+    entity: benunit
+    period: week
+    unit: GBP
+    comparison: money
+    rationale: Same Pension Credit carer addition output after applying claimant circumstances.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.SINGLE_YOUNG
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit standard allowance for a single claimant aged under 25.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_25_or_over
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.SINGLE_OLD
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit standard allowance for a single claimant aged 25 or over.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_both_under_25
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.COUPLE_YOUNG
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit standard allowance for joint claimants both aged under 25.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_either_25_or_over
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.COUPLE_OLD
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit standard allowance for joint claimants where either is aged 25 or over.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#child_element_first_child_or_qualifying_young_person
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.child.first.higher_amount
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit first-child child element amount.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#child_element_second_and_each_subsequent_child_or_qualifying_young_person
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.child.amount
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit second and subsequent child element amount.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_additional_amount_lower_rate
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.child.disabled.amount
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit lower disabled-child addition amount.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_additional_amount_higher_rate
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.child.severely_disabled.amount
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit higher disabled-child addition amount.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#lcwra_element_standard_lcwra_claimant
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.disabled.amount
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit standard limited capability for work and work-related activity element amount.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#carer_element
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.carer.amount
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit carer element amount.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_maximum_one_child
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.childcare.cap.1
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit maximum childcare costs element for one child.
+
+  - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_maximum_two_or_more_children
+    country: uk
+    program: universal_credit
+    mapping_type: parameter_value
+    policyengine_parameter: gov.dwp.universal_credit.elements.childcare.cap.2
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Same Universal Credit maximum childcare costs element for two or more children.
+
+prefixes:
+  - legal_id_prefix: uk:statutes/ukpga/2007/3/35#
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: UK personal allowance helper outputs not listed above are legal entitlement or rounding intermediates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:regulations/uksi/2006/965/2#
+    country: uk
+    program: child_benefit
+    mapping_type: not_comparable
+    rationale: Child Benefit helper outputs not listed above are payability, relationship-coordination, or specified-benefit predicates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:regulations/uksi/2002/1792/6#
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Pension Credit helper outputs not listed above are remand-prisoner, tax-credit cessation, nil substitution, or branch-control intermediates that PolicyEngine UK does not expose as one-to-one oracle variables or parameters.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/36#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit helper outputs not listed above are statutory amount variants that PolicyEngine UK does not expose as one-to-one oracle parameters in the current model, including the protected pre-2026 LCWRA amount.

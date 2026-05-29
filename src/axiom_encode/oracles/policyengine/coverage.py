@@ -213,7 +213,10 @@ def _iter_policyengine_coverage_items(
                     rulespec_file=rulespec_file,
                     rule_name=rule_name,
                 )
-                mapping = registry.mapping_for_legal_id(legal_id, country="us")
+                mapping = registry.mapping_for_legal_id(
+                    legal_id,
+                    country=_country_from_rulespec_prefix(prefix),
+                )
                 test_output_count = _mapping_test_output_count(
                     legal_id,
                     mapping=mapping,
@@ -475,6 +478,11 @@ def _canonical_rulespec_legal_id(
     return f"{prefix}:{relative.as_posix()}#{rule_name}"
 
 
+def _country_from_rulespec_prefix(prefix: str) -> str:
+    """Infer PolicyEngine country from a RuleSpec repository prefix."""
+    return prefix.split("-", 1)[0]
+
+
 def _coverage_item_from_mapping(
     *,
     legal_id: str,
@@ -519,6 +527,14 @@ def _coverage_item_from_mapping(
 
 def _infer_program_from_legal_id(legal_id: str) -> str:
     lowered = legal_id.lower()
+    if lowered.startswith("uk:statutes/ukpga/2007/3/35"):
+        return "tax"
+    if lowered.startswith("uk:regulations/uksi/2006/965/2"):
+        return "child_benefit"
+    if lowered.startswith("uk:regulations/uksi/2002/1792/6"):
+        return "pension_credit"
+    if lowered.startswith("uk:regulations/uksi/2013/376/36"):
+        return "universal_credit"
     if "snap" in lowered:
         return "snap"
     if (
