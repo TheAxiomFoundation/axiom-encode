@@ -13461,6 +13461,23 @@ rules:
     assert find_nonnegative_amount_reduction_issues(content) == []
 
 
+def test_nonnegative_amount_reduction_allows_zero_floor_with_nested_inline_condition():
+    content = """format: rulespec/v1
+rules:
+  - name: charitable_contribution_standard_deduction_subtraction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2001-01-01'
+        formula: |-
+          if eligible: max(0, charitable_contribution_amount - (if credit_claimed: food_contribution_amount else: 0) - charitable_contribution_floor) else: 0
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
 def test_nonnegative_amount_reduction_rejects_unfloored_taxable_income_branch():
     content = """format: rulespec/v1
 rules:

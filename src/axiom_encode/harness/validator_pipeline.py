@@ -8322,8 +8322,7 @@ def _formula_result_expressions(formula: str) -> list[str]:
         line = raw_line.strip()
         if not line:
             continue
-        inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(line)
-        if inline_conditional is not None:
+        if _inline_conditional_result_parts(line) is not None:
             expressions.extend(_split_inline_conditional_result_expressions(line))
             continue
         match_arm = re.match(r"^(?:\d+|default|otherwise|_)\s*=>\s*(.+)$", line)
@@ -8430,34 +8429,92 @@ def _formula_bracket_depth_delta(expression: str) -> int:
     return depth
 
 
-_INLINE_CONDITIONAL_RESULT_PATTERN = re.compile(
-    r"^(?:if\b.+?|elif\b.+?)\s*:\s*(.+?)\s+else\s*:\s*(.+)$",
-    flags=re.IGNORECASE,
-)
+_INLINE_CONDITIONAL_START_PATTERN = re.compile(r"^(?:if|elif)\b", flags=re.IGNORECASE)
 
 
 def _branch_result_expression(branch_tail: str) -> str:
-    if _INLINE_CONDITIONAL_RESULT_PATTERN.match(branch_tail):
+    if _inline_conditional_result_parts(branch_tail) is not None:
         return branch_tail
-    return re.split(
-        r"\s+else\s*:",
-        branch_tail,
-        maxsplit=1,
-        flags=re.IGNORECASE,
-    )[0].strip()
+    top_level_else = _top_level_else_bounds(branch_tail)
+    if top_level_else is None:
+        return branch_tail.strip()
+    else_start, _else_end = top_level_else
+    return branch_tail[:else_start].strip()
 
 
 def _split_inline_conditional_result_expressions(expression: str) -> list[str]:
     expression = expression.strip()
     if not expression:
         return []
-    inline_conditional = _INLINE_CONDITIONAL_RESULT_PATTERN.match(expression)
+    inline_conditional = _inline_conditional_result_parts(expression)
     if inline_conditional is None:
         return [expression]
+    then_expression, else_expression = inline_conditional
     return [
-        *(_split_inline_conditional_result_expressions(inline_conditional.group(1))),
-        *(_split_inline_conditional_result_expressions(inline_conditional.group(2))),
+        *(_split_inline_conditional_result_expressions(then_expression)),
+        *(_split_inline_conditional_result_expressions(else_expression)),
     ]
+
+
+def _inline_conditional_result_parts(expression: str) -> tuple[str, str] | None:
+    expression = expression.strip()
+    if _INLINE_CONDITIONAL_START_PATTERN.match(expression) is None:
+        return None
+
+    colon_index = _top_level_conditional_colon_index(expression)
+    if colon_index is None:
+        return None
+    top_level_else = _top_level_else_bounds(expression[colon_index + 1 :])
+    if top_level_else is None:
+        return None
+
+    else_start, else_end = top_level_else
+    then_expression = expression[colon_index + 1 : colon_index + 1 + else_start]
+    else_expression = expression[colon_index + 1 + else_end :]
+    return then_expression.strip(), else_expression.strip()
+
+
+def _top_level_conditional_colon_index(expression: str) -> int | None:
+    for index, char, depth in _formula_scan_chars(expression):
+        if char == ":" and depth == 0:
+            return index
+    return None
+
+
+def _top_level_else_bounds(expression: str) -> tuple[int, int] | None:
+    for index, char, depth in _formula_scan_chars(expression):
+        if depth != 0 or char.lower() != "e":
+            continue
+        prefix_ok = index == 0 or expression[index - 1].isspace()
+        if not prefix_ok:
+            continue
+        match = re.match(r"else\s*:", expression[index:], flags=re.IGNORECASE)
+        if match is not None:
+            return index, index + match.end()
+    return None
+
+
+def _formula_scan_chars(expression: str) -> Iterable[tuple[int, str, int]]:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(expression):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            yield index, char, depth
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}" and depth:
+            depth -= 1
+        yield index, char, depth
 
 
 def _final_expression_has_zero_floor(expression: str) -> bool:
