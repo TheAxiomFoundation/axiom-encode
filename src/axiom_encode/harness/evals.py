@@ -1781,15 +1781,11 @@ def _sibling_parenthetical_marker_pattern(
         marker = rf"\({int(fragment) + 1}\)"
     elif len(fragment) == 1 and fragment.isalpha() and fragment.isupper():
         marker = (
-            _next_alpha_parenthetical_marker(fragment)
-            if top_level
-            else r"\([A-Z]\)"
+            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([A-Z]\)"
         )
     elif len(fragment) == 1 and fragment.isalpha() and fragment.islower():
         marker = (
-            _next_alpha_parenthetical_marker(fragment)
-            if top_level
-            else r"\([a-z]\)"
+            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([a-z]\)"
         )
     elif re.fullmatch(r"[ivxlcdm]+", fragment, re.IGNORECASE):
         marker = r"\([ivxlcdm]+\)"

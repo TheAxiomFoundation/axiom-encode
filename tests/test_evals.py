@@ -309,9 +309,7 @@ class TestCorpusSourceResolution:
         assert source.citation_path == "us/statute/7/2015"
         assert source.body == "(C) Student exemption states 20 hours."
 
-    def test_resolves_nested_cfr_child_path_to_sliced_section_provision(
-        self, tmp_path
-    ):
+    def test_resolves_nested_cfr_child_path_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
         provisions_dir = (
             corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
