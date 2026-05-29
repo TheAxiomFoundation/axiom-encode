@@ -341,6 +341,20 @@ Hard requirements:
   `additional_standard_deduction_entitlement_count_under_subsection_f`, rather
   than inventing the cross-referenced age, blindness, household, or membership
   tests locally.
+- When a state, local, or downstream tax source consumes a completed federal
+  return amount, such as a deduction, credit, federal adjusted gross income,
+  federal taxable income, or itemized deductions already claimed on the federal
+  return, keep the current source executable from a neutral federal-return
+  amount input if no same-period imported RuleSpec output directly exports that
+  completed return line. Name that input for the completed return amount, not
+  for the legal citation pointer: for example use a name like
+  `federal_return_deduction_amount` or
+  `itemized_deductions_claimed_on_federal_return`, not
+  `section_<section>_*`, `*_under_section_<section>`, or
+  `*_allowed_under_section_<section>`. This rule applies only when the current
+  source merely adds, subtracts, caps, gates, or otherwise consumes the
+  completed upstream return amount; do not use it to restate upstream mechanics
+  that the current source does not provide.
 - When an unencoded cross-reference must be represented as a semantic local
   input, name it after the legal status with an `_under_section_<section>` or
   `_under_subsection_<subsection>` suffix. Do not start a local input with
