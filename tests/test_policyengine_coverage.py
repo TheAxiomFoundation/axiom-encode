@@ -146,6 +146,111 @@ rules:
     assert report["items"][0]["kind"] == "derived_relation"
 
 
+def test_policyengine_coverage_uses_uk_registry_mappings(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/35.yaml",
+        """format: rulespec/v1
+rules:
+  - name: personal_allowance
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 12570
+  - name: allowance_rounding_multiple
+    kind: parameter
+    dtype: Money
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/35.test.yaml",
+        """- name: personal allowance
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    uk:statutes/ukpga/2007/3/35#personal_allowance: 12570
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    personal_allowance = items_by_id["uk:statutes/ukpga/2007/3/35#personal_allowance"]
+    rounding_multiple = items_by_id[
+        "uk:statutes/ukpga/2007/3/35#allowance_rounding_multiple"
+    ]
+    assert personal_allowance["policyengine_variable"] == "personal_allowance"
+    assert personal_allowance["tested"] is True
+    assert rounding_multiple["status"] == "known_not_comparable"
+
+
+def test_policyengine_coverage_counts_uk_aliases_as_tested(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: child_benefit_enhanced_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 27.05
+  - name: child_benefit_weekly_rate
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: child_benefit_enhanced_weekly_rate
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.test.yaml",
+        """- name: eldest child rate
+  period:
+    period_kind: custom
+    name: benefit_week
+    start: '2026-01-05'
+    end: '2026-01-11'
+  input: {}
+  output:
+    uk:regulations/uksi/2006/965/2#child_benefit_weekly_rate: 27.05
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="child_benefit")
+
+    assert report["status_counts"] == {"comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    enhanced_rate = items_by_id[
+        "uk:regulations/uksi/2006/965/2#child_benefit_enhanced_weekly_rate"
+    ]
+    assert (
+        enhanced_rate["policyengine_parameter"]
+        == "gov.hmrc.child_benefit.amount.eldest"
+    )
+    assert enhanced_rate["tested"] is True
+    assert enhanced_rate["test_output_count"] == 1
+
+
 def test_policyengine_coverage_classifies_arizona_snap_medical_and_child_support(
     tmp_path,
 ):
