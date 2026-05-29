@@ -866,6 +866,15 @@ mappings:
     mapping_type: not_comparable
     rationale: Colorado initial-month proration output; PolicyEngine SNAP does not expose Colorado initial-month proration.
 
+  - legal_id: us-co:statutes/39/39-22-104/1.7/c#individual_estate_trust_income_tax_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.rate
+    period: year
+    comparison: rate
+    rationale: Same Colorado individual income tax flat rate, stored in PE as the Colorado income-tax rate parameter.
+
   - legal_id_prefix: us-ny:regulations/18-nycrr/387/14/a/1#
     country: us
     program: snap
