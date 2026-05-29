@@ -133,6 +133,32 @@ def test_canonical_target_ref_prefix_handles_canonical_source_id():
     )
 
 
+def test_canonical_target_ref_prefix_uses_policy_repo_for_repo_relative_source_id(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us-ny"
+    repo.mkdir()
+
+    assert (
+        _canonical_target_ref_prefix(
+            "regulations/18-nycrr/387/14/a/1",
+            Path("regulations/18-nycrr/387/14/a/1.yaml"),
+            policy_repo_path=repo,
+        )
+        == "us-ny:regulations/18-nycrr/387/14/a/1"
+    )
+
+
+def test_canonical_target_ref_prefix_omits_repo_relative_source_without_repo():
+    assert (
+        _canonical_target_ref_prefix(
+            "regulations/18-nycrr/387/14/a/1",
+            Path("regulations/18-nycrr/387/14/a/1.yaml"),
+        )
+        is None
+    )
+
+
 @pytest.mark.parametrize(
     "citation,expected",
     [

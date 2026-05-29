@@ -23,6 +23,7 @@ import requests
 import yaml
 
 from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
     Concept,
     ConceptRegistry,
@@ -118,6 +119,17 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statutes", "regulation"}
+_RULESPEC_SOURCE_ROOT_TOKENS = {
+    "guidance",
+    "manual",
+    "manuals",
+    "policies",
+    "policy",
+    "regulation",
+    "regulations",
+    "statute",
+    "statutes",
+}
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
 _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
 _CODEX_LONG_SOURCE_CHAR_THRESHOLD = 40_000
@@ -2780,7 +2792,9 @@ def _run_single_eval(
         workspace.context_files,
         target_file_name=relative_output.name,
         target_ref_prefix=_canonical_target_ref_prefix(
-            target_ref_source, relative_output
+            target_ref_source,
+            relative_output,
+            policy_repo_path=policy_path,
         ),
         include_tests=include_tests,
         runner_backend=runner.backend,
@@ -2907,7 +2921,11 @@ def _run_single_source_eval(
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
-        target_ref_prefix=_canonical_target_ref_prefix(source_id, relative_output),
+        target_ref_prefix=_canonical_target_ref_prefix(
+            source_id,
+            relative_output,
+            policy_repo_path=policy_path,
+        ),
         include_tests=True,
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -3102,14 +3120,37 @@ def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:
     return tail
 
 
-def _canonical_target_ref_prefix(source_id: str, relative_path: Path) -> str | None:
+def _canonical_target_ref_prefix(
+    source_id: str,
+    relative_path: Path,
+    *,
+    policy_repo_path: Path | None = None,
+) -> str | None:
     parts = [part for part in source_id.strip().strip("/").split("/") if part]
     if len(parts) < 3:
         return None
     if relative_path.parts and relative_path.parts[0] == "source":
         return None
-    jurisdiction = parts[0].split(":", 1)[0]
+    jurisdiction = _canonical_target_ref_jurisdiction(
+        parts, policy_repo_path=policy_repo_path
+    )
+    if not jurisdiction:
+        return None
     return f"{jurisdiction}:{_relative_rulespec_path_to_import_target(relative_path)}"
+
+
+def _canonical_target_ref_jurisdiction(
+    source_id_parts: list[str],
+    *,
+    policy_repo_path: Path | None = None,
+) -> str | None:
+    """Return the jurisdiction prefix for generated test references."""
+    first = source_id_parts[0].split(":", 1)[0]
+    if ":" in source_id_parts[0]:
+        return first
+    if first in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return jurisdiction_prefix(policy_repo_path) if policy_repo_path else None
+    return first
 
 
 def _rulespec_test_path(path: Path) -> Path:
