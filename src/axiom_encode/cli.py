@@ -12912,21 +12912,25 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_scalar_relation_rows = (
-                    _try_repair_generated_scalar_relation_rows_for_apply(
-                        result,
-                        output_root=args.output,
-                        policy_repo_path=policy_repo_path,
-                        issues=apply_issues,
+                repaired_scalar_rows: list[str] = []
+                while not can_apply:
+                    repaired_batch = (
+                        _try_repair_generated_scalar_relation_rows_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_scalar_relation_rows:
+                    if not repaired_batch:
+                        break
+                    repaired_scalar_rows.extend(repaired_batch)
                     outcome["auto_repaired_scalar_relation_rows"] = (
-                        repaired_scalar_relation_rows
+                        repaired_scalar_rows
                     )
                     print(
                         "  apply=auto_repaired_scalar_relation_rows:"
-                        + ",".join(repaired_scalar_relation_rows)
+                        + ",".join(repaired_batch)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
