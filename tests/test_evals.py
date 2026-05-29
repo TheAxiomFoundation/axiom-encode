@@ -136,6 +136,16 @@ def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
             "us-ca/regulation/mpp/63-503.131.a",
             "regulations/mpp/63-503/131/a.yaml",
         ),
+        # Colorado CCR section numbers use dotted file stems in rulespec-us-co;
+        # splitting the leaf would create a parallel wrong tree like 4/207/2.yaml.
+        (
+            "us-co/regulation/10-ccr-2506-1/4.207.2",
+            "regulations/10-ccr-2506-1/4.207.2.yaml",
+        ),
+        (
+            "us-co/regulation/10-ccr-2506-1/4.403.11/b/c/3",
+            "regulations/10-ccr-2506-1/4.403.11/b/c/3.yaml",
+        ),
         # Slash-separated citations (USC, NYCRR, CFR) are unaffected — these
         # are regression cases for the dot-stripping fix.
         (

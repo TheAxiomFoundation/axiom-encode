@@ -4,10 +4,12 @@ from types import SimpleNamespace
 import pytest
 
 from axiom_encode.oracles.policyengine.ecps_snap import (
+    COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
     JURISDICTION_CONFIGS,
     add_snapscreener_results,
     project_income_resource_inputs,
     project_utility_allowance_type,
+    projected_child_support_payment,
     set_input_value,
 )
 from axiom_encode.oracles.snapscreener import (
@@ -43,6 +45,35 @@ def test_new_york_projector_uses_federal_income_and_resource_inputs():
         "snap_countable_unearned_income": 67.89,
         "snap_countable_financial_resources": 999,
     }
+
+
+def test_common_snap_outputs_track_current_federal_rulespec_surface():
+    assert COMMON_AXIOM_OUTPUT_ID_BY_LABEL["snap_gross_monthly_income"] == (
+        "us:regulations/7-cfr/273/10#snap_total_gross_income"
+    )
+    assert COMMON_AXIOM_OUTPUT_ID_BY_LABEL["snap_excess_shelter_deduction"] == (
+        "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction_for_net_income"
+    )
+
+
+def test_colorado_snap_outputs_use_composed_allotment_and_cfr_net_income():
+    outputs = JURISDICTION_CONFIGS["us-co"].output_id_by_label
+
+    assert outputs["snap_regular_month_allotment"] == (
+        "us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment"
+    )
+    assert outputs["snap_net_income"] == (
+        "us:regulations/7-cfr/273/10#snap_net_monthly_income"
+    )
+
+
+def test_projected_child_support_includes_gross_income_deduction():
+    values = {
+        "snap_child_support_deduction": [25],
+        "snap_child_support_gross_income_deduction": [100],
+    }
+
+    assert projected_child_support_payment(values, 0) == 125
 
 
 def test_new_york_policyengine_utility_type_projection_sets_region_and_bua():
@@ -104,6 +135,7 @@ def test_snapscreener_payload_projects_ecps_case():
             "snap_dependent_care_deduction": 0,
             "snap_excess_medical_expense_deduction": 100,
             "snap_child_support_deduction": 25,
+            "snap_child_support_gross_income_deduction": 10,
             "housing_cost": 900,
             "has_usda_elderly_disabled": True,
         }
@@ -116,6 +148,7 @@ def test_snapscreener_payload_projects_ecps_case():
     assert payload["monthly_non_job_income"] == 2400
     assert payload["resources"] == 0
     assert payload["medical_expenses_for_elderly_or_disabled"] == 135
+    assert payload["court_ordered_child_support_payments"] == 35
     assert payload["utility_heating"] is True
 
 

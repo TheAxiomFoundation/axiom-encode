@@ -98,6 +98,7 @@ def project_payload(case: Any, *, state: str) -> dict[str, Any]:
         ),
         "court_ordered_child_support_payments": amount(
             outputs.get("snap_child_support_deduction", 0)
+            + outputs.get("snap_child_support_gross_income_deduction", 0)
         ),
         "rent_or_mortgage": amount(outputs.get("housing_cost", 0)),
         "homeowners_insurance_and_taxes": 0,
