@@ -63,6 +63,7 @@ from axiom_encode.cli import (
     _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
     _repair_snap_2014c_income_standard_test_inputs,
+    _repair_scalar_relation_rows,
     _repair_tax_filing_status_branches,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
@@ -9880,6 +9881,56 @@ rules: []
             ]
             == 1200
         )
+
+    def test_repair_scalar_relation_rows_from_companion_tests(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us-ny"
+        companion_test = (
+            tmp_path / "rulespec-us" / "statutes" / "7" / "2012" / "j.test.yaml"
+        )
+        companion_test.parent.mkdir(parents=True)
+        companion_test.write_text(
+            """- name: household_has_elderly_or_disabled_member
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output:
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds
+"""
+        )
+        test_file = tmp_path / "a" / "5.test.yaml"
+        test_file.parent.mkdir()
+        test_file.write_text(
+            """- name: elderly_or_disabled_member_household
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+      - true
+  output:
+    us-ny:regulations/18-nycrr/387/14/a/5#elderly_or_disabled_categorical_eligibility_group: holds
+"""
+        )
+
+        repaired = _repair_scalar_relation_rows(
+            test_file=test_file,
+            policy_repo_path=policy_repo,
+            parsed_issues=[
+                (
+                    "elderly_or_disabled_member_household",
+                    "us:statutes/7/2012/j#relation.member_of_household",
+                    1,
+                )
+            ],
+        )
+
+        assert repaired == [
+            "elderly_or_disabled_member_household:"
+            "us:statutes/7/2012/j#relation.member_of_household[1]"
+        ]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"]["us:statutes/7/2012/j#relation.member_of_household"] == [
+            {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+        ]
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"

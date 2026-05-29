@@ -12912,6 +12912,35 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_scalar_relation_rows = (
+                    _try_repair_generated_scalar_relation_rows_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_scalar_relation_rows:
+                    outcome["auto_repaired_scalar_relation_rows"] = (
+                        repaired_scalar_relation_rows
+                    )
+                    print(
+                        "  apply=auto_repaired_scalar_relation_rows:"
+                        + ",".join(repaired_scalar_relation_rows)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_module_layout = _try_repair_generated_module_layout_for_apply(
                     result,
                     output_root=args.output,
@@ -14109,6 +14138,210 @@ def _try_repair_generated_table_relation_tests_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _split_table_row_relation_test_cases(test_file)
+
+
+_SCALAR_RELATION_ROW_ISSUE_PATTERN = re.compile(
+    r"Test case `(?P<case>[^`]+)` input invalid: relation "
+    r"`(?P<relation>[^`]+)` item #(?P<index>\d+) must be a mapping"
+)
+
+
+def _try_repair_generated_scalar_relation_rows_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Replace scalar relation rows with companion-test row mappings.
+
+    Generated tests occasionally write relation inputs as `- true`. The engine
+    needs each relation row to be a mapping of child facts. This repair is only
+    applied when validation has identified the exact bad row, and it derives the
+    replacement row from an existing companion test for the same relation target.
+    """
+    parsed_issues = [
+        parsed
+        for issue in issues
+        if (parsed := _parse_scalar_relation_row_issue(str(issue))) is not None
+    ]
+    if not parsed_issues:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _repair_scalar_relation_rows(
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        parsed_issues=parsed_issues,
+    )
+
+
+def _parse_scalar_relation_row_issue(
+    issue: str,
+) -> tuple[str, str, int] | None:
+    match = _SCALAR_RELATION_ROW_ISSUE_PATTERN.search(issue)
+    if match is None:
+        return None
+    return (
+        match.group("case"),
+        match.group("relation"),
+        int(match.group("index")),
+    )
+
+
+def _repair_scalar_relation_rows(
+    *,
+    test_file: Path,
+    policy_repo_path: Path,
+    parsed_issues: list[tuple[str, str, int]],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    repairs_by_case_relation: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for case_name, relation_ref, row_index in parsed_issues:
+        repairs_by_case_relation[(case_name, relation_ref)].add(row_index)
+
+    repaired: list[str] = []
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or "")
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        for relation_ref, rows in list(inputs.items()):
+            relation_key = str(relation_ref)
+            repair_rows = repairs_by_case_relation.get((case_name, relation_key))
+            if not repair_rows or not isinstance(rows, list):
+                continue
+            for row_index in sorted(repair_rows):
+                list_index = row_index - 1
+                if list_index < 0 or list_index >= len(rows):
+                    continue
+                scalar_value = rows[list_index]
+                if isinstance(scalar_value, dict):
+                    continue
+                replacement = _relation_row_replacement_from_companion_tests(
+                    relation_key,
+                    scalar_value,
+                    policy_repo_path=policy_repo_path,
+                )
+                if replacement is None:
+                    continue
+                rows[list_index] = replacement
+                repaired.append(f"{case_name}:{relation_key}[{row_index}]")
+
+    if not repaired:
+        return []
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _relation_row_replacement_from_companion_tests(
+    relation_ref: str,
+    scalar_value: object,
+    *,
+    policy_repo_path: Path,
+) -> dict[str, object] | None:
+    exemplar_rows = _relation_rows_from_companion_tests(
+        relation_ref,
+        policy_repo_path=policy_repo_path,
+    )
+    if not exemplar_rows:
+        return None
+    for row in exemplar_rows:
+        if _relation_row_matches_scalar_value(row, scalar_value):
+            return copy.deepcopy(row)
+    if isinstance(scalar_value, bool):
+        template = copy.deepcopy(exemplar_rows[0])
+        changed = False
+        for key, value in list(template.items()):
+            if isinstance(value, bool):
+                template[key] = scalar_value
+                changed = True
+        if changed:
+            return template
+    return None
+
+
+def _relation_row_matches_scalar_value(
+    row: dict[str, object],
+    scalar_value: object,
+) -> bool:
+    if isinstance(scalar_value, bool):
+        return any(value is scalar_value for value in row.values())
+    return False
+
+
+def _relation_rows_from_companion_tests(
+    relation_ref: str,
+    *,
+    policy_repo_path: Path,
+) -> list[dict[str, object]]:
+    relation_test_file = _companion_test_file_for_relation_ref(
+        relation_ref,
+        policy_repo_path=policy_repo_path,
+    )
+    if relation_test_file is None or not relation_test_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(relation_test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    rows: list[dict[str, object]] = []
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        relation_rows = inputs.get(relation_ref)
+        if not isinstance(relation_rows, list):
+            continue
+        for row in relation_rows:
+            if isinstance(row, dict):
+                rows.append(copy.deepcopy(row))
+    return rows
+
+
+def _companion_test_file_for_relation_ref(
+    relation_ref: str,
+    *,
+    policy_repo_path: Path,
+) -> Path | None:
+    relation_base = relation_ref.split("#", 1)[0].strip().strip("/")
+    if ":" not in relation_base:
+        return None
+    prefix, relative = relation_base.split(":", 1)
+    if not prefix or not relative:
+        return None
+    relative_path = Path(relative)
+    if relative_path.suffix not in {".yaml", ".yml"}:
+        relative_path = relative_path.with_suffix(".yaml")
+    repo_roots = []
+    current_prefix = _repo_jurisdiction_prefix(policy_repo_path)
+    if prefix == current_prefix:
+        repo_roots.append(policy_repo_path)
+    repo_roots.append(policy_repo_path.parent / f"rulespec-{prefix}")
+    for repo_root in repo_roots:
+        test_file = _rulespec_test_path(repo_root / relative_path)
+        if test_file.exists():
+            return test_file
+    return None
 
 
 def _split_table_row_relation_test_cases(test_file: Path) -> list[str]:
