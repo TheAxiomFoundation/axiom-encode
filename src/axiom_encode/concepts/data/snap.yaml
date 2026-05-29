@@ -203,15 +203,23 @@ concepts:
   # Allotment
   # ---------------------------------------------------------------------------
   - id: snap.allotment.max_for_household_size
-    canonical_name: snap_maximum_allotment_for_household_size
-    producer_anchor: us:regulations/7-cfr/273/10
-    producer_missing: true
+    canonical_name: snap_maximum_allotment
+    producer_anchor: us:policies/usda/snap/fy-2026-cola/maximum-allotments
     description: >-
       Maximum monthly SNAP allotment for the household's size in the
-      applicable region. The fy-2026-cola policies produce per-region
-      tables; this concept aggregates them by region selection. Producer
-      lookup rule not yet encoded on the 273/10 module.
-    blocked_synonyms: []
+      applicable region. The fy-2026-cola/maximum-allotments policy file
+      owns the producer via a parameter_lookup keyed on household_size;
+      the 48-states-DC table is the default. Multi-region selection
+      (Alaska urban/rural, Hawaii, Guam, Virgin Islands) is encoded as
+      sibling snap_maximum_allotment_<region> rules; the region-aware
+      selector that picks among them is not yet encoded — that gap
+      affects the small minority of households outside 48-states-DC and
+      is tracked separately. `snap_maximum_allotment_for_household_size`
+      was the prior canonical and is preserved here as a blocked synonym
+      so consumer formulas (notably 7 CFR 273.10's allotment chain)
+      converge on the existing producer name on re-encode.
+    blocked_synonyms:
+      - snap_maximum_allotment_for_household_size
 
   - id: snap.allotment.max_for_one_person
     canonical_name: snap_maximum_allotment_for_one_person_household

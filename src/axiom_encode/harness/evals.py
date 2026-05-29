@@ -2571,8 +2571,28 @@ def _relative_rulespec_source_path(path: Path) -> Path | None:
 
 _MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
 - Match each executable rule's `entity:` to the legal subject stated by the supplied source text.
-- If the source uses the word "household" or "household's", use `entity: Household`. Do not substitute `SnapUnit`, `FilingUnit`, or any other unit type unless the same source text both names that filtered membership and the file declares or imports its `kind: derived_relation` rule. Inventing a `SnapUnit` reference without the matching `derived_relation` declaration is a CI failure.
+- If the source uses the word "household" or "household's", use `entity: Household`. Prefer `Household` over `SnapUnit` for plain household-level SNAP rules.
 - If the source uses "individual", "person", "member", "claimant", "child", "dependent", "spouse", or "employee", use `entity: Person` (or `Employer` for employer amounts).
+- Any rule that uses `entity: SnapUnit` (or another filtered entity) requires the same file to also declare that entity via a `kind: derived_relation` rule. The declaration shape is:
+
+```yaml
+- name: snap_unit
+  kind: derived_relation
+  derived_relation:
+    arity: 2
+    source_relation: us:statutes/7/2012/j#relation.member_of_household
+    entity: SnapUnit
+    member_relation: members
+    slot_entities:
+      - Person
+      - Household
+  source: us:statutes/7/2012/m
+  versions:
+    - effective_from: '<earliest applicable date>'
+      formula: <member-eligibility predicate>
+```
+
+Either declare `snap_unit` inline like that (and define a real per-member eligibility predicate as its formula) or switch the executable rule's entity to `Household` and drop the SnapUnit reference. Do not leave a bare `entity: SnapUnit` rule without the matching declaration.
 
 """
 
