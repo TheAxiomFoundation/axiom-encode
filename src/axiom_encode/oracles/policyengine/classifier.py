@@ -31,7 +31,6 @@ from axiom_encode.oracles.policyengine.adapters import (
     PolicyEngineUSVarAdapter,
 )
 
-
 # RuleSpec dtypes that align with money-amount PolicyEngine variables.
 _MONEY_DTYPES = frozenset({"Money", "USD", "Integer", "Decimal", "Number"})
 # RuleSpec dtypes that align with boolean-decision PolicyEngine variables.
@@ -232,7 +231,7 @@ def classification_to_yaml_block(
 ) -> str:
     """Render a Classification as a `us.yaml`-shaped mapping entry."""
     lines = [f"  - legal_id: {c.legal_id}"]
-    lines.append(f"    country: us")
+    lines.append("    country: us")
     lines.append(f"    program: {program}")
     lines.append(f"    mapping_type: {c.mapping_type}")
     if c.policyengine_variable is not None:

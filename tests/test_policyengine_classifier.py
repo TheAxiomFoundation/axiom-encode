@@ -11,11 +11,10 @@ from axiom_encode.oracles.policyengine.classifier import (
     Classification,
     _build_rule_name_index,
     _classify_one,
-    classify_rulespec_repo,
     classification_to_yaml_block,
+    classify_rulespec_repo,
     iter_rules_in_rulespec_file,
 )
-
 
 # A small adapter fixture used to exercise the dtype guard and direct
 # variable / not_comparable branches without depending on the production
@@ -239,7 +238,6 @@ def test_cmd_classify_write_us_yaml_round_trip(tmp_path: Path) -> None:
     Asserts the final us.yaml has both new per-rule entries, has dropped the
     bulk prefix entry, and still parses as valid YAML.
     """
-    import sys
     from unittest.mock import patch
 
     from axiom_encode.cli import cmd_classify

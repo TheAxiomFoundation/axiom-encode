@@ -2953,9 +2953,9 @@ def cmd_classify(args):
     import re as _re
 
     text = target.read_text()
-    state_prefix_marker = f"legal_id_prefix: us-{state}:"
-    # Remove existing bulk prefix entries for this state (each is 5+ lines
-    # starting with the marker, ending at the next list item or top-level key).
+    # Remove existing bulk prefix entries for this state (each starts with
+    # `legal_id_prefix: us-<state>:` and runs until the next list item or
+    # top-level key).
     bulk_pattern = _re.compile(
         rf"^  - legal_id_prefix: us-{state}:.*?(?=^  - |^[a-z]|\Z)",
         _re.MULTILINE | _re.DOTALL,

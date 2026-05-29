@@ -209,7 +209,6 @@ def _run_subprocess_with_idle_timeout(
         stderr_path = Path(stderr_file.name)
         process = subprocess.Popen(
             cmd,
-            stdin=subprocess.DEVNULL,
             stdout=stdout_file,
             stderr=stderr_file,
             text=True,
