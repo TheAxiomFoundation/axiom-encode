@@ -190,7 +190,7 @@ def classify_rulespec_repo(
     repo_root: Path,
     jurisdiction: str,
     program: str = "snap",
-    adapters: Iterable[PolicyEngineUSVarAdapter] = PE_US_VAR_ADAPTERS,
+    adapters: Iterable[PolicyEngineUSVarAdapter] | None = None,
 ) -> list[Classification]:
     """Walk a `rulespec-us-<state>` repo and classify every executable output."""
     if program != "snap":
@@ -199,6 +199,11 @@ def classify_rulespec_repo(
         raise NotImplementedError(
             f"Program {program!r} has no adapter catalog yet; only `snap` is supported."
         )
+    # Resolve the adapter catalog at call time (not at function-def time) so
+    # callers and tests can inject alternatives via either the explicit
+    # argument or by patching `PE_US_VAR_ADAPTERS` on this module.
+    if adapters is None:
+        adapters = PE_US_VAR_ADAPTERS
     rule_index = _build_rule_name_index(adapters)
 
     classifications: list[Classification] = []

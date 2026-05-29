@@ -298,6 +298,45 @@ class TestCorpusSourceResolution:
         assert source.citation_path == "us/statute/7/2015"
         assert source.body == "(C) Student exemption states 20 hours."
 
+    def test_resolves_nested_cfr_child_path_to_sliced_section_provision(
+        self, tmp_path
+    ):
+        corpus_path = tmp_path / "axiom-corpus"
+        provisions_dir = (
+            corpus_path / "data" / "corpus" / "provisions" / "us" / "regulation"
+        )
+        provisions_dir.mkdir(parents=True)
+        (provisions_dir / "2026-01-01.jsonl").write_text(
+            json.dumps(
+                {
+                    "citation_path": "us/regulation/7/273/9",
+                    "body": (
+                        "(a) Income standards.\n\n"
+                        "(d) Deductions. "
+                        "(5) Child support deduction.\n\n"
+                        "(i) Not a top-level sibling. "
+                        "(6) Shelter costs--"
+                        "(i) Homeless shelter deduction. "
+                        "(ii) Excess shelter deduction. "
+                        "(iii) Standard utility allowances.\n\n"
+                        "(e) Benefit calculation."
+                    ),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        source = resolve_corpus_source_unit(
+            "us/regulation/7/273/9/d/6",
+            corpus_path,
+        )
+
+        assert source.citation_path == "us/regulation/7/273/9"
+        assert source.body.startswith("(6) Shelter costs")
+        assert "(5) Child support deduction" not in source.body
+        assert "(e) Benefit calculation" not in source.body
+
     def test_nested_slicing_ignores_parenthetical_cross_reference_list(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
         provisions_dir = (

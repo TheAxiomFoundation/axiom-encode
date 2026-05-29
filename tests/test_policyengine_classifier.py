@@ -187,3 +187,173 @@ def test_classification_to_yaml_block_quotes_special_characters() -> None:
     assert entries[0]["legal_id"] == "us-xx:regulations/abc/1#rule"
     assert entries[0]["mapping_type"] == "not_comparable"
     assert "Includes" in entries[0]["rationale"]
+
+
+def test_pe_us_var_adapters_is_consumable_by_classifier() -> None:
+    """Smoke test: the production adapter catalog feeds through the classifier.
+
+    A typo or breaking schema change in `PE_US_VAR_ADAPTERS` (the catalog that
+    ECPS comparison already consults) would otherwise silently corrupt every
+    `axiom-encode classify` invocation. This guards against that.
+    """
+    from axiom_encode.oracles.policyengine.adapters import PE_US_VAR_ADAPTERS
+
+    # The index must build without raising.
+    index = _build_rule_name_index(PE_US_VAR_ADAPTERS)
+    # The catalog has at least the well-known SNAP outputs.
+    assert "snap_normal_allotment" in index
+    assert "snap_standard_deduction" in index
+    assert "snap_standard_utility_allowance" in index
+    # Each entry resolves to a PolicyEngineUSVarAdapter with a non-empty
+    # `pe_var` and non-empty `rule_names`.
+    for rule_name, adapter in index.items():
+        assert adapter.pe_var, f"adapter for {rule_name!r} has empty pe_var"
+        assert rule_name in adapter.rule_names
+
+    # Driving a sample rule through `_classify_one` against the production
+    # catalog should promote it to `direct_variable` (not raise, not fall
+    # through to not_comparable).
+    result = _classify_one(
+        rule_name="snap_standard_deduction",
+        legal_id="us-xx:regulations/abc#snap_standard_deduction",
+        dtype="Money",
+        source_text=None,
+        rule_index=index,
+    )
+    assert result.mapping_type == "direct_variable"
+    assert result.policyengine_variable == "snap_standard_deduction"
+
+
+def test_cmd_classify_write_us_yaml_round_trip(tmp_path: Path) -> None:
+    """End-to-end: classify writes per-rule entries and strips bulk prefixes.
+
+    Builds a fixture us.yaml that contains:
+    - one mapping unrelated to our state (must survive)
+    - one bulk `legal_id_prefix: us-xx:...` entry that should be removed
+    - a `prefixes:` section with one unrelated prefix (must survive)
+
+    Builds a fixture rulespec-us-xx repo with one Money-typed rule whose name
+    is in the test adapter catalog (must be promoted) and one Judgment-typed
+    rule whose name is not (must become not_comparable).
+
+    Asserts the final us.yaml has both new per-rule entries, has dropped the
+    bulk prefix entry, and still parses as valid YAML.
+    """
+    import sys
+    from unittest.mock import patch
+
+    from axiom_encode.cli import cmd_classify
+
+    # Build the fixture rulespec-us-xx repo.
+    repo = tmp_path / "rulespec-us-xx"
+    section = repo / "regulations" / "abc" / "100"
+    section.mkdir(parents=True)
+    (section / "block-1.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "monthly_allotment",
+                        "kind": "derived",
+                        "dtype": "Money",
+                        "source": "Monthly SNAP allotment for the household.",
+                        "versions": [{"effective_from": "2025-01-01", "formula": "1"}],
+                    },
+                    {
+                        "name": "household_qualifies_for_review",
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": "Predicate gating second-party review.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+
+    # Build the fixture us.yaml.
+    us_yaml = tmp_path / "us.yaml"
+    us_yaml.write_text(
+        "mappings:\n"
+        "  - legal_id: us:statutes/7/2014/e/2#snap_earned_income_deduction\n"
+        "    country: us\n"
+        "    program: snap\n"
+        "    mapping_type: direct_variable\n"
+        "    policyengine_variable: snap_earned_income_deduction\n"
+        "    rationale: Existing federal mapping that must survive the rewrite.\n"
+        "\n"
+        "prefixes:\n"
+        "  - legal_id_prefix: us-xx:regulations/abc/100/block-1#\n"
+        "    country: us\n"
+        "    program: snap\n"
+        "    mapping_type: not_comparable\n"
+        "    rationale: Bulk fig leaf that the rewrite should remove.\n"
+        "\n"
+        "  - legal_id_prefix: us-yy:regulations/zzz#\n"
+        "    country: us\n"
+        "    program: snap\n"
+        "    mapping_type: not_comparable\n"
+        "    rationale: Unrelated state's prefix that must survive.\n"
+    )
+
+    # Patch the adapter catalog used by the classifier to the small fixture
+    # list, so the round trip doesn't depend on the production catalog.
+    args = type(
+        "Args",
+        (),
+        {
+            "state": "xx",
+            "program": "snap",
+            "repo": repo,
+            "write_us_yaml": us_yaml,
+        },
+    )()
+
+    with patch(
+        "axiom_encode.oracles.policyengine.classifier.PE_US_VAR_ADAPTERS",
+        _TEST_ADAPTERS,
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_classify(args)
+        assert exc_info.value.code == 0
+
+    final = yaml.safe_load(us_yaml.read_text())
+
+    # The existing federal mapping must survive.
+    legal_ids = {m["legal_id"] for m in final["mappings"]}
+    assert "us:statutes/7/2014/e/2#snap_earned_income_deduction" in legal_ids
+
+    # The two new per-rule entries must be present.
+    assert (
+        "us-xx:regulations/abc/100/block-1#monthly_allotment" in legal_ids
+    )
+    assert (
+        "us-xx:regulations/abc/100/block-1#household_qualifies_for_review"
+        in legal_ids
+    )
+
+    by_id = {m["legal_id"]: m for m in final["mappings"]}
+    promoted = by_id["us-xx:regulations/abc/100/block-1#monthly_allotment"]
+    assert promoted["mapping_type"] == "direct_variable"
+    assert promoted["policyengine_variable"] == "snap_normal_allotment"
+
+    fallback = by_id[
+        "us-xx:regulations/abc/100/block-1#household_qualifies_for_review"
+    ]
+    assert fallback["mapping_type"] == "not_comparable"
+    assert "Predicate gating" in fallback["rationale"]
+
+    # The fixture's bulk legal_id_prefix for this state must be gone.
+    prefix_ids = {p["legal_id_prefix"] for p in final.get("prefixes", [])}
+    assert "us-xx:regulations/abc/100/block-1#" not in prefix_ids
+    # The unrelated state's prefix must still be present.
+    assert "us-yy:regulations/zzz#" in prefix_ids
+
+
+# Lazy pytest import so the rest of the module is importable without pytest
+# (the test runner already loads it).
+import pytest  # noqa: E402  (intentional late import for the round-trip test)
