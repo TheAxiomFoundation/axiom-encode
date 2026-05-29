@@ -1,0 +1,1 @@
+Scoped partial child-rewiring prompt guidance to the requested legal fragment and clarified that cross-reference exceptions should not cause whole-formula deferral when the target source states an executable formula.

@@ -13522,6 +13522,32 @@ rules:
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
+def test_repair_nonnegative_amount_reductions_floors_folded_taxable_income_formula():
+    content = """format: rulespec/v1
+rules:
+  - name: itemized_deduction_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2022-01-01'
+        formula: 'if subsection_p5_does_not_displace_this_subsection: itemized_deduction_addition_under_subsection_p
+          else: initial_window_addition_to_federal_taxable_income'
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["itemized_deduction_addition_to_federal_taxable_income"]
+    assert "formula: |-" in repaired
+    assert (
+        "if subsection_p5_does_not_displace_this_subsection: "
+        "max(0, itemized_deduction_addition_under_subsection_p) "
+        "else: max(0, initial_window_addition_to_federal_taxable_income)" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
 def test_nonnegative_taxable_income_allows_multiline_floored_branches():
     content = """format: rulespec/v1
 rules:

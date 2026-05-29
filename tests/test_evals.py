@@ -5863,6 +5863,68 @@ rules:
         assert "Taxpayer elections such as electing to itemize deductions" in prompt
         assert "Outputs named `taxable_income`" in prompt
 
+    def test_build_eval_prompt_scopes_partial_extent_to_target_paragraph(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us-co"
+        child_file = (
+            policy_repo_root / "statutes" / "39" / "39-22-104" / "3" / "p" / "5.yaml"
+        )
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: initial_window_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2023-01-01'
+        formula: federal_deduction_addition
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="us-co/statute/39/39-22-104/3/p",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "(3) There shall be added to federal taxable income:\n"
+                "(p) Except as otherwise provided in subsection (3)(p.5), "
+                "for income tax years commencing on or after January 1, 2022, "
+                "for taxpayers who claim itemized deductions and have federal "
+                "adjusted gross income equal to or exceeding four hundred "
+                "thousand dollars: (I) For a taxpayer who files a single "
+                "return, the amount by which itemized deductions exceed thirty "
+                "thousand dollars; and (II) For taxpayers who file a joint "
+                "return, the amount by which itemized deductions exceed sixty "
+                "thousand dollars.\n"
+                "(p.5) For income tax years commencing on or after January 1, "
+                "2023, a different addition applies.\n"
+                "(4)(i) A subtraction is allowed to the extent included in "
+                "federal taxable income."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "us-co/statute/39/39-22-104/3/p",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="p.yaml",
+            target_ref_prefix="us-co:statutes/39/39-22-104/3/p",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Target-specific schema limit" not in prompt
+        assert "except as otherwise provided in section" in prompt
+        assert "cited provision's separate amount" in prompt
+        assert "subsection_x_does_not_displace_this_subsection" in prompt
+
     def test_build_eval_prompt_recommends_final_deduction_imports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         cited_file = policy_repo_root / "statutes" / "26" / "170" / "p.yaml"

@@ -7629,11 +7629,14 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
             )
             if repaired_formula == formula:
                 continue
-            repaired_content = _replace_formula_text_once(
+            updated_content = _replace_formula_text_once(
                 repaired_content,
                 formula,
                 repaired_formula,
             )
+            if updated_content == repaired_content:
+                continue
+            repaired_content = updated_content
             repaired_rules.append(name or "<unknown>")
     return repaired_content, repaired_rules
 
@@ -8067,6 +8070,9 @@ def _replace_formula_text_once(content: str, old: str, new: str) -> str:
     replaced_block = _replace_indented_block_text_once(content, old, new)
     if replaced_block != content:
         return replaced_block
+    replaced_folded_scalar = _replace_folded_formula_scalar_text_once(content, old, new)
+    if replaced_folded_scalar != content:
+        return replaced_folded_scalar
     updated = content
     for old_line, new_line in zip(old.splitlines(), new.splitlines(), strict=False):
         if old_line == new_line:
@@ -8085,6 +8091,31 @@ def _replace_formula_text_once(content: str, old: str, new: str) -> str:
             updated = "".join(lines)
             break
     return updated
+
+
+def _replace_folded_formula_scalar_text_once(content: str, old: str, new: str) -> str:
+    old_normalized = _normalize_yaml_folded_scalar_text(old)
+    if not old_normalized:
+        return content
+    formula_scalar_pattern = re.compile(
+        r"formula:\s*(?P<quote>['\"])(?P<body>.*?)(?P=quote)",
+        flags=re.DOTALL,
+    )
+    for match in formula_scalar_pattern.finditer(content):
+        body = match.group("body")
+        if _normalize_yaml_folded_scalar_text(body) != old_normalized:
+            continue
+        line_start = content.rfind("\n", 0, match.start()) + 1
+        indent_match = re.match(r"[ \t]*", content[line_start : match.start()])
+        indent = indent_match.group(0) if indent_match is not None else ""
+        replacement_lines = [f"{indent}  {line}" for line in new.splitlines()]
+        replacement = "formula: |-\n" + "\n".join(replacement_lines)
+        return content[: match.start()] + replacement + content[match.end() :]
+    return content
+
+
+def _normalize_yaml_folded_scalar_text(value: str) -> str:
+    return " ".join(value.split())
 
 
 def _replace_indented_block_text_once(content: str, old: str, new: str) -> str:
