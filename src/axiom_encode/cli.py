@@ -13824,6 +13824,44 @@ def cmd_encode(args):
                         repaired_output_cases
                     )
             if not can_apply:
+                repaired_positive_cases = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_judgment_positive_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_positive_cases.extend(repaired_test_cases)
+                    prior_repairs = outcome.get("auto_repaired_judgment_positive_tests")
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_repaired_judgment_positive_tests"] = [
+                        *prior_repairs,
+                        *repaired_test_cases,
+                    ]
+                    print(
+                        "  apply=auto_repaired_judgment_positive_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_output_cases = []
                 while not can_apply:
                     repaired_test_cases = (

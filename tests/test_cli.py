@@ -5944,6 +5944,137 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_repairs_positive_coverage_after_imported_output_repair(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path, backend="codex", citation="26 USC 1402(b)", sync=False
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "26"
+            / "1402"
+            / "b.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+imports:
+  - from: us:statutes/26/1402/a#net_earnings_from_self_employment
+rules:
+  - name: trade_or_business_income_condition
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: has_trade_or_business_income
+"""
+        )
+        test_file = output_file.with_name("b.test.yaml")
+        test_file.write_text(
+            """- name: imported_inputs_make_generated_positive_fail
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 0
+    us:statutes/26/1402/b#input.has_trade_or_business_income: false
+  output:
+    us:statutes/26/1402/b#trade_or_business_income_condition: holds
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/26/1402/b.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/26/1402/b.yaml: ci: "
+                            "Test case "
+                            "imported_inputs_make_generated_positive_fail "
+                            "output "
+                            "us:statutes/26/1402/b#trade_or_business_income_condition "
+                            "expected holds, got not_holds."
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/26/1402/b.yaml: ci: "
+                            "Judgment rule missing positive companion output coverage: "
+                            "`us:statutes/26/1402/b#trade_or_business_income_condition` "
+                            "is not asserted as `holds` by the companion `.test.yaml` file."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_imported_output_tests:"
+            "imported_inputs_make_generated_positive_fail"
+        ) in output
+        assert (
+            "apply=auto_repaired_judgment_positive_tests:"
+            "auto_positive_trade_or_business_income_condition"
+        ) in output
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert (
+            test_payload[0]["output"][
+                "us:statutes/26/1402/b#trade_or_business_income_condition"
+            ]
+            == "not_holds"
+        )
+        assert test_payload[1]["name"] == (
+            "auto_positive_trade_or_business_income_condition"
+        )
+        assert test_payload[1]["input"][
+            "us:statutes/26/1402/b#input.has_trade_or_business_income"
+        ] is True
+        assert test_payload[1]["output"][
+            "us:statutes/26/1402/b#trade_or_business_income_condition"
+        ] == "holds"
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_imported_output_tests"] == [
+            "imported_inputs_make_generated_positive_fail"
+        ]
+        assert run.outcome["auto_repaired_judgment_positive_tests"] == [
+            "auto_positive_trade_or_business_income_condition"
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_encode_apply_auto_repairs_missing_derived_output_coverage(
         self, capsys, tmp_path
     ):
