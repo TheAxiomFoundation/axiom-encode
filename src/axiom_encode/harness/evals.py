@@ -2925,6 +2925,9 @@ def _run_single_source_eval(
     relative_output = _resolve_eval_output_path(
         source_id, requested_source=requested_source
     )
+    target_ref_source = _resolve_eval_reference_source_id(
+        source_id, requested_source=requested_source
+    )
     prompt = _build_eval_prompt(
         source_id,
         mode,
@@ -2932,7 +2935,7 @@ def _run_single_source_eval(
         workspace.context_files,
         target_file_name=relative_output.name,
         target_ref_prefix=_canonical_target_ref_prefix(
-            source_id,
+            target_ref_source,
             relative_output,
             policy_repo_path=policy_path,
         ),
@@ -3033,13 +3036,28 @@ def _resolve_eval_output_path(
          sites that always rendered free-text source_ids to
          ``source/<slug>.yaml``.
     """
-    if _looks_like_corpus_citation_path(citation):
-        return _source_identifier_to_relative_rulespec_path(citation)
-    if requested_source and _looks_like_corpus_citation_path(requested_source):
-        return _source_identifier_to_relative_rulespec_path(requested_source)
+    source_identifier = _resolve_eval_reference_source_id(
+        citation,
+        requested_source=requested_source,
+    )
+    if source_identifier != citation or _looks_like_corpus_citation_path(citation):
+        return _source_identifier_to_relative_rulespec_path(source_identifier)
     if fallback is not None:
         return fallback(citation)
     return _source_identifier_to_relative_rulespec_path(citation)
+
+
+def _resolve_eval_reference_source_id(
+    citation: str,
+    *,
+    requested_source: str | None = None,
+) -> str:
+    """Return the source identifier that should anchor output and test refs."""
+    if _looks_like_corpus_citation_path(citation):
+        return citation
+    if requested_source and _looks_like_corpus_citation_path(requested_source):
+        return requested_source
+    return citation
 
 
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:

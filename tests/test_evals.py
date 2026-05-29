@@ -37,6 +37,8 @@ from axiom_encode.harness.evals import (
     _normalize_nonannual_test_period_value,
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
+    _resolve_eval_output_path,
+    _resolve_eval_reference_source_id,
     _rulespec_validation_target,
     _run_codex_prompt_eval,
     _select_cross_section_context_files,
@@ -254,20 +256,43 @@ def test_resolve_eval_output_path_uses_requested_source_when_citation_is_free_te
     `source/<slug>.yaml` — outside any rulespec source-root directory,
     so downstream compile validators couldn't find it.
     """
-    from axiom_encode.harness.evals import _resolve_eval_output_path
-
     assert _resolve_eval_output_path(
         "SNAP earned income deduction under 7 USC 2014(e)(2)(B)",
         requested_source="us/statute/7/2014/e/2/B",
     ) == Path("statutes/7/2014/e/2/B.yaml")
 
 
+def test_eval_reference_source_id_uses_requested_source_with_free_text_citation(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us-ny"
+    repo.mkdir()
+
+    target_ref_source = _resolve_eval_reference_source_id(
+        "New York SNAP utility allowance",
+        requested_source="regulations/18-nycrr/387/14/a/1",
+    )
+    relative_output = _resolve_eval_output_path(
+        "New York SNAP utility allowance",
+        requested_source="regulations/18-nycrr/387/14/a/1",
+    )
+
+    assert target_ref_source == "regulations/18-nycrr/387/14/a/1"
+    assert relative_output == Path("regulations/18-nycrr/387/14/a/1.yaml")
+    assert (
+        _canonical_target_ref_prefix(
+            target_ref_source,
+            relative_output,
+            policy_repo_path=repo,
+        )
+        == "us-ny:regulations/18-nycrr/387/14/a/1"
+    )
+
+
 def test_resolve_eval_output_path_ignores_requested_source_when_also_free_text():
     """If both inputs are free-text, fall back to the existing USC parser
     (which may itself error out — that's a separate bug, not this fix's job).
     """
-    from axiom_encode.harness.evals import _resolve_eval_output_path
-
     # citation is path-like USC; requested_source is also path-like but
     # different — citation wins because it's path-like.
     assert _resolve_eval_output_path(
