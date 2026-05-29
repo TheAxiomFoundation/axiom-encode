@@ -12518,6 +12518,73 @@ rules:
     )
 
 
+def test_source_subparagraph_coverage_scopes_state_statute_file_path(tmp_path):
+    source_text = """Modifications to federal taxable income
+(4) Subtractions from federal taxable income.
+    (y) Military retirement benefits may be subtracted subject to stated dollar limits.
+(f) Pensions or annuities from federal adjusted gross income may be subtracted.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/statute/39/39-22-104
+rules:
+  - name: military_retirement_benefits_subtraction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    source: 39-22-104(4)(y)(I)
+    versions:
+      - effective_from: '2019-01-01'
+        formula: military_retirement_benefits
+"""
+    rules_file = (
+        tmp_path / "rulespec-us-co" / "statutes" / "39" / "39-22-104" / "4" / "y.yaml"
+    )
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            rules_file=rules_file,
+            source_texts={"us-co/statute/39/39-22-104": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_accepts_state_rulespec_target_requested_source():
+    source_text = """Modifications to federal taxable income
+(4) Subtractions from federal taxable income.
+    (y) Military retirement benefits may be subtracted subject to stated dollar limits.
+(f) Pensions or annuities from federal adjusted gross income may be subtracted.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/statute/39/39-22-104
+rules:
+  - name: military_retirement_benefits_subtraction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    source: 39-22-104(4)(y)(I)
+    versions:
+      - effective_from: '2019-01-01'
+        formula: military_retirement_benefits
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us-co/statute/39/39-22-104": source_text},
+            requested_source="us-co:statutes/39/39-22-104/4/y",
+        )
+        == []
+    )
+
+
 def test_source_subparagraph_coverage_scopes_to_requested_source_under_parent_fallback(
     tmp_path,
 ):

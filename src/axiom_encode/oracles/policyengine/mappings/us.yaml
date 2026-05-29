@@ -907,6 +907,62 @@ mappings:
     mapping_type: not_comparable
     rationale: This generated output is the statutory 4.55% base rate before applying later TABOR/form-rate reductions; PolicyEngine exposes the final Colorado form rate for each tax year.
 
+  - legal_id: us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.subtractions.military_retirement.max_amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado military-retirement subtraction cap for 2019, represented in PE as the date-varying max-amount parameter.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_second_phase
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.subtractions.military_retirement.max_amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado military-retirement subtraction cap for 2020, represented in PE as the date-varying max-amount parameter.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_third_phase
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.subtractions.military_retirement.max_amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado military-retirement subtraction cap for 2021, represented in PE as the date-varying max-amount parameter.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_final_phase
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.subtractions.military_retirement.max_amount
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado military-retirement subtraction cap for 2022 through 2028, represented in PE as the date-varying max-amount parameter.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/y#qualified_individual_for_military_retirement_benefits_subtraction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.co.tax.income.subtractions.military_retirement.age_threshold
+    candidate_priority: P4
+    rationale: This RuleSpec output is a person-level under-age-threshold predicate; PE stores the threshold parameter and uses it inside the tax-unit subtraction formula rather than exposing this predicate.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_subtraction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_military_retirement_subtraction
+    candidate_priority: P4
+    rationale: This RuleSpec output is the person-level statutory subtraction amount; PE exposes a tax-unit aggregate limited to head and spouse military-retirement pay.
+
   - legal_id_prefix: us-ny:regulations/18-nycrr/387/14/a/1#
     country: us
     program: snap

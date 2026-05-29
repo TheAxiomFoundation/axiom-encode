@@ -10306,21 +10306,23 @@ def _append_oracle_parameter_tests_if_missing(
             continue
 
         index_name = _single_parameter_index_name(rule)
-        if index_name is None:
-            continue
-        sample = _first_scalar_parameter_value(rule)
+        sample = _first_scalar_parameter_value(rule, indexed=index_name is not None)
         if sample is None:
             continue
         key, value = sample
+        case_name_parts = ["oracle_parameter", _safe_test_name(rule_name)]
+        if index_name is not None:
+            case_name_parts.append(_safe_test_name(str(key)))
+        inputs = {f"{target_base}#input.{index_name}": key} if index_name else {}
         appended_cases.append(
             {
-                "name": f"oracle_parameter_{_safe_test_name(rule_name)}_{_safe_test_name(str(key))}",
+                "name": "_".join(case_name_parts),
                 "period": {
                     "period_kind": "tax_year",
                     "start": "2026-01-01",
                     "end": "2026-12-31",
                 },
-                "input": {f"{target_base}#input.{index_name}": key},
+                "input": inputs,
                 "output": {legal_id: value},
             }
         )
@@ -10367,20 +10369,39 @@ def _single_parameter_index_name(rule: dict) -> str | None:
     return None
 
 
-def _first_scalar_parameter_value(rule: dict) -> tuple[object, object] | None:
+def _first_scalar_parameter_value(
+    rule: dict, *, indexed: bool
+) -> tuple[object | None, object] | None:
     versions = rule.get("versions")
     if not isinstance(versions, list):
         return None
     for version in versions:
         if not isinstance(version, dict):
             continue
-        values = version.get("values")
-        if not isinstance(values, dict):
-            continue
-        for key, value in values.items():
-            if isinstance(value, (str, int, float, bool)) or value is None:
-                return key, value
+        if indexed:
+            values = version.get("values")
+            if not isinstance(values, dict):
+                continue
+            for key, value in values.items():
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    return key, value
+        else:
+            value = _scalar_formula_value(version.get("formula"))
+            if value is not None:
+                return None, value
     return None
+
+
+def _scalar_formula_value(formula: object) -> int | float | str | bool | None:
+    if isinstance(formula, (int, float, bool)):
+        return formula
+    if not isinstance(formula, str):
+        return None
+    stripped = formula.strip()
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?", stripped):
+        return None
+    parsed = yaml.safe_load(stripped)
+    return parsed if isinstance(parsed, (int, float)) else None
 
 
 def _rulespec_companion_test_failures(

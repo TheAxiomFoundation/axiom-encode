@@ -741,6 +741,93 @@ rules:
     assert {item["tested"] for item in report["items"]} == {True}
 
 
+def test_policyengine_coverage_classifies_colorado_military_retirement_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/y.yaml",
+        """format: rulespec/v1
+rules:
+  - name: military_retirement_benefits_cap_initial_phase
+    kind: parameter
+    versions:
+      - effective_from: '2019-01-01'
+        formula: '4500'
+  - name: military_retirement_benefits_cap_second_phase
+    kind: parameter
+    versions:
+      - effective_from: '2020-01-01'
+        formula: '7500'
+  - name: military_retirement_benefits_cap_third_phase
+    kind: parameter
+    versions:
+      - effective_from: '2021-01-01'
+        formula: '10000'
+  - name: military_retirement_benefits_cap_final_phase
+    kind: parameter
+    versions:
+      - effective_from: '2022-01-01'
+        formula: '15000'
+  - name: qualified_individual_for_military_retirement_benefits_subtraction
+    kind: derived
+    versions:
+      - effective_from: '2019-01-01'
+        formula: individual_under_fifty_five_at_close_of_taxable_year
+  - name: military_retirement_benefits_subtraction
+    kind: derived
+    versions:
+      - effective_from: '2019-01-01'
+        formula: military_retirement_benefits
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/y.test.yaml",
+        """- name: military retirement cap outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase: 4500
+    us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_second_phase: 7500
+    us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_third_phase: 10000
+    us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_final_phase: 15000
+    us-co:statutes/39/39-22-104/4/y#qualified_individual_for_military_retirement_benefits_subtraction: holds
+    us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_subtraction: 15000
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 4,
+        "known_not_comparable": 2,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    initial_cap = items_by_id[
+        "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase"
+    ]
+    subtraction = items_by_id[
+        "us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_subtraction"
+    ]
+    age_predicate = items_by_id[
+        "us-co:statutes/39/39-22-104/4/y#qualified_individual_for_military_retirement_benefits_subtraction"
+    ]
+    assert (
+        initial_cap["policyengine_parameter"]
+        == "gov.states.co.tax.income.subtractions.military_retirement.max_amount"
+    )
+    assert initial_cap["tested"] is True
+    assert subtraction["status"] == "known_not_comparable"
+    assert subtraction["policyengine_variable"] == "co_military_retirement_subtraction"
+    assert age_predicate["status"] == "known_not_comparable"
+    assert (
+        age_predicate["policyengine_parameter"]
+        == "gov.states.co.tax.income.subtractions.military_retirement.age_threshold"
+    )
+
+
 def test_policyengine_coverage_classifies_3102a_collection_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3102/a.yaml",
