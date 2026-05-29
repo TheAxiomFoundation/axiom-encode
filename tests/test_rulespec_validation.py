@@ -4681,6 +4681,41 @@ rules:
     )
 
 
+def test_rulespec_grounding_accepts_large_cardinal_word_amounts():
+    content = """format: rulespec/v1
+rules:
+  - name: single_return_adjusted_gross_income_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2021-01-01'
+        formula: '500000'
+  - name: joint_return_adjusted_gross_income_threshold
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2021-01-01'
+        formula: '1000000'
+"""
+
+    source_text = (
+        "for a taxpayer who files a single return and whose adjusted gross income "
+        "is greater than five hundred thousand dollars, and for taxpayers who file "
+        "a joint return and whose adjusted gross income is greater than one million "
+        "dollars"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 500000 in source_values
+    assert 1000000 in source_values
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 500000 in occurrences
+    assert 1000000 in occurrences
+
+
 def test_rulespec_grounding_treats_household_size_match_keys_as_structural():
     content = """format: rulespec/v1
 module:

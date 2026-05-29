@@ -922,8 +922,28 @@ _CARDINAL_WORD_VALUES = {
     "eighty": 80.0,
     "ninety": 90.0,
 }
+_CARDINAL_SCALE_WORD_VALUES = {
+    "hundred": 100.0,
+    "thousand": 1_000.0,
+    "million": 1_000_000.0,
+    "billion": 1_000_000_000.0,
+}
 _CARDINAL_WORD_PATTERN = re.compile(
     r"\b(" + "|".join(re.escape(word) for word in _CARDINAL_WORD_VALUES) + r")\b",
+    re.IGNORECASE,
+)
+_CARDINAL_NUMBER_WORD_PATTERN = re.compile(
+    r"\b(?:"
+    + "|".join(
+        re.escape(word)
+        for word in list(_CARDINAL_WORD_VALUES) + list(_CARDINAL_SCALE_WORD_VALUES)
+    )
+    + r")(?:[-\s]+(?:and[-\s]+)?(?:"
+    + "|".join(
+        re.escape(word)
+        for word in list(_CARDINAL_WORD_VALUES) + list(_CARDINAL_SCALE_WORD_VALUES)
+    )
+    + r"))*\b",
     re.IGNORECASE,
 )
 _CARDINAL_VALUE_WORDS = {
@@ -1767,6 +1787,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
         numbers.add(value)
         occupied_spans.append(span)
     numbers.update(_extract_percentage_context_values(text))
+    for span, value in _iter_cardinal_word_number_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
@@ -1902,6 +1926,58 @@ def _parse_cardinal_word_sequence(text: str) -> float | None:
             return None
         total += value
     return total
+
+
+def _iter_cardinal_word_number_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return English cardinal number phrases such as "five hundred thousand"."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _CARDINAL_NUMBER_WORD_PATTERN.finditer(text):
+        value = _parse_cardinal_number_words(match.group(0))
+        if value is None:
+            continue
+        matches.append((match.span(), value))
+    return matches
+
+
+def _parse_cardinal_number_words(text: str) -> float | None:
+    """Parse an English cardinal phrase with hundred/thousand/million scales."""
+    tokens = [
+        token
+        for token in re.split(r"[-\s]+", text.strip().lower())
+        if token and token != "and"
+    ]
+    if not tokens:
+        return None
+
+    total = 0.0
+    current = 0.0
+    seen_number = False
+    seen_scale = False
+    for token in tokens:
+        if token in _CARDINAL_WORD_VALUES:
+            current += _CARDINAL_WORD_VALUES[token]
+            seen_number = True
+            continue
+        scale = _CARDINAL_SCALE_WORD_VALUES.get(token)
+        if scale is None:
+            return None
+        seen_scale = True
+        if scale == 100:
+            current = (current or 1) * scale
+            seen_number = True
+            continue
+        total += (current or 1) * scale
+        current = 0.0
+        seen_number = True
+
+    if not seen_number:
+        return None
+    value = total + current
+    if not seen_scale and len(tokens) == 1:
+        return _CARDINAL_WORD_VALUES.get(tokens[0])
+    return value
 
 
 def _parse_fraction_word(text: str) -> float | None:
@@ -2091,6 +2167,12 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
 
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
         occurrences.extend(value for _ in re.finditer(re.escape(glyph), cleaned))
+
+    for span, value in _iter_cardinal_word_number_matches(cleaned):
+        if _span_overlaps(span, spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            occurrences.append(value)
 
     occurrence_counts = Counter(occurrences)
     normalized: list[float] = []
