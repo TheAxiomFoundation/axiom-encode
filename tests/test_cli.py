@@ -43,6 +43,9 @@ from axiom_encode.cli import (
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
     _repair_anaphoric_scope_identifiers,
+    _repair_colorado_snap_2072,
+    _repair_colorado_snap_2072_tests,
+    _repair_colorado_snap_program_tests,
     _repair_employer_scoped_entities,
     _repair_generated_import_symbol_near_misses,
     _repair_generated_unused_imports_for_apply,
@@ -4838,6 +4841,150 @@ rules:
         assert test_payload[-1]["output"] == {
             "us:statutes/26/1401/b/1#self_employment_income_tax": 61.59745
         }
+
+    def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):
+        test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"
+        test_file.write_text(
+            """- name: ongoing_month_derives_income_eligibility_and_colorado_allotment
+  period: 2026-01
+  input:
+    us-co:regulations/10-ccr-2506-1/4.403#input.employee_wages_received: 1000
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income: 1000
+    us-co:regulations/10-ccr-2506-1/4.404#snap_countable_unearned_income: 0
+    us:regulations/7-cfr/273/10#snap_gross_monthly_income: 1000
+    us:regulations/7-cfr/273/10#snap_monthly_household_income: 1000
+    us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction: 209
+    us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible: holds
+    us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance: 594
+    us:regulations/7-cfr/273/10#snap_excess_shelter_deduction: 744
+- name: additional_household_member_uses_usda_additional_member_amount
+  period: 2026-01
+  input:
+    <<: *base_snap_case
+  output:
+    us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income: 0
+"""
+        )
+
+        _repair_colorado_snap_program_tests(test_file)
+
+        repaired = test_file.read_text()
+        assert "us:regulations/7-cfr/273/10#snap_gross_monthly_income:" not in repaired
+        assert (
+            "us:regulations/7-cfr/273/10#snap_monthly_household_income:" not in repaired
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction:" not in repaired
+        )
+        for line in [
+            "us:regulations/7-cfr/273/10#snap_total_gross_income: 1000",
+            "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction_for_net_income: 744",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_earned_income: 1000",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_total_monthly_unearned_income: 0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_income_exclusions: 0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_income: 1000",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_monthly_household_income: 1000",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_allowable_monthly_dependent_care_expenses: 0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_allowable_monthly_child_support_payments: 0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_total_medical_expenses: 0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744",
+        ]:
+            assert line in repaired
+        assert (
+            "us-co:regulations/10-ccr-2506-1/4.407.31#snap_heating_cooling_utility_allowance_eligible: holds"
+            in repaired
+        )
+        assert "- name: ongoing_month_derives_standard_utility_allowance" in repaired
+        assert repaired.index(
+            "- name: ongoing_month_derives_standard_utility_allowance"
+        ) < repaired.index(
+            "- name: additional_household_member_uses_usda_additional_member_amount"
+        )
+
+    def test_repair_colorado_snap_2072_tests_covers_bridge_outputs(self, tmp_path):
+        test_file = tmp_path / "4.207.2.test.yaml"
+        test_file.write_text(
+            """- name: initial_month_prorates_from_application_date
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1
+    us-co:regulations/10-ccr-2506-1/4.207.2#input.initial_application_month: true
+  output:
+    us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment: 298
+    us:regulations/7-cfr/273/10#snap_initial_month_allotment_after_minimum_issuance: 153
+"""
+        )
+
+        _repair_colorado_snap_2072_tests(test_file)
+
+        outputs = yaml.safe_load(test_file.read_text())[0]["output"]
+        assert (
+            outputs[
+                "us-co:regulations/10-ccr-2506-1/4.207.2"
+                "#snap_maximum_allotment_for_household_size"
+            ]
+            == 298
+        )
+        assert (
+            outputs[
+                "us-co:regulations/10-ccr-2506-1/4.207.2"
+                "#snap_maximum_allotment_for_one_person_household"
+            ]
+            == 298
+        )
+        assert (
+            outputs["us-co:regulations/10-ccr-2506-1/4.207.2#household_initial_month"]
+            == "holds"
+        )
+        assert (
+            outputs[
+                "us-co:regulations/10-ccr-2506-1/4.207.2"
+                "#snap_initial_month_proration_applies"
+            ]
+            == "holds"
+        )
+        assert (
+            "us-co:regulations/10-ccr-2506-1/4.207.2"
+            "#state_agency_rounds_thirty_percent_net_income_up" not in outputs
+        )
+        assert (
+            "us:regulations/7-cfr/273/10"
+            "#snap_initial_month_allotment_after_minimum_issuance" not in outputs
+        )
+        assert (
+            outputs[
+                "us-co:regulations/10-ccr-2506-1/4.207.2"
+                "#snap_initial_month_allotment_after_minimum_issuance"
+            ]
+            == 153
+        )
+
+    def test_repair_colorado_snap_2072_uses_parameter_for_constant_rounding_flag(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "4.207.2.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2017/a
+rules:
+"""
+        )
+
+        _repair_colorado_snap_2072(rules_file)
+
+        payload = yaml.safe_load(rules_file.read_text())
+        rule = next(
+            item
+            for item in payload["rules"]
+            if item["name"] == "state_agency_rounds_thirty_percent_net_income_up"
+        )
+        assert rule["kind"] == "parameter"
+        assert rule["dtype"] == "Judgment"
+        assert rule["versions"][0]["formula"] == "false"
+        assert rule["entity"] == "Household"
+        assert rule["period"] == "Month"
 
     def test_repair_employer_scoped_entities_sets_rate_helpers(self, tmp_path):
         rules_file = tmp_path / "3221.yaml"

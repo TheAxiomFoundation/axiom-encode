@@ -940,6 +940,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_co_snap_refs_parser = subparsers.add_parser(
+        "repair-colorado-snap-federal-refs",
+        help="Apply signed deterministic repairs for Colorado SNAP federal reference drift",
+    )
+    repair_co_snap_refs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-co repository root used for manifest signing",
+    )
+    repair_co_snap_refs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1527,6 +1546,8 @@ def main():
         cmd_repair_tax_status_components(args)
     elif args.command == "repair-missing-source-proofs":
         cmd_repair_missing_source_proofs(args)
+    elif args.command == "repair-colorado-snap-federal-refs":
+        cmd_repair_colorado_snap_federal_refs(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -3053,6 +3074,1107 @@ def cmd_guard_generated(args):
         else:
             print("All changed RuleSpec files have encoder apply manifests.")
     sys.exit(0 if not issues else 1)
+
+
+COLORADO_SNAP_FEDERAL_REF_REPAIR_MODEL = "colorado-snap-federal-refs-v1"
+COLORADO_SNAP_PROGRAM_RELATIVE = Path(
+    "policies/cdhs/snap/fy-2026-benefit-calculation.yaml"
+)
+COLORADO_SNAP_CCR_ROOT = Path("regulations/10-ccr-2506-1")
+COLORADO_SNAP_REPAIR_RELATIVE_OUTPUTS = (
+    COLORADO_SNAP_PROGRAM_RELATIVE,
+    COLORADO_SNAP_CCR_ROOT / "4.207.2.yaml",
+    COLORADO_SNAP_CCR_ROOT / "4.207.3.yaml",
+    COLORADO_SNAP_CCR_ROOT / "4.401.yaml",
+    COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml",
+)
+
+
+def cmd_repair_colorado_snap_federal_refs(args):
+    """Apply signed deterministic repairs for Colorado SNAP federal ref drift."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-co":
+        print(
+            "repair-colorado-snap-federal-refs must run against rulespec-us-co; "
+            f"got {repo_path}"
+        )
+        sys.exit(1)
+
+    manifest_groups = _colorado_snap_repair_manifest_groups(repo_path)
+    for relative_output, _files in manifest_groups:
+        rules_file = repo_path / relative_output
+        if not rules_file.exists():
+            print(f"RuleSpec file not found: {rules_file}")
+            sys.exit(1)
+    try:
+        _ensure_no_unmanifested_preexisting_rulespec_changes(
+            repo_path,
+            manifest_groups,
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    tracked_files = _unique_paths(
+        [path for _relative_output, files in manifest_groups for path in files]
+    )
+    preexisting_changed_files = _changed_manifest_group_files(
+        repo_path,
+        manifest_groups,
+    )
+    originals = {
+        path: path.read_text() if path.exists() else None for path in tracked_files
+    }
+
+    try:
+        _repair_colorado_snap_policy_composition(
+            repo_path / COLORADO_SNAP_PROGRAM_RELATIVE
+        )
+        _repair_colorado_snap_2072(repo_path / COLORADO_SNAP_CCR_ROOT / "4.207.2.yaml")
+        _repair_colorado_snap_4073(repo_path / COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml")
+        _repair_colorado_snap_program_tests(
+            _rulespec_test_path(repo_path / COLORADO_SNAP_PROGRAM_RELATIVE)
+        )
+        _repair_colorado_snap_2072_tests(
+            _rulespec_test_path(repo_path / COLORADO_SNAP_CCR_ROOT / "4.207.2.yaml")
+        )
+        _repair_colorado_snap_2073_tests(
+            _rulespec_test_path(repo_path / COLORADO_SNAP_CCR_ROOT / "4.207.3.yaml")
+        )
+        _repair_colorado_snap_401_tests(
+            _rulespec_test_path(repo_path / COLORADO_SNAP_CCR_ROOT / "4.401.yaml")
+        )
+        _repair_colorado_snap_4073_tests(
+            _rulespec_test_path(repo_path / COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml")
+        )
+
+        changed_by_command = _unique_paths(
+            [
+                path
+                for path in tracked_files
+                if _path_differs_from_original(path, originals.get(path))
+            ]
+        )
+        changed_files = _unique_paths(preexisting_changed_files + changed_by_command)
+        if not changed_files:
+            print("No Colorado SNAP federal reference repairs found.")
+            return
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    manifest_paths = _write_colorado_snap_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_files,
+    )
+
+    print("Applied Colorado SNAP federal reference repair")
+    for path in changed_files:
+        print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _colorado_snap_repair_manifest_groups(
+    repo_path: Path,
+) -> list[tuple[Path, list[Path]]]:
+    groups: list[tuple[Path, list[Path]]] = []
+    for relative_output in COLORADO_SNAP_REPAIR_RELATIVE_OUTPUTS:
+        rules_file = repo_path / relative_output
+        test_file = _rulespec_test_path(rules_file)
+        files = [rules_file]
+        if test_file.exists():
+            files.append(test_file)
+        groups.append((relative_output, files))
+    return groups
+
+
+def _changed_manifest_group_files(
+    repo_path: Path,
+    manifest_groups: list[tuple[Path, list[Path]]],
+) -> list[Path]:
+    changed = set(_git_changed_files(repo_path, base_ref=None, head_ref="HEAD"))
+    for base_ref in ("origin/main", "main"):
+        try:
+            changed.update(
+                _git_changed_files(repo_path, base_ref=base_ref, head_ref="HEAD")
+            )
+            break
+        except RuntimeError:
+            continue
+    return _unique_paths(
+        [
+            path
+            for _relative_output, files in manifest_groups
+            for path in files
+            if path.relative_to(repo_path).as_posix() in changed
+        ]
+    )
+
+
+def _write_colorado_snap_repair_manifests(
+    *,
+    repo_path: Path,
+    signing_key: str,
+    axiom_encode_git: dict[str, object],
+    manifest_groups: list[tuple[Path, list[Path]]],
+    changed_files: list[Path],
+) -> list[Path]:
+    changed = {path.resolve() for path in changed_files}
+    manifest_paths: list[Path] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        for relative_output, files in manifest_groups:
+            applied_files = [path for path in files if path.resolve() in changed]
+            if not applied_files:
+                continue
+            generated_output = output_root / "deterministic-repair" / relative_output
+            generated_output.parent.mkdir(parents=True, exist_ok=True)
+            generated_output.write_text((repo_path / relative_output).read_text())
+            result = argparse.Namespace(
+                output_file=str(generated_output),
+                runner="deterministic-repair",
+                backend="deterministic",
+                model=COLORADO_SNAP_FEDERAL_REF_REPAIR_MODEL,
+                tool="axiom-encode repair-colorado-snap-federal-refs",
+                citation=(
+                    f"{_repo_jurisdiction_prefix(repo_path)}:"
+                    f"{_relative_rulespec_import_target(relative_output)}"
+                ),
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=None,
+            )
+            manifest_paths.append(
+                _write_applied_encoding_manifest(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=repo_path,
+                    relative_output=relative_output,
+                    applied_files=applied_files,
+                    run_id="deterministic-repair",
+                    signing_key=signing_key,
+                    axiom_encode_git=axiom_encode_git,
+                )
+            )
+    return manifest_paths
+
+
+def _repair_colorado_snap_policy_composition(path: Path) -> None:
+    content = path.read_text()
+    content = _ensure_yaml_import_text(
+        content,
+        "us-co:regulations/10-ccr-2506-1/4.407.6",
+        before_import="us-co:regulations/10-ccr-2506-1/4.407.61",
+    )
+    content = _upsert_rules_text(
+        content,
+        _colorado_snap_federal_bridge_rules(include_allotment_bridges=False),
+    )
+    path.write_text(content)
+
+
+def _repair_colorado_snap_2072(path: Path) -> None:
+    content = path.read_text()
+    content = _ensure_yaml_import_text(
+        content,
+        "us:statutes/7/2014/e/6/A",
+        before_import="us:statutes/7/2017/a",
+    )
+    content = _upsert_rules_text(
+        content,
+        [
+            _derived_money_bridge_rule(
+                "snap_maximum_allotment_for_household_size",
+                "snap_maximum_allotment",
+            ),
+            _derived_money_bridge_rule(
+                "snap_maximum_allotment_for_one_person_household",
+                "snap_one_person_thrifty_food_plan_cost",
+            ),
+            _derived_judgment_bridge_rule(
+                "household_initial_month",
+                "initial_application_month",
+            ),
+            _parameter_judgment_bridge_rule(
+                "state_agency_rounds_thirty_percent_net_income_up",
+                "false",
+            ),
+        ],
+    )
+    content = _upsert_rule_text(
+        content,
+        _derived_money_bridge_rule(
+            "snap_initial_month_prorated_allotment",
+            (
+                "min(\n"
+                "    snap_calculated_monthly_allotment_before_minimums,\n"
+                "    floor(snap_calculated_monthly_allotment_before_minimums "
+                "* snap_initial_month_proration_factor)\n"
+                ")"
+            ),
+            source="10 CCR 2506-1 section 4.207.2(C)",
+        ),
+    )
+    content = _insert_rule_text_if_missing(
+        content,
+        _derived_money_bridge_rule(
+            "snap_initial_month_allotment_after_minimum_issuance",
+            (
+                "if snap_initial_month_prorated_allotment < "
+                "snap_initial_month_minimum_issuance: 0 "
+                "else: snap_initial_month_prorated_allotment"
+            ),
+            source="10 CCR 2506-1 section 4.207.2 and 7 CFR 273.10(e)(2)(ii)(B)",
+        ),
+        before_rule="snap_allotment",
+    )
+    content = _upsert_rule_text(
+        content,
+        _derived_money_bridge_rule(
+            "snap_allotment",
+            (
+                "if snap_eligible:\n"
+                "    if snap_initial_month_proration_applies:\n"
+                "        snap_initial_month_allotment_after_minimum_issuance\n"
+                "    else:\n"
+                "        snap_monthly_allotment\n"
+                "else: 0"
+            ),
+            source="10 CCR 2506-1 sections 4.207.2 and 4.207.3(B)",
+        ),
+    )
+    path.write_text(content)
+
+
+def _repair_colorado_snap_4073(path: Path) -> None:
+    content = path.read_text()
+    content = _append_rules_text_if_missing(
+        content,
+        [
+            _derived_judgment_bridge_rule(
+                "household_entitled_to_excess_medical_deduction",
+                "snap_household_has_elderly_or_disabled_member",
+            ),
+            *_colorado_snap_shelter_bridge_rules(),
+        ],
+    )
+    path.write_text(content)
+
+
+def _colorado_snap_federal_bridge_rules(
+    *, include_allotment_bridges: bool
+) -> list[dict[str, object]]:
+    rules = [
+        _derived_money_bridge_rule(
+            "snap_gross_monthly_earned_income",
+            "snap_countable_earned_income",
+        ),
+        _derived_money_bridge_rule(
+            "snap_total_monthly_unearned_income",
+            "snap_countable_unearned_income",
+        ),
+        _derived_money_bridge_rule("snap_income_exclusions", "child_support_deduction"),
+        _derived_money_bridge_rule(
+            "snap_gross_monthly_income",
+            "snap_total_gross_income",
+        ),
+        _derived_money_bridge_rule(
+            "snap_monthly_household_income",
+            "snap_total_gross_income",
+        ),
+        _derived_money_bridge_rule(
+            "snap_allowable_monthly_dependent_care_expenses",
+            "dependent_care_deduction",
+        ),
+        _derived_money_bridge_rule(
+            "snap_allowable_monthly_child_support_payments",
+            "0",
+        ),
+        _derived_money_bridge_rule(
+            "snap_total_medical_expenses",
+            "total_medical_expenses",
+        ),
+        _derived_money_bridge_rule(
+            "snap_excess_shelter_deduction",
+            "snap_excess_shelter_deduction_for_net_income",
+        ),
+    ]
+    if include_allotment_bridges:
+        rules.extend(
+            [
+                _derived_money_bridge_rule(
+                    "snap_maximum_allotment_for_household_size",
+                    "snap_maximum_allotment",
+                ),
+                _derived_money_bridge_rule(
+                    "snap_maximum_allotment_for_one_person_household",
+                    "snap_one_person_thrifty_food_plan_cost",
+                ),
+                _derived_judgment_bridge_rule(
+                    "household_initial_month",
+                    "initial_application_month",
+                ),
+                _parameter_judgment_bridge_rule(
+                    "state_agency_rounds_thirty_percent_net_income_up",
+                    "false",
+                ),
+            ]
+        )
+    return rules
+
+
+def _colorado_snap_shelter_bridge_rules() -> list[dict[str, object]]:
+    return [
+        _derived_money_bridge_rule(
+            "snap_claimed_homeless_shelter_deduction",
+            (
+                "if all_household_members_experiencing_homelessness "
+                "and homeless_household_has_shelter_costs "
+                "and (not homeless_household_free_shelter_all_month) "
+                "and (not verified_higher_homeless_shelter_costs): "
+                "snap_homeless_shelter_deduction else: 0"
+            ),
+        ),
+        _derived_money_bridge_rule(
+            "snap_total_allowable_shelter_expenses",
+            (
+                "if snap_claimed_homeless_shelter_deduction > 0: "
+                "0 else: snap_allowable_shelter_costs"
+            ),
+        ),
+    ]
+
+
+def _derived_money_bridge_rule(
+    name: str,
+    formula: str,
+    *,
+    source: str = "Colorado SNAP federal surface bridge",
+) -> dict[str, object]:
+    return _bridge_rule(
+        name=name,
+        kind="derived",
+        dtype="Money",
+        formula=formula,
+        source=source,
+        entity="Household",
+        period="Month",
+        unit="USD",
+    )
+
+
+def _derived_judgment_bridge_rule(name: str, formula: str) -> dict[str, object]:
+    return _bridge_rule(
+        name=name,
+        kind="derived",
+        dtype="Judgment",
+        formula=formula,
+        source="Colorado SNAP federal surface bridge",
+        entity="Household",
+        period="Month",
+    )
+
+
+def _parameter_bridge_rule(name: str, dtype: str, formula: str) -> dict[str, object]:
+    return _bridge_rule(
+        name=name,
+        kind="parameter",
+        dtype=dtype,
+        formula=formula,
+        source="Colorado SNAP federal surface bridge",
+    )
+
+
+def _parameter_judgment_bridge_rule(name: str, formula: str) -> dict[str, object]:
+    return _bridge_rule(
+        name=name,
+        kind="parameter",
+        dtype="Judgment",
+        formula=formula,
+        source="Colorado SNAP federal surface bridge",
+        entity="Household",
+        period="Month",
+    )
+
+
+def _bridge_rule(
+    *,
+    name: str,
+    kind: str,
+    dtype: str,
+    formula: str,
+    source: str,
+    entity: str | None = None,
+    period: str | None = None,
+    unit: str | None = None,
+) -> dict[str, object]:
+    rule: dict[str, object] = {
+        "name": name,
+        "kind": kind,
+        "dtype": dtype,
+    }
+    if entity is not None:
+        rule["entity"] = entity
+    if period is not None:
+        rule["period"] = period
+    if unit is not None:
+        rule["unit"] = unit
+    rule["source"] = source
+    rule["versions"] = [{"effective_from": "2025-10-01", "formula": formula}]
+    return rule
+
+
+def _append_rule_if_missing(
+    payload: dict[str, object],
+    rule: dict[str, object],
+    *,
+    before_rule: str | None = None,
+) -> None:
+    rules = payload.setdefault("rules", [])
+    if not isinstance(rules, list):
+        raise RuntimeError("RuleSpec payload has non-list rules field")
+    name = str(rule.get("name") or "")
+    if any(
+        isinstance(existing, dict) and existing.get("name") == name
+        for existing in rules
+    ):
+        return
+    if before_rule:
+        for index, existing in enumerate(rules):
+            if isinstance(existing, dict) and existing.get("name") == before_rule:
+                rules.insert(index, rule)
+                return
+    rules.append(rule)
+
+
+def _ensure_yaml_import_text(
+    content: str,
+    import_target: str,
+    *,
+    before_import: str | None = None,
+) -> str:
+    import_line = f"  - {import_target}\n"
+    if import_line in content:
+        return content
+    if before_import is not None:
+        before_line = f"  - {before_import}\n"
+        if before_line in content:
+            return content.replace(before_line, import_line + before_line, 1)
+    rules_marker = "rules:\n"
+    if rules_marker not in content:
+        raise RuntimeError("RuleSpec payload missing rules section")
+    return content.replace(rules_marker, import_line + rules_marker, 1)
+
+
+def _append_rules_text_if_missing(
+    content: str,
+    rules: list[dict[str, object]],
+) -> str:
+    for rule in rules:
+        content = _insert_rule_text_if_missing(content, rule)
+    return content
+
+
+def _upsert_rules_text(
+    content: str,
+    rules: list[dict[str, object]],
+) -> str:
+    for rule in rules:
+        content = _upsert_rule_text(content, rule)
+    return content
+
+
+def _upsert_rule_text(
+    content: str,
+    rule: dict[str, object],
+    *,
+    before_rule: str | None = None,
+) -> str:
+    name = str(rule.get("name") or "")
+    marker = f"  - name: {name}\n"
+    start = content.find(marker)
+    if start == -1:
+        return _insert_rule_text_if_missing(content, rule, before_rule=before_rule)
+    next_start = content.find("\n  - name: ", start + len(marker))
+    end = len(content) if next_start == -1 else next_start + 1
+    return f"{content[:start]}{_render_generated_rule_yaml(rule)}{content[end:]}"
+
+
+def _insert_rule_text_if_missing(
+    content: str,
+    rule: dict[str, object],
+    *,
+    before_rule: str | None = None,
+) -> str:
+    name = str(rule.get("name") or "")
+    if f"\n  - name: {name}\n" in f"\n{content}":
+        return content
+    rendered = _render_generated_rule_yaml(rule)
+    if before_rule is not None:
+        marker = f"\n  - name: {before_rule}\n"
+        if marker in content:
+            return content.replace(marker, f"\n{rendered}{marker}", 1)
+    if not content.endswith("\n"):
+        content += "\n"
+    return f"{content}{rendered}"
+
+
+def _render_generated_rule_yaml(rule: dict[str, object]) -> str:
+    lines = [f"  - name: {rule['name']}"]
+    for key in ("kind", "entity", "dtype", "period", "unit", "source"):
+        value = rule.get(key)
+        if value is not None:
+            lines.append(f"    {key}: {value}")
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        raise RuntimeError("Generated rule missing versions")
+    version = versions[0]
+    if not isinstance(version, dict) or "formula" not in version:
+        raise RuntimeError("Generated rule missing formula")
+    lines.extend(
+        [
+            "    versions:",
+            f"      - effective_from: '{version.get('effective_from', '2025-10-01')}'",
+            "        formula: |-",
+        ]
+    )
+    formula_lines = str(version["formula"]).splitlines() or [""]
+    lines.extend(f"          {line}" for line in formula_lines)
+    return "\n".join(lines) + "\n"
+
+
+def _ensure_yaml_mapping_line_after_key(
+    content: str,
+    *,
+    key: str,
+    value: str,
+    after_key: str,
+) -> str:
+    if re.search(rf"(?m)^\s+{re.escape(key)}:", content):
+        return content
+    match = re.search(
+        rf"(?m)^(\s+){re.escape(after_key)}:\s+[^\n]*\n",
+        content,
+    )
+    if match is None:
+        raise RuntimeError(f"Cannot insert `{key}` after missing `{after_key}`")
+    return f"{content[: match.end()]}{match.group(1)}{key}: {value}\n{content[match.end() :]}"
+
+
+def _repair_colorado_snap_program_tests(path: Path) -> None:
+    content = path.read_text()
+    content = re.sub(
+        r"(?m)^\s+us:regulations/7-cfr/273/10#input\."
+        r"(household_initial_month|state_agency_rounds_thirty_percent_net_income_up):"
+        r"\s+[^\n]+\n",
+        "",
+        content,
+    )
+    content = content.replace(
+        "us:regulations/7-cfr/273/10#snap_gross_monthly_income:",
+        "us:regulations/7-cfr/273/10#snap_total_gross_income:",
+    )
+    content = re.sub(
+        r"(?m)^\s+us:regulations/7-cfr/273/10#snap_monthly_household_income:\s+[^\n]+\n",
+        "",
+        content,
+    )
+    content = content.replace(
+        "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction:",
+        "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction_for_net_income:",
+    )
+    for key, value, after_key in [
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_earned_income",
+            "1000",
+            "us-co:regulations/10-ccr-2506-1/4.403#snap_countable_earned_income",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_total_monthly_unearned_income",
+            "0",
+            "us-co:regulations/10-ccr-2506-1/4.404#snap_countable_unearned_income",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_income_exclusions",
+            "0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_total_monthly_unearned_income",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_income",
+            "1000",
+            "us:regulations/7-cfr/273/10#snap_total_gross_income",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_monthly_household_income",
+            "1000",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_gross_monthly_income",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_allowable_monthly_dependent_care_expenses",
+            "0",
+            "us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_allowable_monthly_child_support_payments",
+            "0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_allowable_monthly_dependent_care_expenses",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_total_medical_expenses",
+            "0",
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_allowable_monthly_child_support_payments",
+        ),
+        (
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction",
+            "744",
+            "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction_for_net_income",
+        ),
+    ]:
+        content = _ensure_yaml_mapping_line_after_key(
+            content,
+            key=key,
+            value=value,
+            after_key=after_key,
+        )
+    content = _split_colorado_snap_program_utility_outputs(content)
+    path.write_text(content)
+
+
+def _split_colorado_snap_program_utility_outputs(content: str) -> str:
+    marker = "- name: additional_household_member_uses_usda_additional_member_amount\n"
+    if marker not in content:
+        raise RuntimeError("Cannot split Colorado SNAP utility outputs; marker missing")
+    for case_name in (
+        "ongoing_month_derives_utility_allowance",
+        "ongoing_month_derives_standard_utility_allowance",
+    ):
+        content = re.sub(
+            rf"(?ms)^- name: {re.escape(case_name)}\n.*?(?=^{re.escape(marker)})",
+            "",
+            content,
+        )
+    standard_utility_output = (
+        "us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance"
+    )
+    content = re.sub(
+        rf"(?m)^\s+{re.escape(standard_utility_output)}:\s+594\n",
+        "",
+        content,
+    )
+    content = _ensure_yaml_mapping_line_after_key(
+        content,
+        key=(
+            "us-co:regulations/10-ccr-2506-1/4.407.31"
+            "#snap_heating_cooling_utility_allowance_eligible"
+        ),
+        value="holds",
+        after_key=(
+            "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible"
+        ),
+    )
+    utility_case = """- name: ongoing_month_derives_standard_utility_allowance
+  period: 2026-01
+  input:
+    <<: *base_snap_case
+  output:
+    us-co:regulations/10-ccr-2506-1/4.407.31#snap_standard_utility_allowance: 594
+"""
+    return content.replace(marker, f"{utility_case}{marker}", 1)
+
+
+def _repair_colorado_snap_2072_tests(path: Path) -> None:
+    cases = _read_yaml_cases(path)
+    for case in cases:
+        inputs = case.get("input")
+        if isinstance(inputs, dict):
+            _remove_keys(
+                inputs,
+                {
+                    "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
+                    "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
+                    "us:statutes/7/2014/e/2#input.work_supplementation_earned_income",
+                    "us:statutes/7/2014/e/6/A#input.dependent_care_deduction",
+                    "us:statutes/7/2014/e/6/A#input.child_support_deduction",
+                    "us:statutes/7/2014/e/6/A#input.medical_deduction",
+                    "us:regulations/7-cfr/273/10#input.snap_allowable_shelter_costs",
+                },
+            )
+            _set_snap_net_income_inputs(inputs, 0, include_standard_deduction=False)
+            _set_cfr_snap_net_income_inputs(inputs, 0)
+            _remove_keys(
+                inputs,
+                {
+                    "us:regulations/7-cfr/273/10#input.household_initial_month",
+                    "us:regulations/7-cfr/273/10#input.state_agency_rounds_thirty_percent_net_income_up",
+                    "us:regulations/7-cfr/273/10#snap_net_monthly_income",
+                },
+            )
+        outputs = case.get("output")
+        if isinstance(outputs, dict):
+            maximum_allotment = outputs.get(
+                "us:policies/usda/snap/fy-2026-cola/maximum-allotments"
+                "#snap_maximum_allotment"
+            )
+            if maximum_allotment is not None:
+                outputs.setdefault(
+                    "us-co:regulations/10-ccr-2506-1/4.207.2"
+                    "#snap_maximum_allotment_for_household_size",
+                    maximum_allotment,
+                )
+                if (
+                    isinstance(inputs, dict)
+                    and inputs.get(
+                        "us:policies/usda/snap/fy-2026-cola/maximum-allotments"
+                        "#input.household_size"
+                    )
+                    == 1
+                ):
+                    outputs.setdefault(
+                        "us-co:regulations/10-ccr-2506-1/4.207.2"
+                        "#snap_maximum_allotment_for_one_person_household",
+                        maximum_allotment,
+                    )
+            if isinstance(inputs, dict):
+                initial_month = inputs.get(
+                    "us-co:regulations/10-ccr-2506-1/4.207.2"
+                    "#input.initial_application_month"
+                )
+                if initial_month is True:
+                    outputs.setdefault(
+                        "us-co:regulations/10-ccr-2506-1/4.207.2"
+                        "#household_initial_month",
+                        "holds",
+                    )
+                    if (
+                        outputs.get(
+                            "us-co:regulations/10-ccr-2506-1/4.207.2"
+                            "#snap_initial_month_proration_exception"
+                        )
+                        != "holds"
+                    ):
+                        outputs.setdefault(
+                            "us-co:regulations/10-ccr-2506-1/4.207.2"
+                            "#snap_initial_month_proration_applies",
+                            "holds",
+                        )
+                elif initial_month is False:
+                    outputs.setdefault(
+                        "us-co:regulations/10-ccr-2506-1/4.207.2"
+                        "#household_initial_month",
+                        "not_holds",
+                    )
+            _move_mapping_value(
+                outputs,
+                "us:regulations/7-cfr/273/10#snap_initial_month_allotment_after_minimum_issuance",
+                "us-co:regulations/10-ccr-2506-1/4.207.2#snap_initial_month_allotment_after_minimum_issuance",
+            )
+            _move_mapping_value(
+                outputs,
+                "us:regulations/7-cfr/273/10#snap_initial_month_minimum_issuance_threshold",
+                "us:regulations/7-cfr/273/10#snap_initial_month_minimum_issuance",
+            )
+            _remove_keys(
+                outputs,
+                {
+                    "us-co:regulations/10-ccr-2506-1/4.207.2"
+                    "#state_agency_rounds_thirty_percent_net_income_up",
+                },
+            )
+    _write_yaml_payload(path, cases)
+
+
+def _set_cfr_snap_net_income_inputs(
+    mapping: dict[object, object],
+    net_income: object,
+) -> None:
+    mapping["us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income"] = (
+        net_income
+    )
+    mapping["us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income"] = 0
+    mapping["us:regulations/7-cfr/273/10#input.snap_income_exclusions"] = 0
+    mapping[
+        "us:regulations/7-cfr/273/10#input.household_entitled_to_excess_medical_deduction"
+    ] = False
+    mapping["us:regulations/7-cfr/273/10#input.snap_total_medical_expenses"] = 0
+    mapping[
+        "us:regulations/7-cfr/273/10#input.snap_allowable_monthly_dependent_care_expenses"
+    ] = 0
+    mapping[
+        "us:regulations/7-cfr/273/10#input.snap_allowable_monthly_child_support_payments"
+    ] = 0
+    mapping[
+        "us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction"
+    ] = 0
+    mapping[
+        "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses"
+    ] = 0
+
+
+def _repair_colorado_snap_2073_tests(path: Path) -> None:
+    cases = _read_yaml_cases(path)
+    for case in cases:
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        net_income = inputs.pop("us:statutes/7/2017/a#input.snap_net_income", None)
+        if net_income is not None:
+            _set_snap_net_income_inputs(inputs, net_income)
+    _write_yaml_payload(path, cases)
+
+
+def _repair_colorado_snap_401_tests(path: Path) -> None:
+    cases = _read_yaml_cases(path)
+    for case in cases:
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        earned = inputs.pop(
+            "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
+            None,
+        )
+        unearned = inputs.pop(
+            "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
+            None,
+        )
+        shelter = inputs.pop(
+            "us:regulations/7-cfr/273/10#input.snap_allowable_shelter_costs",
+            None,
+        )
+        _remove_keys(
+            inputs,
+            {
+                "us:policies/usda/snap/fy-2026-cola/deductions#input.household_size",
+                "us:statutes/7/2014/e/2#input.work_supplementation_earned_income",
+                "us:statutes/7/2014/e/6/A#input.dependent_care_deduction",
+                "us:statutes/7/2014/e/6/A#input.child_support_deduction",
+                "us:statutes/7/2014/e/6/A#input.medical_deduction",
+            },
+        )
+        if earned is not None or unearned is not None or shelter is not None:
+            gross = _numeric_test_value(earned) + _numeric_test_value(unearned)
+            inputs["us:regulations/7-cfr/273/9#input.snap_gross_monthly_income"] = gross
+            inputs["us:regulations/7-cfr/273/9#input.snap_net_income"] = max(
+                0,
+                gross - _numeric_test_value(shelter),
+            )
+    _write_yaml_payload(path, cases)
+
+
+def _repair_colorado_snap_4073_tests(path: Path) -> None:
+    cases = _read_yaml_cases(path)
+    for case in cases:
+        case_name = str(case.get("name") or "")
+        inputs = case.get("input")
+        if isinstance(inputs, dict):
+            _remove_keys(
+                inputs,
+                {
+                    "us:regulations/7-cfr/273/10#input.snap_countable_earned_income",
+                    "us:regulations/7-cfr/273/10#input.snap_countable_unearned_income",
+                    "us:statutes/7/2014/e/2#input.work_supplementation_earned_income",
+                    "us:statutes/7/2014/e/6/A#input.dependent_care_deduction",
+                    "us:statutes/7/2014/e/6/A#input.child_support_deduction",
+                    "us:statutes/7/2014/e/6/A#input.medical_deduction",
+                },
+            )
+            inputs.setdefault(
+                "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income",
+                0,
+            )
+            inputs.setdefault(
+                "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income",
+                0,
+            )
+            inputs.setdefault(
+                "us:regulations/7-cfr/273/10#input.snap_income_exclusions",
+                0,
+            )
+            inputs.setdefault(
+                "us:regulations/7-cfr/273/10#input.snap_allowable_monthly_dependent_care_expenses",
+                0,
+            )
+            inputs.setdefault(
+                "us:regulations/7-cfr/273/10#input.snap_allowable_monthly_child_support_payments",
+                0,
+            )
+            inputs.setdefault(
+                "us:regulations/7-cfr/273/10#input.snap_total_medical_expenses",
+                0,
+            )
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        if case_name in {
+            "non_elderly_household_shelter_deduction_is_capped",
+            "homeless_household_uses_standard_estimate",
+            "homeless_household_with_verified_higher_costs_uses_actual_costs",
+            "homeless_household_with_free_shelter_all_month_gets_no_shelter_cost",
+        }:
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#household_entitled_to_excess_medical_deduction",
+                "not_holds",
+            )
+        elif case_name == "elderly_or_disabled_household_shelter_deduction_is_uncapped":
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#household_entitled_to_excess_medical_deduction",
+                "holds",
+            )
+        if case_name == "homeless_household_uses_standard_estimate":
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_claimed_homeless_shelter_deduction",
+                198.99,
+            )
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_total_allowable_shelter_expenses",
+                0,
+            )
+        elif case_name in {
+            "non_elderly_household_shelter_deduction_is_capped",
+            "elderly_or_disabled_household_shelter_deduction_is_uncapped",
+        }:
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_claimed_homeless_shelter_deduction",
+                0,
+            )
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_total_allowable_shelter_expenses",
+                1000,
+            )
+        elif (
+            case_name
+            == "homeless_household_with_verified_higher_costs_uses_actual_costs"
+        ):
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_claimed_homeless_shelter_deduction",
+                0,
+            )
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_total_allowable_shelter_expenses",
+                300,
+            )
+        elif (
+            case_name
+            == "homeless_household_with_free_shelter_all_month_gets_no_shelter_cost"
+        ):
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_claimed_homeless_shelter_deduction",
+                0,
+            )
+            outputs.setdefault(
+                "us-co:regulations/10-ccr-2506-1/4.407.3#snap_total_allowable_shelter_expenses",
+                0,
+            )
+        _remove_mapping_key(
+            outputs, "us:regulations/7-cfr/273/10#snap_half_adjusted_income"
+        )
+        _move_mapping_value(
+            outputs,
+            "us:regulations/7-cfr/273/10#snap_uncapped_excess_shelter_deduction",
+            "us:regulations/7-cfr/273/10#snap_excess_shelter_cost",
+        )
+        old_excess = "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction"
+        if old_excess in outputs:
+            if case_name == "homeless_household_uses_standard_estimate":
+                _remove_mapping_key(outputs, old_excess)
+            else:
+                _move_mapping_value(
+                    outputs,
+                    old_excess,
+                    "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction_for_net_income",
+                )
+    _write_yaml_payload(path, cases)
+
+
+def _read_yaml_mapping(path: Path) -> dict[str, object]:
+    payload = yaml.safe_load(path.read_text()) or {}
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{path} must contain a YAML mapping")
+    return payload
+
+
+def _read_yaml_cases(path: Path) -> list[dict[str, object]]:
+    payload = yaml.safe_load(path.read_text()) or []
+    if not isinstance(payload, list):
+        raise RuntimeError(f"{path} must contain a YAML case list")
+    return payload
+
+
+def _find_test_case(
+    cases: list[dict[str, object]],
+    name: str,
+) -> dict[str, object] | None:
+    for case in cases:
+        if isinstance(case, dict) and case.get("name") == name:
+            return case
+    return None
+
+
+def _upsert_test_case(
+    cases: list[dict[str, object]],
+    new_case: dict[str, object],
+) -> None:
+    name = new_case.get("name")
+    for index, case in enumerate(cases):
+        if isinstance(case, dict) and case.get("name") == name:
+            cases[index] = new_case
+            return
+    cases.append(new_case)
+
+
+def _write_yaml_payload(path: Path, payload: object) -> None:
+    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+
+
+def _move_mapping_value(
+    mapping: dict[object, object], old_key: str, new_key: str
+) -> None:
+    if old_key not in mapping:
+        return
+    value = mapping.pop(old_key)
+    mapping.setdefault(new_key, value)
+
+
+def _remove_mapping_key(mapping: dict[object, object], key: str) -> None:
+    mapping.pop(key, None)
+
+
+def _remove_keys(mapping: dict[object, object], keys: set[str]) -> None:
+    for key in keys:
+        mapping.pop(key, None)
+
+
+def _set_snap_net_income_inputs(
+    mapping: dict[object, object],
+    net_income: object,
+    *,
+    include_standard_deduction: bool = True,
+) -> None:
+    mapping["us:statutes/7/2014/e/6/A#input.snap_monthly_household_income"] = net_income
+    if include_standard_deduction:
+        mapping["us:statutes/7/2014/e/6/A#input.snap_standard_deduction"] = 0
+    else:
+        mapping.pop("us:statutes/7/2014/e/6/A#input.snap_standard_deduction", None)
+    mapping["us:statutes/7/2014/e/6/A#input.dependent_care_deduction"] = 0
+    mapping["us:statutes/7/2014/e/6/A#input.child_support_deduction"] = 0
+    mapping["us:statutes/7/2014/e/6/A#input.medical_deduction"] = 0
+    mapping["us:statutes/7/2014/e/6/A#input.snap_excess_shelter_deduction"] = 0
+    mapping["us:statutes/7/2014/e/2#input.snap_countable_earned_income"] = 0
+    mapping["us:statutes/7/2014/e/2#input.work_supplementation_earned_income"] = 0
+
+
+def _numeric_test_value(value: object) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    if value is None:
+        return 0
+    return float(str(value).replace(",", ""))
 
 
 def cmd_repair_nonnegative_floors(args):

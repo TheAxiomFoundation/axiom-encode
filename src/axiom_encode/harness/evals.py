@@ -2970,13 +2970,26 @@ def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
     ``["mpp", "63-503"]`` → ``mpp/63-503.yaml``
     ``["mpp", "63-503.132"]`` → ``mpp/63-503/132.yaml``
     ``["mpp", "63-503.131.a"]`` → ``mpp/63-503/131/a.yaml``
+    ``["10-ccr-2506-1", "4.207.2"]`` → ``10-ccr-2506-1/4.207.2.yaml``
     """
+    if _preserve_dotted_leaf_filename(tail):
+        return Path(*tail[:-1]) / f"{tail[-1]}.yaml"
     leaf_segments = tail[-1].split(".")
     directory_parts = list(tail[:-1]) + leaf_segments[:-1]
     leaf_file = f"{leaf_segments[-1]}.yaml"
     if directory_parts:
         return Path(*directory_parts) / leaf_file
     return Path(leaf_file)
+
+
+def _preserve_dotted_leaf_filename(tail: list[str]) -> bool:
+    """Return true for source families whose dotted section is the file stem."""
+    if len(tail) < 2:
+        return False
+    return bool(
+        re.fullmatch(r"\d+-ccr-\d+-\d+", tail[0], flags=re.IGNORECASE)
+        and re.fullmatch(r"\d+(?:\.\d+)+", tail[-1])
+    )
 
 
 def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:

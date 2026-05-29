@@ -47,14 +47,14 @@ AXIOM_RELATION_ID_BY_LABEL = {
 COMMON_AXIOM_OUTPUT_ID_BY_LABEL = {
     "snap_regular_month_allotment": "us:statutes/7/2017/a#snap_regular_month_allotment",
     "snap_gross_monthly_income": (
-        "us:regulations/7-cfr/273/10#snap_gross_monthly_income"
+        "us:regulations/7-cfr/273/10#snap_total_gross_income"
     ),
     "snap_net_income": "us:statutes/7/2014/e/6/A#snap_net_income",
     "snap_maximum_allotment": (
         "us:policies/usda/snap/fy-2026-cola/maximum-allotments#snap_maximum_allotment"
     ),
     "snap_excess_shelter_deduction": (
-        "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction"
+        "us:regulations/7-cfr/273/10#snap_excess_shelter_deduction_for_net_income"
     ),
 }
 
@@ -81,6 +81,10 @@ JURISDICTION_CONFIGS = {
         ),
         output_id_by_label={
             **COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
+            "snap_regular_month_allotment": (
+                "us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment"
+            ),
+            "snap_net_income": "us:regulations/7-cfr/273/10#snap_net_monthly_income",
             "snap_eligible": (
                 "us-co:policies/cdhs/snap/fy-2026-benefit-calculation#snap_eligible"
             ),
@@ -962,6 +966,9 @@ def load_policyengine_cases(
         "snap_child_support_deduction": calculate(
             sim, "snap_child_support_deduction", period_label
         ),
+        "snap_child_support_gross_income_deduction": calculate(
+            sim, "snap_child_support_gross_income_deduction", period_label
+        ),
         "snap_excess_medical_expense_deduction": calculate(
             sim, "snap_excess_medical_expense_deduction", period_label
         ),
@@ -1013,7 +1020,7 @@ def load_policyengine_cases(
                 utility_region,
             )
         dependent_care_deduction = money(values["snap_dependent_care_deduction"][idx])
-        child_support_deduction = money(values["snap_child_support_deduction"][idx])
+        child_support_deduction = projected_child_support_payment(values, idx)
         medical_deduction = money(values["snap_excess_medical_expense_deduction"][idx])
 
         inputs = dict(base_inputs)
@@ -1092,6 +1099,12 @@ def project_jurisdiction_household_inputs(
             ),
         }
     return {}
+
+
+def projected_child_support_payment(values: dict[str, Any], idx: int) -> float:
+    return money(values["snap_child_support_deduction"][idx]) + money(
+        values["snap_child_support_gross_income_deduction"][idx]
+    )
 
 
 def project_raw_utility_inputs(
