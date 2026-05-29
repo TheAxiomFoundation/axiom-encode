@@ -11,6 +11,7 @@ import pytest
 import requests
 import yaml
 
+from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.evals import (
     EvalArtifactMetrics,
     EvalContextFile,
@@ -34,6 +35,7 @@ from axiom_encode.harness.evals import (
     _normalize_nonannual_test_period_value,
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
+    _rulespec_validation_target,
     _run_codex_prompt_eval,
     _select_cross_section_context_files,
     _source_identifier_to_relative_rulespec_path,
@@ -1020,6 +1022,75 @@ rules:
     assert output_file.exists()
     assert output_file.with_name("tn-snap.test.yaml").exists()
     assert output_file.read_text().startswith("format: rulespec/v1")
+
+
+def test_materialize_eval_artifact_repairs_copied_cross_reference_summary(tmp_path):
+    output_file = tmp_path / "runner" / "statutes" / "39" / "39-22-104" / "1.5.yaml"
+    llm_response = """=== FILE: 1.5.yaml ===
+format: rulespec/v1
+module:
+  summary: |-
+    (1.5) Subject to subsection (2) of this section, a tax of four and three-quarters percent is imposed.
+
+    (2) Prior to the application of the rate of tax prescribed in subsection (1), (1.5), or (1.7) of this section, federal taxable income shall be modified.
+rules:
+  - name: individual_estate_trust_income_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1999-01-01'
+        formula: '0.0475'
+"""
+
+    wrote = _materialize_eval_artifact(llm_response, output_file)
+
+    assert wrote is True
+    payload = yaml.safe_load(output_file.read_text())
+    summary = payload["module"]["summary"]
+    assert "four and three-quarters percent" in summary
+    assert "Prior to the application" not in summary
+
+
+def test_rulespec_validation_overlay_preserves_eval_source_metadata(tmp_path):
+    policy_repo = tmp_path / "rulespec-us-co"
+    policy_repo.mkdir()
+    output_file = (
+        tmp_path
+        / "out"
+        / "openai-gpt-5.5"
+        / "statutes"
+        / "39"
+        / "39-22-104"
+        / "1.5.yaml"
+    )
+    output_file.parent.mkdir(parents=True)
+    output_file.write_text("format: rulespec/v1\nrules: []\n")
+    workspace = (
+        tmp_path
+        / "out"
+        / "_eval_workspaces"
+        / "openai-gpt-5.5"
+        / "us-co-statute-39-39-22-104-1.5"
+        / "workspace"
+    )
+    workspace.mkdir(parents=True)
+    (workspace / "context-manifest.json").write_text(
+        json.dumps(
+            {
+                "citation": "us-co/statute/39/39-22-104/1.5",
+                "source_metadata": {
+                    "corpus_citation_path": "us-co/statute/39/39-22-104",
+                    "requested_source": "us-co/statute/39/39-22-104/1.5",
+                },
+            }
+        )
+    )
+
+    with _rulespec_validation_target(output_file, policy_repo) as validation_file:
+        metadata = validator_pipeline._load_nearby_eval_source_metadata(validation_file)
+
+    assert metadata is not None
+    assert metadata["requested_source"] == "us-co/statute/39/39-22-104/1.5"
 
 
 def test_materialize_eval_artifact_repairs_source_table_band_scalars(tmp_path):

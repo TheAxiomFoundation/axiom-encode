@@ -87,6 +87,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_upstream_placement_issues,
     find_versioned_derived_formula_issues,
     find_zero_branch_test_coverage_issues,
+    repair_copied_cross_reference_summary,
     repair_current_year_final_amount_tables,
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
@@ -4816,6 +4817,15 @@ def test_numeric_occurrence_extraction_ignores_parenthetical_subdivision_labels(
     assert extract_numeric_occurrences_from_text(text) == [1.0]
 
 
+def test_numeric_occurrence_extraction_ignores_decimal_subsection_label():
+    text = (
+        "(1.5) Subject to subsection (2) of this section, a tax of four and "
+        "three-quarters percent is imposed."
+    )
+
+    assert extract_numeric_occurrences_from_text(text) == [0.0475]
+
+
 def test_broad_application_passthrough_rejects_furnishing_output():
     content = """format: rulespec/v1
 module:
@@ -6169,6 +6179,44 @@ rules:
     assert len(issues) == 1
     assert "Copied cross-reference source" in issues[0]
     assert "statutes/7/2015/e" in issues[0]
+
+
+def test_copied_cross_reference_summary_repair_removes_cited_body(tmp_path):
+    repo = tmp_path / "rulespec-us-co"
+    rules_file = repo / "statutes" / "39" / "39-22-104" / "1.5.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (1.5) Subject to subsection (2) of this section, a tax of four and three-quarters percent is imposed.
+
+    (2) Prior to the application of the rate of tax prescribed in subsection (1), (1.5), or (1.7) of this section, federal taxable income shall be modified.
+rules:
+  - name: individual_estate_trust_income_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1999-01-01'
+        formula: '0.0475'
+"""
+
+    repaired, repairs = repair_copied_cross_reference_summary(
+        content,
+        rules_file=rules_file,
+    )
+
+    assert repairs == ["statutes/39/39-22-104/2"]
+    summary = yaml.safe_load(repaired)["module"]["summary"]
+    assert "four and three-quarters percent" in summary
+    assert "Prior to the application" not in summary
+    assert (
+        find_copied_cross_reference_source_issues(
+            repaired,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
 
 
 def test_copied_cross_reference_source_allows_bare_subsection_citation(tmp_path):

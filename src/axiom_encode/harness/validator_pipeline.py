@@ -735,7 +735,7 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|\d{1,2})\)"
+    r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|\d{1,2}(?:\.\d+)?)\)"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -3091,6 +3091,123 @@ def repair_source_table_interval_tests(
         return content, []
     repaired_content = yaml.safe_dump(cases, sort_keys=False).strip() + "\n"
     return repaired_content, changed_cases
+
+
+def repair_copied_cross_reference_summary(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path | None = None,
+) -> tuple[str, list[str]]:
+    """Remove copied same-section cross-reference bodies from module summaries."""
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return content, []
+
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return content, []
+    summary = module.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        return content, []
+
+    statute_path = (
+        _statute_path_parts_for_file(rules_file, policy_repo_path)
+        if policy_repo_path is not None
+        else _statute_path_parts_for_any_file(rules_file)
+    )
+    if statute_path is None:
+        return content, []
+    title, section, current_fragments = statute_path
+
+    cited_subsections = _same_section_subsections_cited_by_summary(summary)
+    if not cited_subsections:
+        return content, []
+
+    repaired_summary = summary
+    repaired_imports: list[str] = []
+    for subsection in cited_subsections:
+        if subsection in current_fragments:
+            continue
+        repaired, changed = _remove_summary_subsection_body(
+            repaired_summary,
+            subsection=subsection,
+        )
+        if not changed:
+            continue
+        repaired_summary = repaired
+        repaired_imports.append("/".join(["statutes", title, section, subsection]))
+
+    if not repaired_imports:
+        return content, []
+
+    module["summary"] = repaired_summary.strip()
+    repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
+    return repaired_content, repaired_imports
+
+
+def _same_section_subsections_cited_by_summary(summary: str) -> list[str]:
+    seen: set[str] = set()
+    subsections: list[str] = []
+    for match in re.finditer(
+        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9.]+)\)"
+        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
+        summary,
+        flags=re.IGNORECASE,
+    ):
+        subsection = match.group("subsection")
+        if subsection in seen:
+            continue
+        seen.add(subsection)
+        subsections.append(subsection)
+    return subsections
+
+
+def _remove_summary_subsection_body(
+    summary: str,
+    *,
+    subsection: str,
+) -> tuple[str, bool]:
+    copied_body_pattern = re.compile(
+        rf"(?ms)(^|\n+)\({re.escape(subsection)}\)\s+[A-Z][\s\S]*?"
+        r"(?=\n+\([A-Za-z0-9.]+\)\s+[A-Z]|\Z)"
+    )
+
+    def remove_body(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        return "\n\n" if "\n\n" in prefix else prefix
+
+    repaired, count = copied_body_pattern.subn(remove_body, summary)
+    if count == 0:
+        return summary, False
+    repaired = re.sub(r"\n{3,}", "\n\n", repaired).strip()
+    return repaired, True
+
+
+def _statute_path_parts_for_any_file(
+    rules_file: Path,
+) -> tuple[str, str, tuple[str, ...]] | None:
+    parts = rules_file.resolve(strict=False).parts
+    for index, part in enumerate(parts):
+        if part != "statutes":
+            continue
+        return _statute_path_parts_from_relative_parts(tuple(parts[index:]))
+    return None
+
+
+def _statute_path_parts_from_relative_parts(
+    relative_parts: tuple[str, ...],
+) -> tuple[str, str, tuple[str, ...]] | None:
+    if not relative_parts or len(relative_parts) < 4 or relative_parts[0] != "statutes":
+        return None
+
+    title = relative_parts[1]
+    section = relative_parts[2]
+    fragments = list(relative_parts[3:-1])
+    stem = Path(relative_parts[-1]).stem
+    if stem not in {"index", "__init__"}:
+        fragments.append(stem)
+    return title, section, tuple(fragments)
 
 
 def _source_table_interval_alignment_specs(
@@ -12021,16 +12138,9 @@ def _statute_path_parts_for_file(
         with contextlib.suppress(ValueError):
             statutes_index = parts.index("statutes")
             relative_parts = tuple(parts[statutes_index:])
-    if not relative_parts or len(relative_parts) < 4 or relative_parts[0] != "statutes":
+    if relative_parts is None:
         return None
-
-    title = relative_parts[1]
-    section = relative_parts[2]
-    fragments = list(relative_parts[3:-1])
-    stem = Path(relative_parts[-1]).stem
-    if stem not in {"index", "__init__"}:
-        fragments.append(stem)
-    return title, section, tuple(fragments)
+    return _statute_path_parts_from_relative_parts(relative_parts)
 
 
 def _extract_import_items_from_content(content: str) -> list[str]:

@@ -71,6 +71,7 @@ from .validator_pipeline import (
     find_ungrounded_numeric_issues,
     find_unused_modifier_parameter_issues,
     numeric_value_is_grounded,
+    repair_copied_cross_reference_summary,
     repair_source_table_band_scalar_parameters,
     repair_source_table_interval_row_alignment,
     repair_source_table_interval_tests,
@@ -2548,6 +2549,16 @@ def _rulespec_validation_target(
                 shutil.copytree(sibling, sibling_target, dirs_exist_ok=True)
         overlay_repo = overlay_parent / policy_repo_root.name
         shutil.copytree(policy_repo_root, overlay_repo)
+        eval_workspaces_root = _nearby_eval_workspaces_root(rulespec_file)
+        if eval_workspaces_root is not None:
+            eval_overlay = overlay_parent / "_eval_workspaces"
+            try:
+                eval_overlay.symlink_to(
+                    eval_workspaces_root.resolve(),
+                    target_is_directory=True,
+                )
+            except OSError:
+                shutil.copytree(eval_workspaces_root, eval_overlay)
         validation_file = overlay_repo / relative
         validation_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(rulespec_file, validation_file)
@@ -2558,6 +2569,14 @@ def _rulespec_validation_target(
             )
             shutil.copy2(companion_test, validation_test)
         yield validation_file
+
+
+def _nearby_eval_workspaces_root(path: Path) -> Path | None:
+    for ancestor in path.parents:
+        candidate = ancestor / "_eval_workspaces"
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return None
 
 
 def _relative_rulespec_source_path(path: Path) -> Path | None:
@@ -6724,6 +6743,10 @@ def _normalize_main_eval_content(
     normalized, _interval_repairs = repair_source_table_interval_row_alignment(
         normalized,
         source_text=source_text,
+    )
+    normalized, _summary_repairs = repair_copied_cross_reference_summary(
+        normalized,
+        rules_file=target_path,
     )
     normalized, _conditional_repairs = repair_unsupported_chained_conditionals(
         normalized
