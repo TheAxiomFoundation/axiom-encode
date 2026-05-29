@@ -5546,8 +5546,8 @@ def cmd_repair_companion_test_references(args):
     repaired_refs: list[str] = []
     for _ in range(20):
         failures = _rulespec_companion_test_failures(
-            test_file=test_file,
-            repo_path=repo_path,
+            test_file,
+            root=repo_path,
             axiom_rules_path=axiom_rules_path,
         )
         if not failures:
@@ -5571,8 +5571,8 @@ def cmd_repair_companion_test_references(args):
         return
 
     failures = _rulespec_companion_test_failures(
-        test_file=test_file,
-        repo_path=repo_path,
+        test_file,
+        root=repo_path,
         axiom_rules_path=axiom_rules_path,
     )
     if failures:
@@ -5615,33 +5615,6 @@ def cmd_repair_companion_test_references(args):
     print(f"Applied companion test reference repair to {relative_output}")
     print(f"repaired={', '.join(sorted(set(repaired_refs)))}")
     print(f"manifest={manifest_path}")
-
-
-def _rulespec_companion_test_failures(
-    *,
-    test_file: Path,
-    repo_path: Path,
-    axiom_rules_path: Path,
-) -> list[dict[str, str | None]]:
-    pipeline = ValidatorPipeline(
-        policy_repo_path=repo_path,
-        axiom_rules_path=axiom_rules_path,
-        enable_oracles=False,
-    )
-    binary = pipeline._axiom_rules_binary()
-    rulespec_env = pipeline._rulespec_compile_env()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        result = _execute_rulespec_test_file(
-            test_file,
-            binary=binary,
-            axiom_rules_path=Path(axiom_rules_path),
-            env=rulespec_env,
-            tmp_path=Path(tmpdir),
-            compiled_cache={},
-            policy_repo_path=repo_path,
-        )
-    failures = result.get("failures")
-    return failures if isinstance(failures, list) else []
 
 
 _SECTION_172_C_IMPORT = (
