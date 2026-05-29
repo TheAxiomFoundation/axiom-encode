@@ -579,6 +579,17 @@ _UNICODE_FRACTION_VALUES = {
     "⅝": 0.625,
     "⅞": 0.875,
 }
+_FRACTION_WORD_VALUES = {
+    "one half": 0.5,
+    "one third": 1 / 3,
+    "two thirds": 2 / 3,
+    "one quarter": 0.25,
+    "three quarters": 0.75,
+}
+_FRACTION_WORD_PATTERN = (
+    r"(?:one[-\s]+half|one[-\s]+third|two[-\s]+thirds|"
+    r"one[-\s]+quarter|three[-\s]+quarters)"
+)
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -1771,21 +1782,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
     for match in _ORDINAL_WORD_PATTERN.finditer(text):
         numbers.add(_ORDINAL_WORD_VALUES[match.group(1).lower()])
 
-    fraction_words = {
-        "one-half": 0.5,
-        "one half": 0.5,
-        "one-third": 1 / 3,
-        "one third": 1 / 3,
-        "two-thirds": 2 / 3,
-        "two thirds": 2 / 3,
-        "one-quarter": 0.25,
-        "one quarter": 0.25,
-        "three-quarters": 0.75,
-        "three quarters": 0.75,
-    }
     text_lower = text.lower()
-    for phrase, value in fraction_words.items():
+    for phrase, value in _FRACTION_WORD_VALUES.items():
         if phrase in text_lower:
+            numbers.add(value)
+        if phrase.replace(" ", "-") in text_lower:
             numbers.add(value)
 
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
@@ -1812,6 +1813,19 @@ def _iter_normalized_special_numeric_matches(
     """Return normalized special-case numeric matches like percentages, pence, and table values."""
     matches: list[tuple[tuple[int, int], float]] = []
     fraction_chars = "".join(re.escape(glyph) for glyph in _UNICODE_FRACTION_VALUES)
+
+    for match in re.finditer(
+        rf"\b(?:(?P<whole>{_CARDINAL_WORD_SEQUENCE})\s+and\s+)?"
+        rf"(?P<fraction>{_FRACTION_WORD_PATTERN})\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        whole = _parse_cardinal_word_sequence(match.group("whole") or "") or 0
+        fraction = _parse_fraction_word(match.group("fraction"))
+        if fraction is None:
+            continue
+        matches.append((match.span(), (whole + fraction) / 100))
 
     for match in re.finditer(
         rf"\b(?:(?P<whole>{_CARDINAL_WORD_SEQUENCE})\s+and\s+)?"
@@ -1888,6 +1902,11 @@ def _parse_cardinal_word_sequence(text: str) -> float | None:
             return None
         total += value
     return total
+
+
+def _parse_fraction_word(text: str) -> float | None:
+    normalized = re.sub(r"[-\s]+", " ", text.strip().lower())
+    return _FRACTION_WORD_VALUES.get(normalized)
 
 
 def _extract_percentage_context_values(text: str) -> set[float]:
