@@ -12925,9 +12925,7 @@ def cmd_encode(args):
                     if not repaired_batch:
                         break
                     repaired_scalar_rows.extend(repaired_batch)
-                    outcome["auto_repaired_scalar_relation_rows"] = (
-                        repaired_scalar_rows
-                    )
+                    outcome["auto_repaired_scalar_relation_rows"] = repaired_scalar_rows
                     print(
                         "  apply=auto_repaired_scalar_relation_rows:"
                         + ",".join(repaired_batch)

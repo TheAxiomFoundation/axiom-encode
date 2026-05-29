@@ -59,11 +59,11 @@ from axiom_encode.cli import (
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
     _repair_person_scoped_definition_entities,
+    _repair_scalar_relation_rows,
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
     _repair_snap_2014c_income_standard_test_inputs,
-    _repair_scalar_relation_rows,
     _repair_tax_filing_status_branches,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
@@ -6059,12 +6059,18 @@ rules:
         assert test_payload[1]["name"] == (
             "auto_positive_trade_or_business_income_condition"
         )
-        assert test_payload[1]["input"][
-            "us:statutes/26/1402/b#input.has_trade_or_business_income"
-        ] is True
-        assert test_payload[1]["output"][
-            "us:statutes/26/1402/b#trade_or_business_income_condition"
-        ] == "holds"
+        assert (
+            test_payload[1]["input"][
+                "us:statutes/26/1402/b#input.has_trade_or_business_income"
+            ]
+            is True
+        )
+        assert (
+            test_payload[1]["output"][
+                "us:statutes/26/1402/b#trade_or_business_income_condition"
+            ]
+            == "holds"
+        )
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_imported_output_tests"] == [
             "imported_inputs_make_generated_positive_fail"
@@ -6075,9 +6081,7 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
-    def test_encode_apply_repeats_scalar_relation_row_repair(
-        self, capsys, tmp_path
-    ):
+    def test_encode_apply_repeats_scalar_relation_row_repair(self, capsys, tmp_path):
         policy_repo = tmp_path / "rulespec-us-ny"
         policy_repo.mkdir()
         args = self._make_args(

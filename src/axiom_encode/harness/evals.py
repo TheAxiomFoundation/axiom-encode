@@ -1847,13 +1847,17 @@ def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
 
 
 def _looks_like_corpus_citation_path(identifier: str) -> bool:
-    parts = identifier.split("/")
+    parts = [part for part in identifier.strip().strip("/").split("/") if part]
+    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return True
     return len(parts) >= 3 and parts[1] in {
         "guidance",
         "manual",
         "manuals",
+        "policies",
         "policy",
         "regulation",
+        "regulations",
         "statute",
         "statutes",
     }
@@ -3049,6 +3053,10 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     time (issue #71).
     """
     parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
+        tail = parts[1:]
+        if tail:
+            return Path(parts[0]) / _dotted_leaf_to_nested_yaml_path(tail)
     if len(parts) >= 3:
         document_roots = {
             "guidance": "guidance",

@@ -231,6 +231,16 @@ def test_resolve_eval_output_path_uses_path_like_citation_directly():
     )
 
 
+def test_resolve_eval_output_path_uses_repo_relative_source_root_directly():
+    """Repo-relative logical targets are valid --source-id output paths."""
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+
+    assert _resolve_eval_output_path(
+        "policies/otda/snap/fy-2026-benefit-calculation",
+        requested_source="us/guidance/usda/fns/snap-fy2026-cola/page-1",
+    ) == Path("policies/otda/snap/fy-2026-benefit-calculation.yaml")
+
+
 def test_resolve_eval_output_path_uses_requested_source_when_citation_is_free_text():
     """Free-text source_id falls through to requested_source for path derivation.
 
