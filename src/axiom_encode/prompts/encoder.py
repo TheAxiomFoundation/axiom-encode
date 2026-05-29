@@ -16,6 +16,11 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   household, unit, filing-unit, tax-unit, or family output. Do not sum a broad
   relation and then cap the aggregate unless the source says the cap applies to
   that aggregate unit.
+- When the source states a cap per one unit and per another unit, such as
+  "per taxpayer per beneficiary", preserve both dimensions. Do not apply one
+  per-unit cap to a single aggregate amount. If the schema or available inputs
+  cannot represent the per-unit relation and aggregate the capped results,
+  defer that executable output instead of approximating it with one cap.
 - When a tax, credit, deduction, contribution, or other amount is computed as a
   rate or percentage of a legal base stated for each/every individual, person,
   member, employee, claimant, child, dependent, or spouse, compute that base and
@@ -555,6 +560,13 @@ Hard requirements:
   subtype, carve-out, or branch, defer only that branch or expose a
   source-named boundary input for that branch. Do not defer an unrelated
   source-stated cap/base computation that can be executed from the source text.
+- When an otherwise executable output composes an imported child or sibling
+  result, check that the imported file does not defer another branch, period,
+  or purpose that can also affect the same final amount. Do not treat a missing
+  deferred child branch as zero by importing only the available branch result.
+  Either scope the executable output to the branch where the deferred child
+  branch is impossible, or defer the composite output and list the child
+  deferred dependency.
 - Do not create parallel statutory-dollar executable parameters when a copied
   current-year authority already provides the applicable inflation-adjusted
   parameter. Import the current-year authority unless the task is to encode the

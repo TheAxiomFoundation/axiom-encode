@@ -48,6 +48,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_formula_date_literal_issues,
     find_helper_only_definition_issues,
     find_import_shape_issues,
+    find_imported_deferred_branch_composition_issues,
     find_judgment_conditional_formula_issues,
     find_judgment_positive_companion_output_issues,
     find_missing_child_exception_import_issues,
@@ -6644,6 +6645,47 @@ rules:
               dependent_standard_deduction
           else:
               basic_standard_deduction_amount
+"""
+
+    assert (
+        find_child_fragment_reencoding_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=repo,
+        )
+        == []
+    )
+
+
+def test_child_fragment_reencoding_allows_displacement_boundary(tmp_path):
+    repo = tmp_path / "rulespec-us-co"
+    rules_file = repo / "statutes" / "39" / "39-22-104" / "3" / "p.yaml"
+    child = repo / "statutes" / "39" / "39-22-104" / "3" / "p" / "5.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+rules:
+  - name: initial_window_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    versions:
+      - effective_from: '2023-01-01'
+        formula: federal_adjusted_gross_income + itemized_deductions_deducted_from_gross_income
+"""
+    )
+    content = """format: rulespec/v1
+rules:
+  - name: taxpayer_subject_to_itemized_deduction_addition
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    versions:
+      - effective_from: '2022-01-01'
+        formula: |-
+          subsection_p_5_does_not_displace_this_subsection
+          and federal_adjusted_gross_income >= 400000
+          and taxpayer_files_single_return
 """
 
     assert (
@@ -16880,3 +16922,89 @@ rules:
 """
 
     assert find_deferred_purpose_specific_limitation_issues(content) == []
+
+
+def test_imported_deferred_branch_composition_rejects_generic_output(tmp_path):
+    policy_repo = tmp_path / "rulespec-us-co"
+    child = policy_repo / "statutes" / "39" / "39-22-104" / "3" / "p" / "5.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us-co:statutes/39/39-22-104/3/p/5#post_initial_window_addition_to_federal_taxable_income
+      reason: Later-year threshold amounts are deferred.
+rules:
+  - name: initial_window_addition_to_federal_taxable_income
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2023-01-01'
+        formula: initial_window_addition
+"""
+    )
+    rules_file = policy_repo / "statutes" / "39" / "39-22-104" / "3" / "p.yaml"
+    content = """format: rulespec/v1
+imports:
+  - us-co:statutes/39/39-22-104/3/p/5#initial_window_addition_to_federal_taxable_income
+rules:
+  - name: itemized_deduction_addition_to_federal_taxable_income
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2022-01-01'
+        formula: itemized_deduction_addition_before_subsection_p_5 + initial_window_addition_to_federal_taxable_income
+"""
+
+    issues = find_imported_deferred_branch_composition_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=policy_repo,
+    )
+
+    assert len(issues) == 1
+    assert "Generic output with deferred purpose-specific limitation" in issues[0]
+    assert "itemized_deduction_addition_to_federal_taxable_income" in issues[0]
+    assert "post_initial_window_addition_to_federal_taxable_income" in issues[0]
+
+
+def test_imported_deferred_branch_composition_allows_branch_specific_output(tmp_path):
+    policy_repo = tmp_path / "rulespec-us-co"
+    child = policy_repo / "statutes" / "39" / "39-22-104" / "3" / "p" / "5.yaml"
+    child.parent.mkdir(parents=True)
+    child.write_text(
+        """format: rulespec/v1
+module:
+  deferred_outputs:
+    - output: us-co:statutes/39/39-22-104/3/p/5#post_initial_window_addition_to_federal_taxable_income
+      reason: Later-year threshold amounts are deferred.
+rules:
+  - name: initial_window_addition_to_federal_taxable_income
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2023-01-01'
+        formula: initial_window_addition
+"""
+    )
+    rules_file = policy_repo / "statutes" / "39" / "39-22-104" / "3" / "p.yaml"
+    content = """format: rulespec/v1
+imports:
+  - us-co:statutes/39/39-22-104/3/p/5#initial_window_addition_to_federal_taxable_income
+rules:
+  - name: initial_window_itemized_deduction_addition_to_federal_taxable_income
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '2023-01-01'
+        formula: initial_window_addition_to_federal_taxable_income
+"""
+
+    assert (
+        find_imported_deferred_branch_composition_issues(
+            content,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo,
+        )
+        == []
+    )

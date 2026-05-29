@@ -10688,6 +10688,109 @@ def find_deferred_purpose_specific_limitation_issues(content: str) -> list[str]:
     return issues
 
 
+def find_imported_deferred_branch_composition_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Reject final outputs that compose one child branch while another is deferred."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    deferred_by_imported_symbol: dict[str, list[tuple[str, set[str], set[str]]]] = {}
+    for import_item in _extract_import_items_from_content(content):
+        import_base, separator, imported_symbol = import_item.partition("#")
+        imported_symbol = imported_symbol.strip()
+        if not separator or not imported_symbol:
+            continue
+        import_file = _resolve_rulespec_import_file_static(
+            import_base,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if import_file is None:
+            continue
+        with contextlib.suppress(OSError, yaml.YAMLError, TypeError, ValueError):
+            imported_payload = yaml.safe_load(import_file.read_text()) or {}
+            module = (
+                imported_payload.get("module")
+                if isinstance(imported_payload, dict)
+                else None
+            )
+            deferred_outputs = (
+                module.get("deferred_outputs") if isinstance(module, dict) else None
+            )
+            if not isinstance(deferred_outputs, list):
+                continue
+            imported_tokens = _purpose_surface_tokens(imported_symbol)
+            if len(imported_tokens) < 2:
+                continue
+            for record in deferred_outputs:
+                output = (
+                    str(record.get("output") or "").strip()
+                    if isinstance(record, dict)
+                    else str(record or "").strip()
+                )
+                if not output or "#" not in output:
+                    continue
+                deferred_symbol = output.rsplit("#", 1)[1].strip()
+                if not deferred_symbol or deferred_symbol == imported_symbol:
+                    continue
+                deferred_tokens = _purpose_surface_tokens(deferred_symbol)
+                if len(imported_tokens & deferred_tokens) < 2:
+                    continue
+                if not deferred_tokens.intersection(_PURPOSE_AMOUNT_TOKENS):
+                    continue
+                deferred_by_imported_symbol.setdefault(imported_symbol, []).append(
+                    (deferred_symbol, deferred_tokens, imported_tokens)
+                )
+    if not deferred_by_imported_symbol:
+        return []
+
+    issues: list[str] = []
+    for name, kind, formula, _source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind != "derived":
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype in {"judgment", "boolean", "bool"}:
+            continue
+        if _PURPOSE_SPECIFIC_NAME_MARKER_PATTERN.search(name):
+            continue
+        identifiers = _formula_local_identifiers(formula)
+        rule_tokens = _purpose_surface_tokens(name)
+        if len(rule_tokens) < 2:
+            continue
+        for imported_symbol in sorted(identifiers):
+            for (
+                deferred_symbol,
+                deferred_tokens,
+                imported_tokens,
+            ) in deferred_by_imported_symbol.get(imported_symbol, []):
+                if imported_tokens.issubset(rule_tokens):
+                    continue
+                overlap = rule_tokens & deferred_tokens
+                if len(overlap) < 3:
+                    continue
+                overlap_hint = ", ".join(f"`{token}`" for token in sorted(overlap)[:4])
+                issues.append(
+                    "Generic output with deferred purpose-specific limitation: "
+                    f"`{name}` composes imported child/sibling output "
+                    f"`{imported_symbol}` while overlapping deferred output "
+                    f"`{deferred_symbol}` remains unresolved on {overlap_hint}. "
+                    "Do not treat the deferred branch as zero; split the "
+                    "branch-specific output or defer the generic surface."
+                )
+                break
+            else:
+                continue
+            break
+    return issues
+
+
 def _purpose_specific_prefix(symbol: str) -> str:
     match = _PURPOSE_SPLIT_PATTERN.search(symbol)
     if match:
@@ -12117,6 +12220,8 @@ def find_child_fragment_reencoding_issues(
         if parent_inputs:
             shared_inputs = sorted(parent_inputs & child_inputs)
             if shared_inputs:
+                if _rulespec_has_same_section_displacement_boundary(payload):
+                    continue
                 terminal_child_names = _rulespec_terminal_executable_names_from_payload(
                     child_payload
                 )
@@ -12157,6 +12262,19 @@ def find_child_fragment_reencoding_issues(
             )
         )
     return issues
+
+
+def _rulespec_has_same_section_displacement_boundary(payload: dict[str, Any]) -> bool:
+    """Return whether formulas gate the parent rule on a child displacement fact."""
+    for _name, _kind, formula in _rulespec_rule_formulas(payload):
+        for identifier in _formula_local_identifiers(formula):
+            normalized = identifier.lower()
+            if (
+                "does_not_displace_this_subsection" in normalized
+                or "does_not_displace_this_section" in normalized
+            ):
+                return True
+    return False
 
 
 _FORMULA_ABSOLUTE_REFERENCE_PATTERN = re.compile(
@@ -16625,6 +16743,13 @@ class ValidatorPipeline:
         issues.extend(find_scoped_exception_category_gate_issues(content))
         issues.extend(find_current_purpose_placeholder_issues(content))
         issues.extend(find_deferred_purpose_specific_limitation_issues(content))
+        issues.extend(
+            find_imported_deferred_branch_composition_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         issues.extend(find_broad_application_passthrough_issues(content))
         issues.extend(find_formula_absolute_reference_issues(content))
         issues.extend(find_import_shape_issues(content))

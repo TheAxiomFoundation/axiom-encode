@@ -76,6 +76,11 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "min(source_amount, cap)" in ENCODER_PROMPT
     assert "compute the uncapped base amount separately" in ENCODER_PROMPT
     assert "min(uncapped_amount, max(cap_a," in ENCODER_PROMPT
+    assert '"per taxpayer per beneficiary"' in ENCODER_PROMPT
+    assert (
+        "Do not apply one\n  per-unit cap to a single aggregate amount"
+        in ENCODER_PROMPT
+    )
     assert "unless the source expressly says" in ENCODER_PROMPT
     assert (
         "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`"
@@ -166,6 +171,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Importing an adjacent upstream output only as proof" in prompt
     assert "does not satisfy the dependency" in prompt
     assert "is not an executable dependency" in prompt
+    assert "Do not treat a missing\n  deferred child branch as zero" in prompt
     assert "purpose-limited replacement rate" in prompt
     assert "computed at" in prompt
     assert "instead of the rate provided by" in prompt

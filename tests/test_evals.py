@@ -588,6 +588,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "then cap the aggregate" in prompt
     assert "rate-applied result at the source-stated lower entity" in prompt
     assert "unit-level placeholder or aggregate base by the rate" in prompt
+    assert '"per taxpayer per beneficiary"' in prompt
+    assert "Do not apply one\n  per-unit cap to a single aggregate amount" in prompt
     assert (
         "Imported definitions do not override the current source's legal subject"
         in prompt
@@ -7055,6 +7057,7 @@ rules:
         assert "Never preserve, rename, or recreate a legacy local input" in prompt
         assert "source-stated formula executable" in prompt
         assert "defer only that branch" in prompt
+        assert "Do not treat a missing deferred child branch\n  as zero" in prompt
         assert 'excess of" a cap' in prompt
         assert "min(source_amount, cap)" in prompt
 
