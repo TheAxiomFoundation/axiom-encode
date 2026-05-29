@@ -13386,6 +13386,52 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_deferred_rules = []
+                seen_deferred_rules = set()
+                for _repair_attempt in range(5):
+                    repaired_batch = (
+                        _try_repair_generated_unsafe_formula_outputs_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_batch:
+                        break
+                    new_repairs = [
+                        repair
+                        for repair in repaired_batch
+                        if repair not in seen_deferred_rules
+                    ]
+                    seen_deferred_rules.update(repaired_batch)
+                    repaired_deferred_rules.extend(new_repairs)
+                    prior_repairs = outcome.get("auto_deferred_unsafe_formula_outputs")
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_deferred_unsafe_formula_outputs"] = [
+                        *prior_repairs,
+                        *new_repairs,
+                    ]
+                    print(
+                        "  apply=auto_deferred_unsafe_formula_outputs:"
+                        + ",".join(repaired_batch)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                    if can_apply:
+                        break
+            if not can_apply:
                 repaired_kinds = (
                     _try_repair_generated_invalid_proof_atom_kinds_for_apply(
                         result,

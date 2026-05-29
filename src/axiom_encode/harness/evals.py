@@ -3830,6 +3830,12 @@ RuleSpec requirements:
   deduction, or benefit output is not itself a displacement predicate and is not
   a reason to defer the requested source's own formula. Include a companion case
   where the cross-reference boundary blocks the local output.
+- When that output also composes an imported child or sibling result, check
+  that the imported file does not defer another branch, period, or purpose that
+  can affect the same final amount. Do not treat a missing deferred child branch
+  as zero by importing only the available branch result. Either scope the
+  executable output to the branch where the deferred child branch is impossible,
+  or defer the composite output and list the child deferred dependency.
 - Importing a child rate or threshold is not enough when the child file already
   exports the executable tax, benefit, deduction, or eligibility result. For
   aggregate parent sections, import the child result output itself and sum,
