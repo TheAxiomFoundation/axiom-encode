@@ -4058,6 +4058,8 @@ class TestEvalPrompt:
         )
         assert "Do not start a local input with" in prompt
         assert "_under_section_<section>" in prompt
+        assert "completed federal\n  return amount" in prompt
+        assert "itemized_deductions_claimed_on_federal_return" in prompt
         assert "For IRC section 22" not in prompt
         assert "dependent_of_tax_unit" in prompt
         assert "only the exception input changes" in prompt

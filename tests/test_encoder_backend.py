@@ -118,6 +118,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "`organization described in section X`" in ENCODER_PROMPT
     assert "organization_described_in_section_509_a_3" in ENCODER_PROMPT
     assert "testing\n  membership in the described category" in ENCODER_PROMPT
+    assert "completed federal\n  return amount" in ENCODER_PROMPT
+    assert "itemized_deductions_claimed_on_federal_return" in ENCODER_PROMPT
     assert "unrelated-trade-or-business" in ENCODER_PROMPT
     assert "within-meaning/described-in definitions" in ENCODER_PROMPT
     assert "positive/nonzero" in ENCODER_PROMPT
