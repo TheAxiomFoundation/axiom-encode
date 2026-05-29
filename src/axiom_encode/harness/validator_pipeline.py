@@ -920,6 +920,17 @@ _CARDINAL_VALUE_WORDS = {
     for word, value in _CARDINAL_WORD_VALUES.items()
     if float(value).is_integer()
 }
+_CARDINAL_WORD_SEQUENCE = (
+    r"(?:"
+    + "|".join(re.escape(word) for word in _CARDINAL_WORD_VALUES)
+    + r")(?:[-\s]+(?:"
+    + "|".join(
+        re.escape(word)
+        for word in _CARDINAL_WORD_VALUES
+        if 1 <= _CARDINAL_WORD_VALUES[word] <= 9
+    )
+    + r"))?"
+)
 _DATE_DECOMPOSITION_CUE_TOKENS = {
     "date",
     "birthday",
@@ -947,6 +958,7 @@ _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"VariableNotFoundError"),
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
 )
+_APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
 _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
     r"(?:as defined in|defined in|meaning given in|within the meaning of|described in)\s+"
     r"section\s+(?P<section>[0-9A-Za-z.-]+(?:\([^)]+\))*)"
@@ -992,6 +1004,50 @@ def _load_nearby_eval_source_metadata(rulespec_file: Path) -> dict[str, object] 
             if manifest_norm == rulespec_norm:
                 return metadata
     return fallback
+
+
+def _load_applied_encoding_manifest_source_metadata(
+    rulespec_file: Path,
+    policy_repo_path: Path,
+) -> dict[str, object] | None:
+    """Load durable requested-source metadata from a generated apply manifest."""
+    try:
+        relative_rulespec = rulespec_file.resolve().relative_to(
+            policy_repo_path.resolve()
+        )
+    except (OSError, ValueError):
+        return None
+    manifest_path = (
+        policy_repo_path
+        / _APPLIED_ENCODING_MANIFEST_DIR
+        / relative_rulespec.with_suffix(".json")
+    )
+    if not manifest_path.exists():
+        return None
+    try:
+        payload = json.loads(manifest_path.read_text())
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    source_metadata = payload.get("source_metadata")
+    metadata: dict[str, object] = (
+        dict(source_metadata) if isinstance(source_metadata, dict) else {}
+    )
+    citation = payload.get("citation")
+    if isinstance(citation, str) and citation.strip():
+        metadata.setdefault("requested_source", citation.strip())
+    return metadata or None
+
+
+def _requested_source_from_metadata(metadata: dict[str, object] | None) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    requested_source = metadata.get("requested_source")
+    if not isinstance(requested_source, str):
+        return None
+    requested_source = requested_source.strip()
+    return requested_source or None
 
 
 def _rulespec_file_normalized_target(rulespec_file: Path) -> tuple[str, ...] | None:
@@ -1758,6 +1814,20 @@ def _iter_normalized_special_numeric_matches(
     fraction_chars = "".join(re.escape(glyph) for glyph in _UNICODE_FRACTION_VALUES)
 
     for match in re.finditer(
+        rf"\b(?:(?P<whole>{_CARDINAL_WORD_SEQUENCE})\s+and\s+)?"
+        rf"(?P<numerator>{_CARDINAL_WORD_SEQUENCE})\s+"
+        r"one[-\s]+hundredths?\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        whole = _parse_cardinal_word_sequence(match.group("whole") or "")
+        numerator = _parse_cardinal_word_sequence(match.group("numerator"))
+        if numerator is None:
+            continue
+        matches.append((match.span(), ((whole or 0) + numerator / 100) / 100))
+
+    for match in re.finditer(
         rf"(-?[\d,]+)\s*([{fraction_chars}])(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
         text,
         re.IGNORECASE,
@@ -1800,6 +1870,24 @@ def _iter_normalized_special_numeric_matches(
             matches.append((match.span(1), float(match.group(1).replace(",", ""))))
 
     return matches
+
+
+def _parse_cardinal_word_sequence(text: str) -> float | None:
+    """Parse a compact English cardinal phrase up to ninety-nine."""
+    words = [
+        token
+        for token in re.split(r"[-\s]+", text.strip().lower())
+        if token and token != "and"
+    ]
+    if not words:
+        return None
+    total = 0.0
+    for word in words:
+        value = _CARDINAL_WORD_VALUES.get(word)
+        if value is None:
+            return None
+        total += value
+    return total
 
 
 def _extract_percentage_context_values(text: str) -> set[float]:
@@ -16081,16 +16169,20 @@ class ValidatorPipeline:
         issues.extend(find_person_scoped_definition_unit_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
-        # Read the requested-source target from the nearby eval workspace
-        # so subparagraph-coverage scoping respects encoder intent even when
-        # the corpus served a parent-fallback source slice (issue #71).
-        nearby_metadata = _load_nearby_eval_source_metadata(rules_file)
-        requested_source = (
-            str(nearby_metadata.get("requested_source"))
-            if isinstance(nearby_metadata, dict)
-            and isinstance(nearby_metadata.get("requested_source"), str)
-            else None
+        # Read the requested-source target from the nearby eval workspace or
+        # the durable apply manifest so subparagraph-coverage scoping respects
+        # encoder intent even when the corpus served a parent-fallback source
+        # slice (issue #71).
+        requested_source = _requested_source_from_metadata(
+            _load_nearby_eval_source_metadata(rules_file)
         )
+        if requested_source is None:
+            requested_source = _requested_source_from_metadata(
+                _load_applied_encoding_manifest_source_metadata(
+                    rules_file,
+                    self.policy_repo_path,
+                )
+            )
         issues.extend(
             find_source_subparagraph_coverage_issues(
                 content,

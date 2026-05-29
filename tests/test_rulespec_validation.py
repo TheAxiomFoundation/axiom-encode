@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import os
 import subprocess
 from pathlib import Path
@@ -17,6 +18,7 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline,
     _extract_json_object,
     _infer_us_state_code_from_rulespec_path,
+    _load_applied_encoding_manifest_source_metadata,
     _normalize_us_tax_filing_status,
     _policyengine_expected_float,
     _policyengine_period_string,
@@ -12484,6 +12486,57 @@ rules: []
     )
 
 
+def test_source_subparagraph_coverage_uses_applied_manifest_requested_source(tmp_path):
+    source_text = """Eligibility disqualifications
+(a) Income standards. Households with income above thresholds are ineligible.
+(c) Gross income standard. Adjusted October 1 each year.
+(d) Exclusions from income. Various items excluded.
+(e) Deductions from income.
+    (1) Standard deduction.
+    (2) (B) Earned income deduction of 20 percent.
+(g) Allowable financial resources. Asset limits apply.
+"""
+    policy_repo = tmp_path / "rulespec-us"
+    rules_file = policy_repo / "statutes/7/2014/e/2/B.yaml"
+    rules_file.parent.mkdir(parents=True)
+    content = """format: rulespec/v1
+module:
+  status: deferred
+  source_verification:
+    corpus_citation_path: us/statute/7/2014
+  summary: Earned income deduction under 7 USC 2014(e)(2)(B).
+  deferred_outputs:
+    - output: us:statutes/7/2014/e/2/B#snap_earned_income_deduction
+      reason: Requires the (e)(2)(C) exception which is not in scope.
+rules: []
+"""
+    rules_file.write_text(content)
+    manifest_path = policy_repo / ".axiom/encoding-manifests/statutes/7/2014/e/2/B.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "citation": "us/statute/7/2014/e/2/B",
+                "schema_version": "axiom-encode/applied-rulespec/v1",
+            }
+        )
+    )
+
+    source_metadata = _load_applied_encoding_manifest_source_metadata(
+        rules_file,
+        policy_repo,
+    )
+    assert source_metadata is not None
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        rules_file=rules_file,
+        source_texts={"us/statute/7/2014": source_text},
+        requested_source=source_metadata["requested_source"],
+    )
+
+    assert issues == []
+
+
 def test_source_subparagraph_coverage_without_requested_source_keeps_strict_scope():
     """Sanity check: when no requested_source is supplied, behaviour is
     unchanged — the validator demands coverage of every top-level
@@ -16462,6 +16515,36 @@ rules:
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
     assert 0.075 in extract_numeric_occurrences_from_text(source_text)
+
+
+def test_ungrounded_numeric_accepts_spelled_hundredths_percentage():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/statute/39/39-22-104/1.7/c
+rules:
+  - name: individual_estate_trust_income_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2022-01-01'
+        formula: |-
+          0.044
+"""
+
+    source_text = (
+        "a tax of four and forty one-hundredths percent is imposed on the "
+        "federal taxable income"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert any(
+        math.isclose(value, 0.044) for value in extract_numbers_from_text(source_text)
+    )
+    assert any(
+        math.isclose(value, 0.044)
+        for value in extract_numeric_occurrences_from_text(source_text)
+    )
 
 
 def test_non_rulespec_yaml_artifact_is_rejected(tmp_path):

@@ -79,6 +79,7 @@ from .harness.validator_pipeline import (
     _extract_source_verification_text,
     _filing_status_rule_source_context,
     _is_executable_rulespec_rule,
+    _load_nearby_eval_source_metadata,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_public_item_keys,
@@ -17809,6 +17810,11 @@ def _validate_generated_encoding_in_policy_overlay(
         overlay_repo_name = (
             canonical_rulespec_repo_name(policy_repo_path) or policy_repo_path.name
         )
+        _write_overlay_eval_source_metadata_for_generated_output(
+            output_file=output_file,
+            overlay_parent=overlay_parent,
+            relative_output=relative_output,
+        )
         for sibling in policy_repo_path.parent.glob("rulespec-*"):
             if sibling.resolve() == policy_repo_path.resolve() or not sibling.is_dir():
                 continue
@@ -18084,6 +18090,49 @@ def _validate_generated_encoding_in_policy_overlay(
                         f"{relative_file}: {validator_result.validator_name}: {validator_result.error}"
                     )
         return False, issues, {}
+
+
+def _write_overlay_eval_source_metadata_for_generated_output(
+    *,
+    output_file: Path,
+    overlay_parent: Path,
+    relative_output: Path,
+) -> Path | None:
+    """Preserve eval source metadata for temporary apply validation overlays.
+
+    Generated files can validate against a parent-fallback corpus source only
+    when the validator can see the original requested child source. The apply
+    overlay lives in a fresh temp directory, so copy the minimal manifest shape
+    read by `_load_nearby_eval_source_metadata`.
+    """
+    source_metadata = _load_nearby_eval_source_metadata(output_file)
+    if not source_metadata:
+        return None
+    requested_source = source_metadata.get("requested_source")
+    citation = (
+        requested_source.strip()
+        if isinstance(requested_source, str) and requested_source.strip()
+        else relative_output.with_suffix("").as_posix()
+    )
+    manifest_path = (
+        overlay_parent
+        / "_eval_workspaces"
+        / "apply"
+        / "workspace"
+        / "context-manifest.json"
+    )
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "citation": citation,
+                "source_metadata": source_metadata,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return manifest_path
 
 
 def _suppress_rulespec_ancestor_targets_for_subsection_overlay(

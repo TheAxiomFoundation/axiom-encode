@@ -82,6 +82,7 @@ from axiom_encode.cli import (
     _try_repair_generated_unsafe_formula_outputs_for_apply,
     _validate_generated_encoding_in_policy_overlay,
     _write_applied_encoding_manifest,
+    _write_overlay_eval_source_metadata_for_generated_output,
     cmd_calibration,
     cmd_compile,
     cmd_encode,
@@ -131,6 +132,7 @@ from axiom_encode.harness.encoding_db import (
     ReviewResults,
 )
 from axiom_encode.harness.evals import EvalArtifactMetrics
+from axiom_encode.harness.validator_pipeline import _load_nearby_eval_source_metadata
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
@@ -9783,6 +9785,57 @@ rules:
         assert len(issues) == 1
         assert issues[0].startswith("regulations/18-nycrr/387/12/f/3/v/c.yaml: ")
         assert "dropped existing source_relation" in issues[0]
+
+    def test_apply_overlay_preserves_requested_source_metadata_for_parent_fallback(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        output_file = (
+            output_root / "codex-test-model" / "statutes/39/39-22-104/1.7/c.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        manifest_path = (
+            output_root
+            / "_eval_workspaces"
+            / "codex-test-model"
+            / "us-co-statute-39-39-22-104-1.7-c"
+            / "workspace"
+            / "context-manifest.json"
+        )
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "citation": "us-co/statute/39/39-22-104/1.7/c",
+                    "source_metadata": {
+                        "corpus_citation_path": "us-co/statute/39/39-22-104",
+                        "corpus_source": "supabase",
+                        "requested_source": "us-co/statute/39/39-22-104/1.7/c",
+                    },
+                }
+            )
+        )
+
+        overlay_parent = tmp_path / "overlay"
+        overlay_target = (
+            overlay_parent / "rulespec-us-co" / "statutes/39/39-22-104/1.7/c.yaml"
+        )
+        overlay_target.parent.mkdir(parents=True)
+        overlay_target.write_text(output_file.read_text())
+
+        written = _write_overlay_eval_source_metadata_for_generated_output(
+            output_file=output_file,
+            overlay_parent=overlay_parent,
+            relative_output=Path("statutes/39/39-22-104/1.7/c.yaml"),
+        )
+
+        assert written is not None
+        assert _load_nearby_eval_source_metadata(overlay_target) == {
+            "corpus_citation_path": "us-co/statute/39/39-22-104",
+            "corpus_source": "supabase",
+            "requested_source": "us-co/statute/39/39-22-104/1.7/c",
+        }
 
     def test_apply_overlay_validation_allows_deferred_replacement_of_executable_file(
         self, tmp_path
