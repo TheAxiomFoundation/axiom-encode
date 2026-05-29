@@ -4567,6 +4567,23 @@ module:
   source_verification:
     corpus_citation_path: us/statute/26/3406
 rules:
+  - name: earlier_rule_with_same_excerpt
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: "during 1983, such broker bought or sold instruments for the payee"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          unrelated_input
   - name: existing_brokerage_account_exception_to_broker_notification
     kind: derived
     entity: Payment
@@ -4618,13 +4635,22 @@ rules:
             "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year"
             "->broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year"
         ]
-        rules_payload = yaml.safe_load(rules_file.read_text())
-        formula = rules_payload["rules"][0]["versions"][0]["formula"]
+        rules_text = rules_file.read_text()
+        assert "formula: |-" in rules_text
+        rules_payload = yaml.safe_load(rules_text)
+        formula = rules_payload["rules"][1]["versions"][0]["formula"]
         assert (
             "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year"
             in formula
         )
-        excerpt = rules_payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+        earlier_excerpt = rules_payload["rules"][0]["metadata"]["proof"]["atoms"][0][
+            "source"
+        ]["excerpt"]
+        assert (
+            earlier_excerpt
+            == "during 1983, such broker bought or sold instruments for the payee"
+        )
+        excerpt = rules_payload["rules"][1]["metadata"]["proof"]["atoms"][0]["source"][
             "excerpt"
         ]
         assert (
@@ -4635,6 +4661,80 @@ rules:
         assert (
             "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year"
             in test_file.read_text()
+        )
+
+    def test_repair_anaphoric_scope_identifiers_extends_wrapped_excerpt(
+        self, monkeypatch, tmp_path
+    ):
+        import axiom_encode.cli as cli_module
+
+        source_text = (
+            "Subparagraph (B) of paragraph (2) shall not apply if during 1983, "
+            "such broker bought or sold instruments for the payee (or acted as "
+            "a nominee for the payee) through such account."
+        )
+        monkeypatch.setattr(
+            cli_module,
+            "_extract_source_verification_text",
+            lambda _content: source_text,
+        )
+
+        rules_file = tmp_path / "d.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: existing_brokerage_account_exception_to_broker_notification
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3406
+              excerpt: >-
+                during 1983, such broker bought or sold instruments for
+                the payee
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year
+"""
+        )
+        test_file = tmp_path / "d.test.yaml"
+        test_file.write_text("")
+
+        repaired = _repair_anaphoric_scope_identifiers(
+            rules_file=rules_file,
+            test_file=test_file,
+            repairs=[
+                {
+                    "rule": "existing_brokerage_account_exception_to_broker_notification",
+                    "old": "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year",
+                    "new": "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year",
+                    "excerpt": "during 1983, such broker bought or sold instruments for the payee",
+                    "scope": "through such account",
+                }
+            ],
+        )
+
+        assert repaired == [
+            "broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_during_transition_year"
+            "->broker_bought_or_sold_instruments_or_acted_as_nominee_for_payee_through_such_account_during_transition_year"
+        ]
+        rules_text = rules_file.read_text()
+        assert "excerpt: >-" in rules_text
+        rules_payload = yaml.safe_load(rules_text)
+        excerpt = rules_payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+            "excerpt"
+        ]
+        assert (
+            excerpt
+            == "during 1983, such broker bought or sold instruments for the payee "
+            "(or acted as a nominee for the payee) through such account"
         )
 
     def test_apply_repair_uses_uncapped_1402b_income_for_section_1401_b_1(

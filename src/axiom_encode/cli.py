@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import yaml
+from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
 
@@ -13960,6 +13961,13 @@ def _rulespec_file_contains_identifier(path: Path, identifier: str) -> bool:
     return False
 
 
+class _YamlExcerptScalarSpan(NamedTuple):
+    rule: str
+    excerpt: str
+    start: int
+    end: int
+
+
 def _extend_anaphoric_scope_proof_excerpts(
     *,
     rules_file: Path,
@@ -13979,7 +13987,11 @@ def _extend_anaphoric_scope_proof_excerpts(
     if not isinstance(rules, list):
         return
 
-    changed = False
+    excerpt_spans = _yaml_excerpt_scalar_spans(content)
+    if not excerpt_spans:
+        return
+    used_span_indexes: set[int] = set()
+    replacements: list[tuple[int, int, str]] = []
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -14009,12 +14021,141 @@ def _extend_anaphoric_scope_proof_excerpts(
                     scope_phrase=repair["scope"],
                 )
                 if extended and extended != excerpt:
-                    source["excerpt"] = extended
-                    changed = True
-    if changed:
-        rules_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
-        )
+                    span_index, span = _find_yaml_excerpt_scalar_span(
+                        excerpt_spans,
+                        rule=rule_name,
+                        excerpt=excerpt,
+                        used_span_indexes=used_span_indexes,
+                    )
+                    if span is None:
+                        continue
+                    used_span_indexes.add(span_index)
+                    replacements.append(
+                        (
+                            span.start,
+                            span.end,
+                            _render_yaml_excerpt_scalar_like(
+                                content[span.start : span.end],
+                                extended,
+                            ),
+                        )
+                    )
+    if replacements:
+        repaired_content = content
+        for start, end, replacement in sorted(replacements, reverse=True):
+            repaired_content = (
+                repaired_content[:start] + replacement + repaired_content[end:]
+            )
+        rules_file.write_text(repaired_content)
+
+
+def _yaml_excerpt_scalar_spans(content: str) -> list[_YamlExcerptScalarSpan]:
+    try:
+        root = yaml.compose(content)
+    except yaml.YAMLError:
+        return []
+    rules_node = _yaml_mapping_value(root, "rules")
+    if not isinstance(rules_node, SequenceNode):
+        return []
+
+    spans: list[_YamlExcerptScalarSpan] = []
+    for rule_node in rules_node.value:
+        if not isinstance(rule_node, MappingNode):
+            continue
+        rule_name = _yaml_scalar_mapping_value(rule_node, "name")
+        if not rule_name:
+            continue
+        metadata_node = _yaml_mapping_value(rule_node, "metadata")
+        proof_node = _yaml_mapping_value(metadata_node, "proof")
+        atoms_node = _yaml_mapping_value(proof_node, "atoms")
+        if not isinstance(atoms_node, SequenceNode):
+            continue
+        for atom_node in atoms_node.value:
+            source_node = _yaml_mapping_value(atom_node, "source")
+            excerpt_node = _yaml_mapping_value(source_node, "excerpt")
+            if not isinstance(excerpt_node, ScalarNode):
+                continue
+            excerpt = excerpt_node.value
+            if not isinstance(excerpt, str):
+                continue
+            spans.append(
+                _YamlExcerptScalarSpan(
+                    rule=rule_name,
+                    excerpt=excerpt,
+                    start=excerpt_node.start_mark.index,
+                    end=excerpt_node.end_mark.index,
+                )
+            )
+    return spans
+
+
+def _yaml_mapping_value(node: object, key: str) -> object | None:
+    if not isinstance(node, MappingNode):
+        return None
+    for key_node, value_node in node.value:
+        if isinstance(key_node, ScalarNode) and key_node.value == key:
+            return value_node
+    return None
+
+
+def _yaml_scalar_mapping_value(node: object, key: str) -> str:
+    value_node = _yaml_mapping_value(node, key)
+    if isinstance(value_node, ScalarNode) and isinstance(value_node.value, str):
+        return value_node.value
+    return ""
+
+
+def _find_yaml_excerpt_scalar_span(
+    spans: list[_YamlExcerptScalarSpan],
+    *,
+    rule: str,
+    excerpt: str,
+    used_span_indexes: set[int],
+) -> tuple[int, _YamlExcerptScalarSpan | None]:
+    for index, span in enumerate(spans):
+        if index in used_span_indexes:
+            continue
+        if span.rule == rule and span.excerpt == excerpt:
+            return index, span
+    return -1, None
+
+
+def _render_yaml_excerpt_scalar_like(original_scalar: str, value: str) -> str:
+    stripped = original_scalar.lstrip()
+    if stripped.startswith('"'):
+        return f'"{_yaml_double_quoted_scalar_text(value)}"'
+    if stripped.startswith("'"):
+        return f"'{_yaml_single_quoted_scalar_text(value)}'"
+    if stripped.startswith("|") or stripped.startswith(">"):
+        return _render_yaml_block_scalar_like(original_scalar, value)
+    return f'"{_yaml_double_quoted_scalar_text(value)}"'
+
+
+def _render_yaml_block_scalar_like(original_scalar: str, value: str) -> str:
+    lines = original_scalar.splitlines(keepends=True)
+    if not lines:
+        return f'"{_yaml_double_quoted_scalar_text(value)}"'
+    header = lines[0].rstrip("\r\n")
+    indent = ""
+    for line in lines[1:]:
+        if line.strip():
+            indent = line[: len(line) - len(line.lstrip())]
+            break
+    if not indent:
+        indent = "  "
+    rendered_lines = value.splitlines() or [""]
+    rendered = header + "\n" + "\n".join(f"{indent}{line}" for line in rendered_lines)
+    if original_scalar.endswith(("\n", "\r\n")):
+        rendered += "\n"
+    return rendered
+
+
+def _yaml_double_quoted_scalar_text(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _yaml_single_quoted_scalar_text(value: str) -> str:
+    return value.replace("'", "''")
 
 
 def _extend_excerpt_to_anaphoric_scope(
