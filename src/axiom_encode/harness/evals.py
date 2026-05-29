@@ -7254,6 +7254,24 @@ def _default_test_period_for_granularity(
     return effective_date.isoformat()
 
 
+def _normalize_week_test_period_value(period: object) -> object:
+    """Convert ISO week shorthands into explicit benefit-week periods."""
+    if not isinstance(period, str) or not _ISO_WEEK_PERIOD_PATTERN.fullmatch(period):
+        return period
+    year = int(period[:4])
+    week = int(period[-2:])
+    try:
+        start = date.fromisocalendar(year, week, 1)
+    except ValueError:
+        return period
+    end = date.fromordinal(start.toordinal() + 6)
+    return {
+        "period_kind": "benefit_week",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+    }
+
+
 def _normalize_nonannual_test_period_value(
     period: object,
     effective_date: date,
@@ -7296,6 +7314,11 @@ def _normalize_nonannual_test_period_value(
                 except ValueError:
                     return period
                 return parsed.strftime("%Y-%m")
+
+    if granularity == "Week":
+        normalized_week = _normalize_week_test_period_value(period)
+        if normalized_week != period:
+            return normalized_week
 
     if period is None:
         return effective_date.isoformat()
@@ -7560,6 +7583,10 @@ def _normalize_test_periods_to_effective_dates(
                 _normalize_placeholder_monthly_test_period_value(
                     normalized_case.get("period")
                 )
+            )
+        elif granularity == "Week":
+            normalized_case["period"] = _normalize_week_test_period_value(
+                normalized_case.get("period")
             )
 
         for key in ("input", "inputs", "output"):

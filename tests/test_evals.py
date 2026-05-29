@@ -3803,6 +3803,38 @@ rules:
         }
         assert "end" not in cases[0]
 
+    def test_normalize_test_periods_rewrites_iso_week_shorthand(self):
+        rulespec_text = """format: rulespec/v1
+module:
+  summary: Weekly child benefit rate.
+rules:
+  - name: child_benefit_weekly_rate
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '0001-01-01'
+        formula: 27.05
+"""
+        test_text = _normalize_test_periods_to_effective_dates(
+            """- name: weekly_case
+  period: 2025-W01
+  input: {}
+  output:
+    child_benefit_weekly_rate: 27.05
+""",
+            rulespec_content=rulespec_text,
+        )
+
+        cases = yaml.safe_load(test_text)
+
+        assert cases[0]["period"] == {
+            "period_kind": "benefit_week",
+            "start": "2024-12-30",
+            "end": "2025-01-05",
+        }
+
     def test_materialize_eval_artifact_normalizes_mapping_style_tests_to_list(
         self, tmp_path
     ):
@@ -4172,6 +4204,7 @@ class TestEvalPrompt:
             "`Employer`, `Asset`."
         ) in prompt
         assert "Allowed `period:` values are `Year`, `Month`, `Week`, `Day`." in prompt
+        assert "do not use ISO week shorthands like `2025-W01`" in prompt
         assert (
             "Allowed `dtype:` values are `Money`, `Rate`, `Boolean`, `Integer`, "
             "`Count`, `String`, `Decimal`, `Float`, or `Enum[Name]`."
