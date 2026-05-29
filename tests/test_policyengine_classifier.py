@@ -123,7 +123,9 @@ def test_classify_rulespec_repo_walks_yaml_files(tmp_path: Path) -> None:
                         "kind": "derived",
                         "dtype": "Judgment",
                         "source": "Source text for some predicate.",
-                        "versions": [{"effective_from": "2025-01-01", "formula": "true"}],
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
                     },
                 ],
             }
@@ -326,12 +328,9 @@ def test_cmd_classify_write_us_yaml_round_trip(tmp_path: Path) -> None:
     assert "us:statutes/7/2014/e/2#snap_earned_income_deduction" in legal_ids
 
     # The two new per-rule entries must be present.
+    assert "us-xx:regulations/abc/100/block-1#monthly_allotment" in legal_ids
     assert (
-        "us-xx:regulations/abc/100/block-1#monthly_allotment" in legal_ids
-    )
-    assert (
-        "us-xx:regulations/abc/100/block-1#household_qualifies_for_review"
-        in legal_ids
+        "us-xx:regulations/abc/100/block-1#household_qualifies_for_review" in legal_ids
     )
 
     by_id = {m["legal_id"]: m for m in final["mappings"]}
@@ -339,9 +338,7 @@ def test_cmd_classify_write_us_yaml_round_trip(tmp_path: Path) -> None:
     assert promoted["mapping_type"] == "direct_variable"
     assert promoted["policyengine_variable"] == "snap_normal_allotment"
 
-    fallback = by_id[
-        "us-xx:regulations/abc/100/block-1#household_qualifies_for_review"
-    ]
+    fallback = by_id["us-xx:regulations/abc/100/block-1#household_qualifies_for_review"]
     assert fallback["mapping_type"] == "not_comparable"
     assert "Predicate gating" in fallback["rationale"]
 

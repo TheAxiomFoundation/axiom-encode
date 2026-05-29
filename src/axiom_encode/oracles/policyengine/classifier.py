@@ -79,7 +79,9 @@ def _build_rule_name_index(
     return index
 
 
-def _adapter_unit_comparison(adapter: PolicyEngineUSVarAdapter) -> tuple[str | None, str]:
+def _adapter_unit_comparison(
+    adapter: PolicyEngineUSVarAdapter,
+) -> tuple[str | None, str]:
     """Infer (unit, comparison) for the adapter's PE variable.
 
     Heuristic until adapters carry explicit comparison metadata. Variables
@@ -226,9 +228,7 @@ def classify_rulespec_repo(
     return classifications
 
 
-def classification_to_yaml_block(
-    c: Classification, *, program: str = "snap"
-) -> str:
+def classification_to_yaml_block(c: Classification, *, program: str = "snap") -> str:
     """Render a Classification as a `us.yaml`-shaped mapping entry."""
     lines = [f"  - legal_id: {c.legal_id}"]
     lines.append("    country: us")

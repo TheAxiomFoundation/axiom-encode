@@ -2924,14 +2924,10 @@ def cmd_classify(args):
     state = args.state.lower()
     repo = args.repo
     if repo is None:
-        repo = (
-            Path(__file__).resolve().parents[3] / f"rulespec-us-{state}"
-        )
+        repo = Path(__file__).resolve().parents[3] / f"rulespec-us-{state}"
     repo = repo.resolve()
     if not repo.is_dir():
-        print(
-            f"rulespec-us-{state} repository not found at {repo}", file=sys.stderr
-        )
+        print(f"rulespec-us-{state} repository not found at {repo}", file=sys.stderr)
         sys.exit(1)
 
     classifications = classify_rulespec_repo(
@@ -2965,9 +2961,7 @@ def cmd_classify(args):
 
     appendix = block
     if "prefixes:" in text_without_bulk:
-        new_text = text_without_bulk.replace(
-            "prefixes:", appendix + "\n\nprefixes:", 1
-        )
+        new_text = text_without_bulk.replace("prefixes:", appendix + "\n\nprefixes:", 1)
     else:
         new_text = text_without_bulk.rstrip() + "\n\n" + appendix + "\n"
 
