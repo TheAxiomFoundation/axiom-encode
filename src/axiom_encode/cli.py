@@ -513,6 +513,43 @@ def main():
         "--json", action="store_true", help="Output as JSON"
     )
 
+    # classify command — emit us.yaml mapping entries for a state's encoded outputs
+    classify_parser = subparsers.add_parser(
+        "classify",
+        help=(
+            "Emit PolicyEngine oracle mapping entries (us.yaml) for a rulespec-us-<state> "
+            "repository, using the canonical adapter catalog (PE_US_VAR_ADAPTERS) as the "
+            "single source of truth for rule-name → PE-variable matches."
+        ),
+    )
+    classify_parser.add_argument(
+        "--state",
+        required=True,
+        help="State code (e.g., 'ma') — must match an existing rulespec-us-<state> repo.",
+    )
+    classify_parser.add_argument(
+        "--program",
+        default="snap",
+        help="Program label. Only 'snap' is supported today.",
+    )
+    classify_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=None,
+        help="Path to the rulespec-us-<state> repository. Defaults to a sibling checkout.",
+    )
+    classify_parser.add_argument(
+        "--write-us-yaml",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to a us.yaml file. When provided, the command rewrites the file "
+            "in place: existing bulk legal_id_prefix entries for this state are removed, "
+            "and per-rule mapping entries are inserted before the prefixes: section. When "
+            "omitted, the YAML fragment is written to stdout for review."
+        ),
+    )
+
     oracle_candidates_parser = subparsers.add_parser(
         "oracle-candidates",
         help="Show candidate RuleSpec outputs for expanding oracle coverage",
@@ -1505,6 +1542,8 @@ def main():
         cmd_oracle_coverage(args)
     elif args.command == "oracle-candidates":
         cmd_oracle_candidates(args)
+    elif args.command == "classify":
+        cmd_classify(args)
     elif args.command == "snap-ecps-compare":
         sys.exit(run_snap_ecps_compare(args))
     elif args.command == "tax-ecps-compare":
@@ -2871,6 +2910,72 @@ def cmd_oracle_candidates(args):
         if len(items) > args.limit:
             print(f"  - ... {len(items) - args.limit} more")
 
+    sys.exit(0)
+
+
+def cmd_classify(args):
+    """Emit PolicyEngine oracle mapping entries for a rulespec-us-<state> repo."""
+    from axiom_encode.oracles.policyengine.classifier import (
+        classify_rulespec_repo,
+        emit_us_yaml_block,
+    )
+
+    state = args.state.lower()
+    repo = args.repo
+    if repo is None:
+        repo = (
+            Path(__file__).resolve().parents[3] / f"rulespec-us-{state}"
+        )
+    repo = repo.resolve()
+    if not repo.is_dir():
+        print(
+            f"rulespec-us-{state} repository not found at {repo}", file=sys.stderr
+        )
+        sys.exit(1)
+
+    classifications = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction=f"us-{state}",
+        program=args.program,
+    )
+    block = emit_us_yaml_block(classifications, program=args.program)
+
+    if args.write_us_yaml is None:
+        print(block)
+        sys.exit(0)
+
+    target = args.write_us_yaml.resolve()
+    if not target.is_file():
+        print(f"--write-us-yaml target not found: {target}", file=sys.stderr)
+        sys.exit(1)
+
+    import re as _re
+
+    text = target.read_text()
+    state_prefix_marker = f"legal_id_prefix: us-{state}:"
+    # Remove existing bulk prefix entries for this state (each is 5+ lines
+    # starting with the marker, ending at the next list item or top-level key).
+    bulk_pattern = _re.compile(
+        rf"^  - legal_id_prefix: us-{state}:.*?(?=^  - |^[a-z]|\Z)",
+        _re.MULTILINE | _re.DOTALL,
+    )
+    text_without_bulk = bulk_pattern.sub("", text)
+    text_without_bulk = _re.sub(r"\n{3,}", "\n\n", text_without_bulk)
+
+    appendix = block
+    if "prefixes:" in text_without_bulk:
+        new_text = text_without_bulk.replace(
+            "prefixes:", appendix + "\n\nprefixes:", 1
+        )
+    else:
+        new_text = text_without_bulk.rstrip() + "\n\n" + appendix + "\n"
+
+    target.write_text(new_text)
+    print(
+        f"Wrote {len(classifications)} entries for us-{state} to {target} "
+        f"(removed bulk legal_id_prefix entries for the same state).",
+        file=sys.stderr,
+    )
     sys.exit(0)
 
 
