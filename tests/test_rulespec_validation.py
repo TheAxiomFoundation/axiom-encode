@@ -13505,6 +13505,32 @@ rules:
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
+def test_nonnegative_taxable_income_allows_multiline_floored_branches():
+    content = """format: rulespec/v1
+rules:
+  - name: itemized_deduction_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2022-01-01'
+        formula: |-
+          if taxpayer_subject_to_itemized_deduction_addition:
+            if taxpayer_files_single_return:
+              max(0, itemized_deductions - single_return_floor)
+            else:
+              if taxpayers_file_joint_return:
+                max(0, itemized_deductions - joint_return_floor)
+              else:
+                0
+          else:
+            0
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
 def test_repair_nonnegative_amount_reductions_does_not_replace_identifier_substrings():
     content = """format: rulespec/v1
 rules:

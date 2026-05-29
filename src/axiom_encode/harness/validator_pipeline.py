@@ -8335,9 +8335,98 @@ def _formula_result_expressions(formula: str) -> list[str]:
         if branch is not None:
             expression = _branch_result_expression(branch.group(1).strip())
             expressions.extend(_split_inline_conditional_result_expressions(expression))
+    if not expressions:
+        expressions.extend(_indented_conditional_result_expressions(formula))
     if not expressions and formula.strip():
         expressions.append(formula.strip())
     return expressions
+
+
+_INDENTED_CONDITIONAL_CONTROL_LINE_PATTERN = re.compile(
+    r"^\s*(?:if\b.+|elif\b.+|else)\s*:\s*$",
+    flags=re.IGNORECASE,
+)
+_EXPRESSION_CONTINUATION_PREFIX_PATTERN = re.compile(
+    r"^(?:and|or|[+*/%<>=!&|])\b|^[-+*/%)]"
+)
+_EXPRESSION_CONTINUATION_SUFFIX_PATTERN = re.compile(
+    r"(?:[+\-*/%<>=!&|]|\b(?:and|or)\b|[,([{])$",
+    flags=re.IGNORECASE,
+)
+
+
+def _indented_conditional_result_expressions(formula: str) -> list[str]:
+    """Return leaf expressions from an indented Rulespec conditional block."""
+    lines = formula.splitlines()
+    if not any(
+        _INDENTED_CONDITIONAL_CONTROL_LINE_PATTERN.match(line) for line in lines
+    ):
+        return []
+
+    expressions: list[str] = []
+    index = 0
+    while index < len(lines):
+        raw_line = lines[index]
+        line = raw_line.strip()
+        if not line or _INDENTED_CONDITIONAL_CONTROL_LINE_PATTERN.match(raw_line):
+            index += 1
+            continue
+
+        expression_lines = [line]
+        depth = _formula_bracket_depth_delta(line)
+        index += 1
+        while index < len(lines):
+            next_raw = lines[index]
+            next_line = next_raw.strip()
+            if not next_line:
+                index += 1
+                continue
+            if depth <= 0 and _INDENTED_CONDITIONAL_CONTROL_LINE_PATTERN.match(
+                next_raw
+            ):
+                break
+            if depth <= 0 and not _formula_line_continues_expression(
+                expression_lines[-1],
+                next_line,
+            ):
+                break
+            expression_lines.append(next_line)
+            depth += _formula_bracket_depth_delta(next_line)
+            index += 1
+
+        expression = "\n".join(expression_lines).strip()
+        expressions.extend(_split_inline_conditional_result_expressions(expression))
+
+    return expressions
+
+
+def _formula_line_continues_expression(previous_line: str, next_line: str) -> bool:
+    return bool(
+        _EXPRESSION_CONTINUATION_SUFFIX_PATTERN.search(previous_line.strip())
+        or _EXPRESSION_CONTINUATION_PREFIX_PATTERN.search(next_line.strip())
+    )
+
+
+def _formula_bracket_depth_delta(expression: str) -> int:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for char in expression:
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}" and depth:
+            depth -= 1
+    return depth
 
 
 _INLINE_CONDITIONAL_RESULT_PATTERN = re.compile(
