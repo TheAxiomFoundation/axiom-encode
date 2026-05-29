@@ -625,6 +625,67 @@ rules:
     assert item["test_output_count"] == 1
 
 
+def test_policyengine_coverage_classifies_colorado_base_rates_not_comparable(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.7/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_estate_trust_income_tax_rate_before_2020
+    kind: parameter
+    versions:
+      - effective_from: '2000-01-01'
+        formula: '0.0463'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.7/a.test.yaml",
+        """- name: rate for tax year beginning in 2019
+  period:
+    period_kind: tax_year
+    start: '2019-01-01'
+    end: '2019-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/1.7/a#individual_estate_trust_income_tax_rate_before_2020: 0.0463
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.7/b.yaml",
+        """format: rulespec/v1
+rules:
+  - name: individual_estate_trust_income_tax_rate_before_2022
+    kind: parameter
+    versions:
+      - effective_from: '2020-01-01'
+        formula: '0.0455'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/1.7/b.test.yaml",
+        """- name: rate for tax year beginning in 2021
+  period:
+    period_kind: tax_year
+    start: '2021-01-01'
+    end: '2021-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/1.7/b#individual_estate_trust_income_tax_rate_before_2022: 0.0455
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["legal_id"] for item in report["items"]} == {
+        "us-co:statutes/39/39-22-104/1.7/a#individual_estate_trust_income_tax_rate_before_2020",
+        "us-co:statutes/39/39-22-104/1.7/b#individual_estate_trust_income_tax_rate_before_2022",
+    }
+    assert {item["program"] for item in report["items"]} == {"tax"}
+    assert {item["tested"] for item in report["items"]} == {True}
+
+
 def test_policyengine_coverage_classifies_3102a_collection_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3102/a.yaml",

@@ -16547,6 +16547,36 @@ rules:
     )
 
 
+def test_ungrounded_numeric_accepts_spelled_fractional_percentage():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-co/statute/39/39-22-104/1.5
+rules:
+  - name: individual_estate_trust_income_tax_rate_1999
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1999-01-01'
+        formula: |-
+          0.0475
+"""
+
+    source_text = (
+        "a tax of four and three-quarters percent is imposed on the "
+        "federal taxable income"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert any(
+        math.isclose(value, 0.0475) for value in extract_numbers_from_text(source_text)
+    )
+    assert any(
+        math.isclose(value, 0.0475)
+        for value in extract_numeric_occurrences_from_text(source_text)
+    )
+
+
 def test_non_rulespec_yaml_artifact_is_rejected(tmp_path):
     rules_file = tmp_path / "not-rulespec.yaml"
     rules_file.write_text("rules:\n  - name: missing_format_header\n")
