@@ -2569,6 +2569,36 @@ def _relative_rulespec_source_path(path: Path) -> Path | None:
     return None
 
 
+_MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
+- Match each executable rule's `entity:` to the legal subject stated by the supplied source text.
+- If the source uses the word "household" or "household's", use `entity: Household`. Do not substitute `SnapUnit`, `FilingUnit`, or any other unit type unless the same source text both names that filtered membership and the file declares or imports its `kind: derived_relation` rule. Inventing a `SnapUnit` reference without the matching `derived_relation` declaration is a CI failure.
+- If the source uses "individual", "person", "member", "claimant", "child", "dependent", "spouse", or "employee", use `entity: Person` (or `Employer` for employer amounts).
+
+"""
+
+
+def _strip_source_scope_protocol(prompt: str) -> str:
+    """Replace the multi-page SOURCE_SCOPE_PROTOCOL block with a minimal hint.
+
+    The full protocol guides entity-scope decisions for tax/credit/employer-style
+    sources but adds ~600 lines of guidance that does not apply to simple
+    single-entity judgment rules. For short SNAP/benefit sources, the bulk of
+    the protocol pushes the model into emitting no artifact at all. On retry we
+    swap the full protocol for a tight 4-bullet version that preserves the
+    important entity-scope discipline (especially "do not invent SnapUnit") so
+    the retry can succeed without regressing entity choices.
+    """
+    start_marker = "Source-scope protocol:"
+    start = prompt.find(start_marker)
+    if start == -1:
+        return prompt
+    end_marker = "Additional encoding guidance:"
+    end = prompt.find(end_marker, start)
+    if end == -1:
+        return prompt
+    return prompt[:start] + _MINIMAL_SCOPE_HINT + prompt[end:]
+
+
 def _build_empty_artifact_retry_prompt(
     original_prompt: str,
     target_file_name: str,
@@ -2584,6 +2614,7 @@ def _build_empty_artifact_retry_prompt(
             "with `format: rulespec/v1`."
         )
     )
+    trimmed_prompt = _strip_source_scope_protocol(original_prompt)
     return f"""The previous response did not contain a RuleSpec artifact, so the harness could not parse or write `{target_file_name}`.
 
 Emit the artifact now.
@@ -2595,7 +2626,7 @@ Emit the artifact now.
 Use the same source, context, schema, and validation constraints from the original task below.
 
 === BEGIN ORIGINAL TASK ===
-{original_prompt}
+{trimmed_prompt}
 === END ORIGINAL TASK ===
 """
 
