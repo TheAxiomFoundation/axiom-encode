@@ -12704,6 +12704,8 @@ def cmd_encode(args):
         print(f"Policy repo not found: {policy_repo_path}")
         sys.exit(1)
 
+    os.environ.setdefault("AXIOM_CORPUS_REPO", str(corpus_path))
+
     source_id = getattr(args, "source_id", None)
     source_unit = None
     if source_id:

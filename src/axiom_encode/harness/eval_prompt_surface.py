@@ -130,6 +130,7 @@ def render_uk_legislation_guidance() -> str:
 - When a boolean output ultimately depends on a final fact-shaped input and the source text makes a meaningful false case possible, include a `.test.yaml` case where the applicability conditions hold but that final fact input is false.
 - In `.test.yaml`, choose periods on or after the explicit effective date in `./source.txt`.
 - Do not add speculative future-period tests that would rely on uprating, later amendments, or rates not stated in `./source.txt`.
+- In `.test.yaml`, do not use ISO week shorthands like `2025-W01`; for weekly UK rules use an explicit mapping such as `period_kind: benefit_week`, `start: YYYY-MM-DD`, and `end: YYYY-MM-DD`.
 - Reference RuleSpec rule names by bare name inside formulas. Do not write function-style calls like `some_variable(person, period)`.
 """
 
