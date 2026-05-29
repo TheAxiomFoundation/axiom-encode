@@ -893,6 +893,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_companion_test_refs_parser = subparsers.add_parser(
+        "repair-companion-test-references",
+        help="Apply signed deterministic repairs for stale companion-test references",
+    )
+    repair_companion_test_refs_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_companion_test_refs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_companion_test_refs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_oracle_parameter_tests_parser = subparsers.add_parser(
         "repair-oracle-parameter-tests",
         help="Apply signed deterministic repairs for missing oracle parameter tests",
@@ -1579,6 +1601,8 @@ def main():
         cmd_repair_section_63_f_stale_test_inputs(args)
     elif args.command == "repair-imported-test-inputs":
         cmd_repair_imported_test_inputs(args)
+    elif args.command == "repair-companion-test-references":
+        cmd_repair_companion_test_references(args)
     elif args.command == "repair-oracle-parameter-tests":
         cmd_repair_oracle_parameter_tests(args)
     elif args.command == "repair-tax-filing-status-branches":
@@ -5489,6 +5513,135 @@ def cmd_repair_imported_test_inputs(args):
 
     print(f"Applied imported test input repair to {relative_output}")
     print(f"manifest={manifest_path}")
+
+
+def cmd_repair_companion_test_references(args):
+    """Apply signed deterministic repairs for stale companion test references."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        print(f"Companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_test_content = test_file.read_text()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    repaired_refs: list[str] = []
+    for _ in range(20):
+        failures = _rulespec_companion_test_failures(
+            test_file=test_file,
+            repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if not failures:
+            break
+        issues = [str(failure.get("message") or "") for failure in failures]
+        removed_inputs = _remove_invalid_test_input_refs(
+            test_file=test_file,
+            issues=issues,
+        )
+        removed_outputs = _remove_unknown_test_output_refs(
+            test_file=test_file,
+            issues=issues,
+        )
+        if not removed_inputs and not removed_outputs:
+            break
+        repaired_refs.extend([f"input:{ref}" for ref in removed_inputs])
+        repaired_refs.extend([f"output:{ref}" for ref in removed_outputs])
+
+    if not repaired_refs:
+        print("No companion test reference repairs found.")
+        return
+
+    failures = _rulespec_companion_test_failures(
+        test_file=test_file,
+        repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+    )
+    if failures:
+        test_file.write_text(original_test_content)
+        print("Repair failed validation; restored original test file.")
+        for failure in failures[:50]:
+            print(f"- {failure.get('case')}: {failure.get('message')}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="companion-test-references-v1",
+            tool="axiom-encode repair-companion-test-references",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(f"Applied companion test reference repair to {relative_output}")
+    print(f"repaired={', '.join(sorted(set(repaired_refs)))}")
+    print(f"manifest={manifest_path}")
+
+
+def _rulespec_companion_test_failures(
+    *,
+    test_file: Path,
+    repo_path: Path,
+    axiom_rules_path: Path,
+) -> list[dict[str, str | None]]:
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo_path,
+        axiom_rules_path=axiom_rules_path,
+        enable_oracles=False,
+    )
+    binary = pipeline._axiom_rules_binary()
+    rulespec_env = pipeline._rulespec_compile_env()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _execute_rulespec_test_file(
+            test_file,
+            binary=binary,
+            axiom_rules_path=Path(axiom_rules_path),
+            env=rulespec_env,
+            tmp_path=Path(tmpdir),
+            compiled_cache={},
+            policy_repo_path=repo_path,
+        )
+    failures = result.get("failures")
+    return failures if isinstance(failures, list) else []
 
 
 _SECTION_172_C_IMPORT = (
@@ -11481,6 +11634,44 @@ def _remove_invalid_test_input_refs(
     return sorted(removable_refs)
 
 
+def _remove_unknown_test_output_refs(
+    *,
+    test_file: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    unknown_refs = _unknown_output_refs_from_issues(issues)
+    if not unknown_refs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    removable_refs = _expand_refs_with_matching_test_output_keys(
+        test_payload,
+        unknown_refs,
+    )
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if _remove_mapping_keys_recursive(outputs, removable_refs):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(removable_refs)
+
+
 def _rewrite_import_output_test_input_refs(
     *,
     test_file: Path,
@@ -11945,6 +12136,15 @@ def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
     return refs
 
 
+def _unknown_output_refs_from_issues(issues: list[str]) -> set[str]:
+    refs: set[str] = set()
+    pattern = r"unknown executable output (?P<output>\S+)"
+    for issue in issues:
+        for match in re.finditer(pattern, str(issue)):
+            refs.add(match.group("output").strip())
+    return refs
+
+
 def _expand_refs_with_matching_test_input_keys(
     value: object,
     refs: set[str],
@@ -11959,6 +12159,27 @@ def _expand_refs_with_matching_test_input_keys(
             continue
         if _rulespec_ref_without_jurisdiction(key_text) in tails:
             expanded.add(key_text)
+    return expanded
+
+
+def _expand_refs_with_matching_test_output_keys(
+    value: object,
+    refs: set[str],
+) -> set[str]:
+    if not refs:
+        return set()
+    tails = {_rulespec_ref_without_jurisdiction(ref) for ref in refs}
+    expanded = set(refs)
+    for test_case in value if isinstance(value, list) else []:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for key in outputs:
+            key_text = str(key)
+            if _rulespec_ref_without_jurisdiction(key_text) in tails:
+                expanded.add(key_text)
     return expanded
 
 

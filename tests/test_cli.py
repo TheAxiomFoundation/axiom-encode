@@ -42,6 +42,7 @@ from axiom_encode.cli import (
     _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
+    _remove_unknown_test_output_refs,
     _repair_anaphoric_scope_identifiers,
     _repair_colorado_snap_401,
     _repair_colorado_snap_401_tests,
@@ -4209,6 +4210,31 @@ rules:
             "us:statutes/26/32/c/2#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
             in repaired
         )
+
+    def test_remove_unknown_test_output_refs_drops_stale_outputs(self, tmp_path):
+        test_file = tmp_path / "policy.test.yaml"
+        test_file.write_text(
+            """- name: stale_output
+  input: {}
+  output:
+    us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment: 298
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible: holds
+"""
+        )
+
+        removed = _remove_unknown_test_output_refs(
+            test_file=test_file,
+            issues=[
+                "stale_output: unknown executable output "
+                "us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment"
+            ],
+        )
+
+        assert removed == ["us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment"]
+        repaired = yaml.safe_load(test_file.read_text())
+        assert repaired[0]["output"] == {
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible": "holds"
+        }
 
     def test_rewrite_import_output_test_input_refs_drops_input_prefix(self, tmp_path):
         """When a test case writes <producer>#input.X to override an imported
