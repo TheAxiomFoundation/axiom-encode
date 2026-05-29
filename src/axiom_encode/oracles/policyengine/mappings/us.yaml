@@ -907,6 +907,64 @@ mappings:
     mapping_type: not_comparable
     rationale: This generated output is the statutory 4.55% base rate before applying later TABOR/form-rate reductions; PolicyEngine exposes the final Colorado form rate for each tax year.
 
+  - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_fifty_five_to_sixty_four
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.subtractions.pension.cap.younger
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same base $20,000 Colorado pension and annuity subtraction cap for individuals age 55 to 64, stored in PE as the younger pension cap.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_sixty_five_or_older
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.subtractions.pension.cap.older
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same $24,000 Colorado pension and annuity subtraction cap for individuals age 65 or older, stored in PE as the older pension cap.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/f#individual_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P2
+    rationale: PolicyEngine-US does not currently expose or implement the 2025 individual-filer AGI threshold for the age 55-64 Social Security cap increase; tracked in PolicyEngine/policyengine-us#8541.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/f#joint_filing_agi_limit_for_age_fifty_five_to_sixty_four_social_security_cap_increase
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P2
+    rationale: PolicyEngine-US does not currently expose or implement the 2025 joint-filer AGI threshold for the age 55-64 Social Security cap increase; tracked in PolicyEngine/policyengine-us#8541.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/f#individual_qualifies_for_pension_annuity_subtraction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_pension_subtraction_indv_eligible
+    candidate_priority: P2
+    rationale: This RuleSpec predicate captures the statutory age-or-death-benefit qualification; PE's similarly named eligibility variable only limits the claim to the tax-unit head or spouse and leaves age and survivor logic inside amount formulas.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_applicable_cap
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_pension_subtraction_indv
+    candidate_priority: P2
+    rationale: This RuleSpec output is the person-level statutory cap after Social Security cap-increase rules; PE computes separate Social Security and pension components and does not expose this combined cap boundary.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_pension_subtraction
+    candidate_priority: P2
+    rationale: This RuleSpec output is the person-level subsection (4)(f) subtraction including pension and Social Security benefit treatment; PE exposes a tax-unit aggregate split across pension and Social Security component variables and is missing the 2025 age 55-64 AGI-limited Social Security cap increase tracked in PolicyEngine/policyengine-us#8541.
+
   - legal_id: us-co:statutes/39/39-22-104/4/y#military_retirement_benefits_cap_initial_phase
     country: us
     program: tax

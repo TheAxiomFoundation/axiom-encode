@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from calendar import monthrange
 from collections import Counter, defaultdict
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
@@ -18083,6 +18084,24 @@ def _validate_generated_encoding_in_policy_overlay(
                     dependents=dependents,
                 )
                 continue
+            future_effective_repairs = _repair_future_effective_output_tests(
+                rules_file=overlay_target,
+                test_file=_rulespec_test_path(overlay_target),
+                repo_path=overlay_repo,
+                relative_output=relative_output,
+            )
+            if future_effective_repairs:
+                test_path = _rulespec_test_path(overlay_target)
+                supplemental_files[test_path.relative_to(overlay_repo)] = (
+                    test_path.read_text()
+                )
+                validations = _validate_overlay_files(
+                    pipeline,
+                    dependent_pipeline=dependent_pipeline,
+                    overlay_target=overlay_target,
+                    dependents=dependents,
+                )
+                continue
             mixed_derived_entity_repairs = _repair_mixed_derived_entity_output_tests(
                 rules_file=overlay_target,
                 test_file=_rulespec_test_path(overlay_target),
@@ -19055,12 +19074,25 @@ def _repair_mixed_scalar_output_tests(
             if str(key) in scalar_outputs
         }
         if not scalar_items or len(scalar_items) == len(output):
+            repaired_case = case
+            if scalar_items:
+                repaired_case = _repair_scalar_parameter_case_period(
+                    case=case,
+                    scalar_output_keys={str(key) for key in scalar_items},
+                    scalar_parameter_rules=scalar_parameter_rules,
+                )
             if dropped_fractional_parameter_outputs:
-                repaired_case = dict(case)
+                repaired_case = dict(repaired_case)
                 repaired_case["output"] = output
+                repaired_cases.append(repaired_case)
+            elif repaired_case is not case:
                 repaired_cases.append(repaired_case)
             else:
                 repaired_cases.append(case)
+            if repaired_case is not case:
+                case_name = str(case.get("name") or "case").strip() or "case"
+                if case_name not in repaired_names:
+                    repaired_names.append(case_name)
             continue
 
         entity_items = {
@@ -19084,6 +19116,11 @@ def _repair_mixed_scalar_output_tests(
             "input": copy.deepcopy(case.get("input", {})),
             "output": scalar_items,
         }
+        scalar_case = _repair_scalar_parameter_case_period(
+            case=scalar_case,
+            scalar_output_keys={str(key) for key in scalar_items},
+            scalar_parameter_rules=scalar_parameter_rules,
+        )
         repaired_cases.append(scalar_case)
         if case_name not in repaired_names:
             repaired_names.append(case_name)
@@ -19092,6 +19129,221 @@ def _repair_mixed_scalar_output_tests(
         return []
     test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
     return repaired_names
+
+
+def _repair_scalar_parameter_case_period(
+    *,
+    case: dict[str, Any],
+    scalar_output_keys: set[str],
+    scalar_parameter_rules: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    effective_date = _latest_earliest_parameter_effective_date(
+        scalar_output_keys=scalar_output_keys,
+        scalar_parameter_rules=scalar_parameter_rules,
+    )
+    if effective_date is None:
+        return case
+    period = case.get("period")
+    period_start = _test_period_start_date(period)
+    if period_start is not None and period_start >= effective_date:
+        return case
+    repaired_case = dict(case)
+    repaired_case["period"] = _test_period_on_or_after(period, effective_date)
+    return repaired_case
+
+
+def _repair_future_effective_output_tests(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    relative_output: Path,
+) -> list[str]:
+    """Move output assertions out of periods before the output is effective."""
+    if not test_file.exists():
+        return []
+    try:
+        rules_document = yaml.safe_load(rules_file.read_text()) or {}
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(rules_document, dict) or not isinstance(test_cases, list):
+        return []
+
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    output_rules: dict[str, dict[str, Any]] = {}
+    for rule in rules_document.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "parameter",
+            "derived",
+        }:
+            continue
+        for key in _local_rulespec_output_keys(
+            rule,
+            target_base=target_base,
+            repo_path=repo_path,
+        ):
+            output_rules[key] = rule
+    if not output_rules:
+        return []
+
+    repaired_cases: list[object] = []
+    repaired_names: list[str] = []
+    existing_names = {
+        str(case.get("name") or "") for case in test_cases if isinstance(case, dict)
+    }
+    for case in test_cases:
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict) or not output:
+            repaired_cases.append(case)
+            continue
+        period_start = _test_period_start_date(case.get("period"))
+        current_items: dict[Any, Any] = {}
+        future_items: dict[Any, Any] = {}
+        future_dates: list[date] = []
+        for key, value in output.items():
+            effective_date = _earliest_rule_effective_date(output_rules.get(str(key)))
+            if effective_date is not None and (
+                period_start is None or period_start < effective_date
+            ):
+                future_items[key] = value
+                future_dates.append(effective_date)
+            else:
+                current_items[key] = value
+        if not future_items or not future_dates:
+            repaired_cases.append(case)
+            continue
+
+        case_name = str(case.get("name") or "case").strip() or "case"
+        effective_period = _test_period_on_or_after(
+            case.get("period"),
+            max(future_dates),
+        )
+        if current_items:
+            current_case = dict(case)
+            current_case["output"] = current_items
+            repaired_cases.append(current_case)
+
+            future_case_name = _unique_test_case_name(
+                f"{case_name}_effective_outputs",
+                existing_names,
+            )
+            existing_names.add(future_case_name)
+            future_case = dict(case)
+            future_case["name"] = future_case_name
+            future_case["period"] = effective_period
+            future_case["input"] = copy.deepcopy(case.get("input", {}))
+            future_case["output"] = future_items
+            repaired_cases.append(future_case)
+        else:
+            repaired_case = dict(case)
+            repaired_case["period"] = effective_period
+            repaired_cases.append(repaired_case)
+        if case_name not in repaired_names:
+            repaired_names.append(case_name)
+
+    if not repaired_names:
+        return []
+    test_file.write_text(yaml.safe_dump(repaired_cases, sort_keys=False))
+    return repaired_names
+
+
+def _latest_earliest_parameter_effective_date(
+    *,
+    scalar_output_keys: set[str],
+    scalar_parameter_rules: dict[str, dict[str, Any]],
+) -> date | None:
+    effective_dates: list[date] = []
+    for output_key in scalar_output_keys:
+        rule = scalar_parameter_rules.get(output_key)
+        if not isinstance(rule, dict):
+            continue
+        rule_dates: list[date] = []
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            parsed = _parse_iso_date(version.get("effective_from"))
+            if parsed is not None:
+                rule_dates.append(parsed)
+        if rule_dates:
+            effective_dates.append(min(rule_dates))
+    return max(effective_dates) if effective_dates else None
+
+
+def _earliest_rule_effective_date(rule: dict[str, Any] | None) -> date | None:
+    if not isinstance(rule, dict):
+        return None
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return None
+    dates = [
+        parsed
+        for version in versions
+        if isinstance(version, dict)
+        for parsed in [_parse_iso_date(version.get("effective_from"))]
+        if parsed is not None
+    ]
+    return min(dates) if dates else None
+
+
+def _parse_iso_date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _test_period_start_date(period: Any) -> date | None:
+    if isinstance(period, dict):
+        return _parse_iso_date(period.get("start"))
+    if isinstance(period, int):
+        return date(period, 1, 1)
+    if isinstance(period, str):
+        stripped = period.strip()
+        if re.fullmatch(r"\d{4}", stripped):
+            return date(int(stripped), 1, 1)
+        if re.fullmatch(r"\d{4}-\d{2}", stripped):
+            return date(int(stripped[:4]), int(stripped[5:]), 1)
+        return _parse_iso_date(stripped)
+    if isinstance(period, date):
+        return period
+    return None
+
+
+def _test_period_on_or_after(period: Any, effective_date: date) -> Any:
+    if isinstance(period, dict):
+        repaired = copy.deepcopy(period)
+        period_kind = str(repaired.get("period_kind") or "").lower()
+        if period_kind == "month":
+            start = date(effective_date.year, effective_date.month, 1)
+            end = date(
+                effective_date.year,
+                effective_date.month,
+                monthrange(effective_date.year, effective_date.month)[1],
+            )
+        elif period_kind == "tax_year":
+            start = effective_date
+            end = date(effective_date.year, 12, 31)
+        else:
+            start = effective_date
+            end = effective_date
+        repaired["start"] = start.isoformat()
+        repaired["end"] = end.isoformat()
+        return repaired
+    if isinstance(period, str) and re.fullmatch(r"\d{4}-\d{2}", period.strip()):
+        return effective_date.strftime("%Y-%m")
+    return effective_date.isoformat()
 
 
 def _repair_missing_entity_table_rows_for_row_ordered_outputs(
