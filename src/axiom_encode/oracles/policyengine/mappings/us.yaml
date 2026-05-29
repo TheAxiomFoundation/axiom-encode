@@ -907,6 +907,150 @@ mappings:
     mapping_type: not_comparable
     rationale: This generated output is the statutory 4.55% base rate before applying later TABOR/form-rate reductions; PolicyEngine exposes the final Colorado form rate for each tax year.
 
+  - legal_id: us-co:statutes/39/39-22-104/3/o#single_return_adjusted_gross_income_threshold_for_section_199a_addition
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.qualified_business_income_deduction.agi_threshold
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado qualified business income deduction addback AGI threshold for single filers.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/o#joint_return_adjusted_gross_income_threshold_for_section_199a_addition
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.qualified_business_income_deduction.agi_threshold
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado qualified business income deduction addback AGI threshold for joint filers.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/o#taxpayer_subject_to_section_199a_deduction_addition
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_qualified_business_income_deduction_addback_required
+    candidate_priority: P2
+    rationale: This RuleSpec predicate includes the statutory Schedule F exception for section 199A addbacks; PolicyEngine's required predicate only applies the AGI threshold by filing status.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/o#section_199a_deduction_addition_to_federal_taxable_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_qualified_business_income_deduction_addback
+    candidate_priority: P2
+    rationale: This RuleSpec output applies the statutory Schedule F exception before adding back the section 199A deduction; PolicyEngine's addback amount does not model that exception.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p#federal_adjusted_gross_income_threshold_for_itemized_deduction_addition
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.agi_threshold
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado federal deduction addback AGI threshold for the 2022 itemized-deduction rule.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p#single_return_itemized_deduction_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado federal deduction addback exemption for single filers under the 2022 itemized-deduction rule.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p#joint_return_itemized_deduction_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado federal deduction addback exemption for joint filers under the 2022 itemized-deduction rule.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p#taxpayer_subject_to_itemized_deduction_addition
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_federal_deduction_addback_required
+    candidate_priority: P3
+    rationale: This RuleSpec predicate is limited to the subsection (3)(p) itemized-deduction rule and is displaced by subsection (3)(p.5); PolicyEngine exposes a unified federal-deduction addback predicate across both statutory windows.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/5#federal_adjusted_gross_income_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.agi_threshold
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado federal deduction addback AGI threshold for the subsection (3)(p.5) rule.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/5#single_return_deduction_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
+    parameter_key: SINGLE
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado federal deduction addback exemption for single filers under subsection (3)(p.5).
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/5#joint_return_deduction_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
+    parameter_key: JOINT
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado federal deduction addback exemption for joint filers under subsection (3)(p.5).
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/5#itemized_or_standard_deduction_addition_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_federal_deduction_addback_required
+    candidate_priority: P3
+    rationale: This RuleSpec predicate includes the statutory healthy-school-meals repeal exception and source-window boundary; PolicyEngine exposes a unified federal-deduction addback predicate without that repeal condition.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/5#initial_window_addition_to_federal_taxable_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_federal_deduction_addback
+    candidate_priority: P3
+    rationale: This RuleSpec output is the subsection (3)(p.5) initial-window amount and includes the healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback amount without that repeal condition.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/m#charitable_contribution_subtraction_floor
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.subtractions.charitable_contribution.adjustment
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado charitable contribution subtraction floor.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/m#standard_deduction_charitable_contribution_subtraction
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_charitable_contribution_subtraction
+    candidate_priority: P3
+    rationale: This RuleSpec output is person-level and includes the 2015-2019 hunger-relief food-contribution credit disallowance; PolicyEngine exposes a tax-unit aggregate charitable contribution subtraction without that credit exception.
+
   - legal_id: us-co:statutes/39/39-22-104/4/f#pension_annuity_subtraction_cap_for_age_fifty_five_to_sixty_four
     country: us
     program: tax

@@ -741,6 +741,221 @@ rules:
     assert {item["tested"] for item in report["items"]} == {True}
 
 
+def test_policyengine_coverage_classifies_colorado_deduction_addbacks(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/o.yaml",
+        """format: rulespec/v1
+rules:
+  - name: single_return_adjusted_gross_income_threshold_for_section_199a_addition
+    kind: parameter
+    versions:
+      - effective_from: '2021-01-01'
+        formula: '500000'
+  - name: joint_return_adjusted_gross_income_threshold_for_section_199a_addition
+    kind: parameter
+    versions:
+      - effective_from: '2021-01-01'
+        formula: '1000000'
+  - name: taxpayer_subject_to_section_199a_deduction_addition
+    kind: derived
+    versions:
+      - effective_from: '2021-01-01'
+        formula: agi_above_threshold and not schedule_f_exception
+  - name: section_199a_deduction_addition_to_federal_taxable_income
+    kind: derived
+    versions:
+      - effective_from: '2021-01-01'
+        formula: 'if taxpayer_subject_to_section_199a_deduction_addition: section_199a_deduction else: 0'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/o.test.yaml",
+        """- name: qbi addback outputs
+  period:
+    period_kind: tax_year
+    start: '2021-01-01'
+    end: '2021-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/3/o#single_return_adjusted_gross_income_threshold_for_section_199a_addition: 500000
+    us-co:statutes/39/39-22-104/3/o#joint_return_adjusted_gross_income_threshold_for_section_199a_addition: 1000000
+    us-co:statutes/39/39-22-104/3/o#taxpayer_subject_to_section_199a_deduction_addition: holds
+    us-co:statutes/39/39-22-104/3/o#section_199a_deduction_addition_to_federal_taxable_income: 1000
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/p.yaml",
+        """format: rulespec/v1
+rules:
+  - name: federal_adjusted_gross_income_threshold_for_itemized_deduction_addition
+    kind: parameter
+    versions:
+      - effective_from: '2022-01-01'
+        formula: '400000'
+  - name: single_return_itemized_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2022-01-01'
+        formula: '30000'
+  - name: joint_return_itemized_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2022-01-01'
+        formula: '60000'
+  - name: taxpayer_subject_to_itemized_deduction_addition
+    kind: derived
+    versions:
+      - effective_from: '2022-01-01'
+        formula: itemizes and agi_above_threshold and not subsection_p_5_displaced
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/p.test.yaml",
+        """- name: itemized deduction addback outputs
+  period:
+    period_kind: tax_year
+    start: '2022-01-01'
+    end: '2022-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/3/p#federal_adjusted_gross_income_threshold_for_itemized_deduction_addition: 400000
+    us-co:statutes/39/39-22-104/3/p#single_return_itemized_deduction_threshold: 30000
+    us-co:statutes/39/39-22-104/3/p#joint_return_itemized_deduction_threshold: 60000
+    us-co:statutes/39/39-22-104/3/p#taxpayer_subject_to_itemized_deduction_addition: holds
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/p/5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: federal_adjusted_gross_income_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2023-01-01'
+        formula: '300000'
+  - name: single_return_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2023-01-01'
+        formula: '12000'
+  - name: joint_return_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2023-01-01'
+        formula: '16000'
+  - name: itemized_or_standard_deduction_addition_applies
+    kind: derived
+    versions:
+      - effective_from: '2023-01-01'
+        formula: claims_deduction and agi_above_threshold and not healthy_school_meals_repealed
+  - name: initial_window_addition_to_federal_taxable_income
+    kind: derived
+    versions:
+      - effective_from: '2023-01-01'
+        formula: 'if itemized_or_standard_deduction_addition_applies: deduction_excess else: 0'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/p/5.test.yaml",
+        """- name: subsection p5 deduction addback outputs
+  period:
+    period_kind: tax_year
+    start: '2023-01-01'
+    end: '2023-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/3/p/5#federal_adjusted_gross_income_threshold: 300000
+    us-co:statutes/39/39-22-104/3/p/5#single_return_deduction_threshold: 12000
+    us-co:statutes/39/39-22-104/3/p/5#joint_return_deduction_threshold: 16000
+    us-co:statutes/39/39-22-104/3/p/5#itemized_or_standard_deduction_addition_applies: holds
+    us-co:statutes/39/39-22-104/3/p/5#initial_window_addition_to_federal_taxable_income: 8000
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/m.yaml",
+        """format: rulespec/v1
+rules:
+  - name: charitable_contribution_subtraction_floor
+    kind: parameter
+    versions:
+      - effective_from: '2001-01-01'
+        formula: '500'
+  - name: standard_deduction_charitable_contribution_subtraction
+    kind: derived
+    entity: Person
+    versions:
+      - effective_from: '2001-01-01'
+        formula: charitable_deduction_if_itemized - charitable_contribution_subtraction_floor
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/m.test.yaml",
+        """- name: charitable contribution subtraction outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/4/m#charitable_contribution_subtraction_floor: 500
+    us-co:statutes/39/39-22-104/4/m#standard_deduction_charitable_contribution_subtraction: 1000
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 15
+    assert report["status_counts"] == {
+        "comparable": 9,
+        "known_not_comparable": 6,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    qbi_threshold = items_by_id[
+        "us-co:statutes/39/39-22-104/3/o#single_return_adjusted_gross_income_threshold_for_section_199a_addition"
+    ]
+    qbi_addback = items_by_id[
+        "us-co:statutes/39/39-22-104/3/o#section_199a_deduction_addition_to_federal_taxable_income"
+    ]
+    p5_threshold = items_by_id[
+        "us-co:statutes/39/39-22-104/3/p/5#joint_return_deduction_threshold"
+    ]
+    p5_addback = items_by_id[
+        "us-co:statutes/39/39-22-104/3/p/5#initial_window_addition_to_federal_taxable_income"
+    ]
+    charitable_floor = items_by_id[
+        "us-co:statutes/39/39-22-104/4/m#charitable_contribution_subtraction_floor"
+    ]
+    charitable_subtraction = items_by_id[
+        "us-co:statutes/39/39-22-104/4/m#standard_deduction_charitable_contribution_subtraction"
+    ]
+    assert (
+        qbi_threshold["policyengine_parameter"]
+        == "gov.states.co.tax.income.additions.qualified_business_income_deduction.agi_threshold"
+    )
+    assert qbi_threshold["tested"] is True
+    assert qbi_addback["status"] == "known_not_comparable"
+    assert (
+        qbi_addback["policyengine_variable"]
+        == "co_qualified_business_income_deduction_addback"
+    )
+    assert (
+        p5_threshold["policyengine_parameter"]
+        == "gov.states.co.tax.income.additions.federal_deductions.exemption"
+    )
+    assert p5_addback["status"] == "known_not_comparable"
+    assert p5_addback["policyengine_variable"] == "co_federal_deduction_addback"
+    assert (
+        charitable_floor["policyengine_parameter"]
+        == "gov.states.co.tax.income.subtractions.charitable_contribution.adjustment"
+    )
+    assert charitable_subtraction["status"] == "known_not_comparable"
+    assert (
+        charitable_subtraction["policyengine_variable"]
+        == "co_charitable_contribution_subtraction"
+    )
+
+
 def test_policyengine_coverage_classifies_colorado_military_retirement_outputs(
     tmp_path,
 ):
