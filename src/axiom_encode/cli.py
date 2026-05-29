@@ -5308,6 +5308,11 @@ def cmd_repair_imported_test_inputs(args):
             test_file=test_file,
             issues=issues,
         )
+        repaired_2014c_refs = _repair_snap_2014c_income_standard_test_inputs(
+            test_file=test_file,
+            relative_output=relative_output,
+            issues=issues,
+        )
         removed_invalid_refs = _remove_invalid_test_input_refs(
             test_file=test_file,
             issues=issues,
@@ -5329,6 +5334,7 @@ def cmd_repair_imported_test_inputs(args):
             and not removed_invalid_refs
             and not removed_refs
             and not repaired_exclusion_refs
+            and not repaired_2014c_refs
             and not completed_missing_inputs
             and not repaired_output_cases
         ):
@@ -11463,6 +11469,98 @@ def _remove_invalid_import_output_test_input_refs(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return sorted(invalid_refs)
+
+
+_SNAP_2014C_RELATIVE_OUTPUT = "statutes/7/2014/c.yaml"
+_SNAP_2014C_BAD_TEST_INPUT_REFS = {
+    "us:regulations/7-cfr/273/10#input.snap_total_gross_income",
+    "us:regulations/7-cfr/273/10#input.snap_excess_shelter_deduction",
+}
+_SNAP_2014C_TEST_CASE_INCOME_INPUTS = {
+    "net_income_above_poverty_line_makes_household_ineligible": (1200, 1400),
+    "non_elderly_disabled_household_fails_gross_income_standard": (1400, 1200),
+    "elderly_or_disabled_member_removes_gross_income_standard_failure": (
+        1400,
+        1200,
+    ),
+    "virgin_islands_or_guam_standard_is_capped_to_contiguous_states_standard": (
+        1200,
+        1400,
+    ),
+}
+
+
+def _repair_snap_2014c_income_standard_test_inputs(
+    *,
+    test_file: Path,
+    relative_output: Path,
+    issues: list[str],
+) -> list[str]:
+    """Repair generated 7 USC 2014(c) SNAP income-standard test inputs.
+
+    The first generation for this source emitted duplicate
+    `7 CFR 273.10#input.snap_total_gross_income` keys. One value belongs to
+    the local gross-income standard in 7 USC 2014(c), while the other belongs
+    to imported 7 USC 2014(e)(6)(A) net-income computation. The invalid
+    regulation input reference collapses under YAML parsing, so this repair
+    deterministically restores the four intended scenarios before generic
+    invalid-input cleanup can discard the scenario-setting values.
+    """
+    if relative_output.as_posix() != _SNAP_2014C_RELATIVE_OUTPUT:
+        return []
+    if not test_file.exists():
+        return []
+    invalid_refs = _invalid_input_refs_from_issues(issues)
+    if invalid_refs.isdisjoint(_SNAP_2014C_BAD_TEST_INPUT_REFS):
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    repaired_cases: list[str] = []
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        case_name = str(test_case.get("name") or "")
+        income_inputs = _SNAP_2014C_TEST_CASE_INCOME_INPUTS.get(case_name)
+        if income_inputs is None:
+            continue
+        inputs = test_case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+
+        changed = False
+        for bad_ref in _SNAP_2014C_BAD_TEST_INPUT_REFS:
+            if bad_ref in inputs:
+                del inputs[bad_ref]
+                changed = True
+
+        gross_income, monthly_income = income_inputs
+        replacements = {
+            "us:statutes/7/2014/c#input.snap_total_gross_income": gross_income,
+            "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income": (
+                monthly_income
+            ),
+            "us:statutes/7/2014/e/6/A#input.snap_excess_shelter_deduction": 0,
+        }
+        for input_ref, value in replacements.items():
+            if inputs.get(input_ref) != value:
+                inputs[input_ref] = value
+                changed = True
+
+        if changed:
+            repaired_cases.append(case_name)
+
+    if not repaired_cases:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return repaired_cases
 
 
 def _repair_stale_exclusion_dependency_test_input_refs(
