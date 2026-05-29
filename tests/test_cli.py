@@ -61,6 +61,7 @@ from axiom_encode.cli import (
     _repair_section_151_imports,
     _repair_section_151_temporal_fact_names,
     _repair_shared_statutory_rate_names,
+    _repair_snap_2014c_income_standard_test_inputs,
     _repair_tax_filing_status_branches,
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
@@ -9664,6 +9665,83 @@ rules: []
         manifest = policy_repo / ".axiom/encoding-manifests/statutes/26/63.json"
         payload = json.loads(manifest.read_text())
         assert payload["model"] == "imported-test-inputs-v1"
+
+    def test_repair_snap_2014c_income_standard_test_inputs(self, tmp_path):
+        test_file = tmp_path / "c.test.yaml"
+        test_file.write_text(
+            """- name: net_income_above_poverty_line_makes_household_ineligible
+  period: 2026-01
+  input:
+    us:statutes/7/2014/c#input.household_is_in_virgin_islands_or_guam: false
+    us:statutes/7/2014/c#input.poverty_line_under_42_usc_9902_2_for_household_area: 1000
+    us:statutes/7/2014/c#input.poverty_line_under_42_usc_9902_2_for_forty_eight_contiguous_states_and_dc: 1000
+    us:statutes/7/2014/c#input.household_includes_elderly_or_disabled_member: false
+    us:regulations/7-cfr/273/10#input.snap_total_gross_income: 1200
+    us:regulations/7-cfr/273/10#input.snap_total_gross_income: 1400
+    us:regulations/7-cfr/273/10#input.snap_excess_shelter_deduction: 0
+  output:
+    us:statutes/7/2014/c#snap_net_income_exceeds_poverty_line: holds
+- name: non_elderly_disabled_household_fails_gross_income_standard
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_total_gross_income: 1400
+    us:regulations/7-cfr/273/10#input.snap_total_gross_income: 1200
+    us:regulations/7-cfr/273/10#input.snap_excess_shelter_deduction: 0
+  output:
+    us:statutes/7/2014/c#household_fails_gross_income_standard: holds
+"""
+        )
+
+        repaired = _repair_snap_2014c_income_standard_test_inputs(
+            test_file=test_file,
+            relative_output=Path("statutes/7/2014/c.yaml"),
+            issues=[
+                "Test case `net_income_above_poverty_line_makes_household_ineligible` "
+                "input invalid: input "
+                "`us:regulations/7-cfr/273/10#input.snap_total_gross_income` "
+                "does not resolve to an input slot"
+            ],
+        )
+
+        assert repaired == [
+            "net_income_above_poverty_line_makes_household_ineligible",
+            "non_elderly_disabled_household_fails_gross_income_standard",
+        ]
+        cases = {case["name"]: case for case in yaml.safe_load(test_file.read_text())}
+        net_case_inputs = cases[
+            "net_income_above_poverty_line_makes_household_ineligible"
+        ]["input"]
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_gross_income"
+            not in net_case_inputs
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_excess_shelter_deduction"
+            not in net_case_inputs
+        )
+        assert (
+            net_case_inputs["us:statutes/7/2014/c#input.snap_total_gross_income"]
+            == 1200
+        )
+        assert (
+            net_case_inputs[
+                "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income"
+            ]
+            == 1400
+        )
+        gross_case_inputs = cases[
+            "non_elderly_disabled_household_fails_gross_income_standard"
+        ]["input"]
+        assert (
+            gross_case_inputs["us:statutes/7/2014/c#input.snap_total_gross_income"]
+            == 1400
+        )
+        assert (
+            gross_case_inputs[
+                "us:statutes/7/2014/e/6/A#input.snap_monthly_household_income"
+            ]
+            == 1200
+        )
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):
         output_root = tmp_path / "out"
