@@ -3482,6 +3482,12 @@ Test file rules:
 - If context files import this target file or reference this target file's outputs, use that as a signal to repair the dependency graph, not as a requirement to preserve old names. Keep an old output only when it remains the cleanest source-faithful RuleSpec surface.
 - Do not preserve existing factual input slots referenced by copied formulas or companion tests when a cleaner source-faithful encoding removes them. For names listed under invalid copied local inputs, do not preserve, rename, or recreate them.
 - For cross-reference boundary facts that remain local because the cited source is not present in context at all, keep the legal pointer in the identifier. If context for the cited source is present but unsupported, deferred, empty, or missing the exact displacement or exception export, encode a source-grounded local boundary predicate for whether that cited source displaces or blocks the requested source's formula; do not defer the requested formula merely because the copied cited file exports only its own separate amount.
+- When this source text itself names the operative factual disqualification,
+  exception, or eligibility condition, encode that named condition as a local
+  factual input even if the sentence cites another section for definitions or
+  compliance procedures. Do not defer the target output solely because the
+  cited section is absent when the source gives enough facts to evaluate the
+  branch as true or false.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
   use bare friendly keys or absolute-looking placeholders.
