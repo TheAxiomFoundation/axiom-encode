@@ -875,6 +875,26 @@ mappings:
     comparison: rate
     rationale: Same Colorado individual income tax flat rate, stored in PE as the Colorado income-tax rate parameter.
 
+  - legal_id: us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.rate
+    period: year
+    comparison: rate
+    rationale: Same Colorado individual income tax flat rate for 1999, stored in PE as the Colorado income-tax rate parameter.
+
+  - legal_id: us-co:statutes/39/39-22-104/1.5#subsection_1_5_individual_income_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: co_income_tax_before_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same pre-credit Colorado income tax on the subsection (2)-modified tax base; PE computes co_taxable_income times the Colorado income-tax rate before nonrefundable credits.
+
   - legal_id: us-co:statutes/39/39-22-104/1.7/a#individual_estate_trust_income_tax_rate_before_2020
     country: us
     program: tax
@@ -12553,4 +12573,3 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
-
