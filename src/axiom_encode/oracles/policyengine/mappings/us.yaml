@@ -12629,3 +12629,207 @@ prefixes:
     program: snap
     mapping_type: not_comparable
     rationale: Massachusetts DTA SNAP violations/hearings/claims outputs cover source-specific enforcement and overissuance mechanics; PolicyEngine does not expose these enforcement-side predicates as comparable variables.
+  - legal_id_prefix: us-nc:regulations/10a-ncac/71u/0210/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: North Carolina DSS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-nc:regulations/10a-ncac/71u/0212/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: North Carolina DSS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-nc:regulations/10a-ncac/71u/0215/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: North Carolina DSS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-nc:regulations/10a-ncac/71u/0302/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: North Carolina DSS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/03/05/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/03/10/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/03/13/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/03/15/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/03/44/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/03/46/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/01/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/03/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/05/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/07/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/09/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/15/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/16/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/17/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/18/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/24/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/04/27/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/08/01/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/12/06/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/14/04/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/14/09/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/14/11/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-tn:regulations/1240-01/14/14/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Tennessee DHS SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-fl:regulations/fac/65a-1/205/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Florida DCF SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-fl:regulations/fac/65a-1/400/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Florida DCF SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-fl:regulations/fac/65a-1/703/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Florida DCF SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-fl:regulations/fac/65a-1/711/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Florida DCF SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-fl:regulations/fac/65a-1/7141/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Florida DCF SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-fl:regulations/fac/65a-1/803/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Florida DCF SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
+  - legal_id_prefix: us-fl:regulations/fac/65a-1/900/block-1#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Florida DCF SNAP outputs at this regulation section are source-specific intermediate predicates (definitions, eligibility branches, deduction helpers, or procedural conditions); PolicyEngine exposes only the aggregate SNAP eligibility and allotment variables, not these per-section intermediates.
+
