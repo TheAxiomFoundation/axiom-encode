@@ -43,6 +43,8 @@ from axiom_encode.cli import (
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
     _repair_anaphoric_scope_identifiers,
+    _repair_colorado_snap_401,
+    _repair_colorado_snap_401_tests,
     _repair_colorado_snap_2072,
     _repair_colorado_snap_2072_tests,
     _repair_colorado_snap_program_tests,
@@ -4985,6 +4987,130 @@ rules:
         assert rule["versions"][0]["formula"] == "false"
         assert rule["entity"] == "Household"
         assert rule["period"] == "Month"
+
+    def test_repair_colorado_snap_401_uses_household_scope_for_separate_household(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "4.401.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:policies/usda/snap/fy-2026-cola/income-eligibility-standards
+rules:
+  - name: snap_elderly_disabled_separate_household_allowed
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 10 CCR 2506-1 section 4.401(A)(4)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          elderly_disabled_person_unable_to_purchase_and_prepare_meals
+          and co_resident_gross_income <= snap_gross_income_limit_165_percent_fpl_48_states_dc
+"""
+        )
+
+        _repair_colorado_snap_401(rules_file)
+
+        payload = yaml.safe_load(rules_file.read_text())
+        limit_rule = next(
+            item
+            for item in payload["rules"]
+            if item["name"]
+            == "co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
+        )
+        assert limit_rule["entity"] == "Household"
+        assert limit_rule["kind"] == "derived"
+        assert limit_rule["dtype"] == "Money"
+        assert limit_rule["period"] == "Month"
+        assert limit_rule["unit"] == "USD"
+        assert (
+            limit_rule["versions"][0]["formula"]
+            == "snap_gross_income_limit_165_percent_fpl_48_states_dc_table"
+            "[max(min(co_resident_group_size, 8), 1)]\n"
+            "+ (max(co_resident_group_size - 8, 0) * "
+            "snap_gross_income_limit_165_percent_fpl_48_states_dc_additional_member)"
+        )
+        eligibility_rule = next(
+            item
+            for item in payload["rules"]
+            if item["name"] == "snap_elderly_disabled_separate_household_allowed"
+        )
+        assert eligibility_rule["entity"] == "Household"
+        assert eligibility_rule["kind"] == "derived"
+        assert eligibility_rule["dtype"] == "Judgment"
+        assert eligibility_rule["period"] == "Month"
+        assert (
+            eligibility_rule["versions"][0]["formula"]
+            == "elderly_disabled_person_unable_to_purchase_and_prepare_meals\n"
+            "and co_resident_gross_income <= "
+            "co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
+        )
+
+    def test_repair_colorado_snap_401_tests_uses_co_resident_group_size(self, tmp_path):
+        test_file = tmp_path / "4.401.test.yaml"
+        test_file.write_text(
+            """- name: separate_household_allowed_when_co_resident_income_is_within_limit
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
+    us-co:regulations/10-ccr-2506-1/4.401#input.elderly_disabled_person_unable_to_purchase_and_prepare_meals: true
+    us-co:regulations/10-ccr-2506-1/4.401#input.co_resident_gross_income: 2152
+  output:
+    us-co:regulations/10-ccr-2506-1/4.401#snap_elderly_disabled_separate_household_allowed: holds
+"""
+        )
+
+        _repair_colorado_snap_401_tests(test_file)
+
+        cases = yaml.safe_load(test_file.read_text())
+        original = cases[0]
+        assert (
+            original["input"][
+                "us-co:regulations/10-ccr-2506-1/4.401#input.co_resident_group_size"
+            ]
+            == 1
+        )
+        assert (
+            original["output"][
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
+            ]
+            == 2152
+        )
+        allowed = next(
+            item
+            for item in cases
+            if item["name"] == "separate_household_allowed_uses_co_resident_group_size"
+        )
+        assert (
+            allowed["input"][
+                "us:policies/usda/snap/fy-2026-cola/income-eligibility-standards"
+                "#input.household_size"
+            ]
+            == 1
+        )
+        assert (
+            allowed["input"][
+                "us-co:regulations/10-ccr-2506-1/4.401#input.co_resident_group_size"
+            ]
+            == 3
+        )
+        assert (
+            allowed["output"][
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
+            ]
+            == 3665
+        )
+        assert (
+            allowed["output"][
+                "us-co:regulations/10-ccr-2506-1/4.401"
+                "#snap_elderly_disabled_separate_household_allowed"
+            ]
+            == "holds"
+        )
 
     def test_repair_employer_scoped_entities_sets_rate_helpers(self, tmp_path):
         rules_file = tmp_path / "3221.yaml"
