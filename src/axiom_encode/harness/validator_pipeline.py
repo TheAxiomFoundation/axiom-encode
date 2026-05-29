@@ -6965,10 +6965,14 @@ def _source_citation_subparagraph_paths(
 
 def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str] | None:
     parts = citation_path.strip("/").split("/")
+    exact_corpus_path = re.escape(citation_path.strip("/"))
     if len(parts) >= 4 and parts[:2] == ["us", "statute"]:
         title = re.escape(parts[2])
         section = re.escape(parts[3])
-        citation_prefixes = [rf"{title}\s+(?:U\.?\s*S\.?\s*C\.?|USC)\s+{section}"]
+        citation_prefixes = [
+            exact_corpus_path,
+            rf"{title}\s+(?:U\.?\s*S\.?\s*C\.?|USC)\s+{section}",
+        ]
         if parts[2] == "26":
             citation_prefixes.append(rf"I\.?\s*R\.?\s*C\.?\s+section\s+{section}")
             citation_prefixes.append(rf"IRC\s+section\s+{section}")
@@ -6980,7 +6984,7 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
     if len(parts) >= 4 and parts[0].startswith("us-") and parts[1] == "statute":
         section = re.escape(parts[3])
         return re.compile(
-            rf"(?<![\w.-])(?:{section}|C\.?\s*R\.?\s*S\.?\s*{section})"
+            rf"(?<![\w.-])(?:{exact_corpus_path}|{section}|C\.?\s*R\.?\s*S\.?\s*{section})"
             r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
             flags=re.IGNORECASE,
         )
@@ -6988,7 +6992,13 @@ def _source_subparagraph_citation_pattern(citation_path: str) -> re.Pattern[str]
         title = re.escape(parts[2])
         section = re.escape(f"{parts[3]}.{parts[4]}")
         return re.compile(
-            rf"\b{title}\s+(?:C\.?\s*F\.?\s*R\.?|CFR)\s+{section}"
+            rf"(?:\b{title}\s+(?:C\.?\s*F\.?\s*R\.?|CFR)\s+{section}|{exact_corpus_path})"
+            r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
+            flags=re.IGNORECASE,
+        )
+    if len(parts) >= 3 and parts[0].startswith("us-") and parts[1] == "regulation":
+        return re.compile(
+            rf"(?<![\w.-]){exact_corpus_path}"
             r"(?P<suffix>(?:\([A-Za-z0-9]+\))+)",
             flags=re.IGNORECASE,
         )
@@ -7005,6 +7015,8 @@ def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
         return ("statutes", parts[2], parts[3])
     if len(parts) >= 5 and parts[:2] == ["us", "regulation"]:
         return ("regulations", f"{parts[2]}-cfr", parts[3], parts[4])
+    if len(parts) >= 3 and parts[0].startswith("us-") and parts[1] == "regulation":
+        return ("regulations", *parts[2:])
     return ()
 
 

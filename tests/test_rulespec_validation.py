@@ -12412,6 +12412,60 @@ rules: []
     ]
 
 
+def test_source_subparagraph_coverage_accepts_state_regulation_corpus_source():
+    source_text = """Categorical eligibility
+(a) Households in which all members are recipients of assistance are eligible.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+  summary: New York categorical eligibility.
+rules:
+  - name: all_member_assistance_categorical_eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: us-ny/regulation/18-nycrr/387/14/a/5(a)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_all_members_receive_assistance
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us-ny/regulation/18-nycrr/387/14/a/5": source_text},
+        )
+        == []
+    )
+
+
+def test_source_subparagraph_coverage_accepts_state_regulation_deferred_output():
+    source_text = """Categorical eligibility
+(a) Households in which all members are recipients of assistance are eligible.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+  summary: New York categorical eligibility.
+  deferred_outputs:
+    - output: us-ny:regulations/18-nycrr/387/14/a/5/a#all_member_assistance_categorical_eligibility
+      reason: Depends on TANF assistance-unit eligibility not yet encoded.
+rules: []
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us-ny/regulation/18-nycrr/387/14/a/5": source_text},
+        )
+        == []
+    )
+
+
 def test_source_subparagraph_coverage_allows_repealed_empty_slice(tmp_path):
     source_text = """Wages
 (a) Wages means all remuneration for employment.
