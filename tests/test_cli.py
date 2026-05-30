@@ -5239,6 +5239,14 @@ rules:
             "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
             "#ny_snap_excess_shelter_cost: 1266.5" in repaired
         )
+        assert (
+            "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
+            in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#snap_initial_month_allotment_after_minimum_issuance: 0" in repaired
+        )
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):
         test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"

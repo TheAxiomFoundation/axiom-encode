@@ -5612,6 +5612,22 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
             "#snap_excess_shelter_deduction: 744\n",
             1,
         )
+    if (
+        "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
+        not in repaired
+    ):
+        repaired = (
+            repaired.rstrip()
+            + """
+
+- name: initial_month_prorated_allotment_below_minimum_gets_zero_issuance
+  period: 2026-01
+  input:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.snap_initial_month_prorated_allotment: 5
+  output:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_initial_month_allotment_after_minimum_issuance: 0
+"""
+        )
     return repaired
 
 
