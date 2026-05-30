@@ -61,6 +61,8 @@ from axiom_encode.cli import (
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
+    _repair_new_york_snap_categorical_eligibility_rules,
+    _repair_new_york_snap_categorical_eligibility_tests,
     _repair_person_scoped_definition_entities,
     _repair_scalar_relation_rows,
     _repair_section_151_imports,
@@ -5138,6 +5140,70 @@ rules:
         )
         assert (
             "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: not_holds"
+            in repaired
+        )
+
+    def test_repair_new_york_snap_categorical_eligibility_adds_final_outputs(self):
+        rules = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+  deferred_outputs:
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible
+      reason: Missing work requirement dependency.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption
+      reason: Missing final categorical eligibility.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household
+      reason: Missing final categorical eligibility.
+  summary: New York SNAP categorical eligibility.
+rules:
+  - name: ny_snap_residual_130_percent_categorical_path_satisfied
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: existing_path
+"""
+
+        repaired = _repair_new_york_snap_categorical_eligibility_rules(rules)
+
+        assert "deferred_outputs:" not in repaired
+        assert "  - name: ny_snap_categorically_eligible\n" in repaired
+        assert (
+            "not household_member_disqualified_for_intentional_program_violation"
+            in repaired
+        )
+        assert "count_where(member_of_household, member_disqualified" not in repaired
+        assert (
+            "  - name: snap_categorically_eligible_for_resource_exemption\n" in repaired
+        )
+        assert (
+            "  - name: snap_income_limit_exemption_for_categorically_eligible_household\n"
+            in repaired
+        )
+
+    def test_repair_new_york_snap_categorical_eligibility_tests_cover_blockers(self):
+        repaired = _repair_new_york_snap_categorical_eligibility_tests(
+            "- name: existing\n  output: {}\n"
+        )
+
+        assert (
+            "all_members_public_assistance_path_makes_household_categorically_eligible"
+            in repaired
+        )
+        assert (
+            "intentional_program_violation_blocks_categorical_eligibility" in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_intentional_program_violation: true"
+            in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: not_holds"
             in repaired
         )
 

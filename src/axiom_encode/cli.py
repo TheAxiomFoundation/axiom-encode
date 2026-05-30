@@ -1082,6 +1082,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_ny_snap_categorical_parser = subparsers.add_parser(
+        "repair-new-york-snap-categorical-eligibility",
+        help="Apply signed deterministic repairs for New York SNAP categorical eligibility",
+    )
+    repair_ny_snap_categorical_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-ny repository root used for manifest signing",
+    )
+    repair_ny_snap_categorical_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1683,6 +1702,8 @@ def main():
         cmd_repair_california_snap_shelter_surface(args)
     elif args.command == "repair-snap-273-10-allotment":
         cmd_repair_snap_273_10_allotment(args)
+    elif args.command == "repair-new-york-snap-categorical-eligibility":
+        cmd_repair_new_york_snap_categorical_eligibility(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -5256,6 +5277,265 @@ def cmd_repair_snap_273_10_allotment(args):
         )
 
     print("Applied 7 CFR 273.10 maximum-allotment repair")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
+
+
+NY_SNAP_CATEGORICAL_RELATIVE = Path("regulations/18-nycrr/387/14/a/5.yaml")
+NY_SNAP_CATEGORICAL_FINAL_RULES = """
+
+  - name: ny_snap_categorically_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: us-ny/regulation/18-nycrr/387/14/a/5(i)-(iii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+              excerpt: Under no circumstances can any household be considered categorically eligible for SNAP if any member of that household is disqualified
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          (
+            ny_snap_all_members_public_assistance_categorical_path_satisfied
+            or ny_snap_elderly_disabled_200_percent_categorical_path_satisfied
+            or ny_snap_dependent_care_200_percent_categorical_path_satisfied
+            or ny_snap_earned_income_150_percent_categorical_path_satisfied
+            or ny_snap_residual_130_percent_categorical_path_satisfied
+          )
+          and not household_member_disqualified_for_intentional_program_violation
+          and not household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements
+          and not household_member_disqualified_for_failure_to_comply_with_work_requirements
+          and not household_member_ineligible_to_participate_in_snap
+
+  - name: snap_categorically_eligible_for_resource_exemption
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: us-ny/regulation/18-nycrr/387/14/a/5(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+              excerpt: Categorically eligible households are presumed, without further investigation or verification, to meet the resource limits
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          ny_snap_categorically_eligible
+
+  - name: snap_income_limit_exemption_for_categorically_eligible_household
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: us-ny/regulation/18-nycrr/387/14/a/5(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+              excerpt: Categorically eligible households are exempted from the gross and net income limits
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          ny_snap_categorically_eligible
+"""
+
+NY_SNAP_CATEGORICAL_FINAL_TESTS = """
+
+- name: all_members_public_assistance_path_makes_household_categorically_eligible
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
+    us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 3000
+    us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 0
+    us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_paid_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_or_nonemergency_safety_net_grant_amount: 0
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_out_of_pocket_dependent_care_expenses: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_earned_income_budgeted_for_snap: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_intentional_program_violation: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_work_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_ineligible_to_participate_in_snap: false
+  output:
+    us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible: holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household: holds
+
+- name: intentional_program_violation_blocks_categorical_eligibility
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
+    us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 3000
+    us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 0
+    us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_paid_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_or_nonemergency_safety_net_grant_amount: 0
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_out_of_pocket_dependent_care_expenses: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_earned_income_budgeted_for_snap: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_intentional_program_violation: true
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_work_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_ineligible_to_participate_in_snap: false
+  output:
+    us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible: not_holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: not_holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household: not_holds
+"""
+
+
+def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
+    repaired = re.sub(
+        r"(?ms)^  deferred_outputs:\n"
+        r"(?:    - output: us-ny:regulations/18-nycrr/387/14/a/5#"
+        r"(?:ny_snap_categorically_eligible|"
+        r"snap_categorically_eligible_for_resource_exemption|"
+        r"snap_income_limit_exemption_for_categorically_eligible_household)\n"
+        r"(?:      .*\n|        .*\n)*)+",
+        "",
+        content,
+    )
+    if "  - name: ny_snap_categorically_eligible\n" not in repaired:
+        repaired = repaired.rstrip() + NY_SNAP_CATEGORICAL_FINAL_RULES + "\n"
+    return repaired
+
+
+def _repair_new_york_snap_categorical_eligibility_tests(content: str) -> str:
+    if (
+        "all_members_public_assistance_path_makes_household_categorically_eligible"
+        in content
+    ):
+        return content
+    return content.rstrip() + NY_SNAP_CATEGORICAL_FINAL_TESTS + "\n"
+
+
+def cmd_repair_new_york_snap_categorical_eligibility(args):
+    """Apply a signed deterministic repair for NY SNAP categorical eligibility."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-ny":
+        print(
+            "repair-new-york-snap-categorical-eligibility must run against "
+            f"rulespec-us-ny; got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = NY_SNAP_CATEGORICAL_RELATIVE
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    repaired_content = _repair_new_york_snap_categorical_eligibility_rules(
+        original_content
+    )
+    repaired_test_content = _repair_new_york_snap_categorical_eligibility_tests(
+        original_test_content
+    )
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        print("No New York SNAP categorical eligibility repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+        finally:
+            if "validation" not in locals() or not validation.all_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="ny-snap-categorical-eligibility-v1",
+            tool="axiom-encode repair-new-york-snap-categorical-eligibility",
+            citation="us-ny:regulations/18-nycrr/387/14/a/5",
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print("Applied New York SNAP categorical eligibility repair")
     print(f"changed={relative_output}")
     print(f"changed={_rulespec_test_path(relative_output)}")
     print(f"manifest={manifest_path}")
