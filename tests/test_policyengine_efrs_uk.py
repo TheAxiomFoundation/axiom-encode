@@ -12,10 +12,13 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PERSONAL_ALLOWANCE_BASE,
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
+    UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
+    UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
     WEEKS_IN_YEAR,
     build_child_benefit_request,
     build_pension_credit_request,
     build_personal_allowance_request,
+    build_universal_credit_request,
     compare_outputs,
     compare_uk_efrs,
     policyengine_benunit_variables_for_surfaces,
@@ -158,11 +161,16 @@ def test_pension_credit_projection_uses_relation_type():
         {
             "relation_type": "COUPLE",
             "is_couple": False,
+            "severe_disability_minimum_guarantee_addition": 0,
+            "num_carers": 1,
         }
     ) == {
         "claimant_is_prisoner": False,
         "member_of_religious_order_fully_maintained_by_order": False,
         "claimant_has_partner": True,
+        "treated_as_severely_disabled_person_under_schedule_i_part_i_paragraph_1": False,
+        "severe_disability_couple_rate_conditions_satisfied": False,
+        "paragraph_4_of_part_ii_of_schedule_i_satisfied_for_this_partner": True,
     }
 
 
@@ -177,6 +185,9 @@ def test_pension_credit_request_projects_benefit_units():
                     "benunit_weight": 1,
                     "relation_type": "SINGLE",
                     "is_couple": False,
+                    "severe_disability_minimum_guarantee_addition": 0,
+                    "carer_minimum_guarantee_addition": 0,
+                    "num_carers": 0,
                     "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
                 }
             ],
@@ -194,7 +205,9 @@ def test_pension_credit_request_projects_benefit_units():
                 "start": "2026-04-06",
                 "end": "2026-04-12",
             },
-            "outputs": [PENSION_CREDIT_OUTPUTS["standard_minimum_guarantee"]["axiom"]],
+            "outputs": list(
+                output["axiom"] for output in PENSION_CREDIT_OUTPUTS.values()
+            ),
         }
     ]
     assert {record["name"]: record["value"] for record in request["dataset"]["inputs"]}[
@@ -203,6 +216,129 @@ def test_pension_credit_request_projects_benefit_units():
         "kind": "bool",
         "value": False,
     }
+
+
+def test_universal_credit_request_queries_monthly_table_amounts():
+    request = build_universal_credit_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benunit_weight": 1,
+                    "uc_standard_allowance": 338.58 * 12,
+                    "uc_standard_allowance_claimant_type": "SINGLE_YOUNG",
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+        surface="universal-credit-standard-allowance",
+    )
+
+    assert request["mode"] == "explain"
+    assert request["dataset"] == {"inputs": [], "relations": []}
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS.values()
+            ),
+        }
+    ]
+
+
+def test_universal_credit_child_element_request_filters_to_positive_rows():
+    request = build_universal_credit_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "uc_child_index": -1,
+                    "uc_individual_child_element": 0,
+                    "uc_individual_disabled_child_element": 0,
+                    "uc_individual_severely_disabled_child_element": 0,
+                },
+                {
+                    "person_id": 8,
+                    "uc_child_index": 1,
+                    "uc_is_child_born_before_child_limit": True,
+                    "uc_individual_child_element": 351.88 * 12,
+                    "uc_individual_disabled_child_element": 0,
+                    "uc_individual_severely_disabled_child_element": 0,
+                },
+            ],
+            "person_ids": [7, 8],
+        },
+        year=2026,
+        surface="universal-credit-child-element",
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_8",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS.values()
+            ),
+        }
+    ]
+
+
+def test_run_axiom_parameter_outputs_reads_generated_rulespec_parameters(tmp_path):
+    program = tmp_path / "regulations" / "uksi" / "2013" / "376" / "36.yaml"
+    program.parent.mkdir(parents=True)
+    program.write_text(
+        """
+format: rulespec/v1
+rules:
+  - name: standard_allowance_single_under_25
+    kind: parameter
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          338.58
+""".strip()
+    )
+
+    results = efrs_uk.run_axiom_parameter_outputs(
+        program=program,
+        request={
+            "queries": [
+                {
+                    "outputs": [
+                        "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25"
+                    ]
+                }
+            ]
+        },
+    )
+
+    assert results == [
+        {
+            "outputs": {
+                "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25": {
+                    "value": {"value": "338.58"}
+                }
+            }
+        }
+    ]
 
 
 def test_select_person_indices_uses_positive_weights_and_explicit_ids():
@@ -233,9 +369,31 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     assert policyengine_benunit_variables_for_surfaces(
         ["personal-allowance", "pension-credit"]
     ) == (
+        "carer_minimum_guarantee_addition",
         "is_couple",
+        "num_carers",
         "relation_type",
+        "severe_disability_minimum_guarantee_addition",
         "standard_minimum_guarantee",
+    )
+    assert policyengine_person_variables_for_surfaces(
+        ["universal-credit-child-element"]
+    ) == (
+        "uc_child_index",
+        "uc_individual_child_element",
+        "uc_individual_disabled_child_element",
+        "uc_individual_severely_disabled_child_element",
+        "uc_is_child_born_before_child_limit",
+    )
+    assert policyengine_benunit_variables_for_surfaces(
+        [
+            "universal-credit-standard-allowance",
+            "universal-credit-carer-element",
+        ]
+    ) == (
+        "uc_carer_element",
+        "uc_standard_allowance",
+        "uc_standard_allowance_claimant_type",
     )
 
 
@@ -272,10 +430,7 @@ def test_compare_outputs_reports_personal_allowance_mismatch():
     assert report.oracle_divergences == []
     assert report.mismatches[0].entity_id == "person_7"
     assert report.output_summary[0]["mismatches"] == 1
-    assert {item["surface"] for item in report.skipped_surfaces} == {
-        "pension-credit-additions",
-        "universal-credit",
-    }
+    assert report.skipped_surfaces == []
 
 
 def test_compare_outputs_classifies_known_policyengine_personal_allowance_rounding():
@@ -349,6 +504,83 @@ def test_compare_outputs_compares_child_benefit_weekly_rate():
     assert report.output_summary[0]["compared"] == 1
 
 
+def test_compare_outputs_compares_applicable_universal_credit_standard_allowance():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_standard_allowance": 338.58 * 12,
+                    "uc_standard_allowance_claimant_type": "SINGLE_YOUNG",
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-standard-allowance": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS[
+                            "standard_allowance_single_under_25"
+                        ]["axiom"]: decimal_output(338.58),
+                        UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS[
+                            "standard_allowance_single_25_or_over"
+                        ]["axiom"]: decimal_output(424.90),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+    assert [
+        (item["output"], item["compared"])
+        for item in report.output_summary
+        if item["compared"]
+    ] == [("standard_allowance_single_under_25", 1)]
+
+
+def test_compare_outputs_classifies_known_policyengine_universal_credit_rates():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 8,
+                    "uc_child_index": 1,
+                    "uc_is_child_born_before_child_limit": True,
+                    "uc_individual_child_element": 350.526123 * 12,
+                    "uc_individual_disabled_child_element": 0,
+                    "uc_individual_severely_disabled_child_element": 0,
+                },
+            ],
+            "person_ids": [8],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-child-element": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS[
+                            "child_element_first_child_or_qualifying_young_person"
+                        ]["axiom"]: decimal_output(351.88)
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.mismatches == []
+    assert len(report.oracle_divergences) == 1
+    assert report.oracle_divergences[0].issue_url.endswith("/issues/1741")
+
+
 def test_compare_outputs_classifies_known_policyengine_child_benefit_amounts():
     report = compare_outputs(
         pe_data={
@@ -393,6 +625,9 @@ def test_compare_outputs_classifies_known_policyengine_pension_credit_rates():
                     "benunit_weight": 1,
                     "relation_type": "SINGLE",
                     "is_couple": False,
+                    "severe_disability_minimum_guarantee_addition": 0,
+                    "carer_minimum_guarantee_addition": 0,
+                    "num_carers": 0,
                     "standard_minimum_guarantee": 229.3929826081932 * WEEKS_IN_YEAR,
                 }
             ],
@@ -404,7 +639,13 @@ def test_compare_outputs_classifies_known_policyengine_pension_credit_rates():
                     "outputs": {
                         PENSION_CREDIT_OUTPUTS["standard_minimum_guarantee"][
                             "axiom"
-                        ]: decimal_output(238.00)
+                        ]: decimal_output(238.00),
+                        PENSION_CREDIT_OUTPUTS["severe_disability_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        PENSION_CREDIT_OUTPUTS["carer_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(0),
                     }
                 }
             ]
@@ -417,6 +658,52 @@ def test_compare_outputs_classifies_known_policyengine_pension_credit_rates():
     assert len(report.oracle_divergences) == 1
     assert report.oracle_divergences[0].entity_id == "benunit_11"
     assert report.oracle_divergences[0].issue_url.endswith("/issues/1740")
+
+
+def test_compare_outputs_classifies_known_policyengine_pension_credit_additions():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benunit_weight": 1,
+                    "relation_type": "SINGLE",
+                    "is_couple": False,
+                    "severe_disability_minimum_guarantee_addition": 0,
+                    "carer_minimum_guarantee_addition": 47.9466 * WEEKS_IN_YEAR,
+                    "num_carers": 1,
+                    "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "pension-credit": [
+                {
+                    "outputs": {
+                        PENSION_CREDIT_OUTPUTS["standard_minimum_guarantee"][
+                            "axiom"
+                        ]: decimal_output(238.00),
+                        PENSION_CREDIT_OUTPUTS["severe_disability_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        PENSION_CREDIT_OUTPUTS["carer_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(48.15),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.mismatches == []
+    assert len(report.oracle_divergences) == 1
+    assert report.oracle_divergences[0].output == "carer_additional_amount"
+    assert report.oracle_divergences[0].issue_url.endswith("/issues/1742")
 
 
 def test_compare_uk_efrs_runs_axiom_personal_allowance(
@@ -460,7 +747,7 @@ def test_compare_uk_efrs_runs_axiom_personal_allowance(
             }
         ]
 
-    monkeypatch.setattr(efrs_uk, "run_axiom_program", fake_run_axiom_program)
+    monkeypatch.setattr(efrs_uk, "run_axiom_surface", fake_run_axiom_program)
 
     report = compare_uk_efrs(
         workspace_root=tmp_path,

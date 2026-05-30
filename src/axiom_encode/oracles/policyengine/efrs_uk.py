@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .ecps_tax import (
     POLICYENGINE_VERSION,
     input_record,
@@ -29,6 +31,7 @@ from .ecps_tax import (
 
 DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
+MONTHS_IN_YEAR = 12
 
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
@@ -36,6 +39,8 @@ CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
 CHILD_BENEFIT_BASE = "uk:regulations/uksi/2006/965/2"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
+UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
+UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -58,6 +63,125 @@ PENSION_CREDIT_OUTPUTS = {
         "pe": "standard_minimum_guarantee",
         "pe_transform": "annual_to_weekly",
     },
+    "severe_disability_additional_amount": {
+        "axiom": f"{PENSION_CREDIT_BASE}#severe_disability_additional_amount",
+        "pe": "severe_disability_minimum_guarantee_addition",
+        "pe_transform": "annual_to_weekly",
+    },
+    "carer_additional_amount": {
+        "axiom": f"{PENSION_CREDIT_BASE}#carer_additional_amount",
+        "pe": "carer_minimum_guarantee_addition",
+        "pe_transform": "annual_to_weekly_per_carer",
+    },
+}
+
+UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS = {
+    "standard_allowance_single_under_25": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_single_under_25",
+        "pe": "uc_standard_allowance",
+        "pe_transform": "annual_to_monthly",
+        "applies": ("uc_standard_allowance_claimant_type", "SINGLE_YOUNG"),
+    },
+    "standard_allowance_single_25_or_over": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_single_25_or_over",
+        "pe": "uc_standard_allowance",
+        "pe_transform": "annual_to_monthly",
+        "applies": ("uc_standard_allowance_claimant_type", "SINGLE_OLD"),
+    },
+    "standard_allowance_joint_both_under_25": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_joint_both_under_25",
+        "pe": "uc_standard_allowance",
+        "pe_transform": "annual_to_monthly",
+        "applies": ("uc_standard_allowance_claimant_type", "COUPLE_YOUNG"),
+    },
+    "standard_allowance_joint_either_25_or_over": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_joint_either_25_or_over",
+        "pe": "uc_standard_allowance",
+        "pe_transform": "annual_to_monthly",
+        "applies": ("uc_standard_allowance_claimant_type", "COUPLE_OLD"),
+    },
+}
+
+UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS = {
+    "child_element_first_child_or_qualifying_young_person": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#child_element_first_child_or_qualifying_young_person",
+        "pe": "uc_individual_child_element",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_first_child_element",
+    },
+    "child_element_second_and_each_subsequent_child_or_qualifying_young_person": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#child_element_second_and_each_subsequent_child_or_qualifying_young_person",
+        "pe": "uc_individual_child_element",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_subsequent_child_element",
+    },
+    "disabled_child_additional_amount_lower_rate": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#disabled_child_additional_amount_lower_rate",
+        "pe": "uc_individual_disabled_child_element",
+        "pe_transform": "annual_to_monthly",
+        "applies": "positive_pe_output",
+    },
+    "disabled_child_additional_amount_higher_rate": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#disabled_child_additional_amount_higher_rate",
+        "pe": "uc_individual_severely_disabled_child_element",
+        "pe_transform": "annual_to_monthly",
+        "applies": "positive_pe_output",
+    },
+}
+
+UNIVERSAL_CREDIT_LCWRA_OUTPUTS = {
+    "lcwra_element_standard_lcwra_claimant": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#lcwra_element_standard_lcwra_claimant",
+        "pe": "uc_LCWRA_element",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_lcwra_standard_amount",
+    },
+    "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant",
+        "pe": "uc_LCWRA_element",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_lcwra_higher_amount",
+    },
+}
+
+UNIVERSAL_CREDIT_CARER_OUTPUTS = {
+    "carer_element": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#carer_element",
+        "pe": "uc_carer_element",
+        "pe_transform": "annual_to_monthly",
+        "applies": "positive_pe_output",
+    },
+}
+
+UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS = {
+    "childcare_costs_element_maximum_one_child": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#childcare_costs_element_maximum_one_child",
+        "pe": "uc_maximum_childcare_element_amount",
+        "pe_transform": "annual_to_monthly",
+        "applies": ("uc_childcare_element_eligible_children", 1),
+    },
+    "childcare_costs_element_maximum_two_or_more_children": {
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#childcare_costs_element_maximum_two_or_more_children",
+        "pe": "uc_maximum_childcare_element_amount",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_childcare_two_or_more_children",
+    },
+}
+
+UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
+    "standard_allowance_single_under_25": 338.58,
+    "standard_allowance_single_25_or_over": 424.90,
+    "standard_allowance_joint_both_under_25": 528.34,
+    "standard_allowance_joint_either_25_or_over": 666.97,
+    "child_element_first_child_or_qualifying_young_person": 351.88,
+    "child_element_second_and_each_subsequent_child_or_qualifying_young_person": 303.94,
+    "disabled_child_additional_amount_lower_rate": 164.79,
+    "disabled_child_additional_amount_higher_rate": 514.71,
+    "lcwra_element_standard_lcwra_claimant": 217.26,
+    "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant": 429.80,
+    "carer_element": 209.34,
+    "childcare_costs_element_maximum_one_child": 1071.09,
+    "childcare_costs_element_maximum_two_or_more_children": 1836.16,
 }
 
 
@@ -94,33 +218,59 @@ SURFACE_SPECS = {
         entity="benunit",
         outputs=PENSION_CREDIT_OUTPUTS,
         pe_variables=(
+            "carer_minimum_guarantee_addition",
             "is_couple",
+            "num_carers",
             "relation_type",
+            "severe_disability_minimum_guarantee_addition",
             "standard_minimum_guarantee",
+        ),
+    ),
+    "universal-credit-standard-allowance": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
+        pe_variables=(
+            "uc_standard_allowance",
+            "uc_standard_allowance_claimant_type",
+        ),
+    ),
+    "universal-credit-child-element": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_PROGRAM_PATH,
+        entity="person",
+        outputs=UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
+        pe_variables=(
+            "uc_child_index",
+            "uc_individual_child_element",
+            "uc_individual_disabled_child_element",
+            "uc_individual_severely_disabled_child_element",
+            "uc_is_child_born_before_child_limit",
+        ),
+    ),
+    "universal-credit-lcwra-element": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
+        pe_variables=("uc_LCWRA_element",),
+    ),
+    "universal-credit-carer-element": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_CARER_OUTPUTS,
+        pe_variables=("uc_carer_element",),
+    ),
+    "universal-credit-childcare-cap": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS,
+        pe_variables=(
+            "uc_childcare_element_eligible_children",
+            "uc_maximum_childcare_element_amount",
         ),
     ),
 }
 
-SKIPPED_SURFACES = [
-    {
-        "surface": "pension-credit-additions",
-        "reason": (
-            "rulespec-uk exposes severe-disability and carer additions, but "
-            "the EFRS harness still needs person-level qualifying-benefit and "
-            "carer predicate projection before those additions can be compared "
-            "row by row."
-        ),
-    },
-    {
-        "surface": "universal-credit",
-        "reason": (
-            "rulespec-uk currently encodes table amounts for Regulation 36. "
-            "Those are parameter checks rather than EFRS row-level benefit "
-            "comparisons until the generated RuleSpec includes the composed "
-            "Universal Credit award surface."
-        ),
-    },
-]
+SKIPPED_SURFACES: list[dict[str, str]] = []
 
 
 @dataclass(frozen=True)
@@ -315,11 +465,12 @@ def compare_uk_efrs(
             year=year,
             surface=selected_surface,
         )
-        surface_results[selected_surface] = run_axiom_program(
+        surface_results[selected_surface] = run_axiom_surface(
             program=program,
             request=request,
             rulespec_root=resolved_rulespec_root,
             axiom_rules_path=resolved_axiom_rules_path,
+            surface=selected_surface,
         )
     return compare_outputs(
         pe_data=pe_data,
@@ -642,6 +793,71 @@ def select_entity_indices(
     return selected
 
 
+def run_axiom_surface(
+    *,
+    program: Path,
+    request: dict[str, Any],
+    rulespec_root: Path,
+    axiom_rules_path: Path,
+    surface: str,
+) -> list[dict[str, Any]]:
+    if surface.startswith("universal-credit-"):
+        return run_axiom_parameter_outputs(program=program, request=request)
+    return run_axiom_program(
+        program=program,
+        request=request,
+        rulespec_root=rulespec_root,
+        axiom_rules_path=axiom_rules_path,
+    )
+
+
+def run_axiom_parameter_outputs(
+    *,
+    program: Path,
+    request: dict[str, Any],
+) -> list[dict[str, Any]]:
+    parameter_values = rulespec_scalar_parameter_values(program)
+    results: list[dict[str, Any]] = []
+    for query in request.get("queries", []):
+        outputs: dict[str, dict[str, Any]] = {}
+        for output in query.get("outputs", []):
+            if output not in parameter_values:
+                raise SystemExit(f"unknown RuleSpec scalar parameter: {output}")
+            outputs[output] = {"value": {"value": str(parameter_values[output])}}
+        results.append({"outputs": outputs})
+    return results
+
+
+def rulespec_scalar_parameter_values(program: Path) -> dict[str, float]:
+    payload = yaml.safe_load(program.read_text()) or {}
+    base = rule_base_from_program(program)
+    values: dict[str, float] = {}
+    for rule in payload.get("rules") or []:
+        if str(rule.get("kind") or "").strip() != "parameter":
+            continue
+        versions = rule.get("versions") or []
+        if not versions:
+            continue
+        formula = str(versions[0].get("formula") or "").strip().replace("_", "")
+        try:
+            value = float(formula)
+        except ValueError:
+            continue
+        values[f"{base}#{rule['name']}"] = value
+    return values
+
+
+def rule_base_from_program(program: Path) -> str:
+    parts = program.with_suffix("").parts
+    if "regulations" in parts:
+        index = parts.index("regulations")
+        return "uk:" + "/".join(parts[index:])
+    if "statutes" in parts:
+        index = parts.index("statutes")
+        return "uk:" + "/".join(parts[index:])
+    raise ValueError(f"cannot infer UK RuleSpec base from {program}")
+
+
 def build_axiom_request(
     *,
     pe_data: dict[str, Any],
@@ -654,6 +870,12 @@ def build_axiom_request(
         return build_child_benefit_request(pe_data=pe_data, year=year)
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
+    if surface.startswith("universal-credit-"):
+        return build_universal_credit_request(
+            pe_data=pe_data,
+            year=year,
+            surface=surface,
+        )
     raise ValueError(f"unsupported UK EFRS surface: {surface}")
 
 
@@ -755,6 +977,32 @@ def build_pension_credit_request(
     }
 
 
+def build_universal_credit_request(
+    *, pe_data: dict[str, Any], year: int, surface: str
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    spec = SURFACE_SPECS[surface]
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, surface):
+        if spec.entity == "benunit":
+            entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        else:
+            entity_id = person_entity_id(int(row_value(row, "person_id")))
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [output["axiom"] for output in spec.outputs.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": [], "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -784,16 +1032,25 @@ def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
 def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
     relation_type = str(row_value(row, "relation_type", "")).upper()
     is_couple = bool(row_value(row, "is_couple", False)) or relation_type == "COUPLE"
+    severe_disability_addition = (
+        money(row_value(row, "severe_disability_minimum_guarantee_addition", 0))
+        / WEEKS_IN_YEAR
+    )
+    num_carers = int(money(row_value(row, "num_carers", 0)))
     return {
         "claimant_is_prisoner": False,
         "member_of_religious_order_fully_maintained_by_order": False,
         "claimant_has_partner": is_couple,
+        "treated_as_severely_disabled_person_under_schedule_i_part_i_paragraph_1": severe_disability_addition
+        > 0,
+        "severe_disability_couple_rate_conditions_satisfied": severe_disability_addition
+        > 100,
+        "paragraph_4_of_part_ii_of_schedule_i_satisfied_for_this_partner": num_carers
+        > 0,
     }
 
 
 def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, Any]]:
-    if SURFACE_SPECS[surface].entity == "benunit":
-        return pe_data.get("benunits", [])
     persons = pe_data["persons"]
     if surface == "child-benefit":
         return [
@@ -801,6 +1058,38 @@ def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, An
             for row in persons
             if money(row_value(row, "child_benefit_respective_amount", 0)) > 0
         ]
+    if surface == "universal-credit-child-element":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "uc_individual_child_element", 0)) > 0
+            or money(row_value(row, "uc_individual_disabled_child_element", 0)) > 0
+            or money(row_value(row, "uc_individual_severely_disabled_child_element", 0))
+            > 0
+        ]
+    benunits = pe_data.get("benunits", [])
+    if surface == "universal-credit-standard-allowance":
+        return [
+            row
+            for row in benunits
+            if money(row_value(row, "uc_standard_allowance", 0)) > 0
+        ]
+    if surface == "universal-credit-lcwra-element":
+        return [
+            row for row in benunits if money(row_value(row, "uc_LCWRA_element", 0)) > 0
+        ]
+    if surface == "universal-credit-carer-element":
+        return [
+            row for row in benunits if money(row_value(row, "uc_carer_element", 0)) > 0
+        ]
+    if surface == "universal-credit-childcare-cap":
+        return [
+            row
+            for row in benunits
+            if money(row_value(row, "uc_maximum_childcare_element_amount", 0)) > 0
+        ]
+    if SURFACE_SPECS[surface].entity == "benunit":
+        return benunits
     return persons
 
 
@@ -836,6 +1125,8 @@ def compare_outputs(
             entity_id = entity_id_for_surface(surface, pe_row)
             outputs = result.get("outputs") or {}
             for name, spec in output_specs.items():
+                if not output_applies(spec, pe_row):
+                    continue
                 axiom_value = output_number(outputs.get(spec["axiom"]))
                 pe_value = policyengine_output_value(spec, pe_row)
                 diff = axiom_value - pe_value
@@ -911,6 +1202,16 @@ def compare_outputs(
             "or is_couple. Prisoner and fully-maintained religious-order branches "
             "are projected false because those legal predicates are not exposed "
             "in the EFRS oracle data.",
+            "Pension Credit carer additions compare RuleSpec's per-partner "
+            "amount against PolicyEngine's annual aggregate carer addition "
+            "divided by num_carers and 52. The EFRS oracle has no positive "
+            "severe-disability addition rows, so that branch is currently a "
+            "zero-row guard rather than a positive-eligibility validation.",
+            "Universal Credit Regulation 36 comparisons treat the generated "
+            "RuleSpec outputs as component table amounts. PolicyEngine annual "
+            "EFRS component outputs are divided by 12, and EFRS category "
+            "variables select the matching standard-allowance, child-element, "
+            "carer, LCWRA, and childcare-cap rows.",
         ],
     )
 
@@ -925,7 +1226,58 @@ def policyengine_output_value(spec: dict[str, Any], row: Any) -> float:
     raw_value = money(row_value(row, spec["pe"]))
     if spec.get("pe_transform") == "annual_to_weekly":
         return raw_value / WEEKS_IN_YEAR
+    if spec.get("pe_transform") == "annual_to_weekly_per_carer":
+        return (
+            raw_value
+            / WEEKS_IN_YEAR
+            / max(1, int(money(row_value(row, "num_carers", 0))))
+        )
+    if spec.get("pe_transform") == "annual_to_monthly":
+        return raw_value / MONTHS_IN_YEAR
     return raw_value
+
+
+def output_applies(spec: dict[str, Any], row: Any) -> bool:
+    applies = spec.get("applies")
+    if applies is None:
+        return True
+    if applies == "positive_pe_output":
+        return policyengine_output_value(spec, row) > 0
+    if applies == "uc_first_child_element":
+        return (
+            policyengine_output_value(spec, row) > 0
+            and int(row_value(row, "uc_child_index", -1)) == 1
+            and bool(row_value(row, "uc_is_child_born_before_child_limit", False))
+        )
+    if applies == "uc_subsequent_child_element":
+        return policyengine_output_value(spec, row) > 0 and not output_applies(
+            {**spec, "applies": "uc_first_child_element"},
+            row,
+        )
+    if applies == "uc_lcwra_standard_amount":
+        monthly_value = policyengine_output_value(spec, row)
+        return 0 < monthly_value < 300
+    if applies == "uc_lcwra_higher_amount":
+        monthly_value = policyengine_output_value(spec, row)
+        return 300 <= monthly_value < 600
+    if applies == "uc_childcare_two_or_more_children":
+        return int(row_value(row, "uc_childcare_element_eligible_children", 0)) >= 2
+    if isinstance(applies, tuple) and len(applies) == 2:
+        name, expected = applies
+        value = row_value(row, name)
+        if isinstance(expected, str):
+            return enum_name(value) == expected
+        return value == expected
+    raise ValueError(f"unsupported output applicability rule: {applies!r}")
+
+
+def enum_name(value: Any) -> str:
+    if hasattr(value, "name"):
+        return str(value.name)
+    text = str(value)
+    if "." in text:
+        return text.rsplit(".", 1)[-1]
+    return text
 
 
 def known_policyengine_divergence(
@@ -1010,6 +1362,48 @@ def known_policyengine_divergence(
             ),
             issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1740",
         )
+    if (
+        surface == "pension-credit"
+        and output in {"severe_disability_additional_amount", "carer_additional_amount"}
+        and policyengine_value > 0
+        and 0 < abs(diff) < 5
+    ):
+        return UKEFRSOracleDivergence(
+            surface=surface,
+            entity_id=entity_id,
+            output=output,
+            axiom=axiom_value,
+            policyengine=policyengine_value,
+            diff=diff,
+            reason=(
+                "PolicyEngine UK currently uses forecast-indexed 2026 "
+                "Pension Credit additional amounts instead of the published "
+                "2026-27 weekly rates."
+            ),
+            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1742",
+        )
+    expected_uc_rate = UNIVERSAL_CREDIT_2026_RULESPEC_RATES.get(output)
+    if (
+        surface.startswith("universal-credit-")
+        and expected_uc_rate is not None
+        and math.isclose(axiom_value, expected_uc_rate, abs_tol=1e-9)
+        and policyengine_value > 0
+        and 0 < abs(diff) < 75
+    ):
+        return UKEFRSOracleDivergence(
+            surface=surface,
+            entity_id=entity_id,
+            output=output,
+            axiom=axiom_value,
+            policyengine=policyengine_value,
+            diff=diff,
+            reason=(
+                "PolicyEngine UK currently uses forecast-indexed 2026 "
+                "Universal Credit Regulation 36 amounts instead of the "
+                "published 2026-27 monthly rates."
+            ),
+            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1741",
+        )
     return None
 
 
@@ -1059,10 +1453,11 @@ def print_report(
                 f"axiom={row.axiom:.2f} pe={row.policyengine:.2f} "
                 f"diff={row.diff:.2f}; {row.issue_url}"
             )
-    print()
-    print("Skipped mapped UK surfaces:")
-    for item in report.skipped_surfaces:
-        print(f"  - {item['surface']}: {item['reason']}")
+    if report.skipped_surfaces:
+        print()
+        print("Skipped mapped UK surfaces:")
+        for item in report.skipped_surfaces:
+            print(f"  - {item['surface']}: {item['reason']}")
     print()
     print("Projection notes:")
     for note in report.projection_notes:
@@ -1103,6 +1498,15 @@ def benefit_week_interval(year: int) -> dict[str, str]:
         "name": "benefit_week",
         "start": f"{year:04d}-04-06",
         "end": f"{year:04d}-04-12",
+    }
+
+
+def benefit_month_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "month",
+        "name": "benefit_month",
+        "start": f"{year:04d}-04-01",
+        "end": f"{year:04d}-04-30",
     }
 
 
