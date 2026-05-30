@@ -758,6 +758,53 @@ def test_compare_outputs_classifies_known_policyengine_pension_credit_additions(
     assert report.oracle_divergences[0].issue_url.endswith("/issues/1742")
 
 
+def test_compare_outputs_classifies_known_policyengine_pension_credit_severe_addition():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benunit_weight": 1,
+                    "relation_type": "SINGLE",
+                    "is_couple": False,
+                    "severe_disability_minimum_guarantee_addition": 85.682
+                    * WEEKS_IN_YEAR,
+                    "carer_minimum_guarantee_addition": 0,
+                    "num_carers": 0,
+                    "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "pension-credit": [
+                {
+                    "outputs": {
+                        PENSION_CREDIT_OUTPUTS["standard_minimum_guarantee"][
+                            "axiom"
+                        ]: decimal_output(238.00),
+                        PENSION_CREDIT_OUTPUTS["severe_disability_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(86.05),
+                        PENSION_CREDIT_OUTPUTS["carer_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(0),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.mismatches == []
+    assert len(report.oracle_divergences) == 1
+    assert report.oracle_divergences[0].output == "severe_disability_additional_amount"
+    assert report.oracle_divergences[0].issue_url.endswith("/issues/1742")
+
+
 def test_compare_outputs_does_not_hide_wrong_pension_credit_additional_rate():
     report = compare_outputs(
         pe_data={
@@ -801,6 +848,52 @@ def test_compare_outputs_does_not_hide_wrong_pension_credit_additional_rate():
     assert report.oracle_divergences == []
     assert len(report.mismatches) == 1
     assert report.mismatches[0].output == "carer_additional_amount"
+
+
+def test_compare_outputs_does_not_hide_wrong_pension_credit_severe_addition_rate():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benunit_weight": 1,
+                    "relation_type": "SINGLE",
+                    "is_couple": False,
+                    "severe_disability_minimum_guarantee_addition": 85.682
+                    * WEEKS_IN_YEAR,
+                    "carer_minimum_guarantee_addition": 0,
+                    "num_carers": 0,
+                    "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "pension-credit": [
+                {
+                    "outputs": {
+                        PENSION_CREDIT_OUTPUTS["standard_minimum_guarantee"][
+                            "axiom"
+                        ]: decimal_output(238.00),
+                        PENSION_CREDIT_OUTPUTS["severe_disability_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(82.00),
+                        PENSION_CREDIT_OUTPUTS["carer_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(0),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.oracle_divergences == []
+    assert len(report.mismatches) == 1
+    assert report.mismatches[0].output == "severe_disability_additional_amount"
 
 
 def test_compare_uk_efrs_runs_axiom_personal_allowance(
