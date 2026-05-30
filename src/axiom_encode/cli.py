@@ -3633,9 +3633,6 @@ def _migrate_california_snap_sua_layout(repo_path: Path) -> None:
     """Move generated CA SUA RuleSpec out of the disallowed guidance/ root."""
     old_rules_file = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
     old_test_file = _rulespec_test_path(old_rules_file)
-    old_manifest_file = repo_path / _applied_encoding_manifest_path(
-        CALIFORNIA_SNAP_OLD_SUA_RELATIVE
-    )
     new_rules_file = repo_path / CALIFORNIA_SNAP_SUA_RELATIVE
     new_test_file = _rulespec_test_path(new_rules_file)
 
@@ -3657,9 +3654,6 @@ def _migrate_california_snap_sua_layout(repo_path: Path) -> None:
         new_file.write_text(content)
         if old_file.exists():
             old_file.unlink()
-
-    if old_manifest_file.exists():
-        old_manifest_file.unlink()
 
 
 def _repair_california_snap_policy_composition(path: Path) -> None:
