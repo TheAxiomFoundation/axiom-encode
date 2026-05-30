@@ -3664,6 +3664,15 @@ def _migrate_california_snap_sua_layout(repo_path: Path) -> None:
 
 def _repair_california_snap_policy_composition(path: Path) -> None:
     content = path.read_text()
+    if "  source_verification:" not in content:
+        content = content.replace(
+            "module:\n  kind: composition\n",
+            "module:\n"
+            "  kind: composition\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1\n",
+            1,
+        )
     content = content.replace(
         CALIFORNIA_SNAP_OLD_SUA_IMPORT,
         CALIFORNIA_SNAP_SUA_IMPORT,
