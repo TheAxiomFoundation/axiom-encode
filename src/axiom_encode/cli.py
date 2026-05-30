@@ -3879,6 +3879,10 @@ def _repair_california_snap_program_tests(path: Path) -> None:
             1,
         )
     content = content.replace(
+        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298\n",
+        "",
+    )
+    content = content.replace(
         "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 500",
         "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500",
     )
