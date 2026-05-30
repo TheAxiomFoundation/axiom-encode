@@ -37,9 +37,14 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   other unit boundary. Only add a unit-level roll-up when this source text
   itself states that aggregate.
 - Treat legal subject nouns as stronger evidence than nearby repository
-  context. In particular, "individual", "person", "employee", "member",
-  "claimant", "child", "dependent", and "spouse" usually require
-  `entity: Person` for the current source's own amount, tax, credit,
+  context. When the source says "households in which all members",
+  "households with a member", or another household/unit-level condition stated
+  through member facts, the current eligibility/result belongs on the household
+  or unit; encode member facts as inputs or relation children only as needed to
+  evaluate that unit rule. In contrast, when the source's legal subject is an
+  "individual", "person", "employee", "member", "claimant", "child",
+  "dependent", or "spouse" rather than a unit described through those people,
+  use `entity: Person` for the current source's own amount, tax, credit,
   deduction, contribution, limit, or eligibility result. Do not choose
   `entity: TaxUnit`, `Household`, `Family`, or another aggregate entity merely
   because an imported base amount or companion test is currently declared at

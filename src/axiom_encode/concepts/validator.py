@@ -18,7 +18,7 @@ from .registry import ConceptRegistry
 
 IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
 ANCHORED_REF_RE = re.compile(
-    r"([a-z][a-z0-9-]*:[A-Za-z0-9_\-/\.]+)#(?:input\.)?([a-z][a-z0-9_]*)"
+    r"([a-z][a-z0-9-]*:[A-Za-z0-9_\-/\.]+)#(input\.)?([a-z][a-z0-9_]*)"
 )
 
 
@@ -69,9 +69,12 @@ def validate_generated_against_registry(
         # 1. Anchored-ref scan: catch any `us:file#name` whose name is a blocked synonym,
         #    or whose name is a registered canonical but referenced under the wrong anchor.
         for m in ANCHORED_REF_RE.finditer(text):
-            anchor, name = m.group(1), m.group(2)
+            anchor, input_prefix, name = m.group(1), m.group(2) or "", m.group(3)
+            is_input_ref = bool(input_prefix)
             blocked = registry.lookup_synonym(name)
             if blocked is not None:
+                if is_input_ref and blocked.producer_anchor == anchor:
+                    continue
                 violations.append(
                     CanonicalNameViolation(
                         kind="blocked_synonym",
@@ -87,6 +90,7 @@ def validate_generated_against_registry(
                 canonical is not None
                 and canonical.has_producer
                 and canonical.producer_anchor != anchor
+                and not is_input_ref
             ):
                 violations.append(
                     CanonicalNameViolation(

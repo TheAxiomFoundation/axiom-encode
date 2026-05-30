@@ -115,6 +115,33 @@ def test_repair_preserves_consumer_anchor_on_input_refs(tmp_path: Path):
     assert "us:regulations/7-cfr/273/10#input." not in text
 
 
+def test_repair_preserves_producer_relation_child_input_refs(tmp_path: Path):
+    """A producer may use a child/member input to derive a household-level
+    canonical output. That input must not be rewritten to the output concept.
+    """
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        - name: household_has_elderly_or_disabled_member
+          period: 2026-01
+          input:
+            us:statutes/7/2012/j#relation.member_of_household:
+              - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+          output:
+            us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds
+        """,
+    )
+    changed = auto_repair_test_yaml_canonical_violations([drift], registry)
+    assert changed == []
+    text = drift.read_text()
+    assert "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled" in text
+    assert "#input.snap_household_has_elderly_or_disabled_member" not in text
+    violations = validate_generated_against_registry([drift], registry)
+    assert violations == []
+
+
 def test_repair_skips_non_test_files(tmp_path: Path):
     """Producer/source YAML must fail loudly — never silently rewritten."""
     registry = load_concept_registry()
