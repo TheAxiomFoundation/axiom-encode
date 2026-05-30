@@ -5160,7 +5160,17 @@ module:
     - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household
       reason: Missing final categorical eligibility.
   summary: New York SNAP categorical eligibility.
+imports:
+  - us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member
 rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+      arguments:
+        - Person
+        - Household
   - name: ny_snap_residual_130_percent_categorical_path_satisfied
     kind: derived
     entity: Household
@@ -5174,6 +5184,8 @@ rules:
         repaired = _repair_new_york_snap_categorical_eligibility_rules(rules)
 
         assert "deferred_outputs:" not in repaired
+        assert "  - us:statutes/7/2012/j\n" in repaired
+        assert "name: member_of_household" not in repaired
         assert "  - name: ny_snap_categorically_eligible\n" in repaired
         assert (
             "not household_member_disqualified_for_intentional_program_violation"
@@ -5190,7 +5202,19 @@ rules:
 
     def test_repair_new_york_snap_categorical_eligibility_tests_cover_blockers(self):
         repaired = _repair_new_york_snap_categorical_eligibility_tests(
-            "- name: existing\n  output: {}\n"
+            """- name: all_members_public_assistance_path_makes_household_categorically_eligible
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_paid_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_or_nonemergency_safety_net_grant_amount: 0
+  output: {}
+"""
         )
 
         assert (
@@ -5198,15 +5222,28 @@ rules:
             in repaired
         )
         assert (
-            "intentional_program_violation_blocks_categorical_eligibility" in repaired
+            "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
+            not in repaired
+        )
+        assert (
+            "        us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true"
+            in repaired
+        )
+
+        appended = _repair_new_york_snap_categorical_eligibility_tests(
+            "- name: existing\n  output: {}\n"
+        )
+        assert (
+            "intentional_program_violation_blocks_categorical_eligibility" in appended
         )
         assert (
             "us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_intentional_program_violation: true"
-            in repaired
+            in appended
         )
         assert (
             "us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: not_holds"
-            in repaired
+            in appended
         )
 
     def test_repair_new_york_snap_benefit_tests_covers_excess_shelter_cost(self):

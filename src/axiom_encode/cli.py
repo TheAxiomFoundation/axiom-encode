@@ -5389,8 +5389,7 @@ NY_SNAP_CATEGORICAL_FINAL_TESTS = """
     us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
     us:statutes/7/2012/j#relation.member_of_household:
       - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
-    us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household:
-      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
@@ -5416,8 +5415,7 @@ NY_SNAP_CATEGORICAL_FINAL_TESTS = """
     us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
     us:statutes/7/2012/j#relation.member_of_household:
       - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
-    us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household:
-      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
@@ -5438,6 +5436,24 @@ NY_SNAP_CATEGORICAL_FINAL_TESTS = """
 
 def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
     repaired = content
+    repaired = repaired.replace(
+        "  - us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member\n",
+        "  - us:statutes/7/2012/j\n",
+        1,
+    )
+    repaired = re.sub(
+        r"\n  - name: member_of_household\n"
+        r"    kind: data_relation\n"
+        r"    data_relation:\n"
+        r"      predicate: member_of_household\n"
+        r"      arity: 2\n"
+        r"      arguments:\n"
+        r"        - Person\n"
+        r"        - Household\n",
+        "\n",
+        repaired,
+        count=1,
+    )
     deferred_start = repaired.find("  deferred_outputs:\n")
     if deferred_start != -1 and all(
         output in repaired[deferred_start:]
@@ -5456,12 +5472,26 @@ def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
 
 
 def _repair_new_york_snap_categorical_eligibility_tests(content: str) -> str:
+    repaired = re.sub(
+        r"(    us:statutes/7/2012/j#relation\.member_of_household:\n"
+        r"      - us:statutes/7/2012/j#input\.snap_member_is_elderly_or_disabled: .*\n)"
+        r"    us-ny:regulations/18-nycrr/387/14/a/5#relation\.member_of_household:\n"
+        r"      - (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: .*\n)"
+        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: .*\n)"
+        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: .*\n)"
+        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: .*\n)"
+        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_paid_family_assistance_or_nonemergency_safety_net_benefits: .*\n)"
+        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_family_assistance_or_nonemergency_safety_net_grant_amount: .*\n)",
+        r"\1        \2        \3        \4        \5        \6        \7",
+        content,
+        flags=re.MULTILINE,
+    )
     if (
         "all_members_public_assistance_path_makes_household_categorically_eligible"
-        in content
+        in repaired
     ):
-        return content
-    return content.rstrip() + NY_SNAP_CATEGORICAL_FINAL_TESTS + "\n"
+        return repaired
+    return repaired.rstrip() + NY_SNAP_CATEGORICAL_FINAL_TESTS + "\n"
 
 
 def cmd_repair_new_york_snap_categorical_eligibility(args):
