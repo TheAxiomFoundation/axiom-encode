@@ -664,6 +664,32 @@ mappings:
     mapping_type: not_comparable
     rationale: Axiom composition helper summing California shelter costs and standard utility allowance; PE uses separate housing-cost and SNAP utility-allowance variables.
 
+  - legal_id: us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance_amount
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_standard_utility_allowance
+    candidate_priority: P4
+    rationale: California FFY 2026 source parameter for the heating/cooling standard utility allowance amount; PE exposes the resulting allowance after eligibility/type selection, not this state source parameter alone.
+
+  - legal_id: us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: California source predicate for heating/cooling standard utility allowance eligibility; PE derives utility allowance type internally rather than exposing this predicate.
+
+  - legal_id: us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_standard_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: California standard utility allowance, with state and utility eligibility inputs supplied by the ECPS SNAP adapter.
+
   - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_total_allowable_shelter_expenses
     country: us
     program: snap
