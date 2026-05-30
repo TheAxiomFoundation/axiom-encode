@@ -113,10 +113,16 @@ from .oracles.policyengine.ecps_tax import (
     main as run_tax_ecps_compare,
 )
 from .oracles.policyengine.efrs_uk import (
+    configure_coverage_parser as configure_uk_efrs_coverage_parser,
+)
+from .oracles.policyengine.efrs_uk import (
     configure_parser as configure_uk_efrs_compare_parser,
 )
 from .oracles.policyengine.efrs_uk import (
     main as run_uk_efrs_compare,
+)
+from .oracles.policyengine.efrs_uk import (
+    main_coverage as run_uk_efrs_coverage,
 )
 from .oracles.policyengine.registry import load_policyengine_registry
 from .oracles.policyengine.snap_readiness import build_snap_readiness_report
@@ -605,6 +611,12 @@ def main():
         help="Compare UK RuleSpec output against PolicyEngine Enhanced FRS",
     )
     configure_uk_efrs_compare_parser(uk_efrs_compare_parser)
+
+    uk_efrs_coverage_parser = subparsers.add_parser(
+        "uk-efrs-coverage",
+        help="Report PE-UK EFRS computed-variable coverage and backlog",
+    )
+    configure_uk_efrs_coverage_parser(uk_efrs_coverage_parser)
 
     snap_readiness_parser = subparsers.add_parser(
         "snap-readiness",
@@ -1585,6 +1597,8 @@ def main():
         sys.exit(run_tax_ecps_compare(args))
     elif args.command == "uk-efrs-compare":
         sys.exit(run_uk_efrs_compare(args))
+    elif args.command == "uk-efrs-coverage":
+        sys.exit(run_uk_efrs_coverage(args))
     elif args.command == "snap-readiness":
         cmd_snap_readiness(args)
     elif args.command == "calibration":
