@@ -3674,6 +3674,23 @@ def _california_snap_member_eligible_rule() -> dict[str, object]:
 
 def _repair_california_snap_program_tests(path: Path) -> None:
     content = path.read_text()
+    if "us:regulations/7-cfr/273/10#input.household_size:" not in content:
+        content = content.replace(
+            "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n",
+            "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n"
+            "    us:regulations/7-cfr/273/10#input.household_size: 1\n",
+            1,
+        )
+    if (
+        "us:regulations/7-cfr/273/8#input.snap_categorically_eligible_for_resource_exemption:"
+        not in content
+    ):
+        content = content.replace(
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n",
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n"
+            "    us:regulations/7-cfr/273/8#input.snap_categorically_eligible_for_resource_exemption: false\n",
+            1,
+        )
     content = content.replace(
         "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 0",
         "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 0",
@@ -3692,6 +3709,17 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         content = content.replace(
             base_shelter_input,
             base_shelter_input + base_sua_input,
+            1,
+        )
+    if (
+        "us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household:"
+        not in content
+    ):
+        content = content.replace(
+            base_shelter_input + base_sua_input,
+            base_shelter_input
+            + base_sua_input
+            + "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298\n",
             1,
         )
     content = content.replace(
