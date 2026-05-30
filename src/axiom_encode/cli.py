@@ -5581,6 +5581,14 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
         "us-ny:regulations/18-nycrr/387/14/a/5#input."
         "household_member_disqualified_for_failure_to_comply_with_work_requirements",
     )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/1#"
+        r"(snap_allotment|snap_initial_month_proration_applies|"
+        r"snap_initial_month_prorated_allotment): .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
     if (
         "us-ny:regulations/18-nycrr/387/14/a/5#input."
         "household_member_ineligible_to_participate_in_snap" not in repaired
