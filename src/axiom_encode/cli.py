@@ -5584,6 +5584,17 @@ def _repair_new_york_snap_benefit_rules(content: str) -> str:
         "        formula: count_where(member_of_household, snap_member_ssn_requirement_ineligible) == 0\n",
         1,
     )
+    repaired = repaired.replace(
+        "          count_where(member_of_household, snap_member_work_requirement_eligible) > 0\n"
+        "          and count_where(member_of_household, snap_member_work_requirement_ineligible) == 0\n",
+        "          count_where(member_of_household, snap_member_work_requirement_ineligible) == 0\n",
+        1,
+    )
+    repaired = repaired.replace(
+        "        formula: count_where(member_of_household, snap_member_student_eligible) > 0\n",
+        "        formula: count_where(member_of_household, snap_member_student_ineligible) == 0\n",
+        1,
+    )
     return repaired
 
 
