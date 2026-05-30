@@ -5601,6 +5601,13 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
         flags=re.MULTILINE,
     )
     repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/5#input\."
+        r"household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi: .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
         r"^    us-ny:regulations/18-nycrr/387/14/a/1#"
         r"(snap_allotment|snap_initial_month_proration_applies|"
         r"snap_initial_month_prorated_allotment): .*\n",
