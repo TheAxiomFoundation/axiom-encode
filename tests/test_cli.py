@@ -61,6 +61,7 @@ from axiom_encode.cli import (
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
+    _repair_new_york_snap_benefit_rules,
     _repair_new_york_snap_benefit_tests,
     _repair_new_york_snap_categorical_eligibility_rules,
     _repair_new_york_snap_categorical_eligibility_tests,
@@ -5280,16 +5281,40 @@ rules:
         assert repaired == original_tests
 
     def test_repair_new_york_snap_benefit_tests_covers_excess_shelter_cost(self):
+        repaired_rules = _repair_new_york_snap_benefit_rules(
+            """rules:
+  - name: snap_eligible
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_income_eligible
+          and (snap_resource_eligible or ny_snap_categorically_eligible)
+          and snap_ssn_eligible
+"""
+        )
+
+        assert "snap_income_eligible" not in repaired_rules
+        assert (
+            "snap_income_limit_exemption_for_categorically_eligible_household"
+            in repaired_rules
+        )
+        assert "or snap_standard_income_eligible" in repaired_rules
+
         repaired = _repair_new_york_snap_benefit_tests(
             """- name: ongoing_month_derives_new_york_allotment_with_heating_cooling_allowance
   period: 2026-01
   input:
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500
+    us:regulations/7-cfr/273/10#input.snap_countable_earned_income: 1000
+    us:regulations/7-cfr/273/10#input.snap_countable_unearned_income: 0
+    us-ny:regulations/18-nycrr/387/14/a/1#input.initial_application_month: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_snap_work_requirements: false
   output:
     us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment: 298
     us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance: 1062
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_income_eligible: holds
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#shelter_costs: 1562
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744
 """
@@ -5318,6 +5343,35 @@ rules:
             "#input.snap_initial_month_prorated_allotment: 0" in repaired
         )
         assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.snap_countable_earned_income: 1000" in repaired
+        )
+        assert (
+            "us:statutes/7/2014/e/2#input.snap_countable_earned_income: 1000"
+            in repaired
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 1000"
+            in repaired
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 0"
+            in repaired
+        )
+        assert "us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0" in repaired
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_countable_earned_income"
+            not in repaired
+        )
+        assert (
+            "household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi"
+            not in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/1#input.initial_application_month"
+            not in repaired
+        )
+        assert (
             "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
             in repaired
         )
@@ -5329,6 +5383,9 @@ rules:
         assert (
             "us-ny:regulations/18-nycrr/387/12/f/3/v/a"
             "#snap_standard_utility_allowance" not in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#snap_income_eligible" not in repaired
         )
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):

@@ -5637,6 +5637,19 @@ def cmd_repair_new_york_snap_categorical_eligibility(args):
 NY_SNAP_BENEFIT_RELATIVE = Path("policies/otda/snap/fy-2026-benefit-calculation.yaml")
 
 
+def _repair_new_york_snap_benefit_rules(content: str) -> str:
+    return content.replace(
+        "          snap_income_eligible\n"
+        "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
+        "          (\n"
+        "            snap_income_limit_exemption_for_categorically_eligible_household\n"
+        "            or snap_standard_income_eligible\n"
+        "          )\n"
+        "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
+        1,
+    )
+
+
 def _repair_new_york_snap_benefit_tests(content: str) -> str:
     repaired = content.replace(
         "us-ny:regulations/18-nycrr/387/14/a/5#input."
@@ -5651,6 +5664,35 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
         "household_member_disqualified_for_failure_to_comply_with_work_requirements",
     )
     repaired = re.sub(
+        r"^(\s*)us:regulations/7-cfr/273/10#input\.snap_countable_earned_income: (.*)\n",
+        (
+            r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            r"#input.snap_countable_earned_income: \2\n"
+            r"\1us:statutes/7/2014/e/2#input.snap_countable_earned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: \2\n"
+        ),
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^(\s*)us:regulations/7-cfr/273/10#input\.snap_countable_unearned_income: (.*)\n",
+        (
+            r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            r"#input.snap_countable_unearned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0\n"
+        ),
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/5#input\."
+        r"household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi: .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
         r"^    us-ny:regulations/18-nycrr/387/14/a/1#"
         r"(snap_allotment|snap_initial_month_proration_applies|"
         r"snap_initial_month_prorated_allotment): .*\n",
@@ -5659,8 +5701,26 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
         flags=re.MULTILINE,
     )
     repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/1#input\."
+        r"(initial_application_month|application_date|"
+        r"public_institution_joint_ssi_snap_application_before_release|"
+        r"public_institution_release_date|"
+        r"migrant_or_seasonal_farmworker_household_in_job_stream|"
+        r"break_in_participation_days): .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
         r"^    us-ny:regulations/18-nycrr/387/12/f/3/v/[abc]#"
         r"snap_(standard|limited|individual)_utility_allowance: .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/5#"
+        r"snap_income_eligible: .*\n",
         "",
         repaired,
         flags=re.MULTILINE,
@@ -5760,8 +5820,9 @@ def cmd_repair_new_york_snap_benefit_tests(args):
 
     original_content = rules_file.read_text()
     original_test_content = test_file.read_text()
+    repaired_content = _repair_new_york_snap_benefit_rules(original_content)
     repaired_content, repaired_rules = _repair_missing_source_proof_atoms(
-        original_content
+        repaired_content
     )
     repaired_test_content = _repair_new_york_snap_benefit_tests(original_test_content)
     if (
