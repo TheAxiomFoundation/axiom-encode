@@ -5085,7 +5085,10 @@ rules:
             in repaired
         )
         assert "  - name: shelter_costs\n" in repaired
-        assert "household_shelter_costs_incurred + snap_standard_utility_allowance" in repaired
+        assert (
+            "household_shelter_costs_incurred + snap_standard_utility_allowance"
+            in repaired
+        )
         assert "  - name: snap_total_allowable_shelter_expenses\n" in repaired
         assert "  - name: snap_member_eligible\n" in repaired
         assert "  - name: snap_household_member_eligible\n" in repaired
@@ -5115,12 +5118,18 @@ rules:
         _repair_california_snap_program_tests(test_file)
 
         repaired = test_file.read_text()
-        assert "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses" not in repaired
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses"
+            not in repaired
+        )
         assert (
             "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500"
             in repaired
         )
-        assert "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage" in repaired
+        assert (
+            "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
+            in repaired
+        )
         assert (
             "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance: 663"
             in repaired
