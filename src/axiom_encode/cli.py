@@ -3554,6 +3554,7 @@ def cmd_repair_california_snap_shelter_surface(args):
         sys.exit(1)
 
     manifest_groups = _california_snap_repair_manifest_groups(repo_path)
+    guard_manifest_groups = _california_snap_repair_guard_manifest_groups(repo_path)
     for relative_output, _files in manifest_groups:
         rules_file = repo_path / relative_output
         old_sua = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
@@ -3563,9 +3564,11 @@ def cmd_repair_california_snap_shelter_surface(args):
             print(f"RuleSpec file not found: {rules_file}")
             sys.exit(1)
     try:
+        _ensure_no_california_snap_sua_layout_collision(repo_path)
         _ensure_no_unmanifested_preexisting_rulespec_changes(
             repo_path,
-            manifest_groups,
+            guard_manifest_groups,
+            roots=tuple(sorted(RULESPEC_SOURCE_ROOTS | {"guidance"})),
         )
     except RuntimeError as exc:
         print(str(exc))
@@ -3584,7 +3587,7 @@ def cmd_repair_california_snap_shelter_surface(args):
     ]
     preexisting_changed_files = _changed_manifest_group_files(
         repo_path,
-        manifest_groups,
+        guard_manifest_groups,
     )
     originals = {
         path: path.read_text() if path.exists() else None
@@ -3642,6 +3645,36 @@ def _california_snap_repair_manifest_groups(
             files.append(test_file)
         groups.append((relative_output, files))
     return groups
+
+
+def _california_snap_repair_guard_manifest_groups(
+    repo_path: Path,
+) -> list[tuple[Path, list[Path]]]:
+    old_rules_file = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
+    old_test_file = _rulespec_test_path(old_rules_file)
+    return _california_snap_repair_manifest_groups(repo_path) + [
+        (CALIFORNIA_SNAP_OLD_SUA_RELATIVE, [old_rules_file, old_test_file])
+    ]
+
+
+def _ensure_no_california_snap_sua_layout_collision(repo_path: Path) -> None:
+    collisions = [
+        (
+            repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE,
+            repo_path / CALIFORNIA_SNAP_SUA_RELATIVE,
+        ),
+        (
+            _rulespec_test_path(repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE),
+            _rulespec_test_path(repo_path / CALIFORNIA_SNAP_SUA_RELATIVE),
+        ),
+    ]
+    for old_file, new_file in collisions:
+        if old_file.exists() and new_file.exists():
+            raise RuntimeError(
+                "Refusing to migrate California SNAP standard utility allowance "
+                "while both old and new RuleSpec paths exist: "
+                f"{old_file.relative_to(repo_path)} and {new_file.relative_to(repo_path)}"
+            )
 
 
 def _write_california_snap_repair_manifests(
@@ -5258,22 +5291,27 @@ def cmd_repair_snap_273_10_allotment(args):
         rules_file.write_text(repaired_content)
         test_file.write_text(repaired_test_content)
 
-        validation = ValidatorPipeline(
-            policy_repo_path=repo_path,
-            axiom_rules_path=axiom_rules_path,
-            enable_oracles=False,
-            require_policy_proofs=True,
-        ).validate(rules_file, skip_reviewers=True)
-        if not validation.all_passed:
-            rules_file.write_text(original_content)
-            test_file.write_text(original_test_content)
-            issues = [
-                result.error for result in validation.results.values() if result.error
-            ]
-            print("Repair failed validation; restored original files.")
-            for issue in issues:
-                print(f"- {issue}")
-            sys.exit(1)
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+        finally:
+            if "validation" not in locals() or not validation.all_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
 
         result = argparse.Namespace(
             output_file=str(generated_output),
@@ -7305,6 +7343,8 @@ def cmd_repair_section_172_c_capacity(args):
 def _ensure_no_unmanifested_preexisting_rulespec_changes(
     repo_path: Path,
     manifest_groups: list[tuple[Path, list[Path]]],
+    *,
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
 ) -> None:
     """Refuse to sign over target files already dirty outside encoder manifests."""
     try:
@@ -7335,7 +7375,7 @@ def _ensure_no_unmanifested_preexisting_rulespec_changes(
     )
     issues = guard_generated_change_issues(
         repo_path,
-        roots=tuple(sorted(RULESPEC_SOURCE_ROOTS)),
+        roots=roots,
         changed_files=sorted(dirty_targets | relevant_manifest_paths),
     )
     if not issues:

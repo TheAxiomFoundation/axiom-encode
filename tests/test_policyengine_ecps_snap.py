@@ -13,6 +13,7 @@ from axiom_encode.oracles.policyengine.ecps_snap import (
     add_snapscreener_results,
     project_deduction_inputs,
     project_income_resource_inputs,
+    project_jurisdiction_household_inputs,
     project_raw_utility_inputs,
     project_utility_allowance_type,
     projected_child_support_payment,
@@ -52,6 +53,26 @@ def test_new_york_projector_uses_federal_income_and_resource_inputs():
         "snap_countable_unearned_income": 67.89,
         "snap_countable_financial_resources": 999,
     }
+
+
+def test_new_york_projector_uses_repaired_work_disqualification_input():
+    values = {
+        "snap_dependent_care_deduction": [0],
+        "snap_earned_income": [0],
+        "meets_snap_work_requirements": [False],
+    }
+
+    projected = project_jurisdiction_household_inputs(
+        JURISDICTION_CONFIGS["us-ny"], values, 0
+    )
+
+    assert "household_member_failed_snap_work_requirements" not in projected
+    assert (
+        projected[
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements"
+        ]
+        is True
+    )
 
 
 def test_california_projectors_use_california_snap_input_surface():

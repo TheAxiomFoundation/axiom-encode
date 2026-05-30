@@ -25,12 +25,15 @@ from axiom_encode.cli import (
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
     _apply_generated_encoding_result,
+    _california_snap_repair_guard_manifest_groups,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
     _ensure_generated_dependency_files_safe,
+    _ensure_no_california_snap_sua_layout_collision,
+    _ensure_no_unmanifested_preexisting_rulespec_changes,
     _find_rulespec_dependents,
     _has_zero_output_test,
     _hoist_nested_test_tables,
@@ -5143,6 +5146,67 @@ rules:
         assert (
             "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: not_holds"
             in repaired
+        )
+
+    def test_california_snap_sua_migration_rejects_old_and_new_paths(self, tmp_path):
+        repo = tmp_path / "rulespec-us-ca"
+        old_path = (
+            repo / "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
+        )
+        new_path = repo / "policies/cdss/snap/standard-utility-allowance.yaml"
+        old_path.parent.mkdir(parents=True)
+        new_path.parent.mkdir(parents=True)
+        old_path.write_text("format: rulespec/v1\n")
+        new_path.write_text("format: rulespec/v1\n")
+
+        with pytest.raises(RuntimeError, match="both old and new RuleSpec paths"):
+            _ensure_no_california_snap_sua_layout_collision(repo)
+
+    def test_california_snap_guard_covers_dirty_old_sua_path(self, tmp_path):
+        repo = tmp_path / "rulespec-us-ca"
+        old_path = (
+            repo / "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
+        )
+        old_path.parent.mkdir(parents=True)
+        old_path.write_text("format: rulespec/v1\n")
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "initial"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        old_path.write_text("format: rulespec/v1\nmodule:\n  summary: dirty\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            _ensure_no_unmanifested_preexisting_rulespec_changes(
+                repo,
+                _california_snap_repair_guard_manifest_groups(repo),
+                roots=("guidance", "policies", "regulations", "statutes"),
+            )
+
+        assert (
+            ".axiom/encoding-manifests/guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.json"
+            in str(exc.value)
         )
 
     def test_repair_new_york_snap_categorical_eligibility_adds_final_outputs(self):
@@ -11443,6 +11507,71 @@ rules:
             "regulations/7-cfr/273/10.test.yaml",
         ]
         assert payload["tool"] == "axiom-encode repair-snap-273-10-allotment"
+
+    def test_repair_snap_273_10_allotment_restores_files_when_validation_raises(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/10.yaml"
+        target.parent.mkdir(parents=True)
+        original_rules = """format: rulespec/v1
+imports:
+  - us:policies/usda/snap/fy-2026-cola/deductions
+  - us:regulations/7-cfr/273/9
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
+"""
+        target.write_text(original_rules)
+        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
+        original_tests = """- name: one_person_household_receives_minimum_benefit
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298
+  output:
+    us:regulations/7-cfr/273/10#snap_minimum_benefit: 24
+"""
+        test_file.write_text(original_tests)
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FailingPipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                raise RuntimeError("validator crashed")
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FailingPipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(RuntimeError, match="validator crashed"),
+        ):
+            cmd_repair_snap_273_10_allotment(args)
+
+        assert target.read_text() == original_rules
+        assert test_file.read_text() == original_tests
+        assert not (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
+        ).exists()
 
     def test_repair_current_year_final_amounts_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
