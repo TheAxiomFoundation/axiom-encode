@@ -3678,6 +3678,23 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 0",
         "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 0",
     )
+    base_shelter_input = (
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 0\n"
+    )
+    base_sua_input = (
+        "    ? us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
+        "    : false\n"
+    )
+    if (
+        base_shelter_input in content
+        and "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
+        not in content
+    ):
+        content = content.replace(
+            base_shelter_input,
+            base_shelter_input + base_sua_input,
+            1,
+        )
     content = content.replace(
         "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 500",
         "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500",
@@ -3696,24 +3713,23 @@ def _repair_california_snap_program_tests(path: Path) -> None:
     shelter_case_input = (
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500\n"
     )
-    if (
-        shelter_case_input in content
-        and "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
-        not in content
-    ):
+    shelter_sua_input = (
+        "    ? us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
+        "    : true\n"
+    )
+    if shelter_case_input in content and shelter_sua_input not in content:
         content = content.replace(
             shelter_case_input,
-            shelter_case_input
-            + "    ? us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
-            + "    : true\n",
+            shelter_case_input + shelter_sua_input,
             1,
         )
-    content = content.replace(
-        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 204.5\n",
-        "    us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance: 663\n"
-        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 1163\n"
-        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744\n",
-    )
+    for old_shelter_output in ("204", "204.5"):
+        content = content.replace(
+            f"    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: {old_shelter_output}\n",
+            "    us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance: 663\n"
+            "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 1163\n"
+            "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744\n",
+        )
     content = content.replace(
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 182\n",
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 298\n",
