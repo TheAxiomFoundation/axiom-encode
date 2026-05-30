@@ -3748,6 +3748,28 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         "us:statutes/7/2012/j#relation.member_of_household",
         "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household",
     )
+    base_output_anchor = (
+        "  output:\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_gross_monthly_income: 0\n"
+    )
+    base_output_coverage = (
+        "  output:\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_earned_income: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_unearned_income: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_gross_monthly_income: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_member_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_total_allowable_shelter_expenses: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 0\n"
+    )
+    if (
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_earned_income:"
+        not in content
+        and base_output_anchor in content
+    ):
+        content = content.replace(base_output_anchor, base_output_coverage, 1)
     if "us:regulations/7-cfr/273/10#input.household_size:" not in content:
         content = content.replace(
             "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n",
