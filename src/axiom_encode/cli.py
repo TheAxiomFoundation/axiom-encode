@@ -5594,6 +5594,29 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
             "household_member_ineligible_to_participate_in_snap: false\n",
             1,
         )
+    local_prorated_input = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+        "#input.snap_initial_month_prorated_allotment"
+    )
+    if local_prorated_input not in repaired:
+        repaired = repaired.replace(
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.household_shelter_costs_incurred: 500\n",
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.household_shelter_costs_incurred: 500\n"
+            f"    {local_prorated_input}: 0\n",
+            1,
+        )
+    if (
+        "us-ny:regulations/18-nycrr/387/14/a/1#input.application_date: '2026-01-16'\n"
+        f"    {local_prorated_input}: 153\n" not in repaired
+    ):
+        repaired = repaired.replace(
+            "    us-ny:regulations/18-nycrr/387/14/a/1#input.application_date: '2026-01-16'\n",
+            "    us-ny:regulations/18-nycrr/387/14/a/1#input.application_date: '2026-01-16'\n"
+            f"    {local_prorated_input}: 153\n",
+            1,
+        )
     output_ref = (
         "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
         "#ny_snap_excess_shelter_cost"

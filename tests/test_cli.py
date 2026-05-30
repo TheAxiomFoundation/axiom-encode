@@ -5213,6 +5213,7 @@ rules:
             """- name: ongoing_month_derives_new_york_allotment_with_heating_cooling_allowance
   period: 2026-01
   input:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_snap_work_requirements: false
   output:
@@ -5238,6 +5239,10 @@ rules:
         assert (
             "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
             "#ny_snap_excess_shelter_cost: 1266.5" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.snap_initial_month_prorated_allotment: 0" in repaired
         )
         assert (
             "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
