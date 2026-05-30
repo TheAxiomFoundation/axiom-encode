@@ -198,6 +198,119 @@ rules:
     assert rounding_multiple["status"] == "known_not_comparable"
 
 
+def test_policyengine_coverage_classifies_uk_income_tax_section_23_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/23.yaml",
+        """format: rulespec/v1
+rules:
+  - name: total_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income
+  - name: net_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, total_income - reliefs)
+  - name: income_tax_liability
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_tax
+  - name: income_remaining_after_allowances
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxable_income
+  - name: tax_left_after_reductions
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: tax_after_reductions
+  - name: net_income_zero_amount
+    kind: parameter
+    dtype: Money
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: future_section_23_output
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2007/3/23.test.yaml",
+        """- name: income tax steps
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    uk:statutes/ukpga/2007/3/23#total_income: 40000
+    uk:statutes/ukpga/2007/3/23#net_income: 38500
+    uk:statutes/ukpga/2007/3/23#income_tax_liability: 4300
+    uk:statutes/ukpga/2007/3/23#income_remaining_after_allowances: 25430
+    uk:statutes/ukpga/2007/3/23#tax_left_after_reductions: 4200
+    uk:statutes/ukpga/2007/3/23#net_income_zero_amount: 0
+    uk:statutes/ukpga/2007/3/23#future_section_23_output: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 3,
+        "known_not_comparable": 3,
+        "unmapped": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    total_income = items_by_id["uk:statutes/ukpga/2007/3/23#total_income"]
+    net_income = items_by_id["uk:statutes/ukpga/2007/3/23#net_income"]
+    liability = items_by_id["uk:statutes/ukpga/2007/3/23#income_tax_liability"]
+    remaining = items_by_id[
+        "uk:statutes/ukpga/2007/3/23#income_remaining_after_allowances"
+    ]
+    future_output = items_by_id["uk:statutes/ukpga/2007/3/23#future_section_23_output"]
+
+    assert total_income["policyengine_variable"] == "total_income"
+    assert total_income["tested"] is True
+    assert net_income["policyengine_variable"] == "adjusted_net_income"
+    assert net_income["tested"] is True
+    assert liability["policyengine_variable"] == "income_tax"
+    assert liability["tested"] is True
+    assert remaining["status"] == "known_not_comparable"
+    assert future_output["status"] == "unmapped"
+
+
 def test_policyengine_coverage_counts_uk_aliases_as_tested(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.yaml",

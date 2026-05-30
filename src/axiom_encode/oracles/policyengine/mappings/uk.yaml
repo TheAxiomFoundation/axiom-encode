@@ -1,4 +1,55 @@
 mappings:
+  - legal_id: uk:statutes/ukpga/2007/3/23#total_income
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: total_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax total-income component sum before personal allowances.
+
+  - legal_id: uk:statutes/ukpga/2007/3/23#net_income
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: adjusted_net_income
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same UK income tax adjusted net income after reliefs and before allowances.
+
+  - legal_id: uk:statutes/ukpga/2007/3/23#income_tax_liability
+    country: uk
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: income_tax
+    entity: person
+    period: year
+    unit: GBP
+    comparison: money
+    rationale: Same final UK income tax liability after reductions and listed tax additions.
+
+  - legal_id: uk:statutes/ukpga/2007/3/23#income_remaining_after_allowances
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: UK income tax step-control value with no one-to-one PolicyEngine UK oracle variable.
+
+  - legal_id: uk:statutes/ukpga/2007/3/23#tax_left_after_reductions
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: UK income tax intermediate value before listed additions with no one-to-one PolicyEngine UK oracle variable.
+
+  - legal_id: uk:statutes/ukpga/2007/3/23#net_income_zero_amount
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    rationale: Generated statutory zero constant rather than a PolicyEngine UK variable or parameter.
+
   - legal_id: uk:statutes/ukpga/2007/3/35#personal_allowance_base_amount
     country: uk
     program: tax
