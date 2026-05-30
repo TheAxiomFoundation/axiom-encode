@@ -91,6 +91,23 @@ def test_person_entity_id_is_stable_and_namespaced():
     assert person_entity_id(42) == "person_42"
 
 
+def test_scalar_value_formats_scientific_float_as_decimal_literal():
+    value = ecps_tax.scalar_value(1.105810581991662e-11)
+
+    assert value == {
+        "kind": "decimal",
+        "value": "0.00000000001105810581991662",
+    }
+    assert "e" not in value["value"].lower()
+
+
+def test_scalar_value_keeps_plain_float_literal_format():
+    assert ecps_tax.scalar_value(184500.0) == {
+        "kind": "decimal",
+        "value": "184500.0",
+    }
+
+
 def test_run_axiom_program_compiles_through_canonical_repo_alias(
     monkeypatch,
     tmp_path,
