@@ -3674,12 +3674,40 @@ def _california_snap_member_eligible_rule() -> dict[str, object]:
 
 def _repair_california_snap_program_tests(path: Path) -> None:
     content = path.read_text()
+    content = content.replace(
+        "us:statutes/7/2012/j#relation.member_of_household",
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household",
+    )
     if "us:regulations/7-cfr/273/10#input.household_size:" not in content:
         content = content.replace(
             "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n",
             "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n"
             "    us:regulations/7-cfr/273/10#input.household_size: 1\n",
             1,
+        )
+    alien_status_defaults = (
+        "        us:regulations/7-cfr/273/4#input.member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_hmong_or_highland_laotian_qualifying_person_or_family_member: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_trafficking_victim_or_qualifying_family_member: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_qualified_alien_with_forty_qualifying_quarters: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_refugee: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_asylee: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_has_deportation_or_removal_withheld: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_cuban_or_haitian_entrant: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_amerasian_immigrant: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_has_eligible_military_connection: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_receives_blindness_or_disability_benefits: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_under_age_eighteen: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_qualified_alien_subject_to_five_year_wait: false\n"
+        "        us:regulations/7-cfr/273/4#input.qualified_alien_five_year_status_period_met: false\n"
+        "        us:regulations/7-cfr/273/4#input.alien_status_documentation_missing_or_unwilling: false\n"
+    )
+    if "member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member" not in content:
+        content = content.replace(
+            "        us:regulations/7-cfr/273/7#input.member_age: 60\n",
+            "        us:regulations/7-cfr/273/7#input.member_age: 60\n"
+            + alien_status_defaults,
         )
     if (
         "us:regulations/7-cfr/273/8#input.snap_categorically_eligible_for_resource_exemption:"
