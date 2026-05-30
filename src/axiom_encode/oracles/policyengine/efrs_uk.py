@@ -34,6 +34,8 @@ PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
 CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
 CHILD_BENEFIT_BASE = "uk:regulations/uksi/2006/965/2"
+PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
+PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -46,6 +48,14 @@ CHILD_BENEFIT_OUTPUTS = {
     "child_benefit_weekly_rate": {
         "axiom": f"{CHILD_BENEFIT_BASE}#child_benefit_weekly_rate",
         "pe": "child_benefit_respective_amount",
+        "pe_transform": "annual_to_weekly",
+    },
+}
+
+PENSION_CREDIT_OUTPUTS = {
+    "standard_minimum_guarantee": {
+        "axiom": f"{PENSION_CREDIT_BASE}#standard_minimum_guarantee",
+        "pe": "standard_minimum_guarantee",
         "pe_transform": "annual_to_weekly",
     },
 }
@@ -79,17 +89,26 @@ SURFACE_SPECS = {
             "child_benefit_respective_amount",
         ),
     ),
+    "pension-credit": UKEFRSSurfaceSpec(
+        program=PENSION_CREDIT_PROGRAM_PATH,
+        entity="benunit",
+        outputs=PENSION_CREDIT_OUTPUTS,
+        pe_variables=(
+            "is_couple",
+            "relation_type",
+            "standard_minimum_guarantee",
+        ),
+    ),
 }
 
 SKIPPED_SURFACES = [
     {
-        "surface": "pension-credit",
+        "surface": "pension-credit-additions",
         "reason": (
-            "rulespec-uk currently exposes statutory amount components and "
-            "branch controls for the standard minimum guarantee, severe "
-            "disability addition, and carer addition; the EFRS harness still "
-            "needs a benunit-level legal-predicate projection before those can "
-            "be compared row by row."
+            "rulespec-uk exposes severe-disability and carer additions, but "
+            "the EFRS harness still needs person-level qualifying-benefit and "
+            "carer predicate projection before those additions can be compared "
+            "row by row."
         ),
     },
     {
@@ -123,6 +142,7 @@ class UKEFRSOracleDivergence(UKEFRSComparisonRow):
 @dataclass(frozen=True)
 class UKEFRSComparisonReport:
     compared_persons: int
+    compared_benunits: int
     compared_values: int
     mismatches: list[UKEFRSComparisonRow]
     oracle_divergences: list[UKEFRSOracleDivergence]
@@ -133,6 +153,7 @@ class UKEFRSComparisonReport:
     def to_json(self) -> dict[str, Any]:
         return {
             "compared_persons": self.compared_persons,
+            "compared_benunits": self.compared_benunits,
             "compared_values": self.compared_values,
             "mismatch_count": len(self.mismatches),
             "mismatches": [row.__dict__ for row in self.mismatches],
@@ -281,6 +302,7 @@ def compare_uk_efrs(
         data_folder=data_folder,
         person_ids=person_ids,
         person_variables=policyengine_person_variables_for_surfaces(surfaces),
+        benunit_variables=policyengine_benunit_variables_for_surfaces(surfaces),
     )
     surface_results: dict[str, list[dict[str, Any]]] = {}
     for selected_surface in surfaces:
@@ -317,6 +339,7 @@ def load_policyengine_uk_data(
     person_variables: tuple[str, ...] = SURFACE_SPECS[
         "personal-allowance"
     ].pe_variables,
+    benunit_variables: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     try:
         from policyengine.core import Simulation
@@ -340,15 +363,23 @@ def load_policyengine_uk_data(
             data_folder=str(data_folder),
         )
         pe_dataset = datasets[f"{dataset_logical_name(resolved_dataset)}_{year}"]
+    extra_variables: dict[str, list[str]] = {}
+    if person_variables:
+        extra_variables["person"] = list(person_variables)
+    if benunit_variables:
+        extra_variables["benunit"] = list(benunit_variables)
     sim = Simulation(
         dataset=pe_dataset,
         tax_benefit_model_version=uk_latest,
-        extra_variables={"person": list(person_variables)},
+        extra_variables=extra_variables,
     )
     log("Running PolicyEngine UK outputs...")
     sim.run()
 
-    raw_persons = pe_dataset.data.person[["person_id", "person_weight"]].copy()
+    person_columns = ["person_id", "person_weight"]
+    if "person_benunit_id" in pe_dataset.data.person.columns:
+        person_columns.append("person_benunit_id")
+    raw_persons = pe_dataset.data.person[person_columns].copy()
     person_outputs = sim.output_dataset.data.person[["person_id", *person_variables]]
     merged = raw_persons.merge(
         person_outputs,
@@ -363,9 +394,42 @@ def load_policyengine_uk_data(
         person_ids=person_ids,
     )
     selected = [records[index] for index in selected_indices]
+    benunit_records: list[dict[str, Any]] = []
+    selected_benunits: list[dict[str, Any]] = []
+    if benunit_variables:
+        raw_benunits = pe_dataset.data.benunit[["benunit_id", "benunit_weight"]].copy()
+        benunit_outputs = sim.output_dataset.data.benunit[
+            ["benunit_id", *benunit_variables]
+        ]
+        merged_benunits = raw_benunits.merge(
+            benunit_outputs,
+            on="benunit_id",
+            how="left",
+            validate="one_to_one",
+        )
+        benunit_records = table_records(merged_benunits)
+        selected_benunit_ids = ()
+        if person_ids:
+            selected_benunit_ids = tuple(
+                dict.fromkeys(
+                    int(row_value(row, "person_benunit_id"))
+                    for row in selected
+                    if row_value(row, "person_benunit_id") is not None
+                )
+            )
+        selected_benunit_indices = select_benunit_indices(
+            benunit_records,
+            sample_size=sample_size,
+            benunit_ids=selected_benunit_ids,
+        )
+        selected_benunits = [
+            benunit_records[index] for index in selected_benunit_indices
+        ]
     return {
         "persons": selected,
         "person_ids": [int(row_value(row, "person_id")) for row in selected],
+        "benunits": selected_benunits,
+        "benunit_ids": [int(row_value(row, "benunit_id")) for row in selected_benunits],
     }
 
 
@@ -478,9 +542,25 @@ def local_policyengine_uk_dataset_path(dataset: str) -> Path | None:
 def policyengine_person_variables_for_surfaces(
     surfaces: list[str],
 ) -> tuple[str, ...]:
+    return policyengine_variables_for_surfaces(surfaces, entity="person")
+
+
+def policyengine_benunit_variables_for_surfaces(
+    surfaces: list[str],
+) -> tuple[str, ...]:
+    return policyengine_variables_for_surfaces(surfaces, entity="benunit")
+
+
+def policyengine_variables_for_surfaces(
+    surfaces: list[str],
+    *,
+    entity: str,
+) -> tuple[str, ...]:
     variables: set[str] = set()
     for surface in surfaces:
-        variables.update(SURFACE_SPECS[surface].pe_variables)
+        spec = SURFACE_SPECS[surface]
+        if spec.entity == entity:
+            variables.update(spec.pe_variables)
     return tuple(sorted(variables))
 
 
@@ -490,17 +570,52 @@ def select_person_indices(
     sample_size: int,
     person_ids: tuple[int, ...] = (),
 ) -> list[int]:
+    return select_entity_indices(
+        rows,
+        sample_size=sample_size,
+        requested_ids=person_ids,
+        id_column="person_id",
+        weight_column="person_weight",
+        entity_label="EFRS person_id",
+    )
+
+
+def select_benunit_indices(
+    rows: list[dict[str, Any]],
+    *,
+    sample_size: int,
+    benunit_ids: tuple[int, ...] = (),
+) -> list[int]:
+    return select_entity_indices(
+        rows,
+        sample_size=sample_size,
+        requested_ids=benunit_ids,
+        id_column="benunit_id",
+        weight_column="benunit_weight",
+        entity_label="EFRS benunit_id",
+    )
+
+
+def select_entity_indices(
+    rows: list[dict[str, Any]],
+    *,
+    sample_size: int,
+    requested_ids: tuple[int, ...] = (),
+    id_column: str,
+    weight_column: str,
+    entity_label: str,
+) -> list[int]:
     eligible = [
         index
         for index, row in enumerate(rows)
-        if money(row_value(row, "person_weight", 0)) > 0
+        if money(row_value(row, weight_column, 0)) > 0
     ]
-    if not person_ids:
+    if not requested_ids:
         return eligible if sample_size <= 0 else eligible[:sample_size]
 
-    requested_ids = tuple(dict.fromkeys(int(value) for value in person_ids))
+    requested_ids = tuple(dict.fromkeys(int(value) for value in requested_ids))
     index_by_id = {
-        int(row_value(row, "person_id")): index for index, row in enumerate(rows)
+        int(row_value(row, id_column)): index for index, row in enumerate(rows)
     }
     eligible_set = set(eligible)
     selected: list[int] = []
@@ -516,12 +631,12 @@ def select_person_indices(
             selected.append(index)
     if missing:
         raise SystemExit(
-            "Requested EFRS person_id not found: "
+            f"Requested {entity_label} not found: "
             + ", ".join(str(value) for value in missing)
         )
     if filtered:
         raise SystemExit(
-            "Requested EFRS person_id is not eligible for this comparison: "
+            f"Requested {entity_label} is not eligible for this comparison: "
             + ", ".join(str(value) for value in filtered)
         )
     return selected
@@ -537,6 +652,8 @@ def build_axiom_request(
         return build_personal_allowance_request(pe_data=pe_data, year=year)
     if surface == "child-benefit":
         return build_child_benefit_request(pe_data=pe_data, year=year)
+    if surface == "pension-credit":
+        return build_pension_credit_request(pe_data=pe_data, year=year)
     raise ValueError(f"unsupported UK EFRS surface: {surface}")
 
 
@@ -606,6 +723,38 @@ def build_child_benefit_request(
     }
 
 
+def build_pension_credit_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_week_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "pension-credit"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_pension_credit_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{PENSION_CREDIT_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in PENSION_CREDIT_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -632,7 +781,19 @@ def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
+    relation_type = str(row_value(row, "relation_type", "")).upper()
+    is_couple = bool(row_value(row, "is_couple", False)) or relation_type == "COUPLE"
+    return {
+        "claimant_is_prisoner": False,
+        "member_of_religious_order_fully_maintained_by_order": False,
+        "claimant_has_partner": is_couple,
+    }
+
+
 def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, Any]]:
+    if SURFACE_SPECS[surface].entity == "benunit":
+        return pe_data.get("benunits", [])
     persons = pe_data["persons"]
     if surface == "child-benefit":
         return [
@@ -672,7 +833,7 @@ def compare_outputs(
         persons = rows_for_surface(pe_data, surface)
         for index, result in enumerate(axiom_outputs):
             pe_row = persons[index]
-            entity_id = person_entity_id(int(row_value(pe_row, "person_id")))
+            entity_id = entity_id_for_surface(surface, pe_row)
             outputs = result.get("outputs") or {}
             for name, spec in output_specs.items():
                 axiom_value = output_number(outputs.get(spec["axiom"]))
@@ -720,6 +881,7 @@ def compare_outputs(
                         )
     return UKEFRSComparisonReport(
         compared_persons=len(pe_data["person_ids"]),
+        compared_benunits=len(pe_data.get("benunit_ids", [])),
         compared_values=compared_values,
         mismatches=mismatches,
         oracle_divergences=oracle_divergences,
@@ -743,8 +905,20 @@ def compare_outputs(
             "specified-benefit, and polygamous-marriage branches are projected "
             "false because PolicyEngine UK's child_benefit_respective_amount "
             "does not expose those legal predicates separately.",
+            "Pension Credit standard minimum guarantee comparison runs at "
+            "benefit-unit level, divides PolicyEngine's annual output by 52, "
+            "and projects claimant_has_partner from PolicyEngine's relation_type "
+            "or is_couple. Prisoner and fully-maintained religious-order branches "
+            "are projected false because those legal predicates are not exposed "
+            "in the EFRS oracle data.",
         ],
     )
+
+
+def entity_id_for_surface(surface: str, row: Any) -> str:
+    if SURFACE_SPECS[surface].entity == "benunit":
+        return benunit_entity_id(int(row_value(row, "benunit_id")))
+    return person_entity_id(int(row_value(row, "person_id")))
 
 
 def policyengine_output_value(spec: dict[str, Any], row: Any) -> float:
@@ -805,6 +979,29 @@ def known_policyengine_divergence(
             ),
             issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1739",
         )
+    if (
+        surface == "pension-credit"
+        and output == "standard_minimum_guarantee"
+        and 0 < diff < 15
+        and (
+            math.isclose(axiom_value, 238.00, abs_tol=1e-9)
+            or math.isclose(axiom_value, 363.25, abs_tol=1e-9)
+        )
+    ):
+        return UKEFRSOracleDivergence(
+            surface=surface,
+            entity_id=entity_id,
+            output=output,
+            axiom=axiom_value,
+            policyengine=policyengine_value,
+            diff=diff,
+            reason=(
+                "PolicyEngine UK currently uses forecast-indexed 2026 Pension "
+                "Credit guarantee amounts instead of the published 2026-27 "
+                "weekly rates."
+            ),
+            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1740",
+        )
     return None
 
 
@@ -816,6 +1013,7 @@ def print_report(
 ) -> None:
     print("PolicyEngine UK EFRS comparison")
     print(f"Compared persons: {report.compared_persons:,}")
+    print(f"Compared benefit units: {report.compared_benunits:,}")
     print(f"Compared values: {report.compared_values:,}")
     print(f"Tolerance: {tolerance:g}")
     print(f"Relative tolerance: {relative_tolerance:g}")
@@ -902,6 +1100,10 @@ def benefit_week_interval(year: int) -> dict[str, str]:
 
 def person_entity_id(person_id: int) -> str:
     return f"person_{person_id}"
+
+
+def benunit_entity_id(benunit_id: int) -> str:
+    return f"benunit_{benunit_id}"
 
 
 def resolve_workspace_root(root: Path | None) -> Path:
