@@ -26,6 +26,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_child_benefit_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
+    require_policyengine_uk_versions,
     select_person_indices,
 )
 
@@ -401,6 +402,35 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     )
 
 
+def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
+    def fake_version(package):
+        versions = {
+            "policyengine": efrs_uk.POLICYENGINE_VERSION,
+            "policyengine-core": efrs_uk.POLICYENGINE_CORE_VERSION,
+            "policyengine-uk": "2.88.19",
+        }
+        return versions[package]
+
+    monkeypatch.setattr(efrs_uk, "version", fake_version)
+
+    with pytest.raises(SystemExit, match="policyengine-uk==2.88.20 required"):
+        require_policyengine_uk_versions()
+
+
+def test_policyengine_uk_version_guard_allows_pinned_versions(monkeypatch):
+    def fake_version(package):
+        versions = {
+            "policyengine": efrs_uk.POLICYENGINE_VERSION,
+            "policyengine-core": efrs_uk.POLICYENGINE_CORE_VERSION,
+            "policyengine-uk": efrs_uk.POLICYENGINE_UK_VERSION,
+        }
+        return versions[package]
+
+    monkeypatch.setattr(efrs_uk, "version", fake_version)
+
+    require_policyengine_uk_versions()
+
+
 def test_compare_outputs_reports_personal_allowance_mismatch():
     report = compare_outputs(
         pe_data={
@@ -435,6 +465,24 @@ def test_compare_outputs_reports_personal_allowance_mismatch():
     assert report.mismatches[0].entity_id == "person_7"
     assert report.output_summary[0]["mismatches"] == 1
     assert report.skipped_surfaces == []
+
+
+def test_compare_outputs_rejects_missing_axiom_rows():
+    with pytest.raises(ValueError, match="personal-allowance produced 0 Axiom"):
+        compare_outputs(
+            pe_data={
+                "persons": [
+                    {
+                        "person_id": 7,
+                        "personal_allowance": 12_570,
+                    }
+                ],
+                "person_ids": [7],
+            },
+            axiom_outputs_by_surface={"personal-allowance": []},
+            tolerance=0.01,
+            relative_tolerance=2e-7,
+        )
 
 
 def test_compare_outputs_classifies_known_policyengine_personal_allowance_rounding():
@@ -708,6 +756,51 @@ def test_compare_outputs_classifies_known_policyengine_pension_credit_additions(
     assert len(report.oracle_divergences) == 1
     assert report.oracle_divergences[0].output == "carer_additional_amount"
     assert report.oracle_divergences[0].issue_url.endswith("/issues/1742")
+
+
+def test_compare_outputs_does_not_hide_wrong_pension_credit_additional_rate():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benunit_weight": 1,
+                    "relation_type": "SINGLE",
+                    "is_couple": False,
+                    "severe_disability_minimum_guarantee_addition": 0,
+                    "carer_minimum_guarantee_addition": 47.9466 * WEEKS_IN_YEAR,
+                    "num_carers": 1,
+                    "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "pension-credit": [
+                {
+                    "outputs": {
+                        PENSION_CREDIT_OUTPUTS["standard_minimum_guarantee"][
+                            "axiom"
+                        ]: decimal_output(238.00),
+                        PENSION_CREDIT_OUTPUTS["severe_disability_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(0),
+                        PENSION_CREDIT_OUTPUTS["carer_additional_amount"][
+                            "axiom"
+                        ]: decimal_output(44.00),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.oracle_divergences == []
+    assert len(report.mismatches) == 1
+    assert report.mismatches[0].output == "carer_additional_amount"
 
 
 def test_compare_uk_efrs_runs_axiom_personal_allowance(

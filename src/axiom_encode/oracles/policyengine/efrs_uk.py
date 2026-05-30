@@ -13,12 +13,14 @@ import json
 import math
 import sys
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from .ecps_tax import (
+    POLICYENGINE_CORE_VERSION,
     POLICYENGINE_VERSION,
     input_record,
     money,
@@ -31,6 +33,7 @@ from .ecps_tax import (
 DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
+POLICYENGINE_UK_VERSION = "2.88.20"
 
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
@@ -491,6 +494,8 @@ def load_policyengine_uk_data(
     ].pe_variables,
     benunit_variables: tuple[str, ...] = (),
 ) -> dict[str, Any]:
+    require_policyengine_uk_versions()
+
     try:
         from policyengine.core import Simulation
         from policyengine.provenance.manifest import dataset_logical_name
@@ -1142,6 +1147,11 @@ def compare_outputs(
     for surface, axiom_outputs in axiom_outputs_by_surface.items():
         output_specs = SURFACE_SPECS[surface].outputs
         persons = rows_for_surface(pe_data, surface)
+        if len(axiom_outputs) != len(persons):
+            raise ValueError(
+                f"{surface} produced {len(axiom_outputs):,} Axiom result rows "
+                f"for {len(persons):,} PolicyEngine rows"
+            )
         for index, result in enumerate(axiom_outputs):
             pe_row = persons[index]
             entity_id = entity_id_for_surface(surface, pe_row)
@@ -1387,6 +1397,7 @@ def known_policyengine_divergence(
     if (
         surface == "pension-credit"
         and output in {"severe_disability_additional_amount", "carer_additional_amount"}
+        and pension_credit_additional_amount_matches_published_rate(output, axiom_value)
         and policyengine_value > 0
         and 0 < abs(diff) < 5
     ):
@@ -1427,6 +1438,21 @@ def known_policyengine_divergence(
             issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1741",
         )
     return None
+
+
+def pension_credit_additional_amount_matches_published_rate(
+    output: str,
+    axiom_value: float,
+) -> bool:
+    if output == "carer_additional_amount":
+        return math.isclose(axiom_value, 48.15, abs_tol=1e-9)
+    if output == "severe_disability_additional_amount":
+        return math.isclose(axiom_value, 86.05, abs_tol=1e-9) or math.isclose(
+            axiom_value,
+            172.10,
+            abs_tol=1e-9,
+        )
+    return False
 
 
 def print_report(
@@ -1550,6 +1576,30 @@ def resolve_workspace_root(root: Path | None) -> Path:
         ).exists():
             return candidate
     return cwd
+
+
+def require_policyengine_uk_versions() -> None:
+    try:
+        policyengine_version = version("policyengine")
+        policyengine_core_version = version("policyengine-core")
+        policyengine_uk_version = version("policyengine-uk")
+    except PackageNotFoundError as exc:
+        raise SystemExit(policyengine_uk_install_message()) from exc
+    if policyengine_version != POLICYENGINE_VERSION:
+        raise SystemExit(
+            f"policyengine=={POLICYENGINE_VERSION} required; found "
+            f"{policyengine_version}. {policyengine_uk_install_message()}"
+        )
+    if policyengine_core_version != POLICYENGINE_CORE_VERSION:
+        raise SystemExit(
+            f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
+            f"{policyengine_core_version}. {policyengine_uk_install_message()}"
+        )
+    if policyengine_uk_version != POLICYENGINE_UK_VERSION:
+        raise SystemExit(
+            f"policyengine-uk=={POLICYENGINE_UK_VERSION} required; found "
+            f"{policyengine_uk_version}. {policyengine_uk_install_message()}"
+        )
 
 
 def policyengine_uk_install_message() -> str:
