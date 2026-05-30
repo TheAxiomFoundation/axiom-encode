@@ -626,6 +626,96 @@ mappings:
     mapping_type: not_comparable
     rationale: Axiom composition helper summing Colorado shelter costs and utility allowances; PE uses separate housing-cost and SNAP utility-allowance variables.
 
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_earned_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_earned_income
+    candidate_priority: P4
+    rationale: California CalFresh composition helper clamps federal earned income before state composition; PolicyEngine's SNAP earned-income variable is adjacent but computed from PE's own income source graph.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_unearned_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_unearned_income
+    candidate_priority: P4
+    rationale: California CalFresh composition helper clamps federal unearned income before state composition; PolicyEngine's SNAP unearned-income variable is adjacent but computed from PE's own income source graph.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_gross_monthly_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_gross_income
+    candidate_priority: P4
+    rationale: California CalFresh composition alias combining Axiom countable earned and unearned income; PolicyEngine's SNAP gross income is adjacent but computed from PE's own income source graph.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_monthly_household_income
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_gross_income
+    candidate_priority: P4
+    rationale: California CalFresh composition alias for monthly household income; PolicyEngine's SNAP gross income is adjacent but not the same legal output boundary.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Axiom composition helper summing California shelter costs and standard utility allowance; PE uses separate housing-cost and SNAP utility-allowance variables.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_total_allowable_shelter_expenses
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: California CalFresh composition helper feeding federal excess-shelter deduction; PE derives allowable shelter expense through its own housing and utility abstractions.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap_excess_shelter_expense_deduction
+    candidate_priority: P4
+    rationale: California CalFresh composition passes California shelter and utility inputs into the federal deduction; PolicyEngine's shelter deduction is adjacent but uses PE-specific housing and utility inputs.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_member_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: is_snap_eligible
+    candidate_priority: P4
+    rationale: California CalFresh person-level bridge combines citizenship, SSN, work, and student predicates; PE eligibility is household/SPM-unit level and not this bridge output.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: California CalFresh residency bridge is a state composition output; PolicyEngine does not expose a comparable standalone SNAP residency variable.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: is_snap_eligible
+    candidate_priority: P4
+    rationale: California CalFresh household bridge counts Axiom member eligibility over the household relation; PolicyEngine's SNAP eligibility is adjacent but includes PE's full eligibility graph.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_eligible
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: is_snap_eligible
+    candidate_priority: P4
+    rationale: California CalFresh eligibility composition combines state and federal Axiom outputs; PE eligibility is adjacent but computed from PE's own eligibility graph.
+
+  - legal_id: us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: snap
+    candidate_priority: P4
+    rationale: California CalFresh benefit composition gates the federal allotment through Axiom eligibility and state shelter surfaces; PE's SNAP amount is adjacent but depends on PE's own full graph.
+
   - legal_id: us-co:regulations/10-ccr-2506-1/4.407.3#excess_shelter_deduction
     country: us
     program: snap

@@ -1044,6 +1044,82 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_ca_snap_refs_parser = subparsers.add_parser(
+        "repair-california-snap-shelter-surface",
+        help="Apply signed deterministic repairs for California SNAP shelter and member surface drift",
+    )
+    repair_ca_snap_refs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-ca repository root used for manifest signing",
+    )
+    repair_ca_snap_refs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_snap_273_10_parser = subparsers.add_parser(
+        "repair-snap-273-10-allotment",
+        help="Apply signed deterministic repairs for 7 CFR 273.10 maximum-allotment drift",
+    )
+    repair_snap_273_10_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_snap_273_10_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_ny_snap_categorical_parser = subparsers.add_parser(
+        "repair-new-york-snap-categorical-eligibility",
+        help="Apply signed deterministic repairs for New York SNAP categorical eligibility",
+    )
+    repair_ny_snap_categorical_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-ny repository root used for manifest signing",
+    )
+    repair_ny_snap_categorical_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
+    repair_ny_snap_benefit_tests_parser = subparsers.add_parser(
+        "repair-new-york-snap-benefit-tests",
+        help="Apply signed deterministic repairs for New York SNAP benefit companion tests",
+    )
+    repair_ny_snap_benefit_tests_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-ny repository root used for manifest signing",
+    )
+    repair_ny_snap_benefit_tests_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1641,6 +1717,14 @@ def main():
         cmd_repair_missing_source_proofs(args)
     elif args.command == "repair-colorado-snap-federal-refs":
         cmd_repair_colorado_snap_federal_refs(args)
+    elif args.command == "repair-california-snap-shelter-surface":
+        cmd_repair_california_snap_shelter_surface(args)
+    elif args.command == "repair-snap-273-10-allotment":
+        cmd_repair_snap_273_10_allotment(args)
+    elif args.command == "repair-new-york-snap-categorical-eligibility":
+        cmd_repair_new_york_snap_categorical_eligibility(args)
+    elif args.command == "repair-new-york-snap-benefit-tests":
+        cmd_repair_new_york_snap_benefit_tests(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -3262,6 +3346,25 @@ COLORADO_SNAP_REPAIR_RELATIVE_OUTPUTS = (
     COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml",
 )
 
+CALIFORNIA_SNAP_SHELTER_SURFACE_REPAIR_MODEL = "california-snap-shelter-surface-v1"
+CALIFORNIA_SNAP_PROGRAM_RELATIVE = Path(
+    "policies/cdss/snap/fy-2026-benefit-calculation.yaml"
+)
+CALIFORNIA_SNAP_SUA_RELATIVE = Path(
+    "policies/cdss/snap/standard-utility-allowance.yaml"
+)
+CALIFORNIA_SNAP_SUA_IMPORT = "us-ca:policies/cdss/snap/standard-utility-allowance"
+CALIFORNIA_SNAP_OLD_SUA_RELATIVE = Path(
+    "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
+)
+CALIFORNIA_SNAP_OLD_SUA_IMPORT = (
+    "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance"
+)
+CALIFORNIA_SNAP_REPAIR_RELATIVE_OUTPUTS = (
+    CALIFORNIA_SNAP_PROGRAM_RELATIVE,
+    CALIFORNIA_SNAP_SUA_RELATIVE,
+)
+
 
 def cmd_repair_colorado_snap_federal_refs(args):
     """Apply signed deterministic repairs for Colorado SNAP federal ref drift."""
@@ -3438,6 +3541,522 @@ def _write_colorado_snap_repair_manifests(
                 )
             )
     return manifest_paths
+
+
+def cmd_repair_california_snap_shelter_surface(args):
+    """Apply signed deterministic repairs for California SNAP composition drift."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-ca":
+        print(
+            "repair-california-snap-shelter-surface must run against "
+            f"rulespec-us-ca; got {repo_path}"
+        )
+        sys.exit(1)
+
+    manifest_groups = _california_snap_repair_manifest_groups(repo_path)
+    guard_manifest_groups = _california_snap_repair_guard_manifest_groups(repo_path)
+    for relative_output, _files in manifest_groups:
+        rules_file = repo_path / relative_output
+        old_sua = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
+        if not rules_file.exists() and not (
+            relative_output == CALIFORNIA_SNAP_SUA_RELATIVE and old_sua.exists()
+        ):
+            print(f"RuleSpec file not found: {rules_file}")
+            sys.exit(1)
+    try:
+        _ensure_no_california_snap_sua_layout_collision(repo_path)
+        _ensure_no_unmanifested_preexisting_rulespec_changes(
+            repo_path,
+            guard_manifest_groups,
+            roots=tuple(sorted(RULESPEC_SOURCE_ROOTS | {"guidance"})),
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    tracked_files = _unique_paths(
+        [path for _relative_output, files in manifest_groups for path in files]
+    )
+    migration_files = [
+        repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE,
+        _rulespec_test_path(repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE),
+        repo_path / _applied_encoding_manifest_path(CALIFORNIA_SNAP_OLD_SUA_RELATIVE),
+    ]
+    preexisting_changed_files = _changed_manifest_group_files(
+        repo_path,
+        guard_manifest_groups,
+    )
+    originals = {
+        path: path.read_text() if path.exists() else None
+        for path in _unique_paths(tracked_files + migration_files)
+    }
+
+    try:
+        _migrate_california_snap_sua_layout(repo_path)
+        _repair_california_snap_policy_composition(
+            repo_path / CALIFORNIA_SNAP_PROGRAM_RELATIVE
+        )
+        _repair_california_snap_program_tests(
+            _rulespec_test_path(repo_path / CALIFORNIA_SNAP_PROGRAM_RELATIVE)
+        )
+
+        changed_by_command = _unique_paths(
+            [
+                path
+                for path in tracked_files
+                if _path_differs_from_original(path, originals.get(path))
+            ]
+        )
+        changed_files = _unique_paths(preexisting_changed_files + changed_by_command)
+        if not changed_files:
+            print("No California SNAP shelter surface repairs found.")
+            return
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    manifest_paths = _write_california_snap_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_files,
+    )
+
+    print("Applied California SNAP shelter surface repair")
+    for path in changed_files:
+        print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _california_snap_repair_manifest_groups(
+    repo_path: Path,
+) -> list[tuple[Path, list[Path]]]:
+    groups: list[tuple[Path, list[Path]]] = []
+    for relative_output in CALIFORNIA_SNAP_REPAIR_RELATIVE_OUTPUTS:
+        rules_file = repo_path / relative_output
+        test_file = _rulespec_test_path(rules_file)
+        files = [rules_file]
+        if test_file.exists() or relative_output == CALIFORNIA_SNAP_SUA_RELATIVE:
+            files.append(test_file)
+        groups.append((relative_output, files))
+    return groups
+
+
+def _california_snap_repair_guard_manifest_groups(
+    repo_path: Path,
+) -> list[tuple[Path, list[Path]]]:
+    old_rules_file = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
+    old_test_file = _rulespec_test_path(old_rules_file)
+    return _california_snap_repair_manifest_groups(repo_path) + [
+        (CALIFORNIA_SNAP_OLD_SUA_RELATIVE, [old_rules_file, old_test_file])
+    ]
+
+
+def _ensure_no_california_snap_sua_layout_collision(repo_path: Path) -> None:
+    collisions = [
+        (
+            repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE,
+            repo_path / CALIFORNIA_SNAP_SUA_RELATIVE,
+        ),
+        (
+            _rulespec_test_path(repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE),
+            _rulespec_test_path(repo_path / CALIFORNIA_SNAP_SUA_RELATIVE),
+        ),
+    ]
+    for old_file, new_file in collisions:
+        if old_file.exists() and new_file.exists():
+            raise RuntimeError(
+                "Refusing to migrate California SNAP standard utility allowance "
+                "while both old and new RuleSpec paths exist: "
+                f"{old_file.relative_to(repo_path)} and {new_file.relative_to(repo_path)}"
+            )
+
+
+def _write_california_snap_repair_manifests(
+    *,
+    repo_path: Path,
+    signing_key: str,
+    axiom_encode_git: dict[str, object],
+    manifest_groups: list[tuple[Path, list[Path]]],
+    changed_files: list[Path],
+) -> list[Path]:
+    changed = {path.resolve() for path in changed_files}
+    manifest_paths: list[Path] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        for relative_output, files in manifest_groups:
+            applied_files = [path for path in files if path.resolve() in changed]
+            if not applied_files:
+                continue
+            generated_output = output_root / "deterministic-repair" / relative_output
+            generated_output.parent.mkdir(parents=True, exist_ok=True)
+            generated_output.write_text((repo_path / relative_output).read_text())
+            result = argparse.Namespace(
+                output_file=str(generated_output),
+                runner="deterministic-repair",
+                backend="deterministic",
+                model=CALIFORNIA_SNAP_SHELTER_SURFACE_REPAIR_MODEL,
+                tool="axiom-encode repair-california-snap-shelter-surface",
+                citation=(
+                    f"{_repo_jurisdiction_prefix(repo_path)}:"
+                    f"{_relative_rulespec_import_target(relative_output)}"
+                ),
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=None,
+            )
+            manifest_paths.append(
+                _write_applied_encoding_manifest(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=repo_path,
+                    relative_output=relative_output,
+                    applied_files=applied_files,
+                    run_id="deterministic-repair",
+                    signing_key=signing_key,
+                    axiom_encode_git=axiom_encode_git,
+                )
+            )
+    return manifest_paths
+
+
+def _migrate_california_snap_sua_layout(repo_path: Path) -> None:
+    """Move generated CA SUA RuleSpec out of the disallowed guidance/ root."""
+    old_rules_file = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
+    old_test_file = _rulespec_test_path(old_rules_file)
+    new_rules_file = repo_path / CALIFORNIA_SNAP_SUA_RELATIVE
+    new_test_file = _rulespec_test_path(new_rules_file)
+
+    for old_file, new_file in (
+        (old_rules_file, new_rules_file),
+        (old_test_file, new_test_file),
+    ):
+        if not old_file.exists() and not new_file.exists():
+            continue
+        if old_file.exists():
+            content = old_file.read_text()
+        else:
+            content = new_file.read_text()
+        content = content.replace(
+            CALIFORNIA_SNAP_OLD_SUA_IMPORT,
+            CALIFORNIA_SNAP_SUA_IMPORT,
+        )
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        new_file.write_text(content)
+        if old_file.exists():
+            old_file.unlink()
+
+
+def _repair_california_snap_policy_composition(path: Path) -> None:
+    content = path.read_text()
+    if "  source_verification:" not in content:
+        content = content.replace(
+            "module:\n  kind: composition\n",
+            "module:\n"
+            "  kind: composition\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1\n",
+            1,
+        )
+    content = content.replace(
+        CALIFORNIA_SNAP_OLD_SUA_IMPORT,
+        CALIFORNIA_SNAP_SUA_IMPORT,
+    )
+    content = _ensure_california_snap_member_relation_rule_text(content)
+    content = _ensure_yaml_import_text(
+        content,
+        CALIFORNIA_SNAP_SUA_IMPORT,
+        before_import="us-ca:regulations/mpp/63-503/324",
+    )
+    content = _upsert_rules_text(
+        content,
+        [
+            _derived_money_bridge_rule(
+                "shelter_costs",
+                "household_shelter_costs_incurred + snap_standard_utility_allowance",
+                source="California CalFresh shelter utility allowance composition bridge",
+            ),
+            _derived_money_bridge_rule(
+                "snap_total_allowable_shelter_expenses",
+                "shelter_costs",
+                source="California CalFresh shelter utility allowance composition bridge",
+            ),
+            _california_snap_member_eligible_rule(),
+            _derived_judgment_bridge_rule(
+                "snap_residency_eligible",
+                "snap_household_residency_eligible",
+                source="California CalFresh SNAP eligibility composition bridge",
+            ),
+            _derived_judgment_bridge_rule(
+                "snap_household_member_eligible",
+                "count_where(member_of_household, snap_member_eligible) > 0",
+                source="California CalFresh SNAP eligibility composition bridge",
+            ),
+            _derived_judgment_bridge_rule(
+                "snap_eligible",
+                (
+                    "snap_residency_eligible\n"
+                    "and snap_household_member_eligible\n"
+                    "and snap_resource_eligible\n"
+                    "and snap_standard_income_eligible"
+                ),
+                source="California CalFresh SNAP eligibility composition bridge",
+            ),
+        ],
+    )
+    path.write_text(content)
+
+
+def _ensure_california_snap_member_relation_rule_text(content: str) -> str:
+    if "\n  - name: member_of_household\n" in f"\n{content}":
+        return content
+    relation_rule = """  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+      arguments:
+        - Person
+        - Household
+"""
+    marker = "\n  - name: shelter_costs\n"
+    if marker in content:
+        return content.replace(marker, f"\n{relation_rule}{marker}", 1)
+    if not content.endswith("\n"):
+        content += "\n"
+    return f"{content}{relation_rule}"
+
+
+def _california_snap_member_eligible_rule() -> dict[str, object]:
+    return _bridge_rule(
+        name="snap_member_eligible",
+        kind="derived",
+        dtype="Judgment",
+        formula=(
+            "snap_member_citizenship_or_alien_status_eligible\n"
+            "and snap_member_ssn_requirement_eligible\n"
+            "and snap_member_work_requirement_eligible\n"
+            "and snap_member_student_eligible"
+        ),
+        source="California CalFresh SNAP eligibility member composition bridge",
+        entity="Person",
+        period="Month",
+    )
+
+
+def _repair_california_snap_program_tests(path: Path) -> None:
+    content = path.read_text()
+    content = content.replace(
+        CALIFORNIA_SNAP_OLD_SUA_IMPORT,
+        CALIFORNIA_SNAP_SUA_IMPORT,
+    )
+    content = content.replace(
+        "us:statutes/7/2012/j#relation.member_of_household",
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household",
+    )
+    content = re.sub(
+        r"\n- name: member_eligibility_bridge_holds_for_basic_eligible_member\n.*?(?=\n- name: |\Z)",
+        "",
+        content,
+        flags=re.S,
+    )
+    base_output_anchor = (
+        "  output:\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_gross_monthly_income: 0\n"
+    )
+    base_output_coverage = (
+        "  output:\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_earned_income: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_unearned_income: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_gross_monthly_income: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_total_allowable_shelter_expenses: 0\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 0\n"
+    )
+    if (
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_earned_income:"
+        not in content
+        and base_output_anchor in content
+    ):
+        content = content.replace(base_output_anchor, base_output_coverage, 1)
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_member_eligible: holds\n",
+        "",
+    )
+    content = content.rstrip() + "\n\n" + _california_snap_member_test_case()
+    if "us:regulations/7-cfr/273/10#input.household_size:" not in content:
+        content = content.replace(
+            "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n",
+            "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n"
+            "    us:regulations/7-cfr/273/10#input.household_size: 1\n",
+            1,
+        )
+    alien_status_defaults = (
+        "        us:regulations/7-cfr/273/4#input.member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_hmong_or_highland_laotian_qualifying_person_or_family_member: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_trafficking_victim_or_qualifying_family_member: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_qualified_alien_with_forty_qualifying_quarters: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_refugee: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_asylee: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_has_deportation_or_removal_withheld: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_cuban_or_haitian_entrant: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_amerasian_immigrant: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_has_eligible_military_connection: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_receives_blindness_or_disability_benefits: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_under_age_eighteen: false\n"
+        "        us:regulations/7-cfr/273/4#input.member_is_qualified_alien_subject_to_five_year_wait: false\n"
+        "        us:regulations/7-cfr/273/4#input.qualified_alien_five_year_status_period_met: false\n"
+        "        us:regulations/7-cfr/273/4#input.alien_status_documentation_missing_or_unwilling: false\n"
+    )
+    if (
+        "member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member"
+        not in content
+    ):
+        content = content.replace(
+            "        us:regulations/7-cfr/273/7#input.member_age: 60\n",
+            "        us:regulations/7-cfr/273/7#input.member_age: 60\n"
+            + alien_status_defaults,
+        )
+    if (
+        "us:regulations/7-cfr/273/8#input.snap_categorically_eligible_for_resource_exemption:"
+        not in content
+    ):
+        content = content.replace(
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n",
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n"
+            "    us:regulations/7-cfr/273/3#input.resident_of_battered_women_and_children_shelter_and_prior_abusive_household_member: false\n"
+            "    us:regulations/7-cfr/273/8#input.snap_categorically_eligible_for_resource_exemption: false\n",
+            1,
+        )
+    elif (
+        "us:regulations/7-cfr/273/3#input.resident_of_battered_women_and_children_shelter_and_prior_abusive_household_member:"
+        not in content
+    ):
+        content = content.replace(
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n",
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n"
+            "    us:regulations/7-cfr/273/3#input.resident_of_battered_women_and_children_shelter_and_prior_abusive_household_member: false\n",
+            1,
+        )
+    content = content.replace(
+        "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 0",
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 0",
+    )
+    base_shelter_input = "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 0\n"
+    base_sua_input = (
+        "    ? us-ca:policies/cdss/snap/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
+        "    : false\n"
+    )
+    while base_sua_input + base_sua_input in content:
+        content = content.replace(base_sua_input + base_sua_input, base_sua_input)
+    if base_shelter_input in content and base_sua_input not in content:
+        content = content.replace(
+            base_shelter_input,
+            base_shelter_input + base_sua_input,
+            1,
+        )
+    if (
+        "us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household:"
+        not in content
+    ):
+        content = content.replace(
+            base_shelter_input + base_sua_input,
+            base_shelter_input
+            + base_sua_input
+            + "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298\n",
+            1,
+        )
+    content = content.replace(
+        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298\n",
+        "",
+    )
+    content = content.replace(
+        "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 500",
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500",
+    )
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_ssn_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_work_requirement_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_student_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_citizenship_eligible: holds\n",
+        "",
+    )
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_citizenship_eligible: not_holds\n",
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: not_holds\n",
+    )
+    shelter_case_input = "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500\n"
+    shelter_sua_input = (
+        "    ? us-ca:policies/cdss/snap/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
+        "    : true\n"
+    )
+    while shelter_sua_input + shelter_sua_input in content:
+        content = content.replace(
+            shelter_sua_input + shelter_sua_input,
+            shelter_sua_input,
+        )
+    if shelter_case_input in content and shelter_sua_input not in content:
+        content = content.replace(
+            shelter_case_input,
+            shelter_case_input + shelter_sua_input,
+            1,
+        )
+    for old_shelter_output in ("204", "204.5"):
+        content = content.replace(
+            f"    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: {old_shelter_output}\n",
+            "    us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance: 663\n"
+            "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 1163\n"
+            "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744\n",
+        )
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 182\n",
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 298\n",
+    )
+    path.write_text(content)
+
+
+def _california_snap_member_test_case() -> str:
+    return """- name: member_eligibility_bridge_holds_for_basic_eligible_member
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us:regulations/7-cfr/273/4#input.member_is_us_citizen: true
+    us:regulations/7-cfr/273/4#input.member_is_us_noncitizen_national: false
+    us:regulations/7-cfr/273/5#input.enrolled_at_least_half_time: false
+    us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn: false
+    us:regulations/7-cfr/273/6#input.member_has_documentary_or_collateral_evidence_of_ssn_application_or_every_effort: false
+    us:regulations/7-cfr/273/6#input.state_agency_fault_in_ssn_application_processing: false
+    us:regulations/7-cfr/273/6#input.member_unable_to_obtain_documents_required_for_ssn_application_with_caseworker_assistance_needed: false
+    us:regulations/7-cfr/273/6#input.member_ssn_application_filed_pending_state_agency_notification: false
+    us:regulations/7-cfr/273/6#input.member_later_provided_ssn_ending_disqualification: false
+    us:regulations/7-cfr/273/7#input.member_age: 60
+    us:regulations/7-cfr/273/4#input.member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member: false
+    us:regulations/7-cfr/273/4#input.member_is_hmong_or_highland_laotian_qualifying_person_or_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_trafficking_victim_or_qualifying_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_with_forty_qualifying_quarters: false
+    us:regulations/7-cfr/273/4#input.member_is_refugee: false
+    us:regulations/7-cfr/273/4#input.member_is_asylee: false
+    us:regulations/7-cfr/273/4#input.member_has_deportation_or_removal_withheld: false
+    us:regulations/7-cfr/273/4#input.member_is_cuban_or_haitian_entrant: false
+    us:regulations/7-cfr/273/4#input.member_is_amerasian_immigrant: false
+    us:regulations/7-cfr/273/4#input.member_has_eligible_military_connection: false
+    us:regulations/7-cfr/273/4#input.member_receives_blindness_or_disability_benefits: false
+    us:regulations/7-cfr/273/4#input.member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22: false
+    us:regulations/7-cfr/273/4#input.member_is_under_age_eighteen: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_subject_to_five_year_wait: false
+    us:regulations/7-cfr/273/4#input.qualified_alien_five_year_status_period_met: false
+    us:regulations/7-cfr/273/4#input.alien_status_documentation_missing_or_unwilling: false
+  output:
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_member_eligible: holds
+"""
 
 
 def _repair_colorado_snap_policy_composition(path: Path) -> None:
@@ -3694,13 +4313,18 @@ def _derived_money_bridge_rule(
     )
 
 
-def _derived_judgment_bridge_rule(name: str, formula: str) -> dict[str, object]:
+def _derived_judgment_bridge_rule(
+    name: str,
+    formula: str,
+    *,
+    source: str = "Colorado SNAP federal surface bridge",
+) -> dict[str, object]:
     return _bridge_rule(
         name=name,
         kind="derived",
         dtype="Judgment",
         formula=formula,
-        source="Colorado SNAP federal surface bridge",
+        source=source,
         entity="Household",
         period="Month",
     )
@@ -4580,6 +5204,943 @@ def cmd_repair_nonnegative_floors(args):
         "Applied nonnegative floor repair to "
         f"{relative_output}: {', '.join(repaired_rules)}"
     )
+    print(f"manifest={manifest_path}")
+
+
+def _repair_snap_273_10_allotment_rules(content: str) -> str:
+    content = _ensure_yaml_import_text(
+        content,
+        "us:policies/usda/snap/fy-2026-cola/maximum-allotments",
+        before_import="us:regulations/7-cfr/273/9",
+    )
+    return content.replace(
+        "snap_maximum_allotment_for_household_size",
+        "snap_maximum_allotment",
+    )
+
+
+def _repair_snap_273_10_allotment_tests(content: str) -> str:
+    return content.replace(
+        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298\n",
+        "    us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1\n",
+    )
+
+
+def cmd_repair_snap_273_10_allotment(args):
+    """Apply a signed deterministic repair for the 273.10 allotment input drift."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-snap-273-10-allotment must run against rulespec-us; "
+            f"got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = Path("regulations/7-cfr/273/10.yaml")
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    repaired_content = _repair_snap_273_10_allotment_rules(original_content)
+    repaired_test_content = _repair_snap_273_10_allotment_tests(original_test_content)
+
+    applied_files = [rules_file, test_file]
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+        if manifest_path.exists():
+            current_hashes = {
+                rules_file.relative_to(repo_path).as_posix(): _sha256_file(rules_file),
+                test_file.relative_to(repo_path).as_posix(): _sha256_file(test_file),
+            }
+            payload = json.loads(manifest_path.read_text())
+            manifest_hashes = {
+                item.get("path"): item.get("sha256")
+                for item in payload.get("applied_files", [])
+                if isinstance(item, dict)
+            }
+            if all(
+                manifest_hashes.get(path) == sha for path, sha in current_hashes.items()
+            ):
+                print("No 7 CFR 273.10 maximum-allotment repairs found.")
+                return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+        finally:
+            if "validation" not in locals() or not validation.all_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="snap-273-10-allotment-v1",
+            tool="axiom-encode repair-snap-273-10-allotment",
+            citation="us:regulations/7-cfr/273/10",
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print("Applied 7 CFR 273.10 maximum-allotment repair")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
+
+
+NY_SNAP_CATEGORICAL_RELATIVE = Path("regulations/18-nycrr/387/14/a/5.yaml")
+NY_SNAP_CATEGORICAL_MEMBER_RELATION = "ny_snap_categorical_member_of_household"
+NY_SNAP_CATEGORICAL_FINAL_RULES = """
+
+  - name: ny_snap_categorically_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: us-ny/regulation/18-nycrr/387/14/a/5(i)-(iii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+              excerpt: Under no circumstances can any household be considered categorically eligible for SNAP if any member of that household is disqualified
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          (
+            ny_snap_all_members_public_assistance_categorical_path_satisfied
+            or ny_snap_elderly_disabled_200_percent_categorical_path_satisfied
+            or ny_snap_dependent_care_200_percent_categorical_path_satisfied
+            or ny_snap_earned_income_150_percent_categorical_path_satisfied
+            or ny_snap_residual_130_percent_categorical_path_satisfied
+          )
+          and not household_member_disqualified_for_intentional_program_violation
+          and not household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements
+          and not household_member_disqualified_for_failure_to_comply_with_work_requirements
+          and not household_member_ineligible_to_participate_in_snap
+
+  - name: snap_categorically_eligible_for_resource_exemption
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: us-ny/regulation/18-nycrr/387/14/a/5(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+              excerpt: Categorically eligible households are presumed, without further investigation or verification, to meet the resource limits
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          ny_snap_categorically_eligible
+
+  - name: snap_income_limit_exemption_for_categorically_eligible_household
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: us-ny/regulation/18-nycrr/387/14/a/5(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+              excerpt: Categorically eligible households are exempted from the gross and net income limits
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          ny_snap_categorically_eligible
+"""
+
+NY_SNAP_CATEGORICAL_FINAL_TESTS = """
+
+- name: all_members_public_assistance_path_makes_household_categorically_eligible
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
+    us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 3000
+    us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 0
+    us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.ny_snap_categorical_member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_paid_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_or_nonemergency_safety_net_grant_amount: 0
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_out_of_pocket_dependent_care_expenses: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_earned_income_budgeted_for_snap: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_intentional_program_violation: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_work_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_ineligible_to_participate_in_snap: false
+  output:
+    us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible: holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household: holds
+
+- name: intentional_program_violation_blocks_categorical_eligibility
+  period: 2026-01
+  input:
+    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1
+    us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 3000
+    us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 0
+    us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.ny_snap_categorical_member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_paid_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_or_nonemergency_safety_net_grant_amount: 0
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_out_of_pocket_dependent_care_expenses: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_has_earned_income_budgeted_for_snap: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_intentional_program_violation: true
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_failure_to_comply_with_work_requirements: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_ineligible_to_participate_in_snap: false
+  output:
+    us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible: not_holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: not_holds
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household: not_holds
+"""
+
+NY_SNAP_CATEGORICAL_REPAIRED_OUTPUTS = (
+    "us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible",
+    "us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption",
+    "us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household",
+)
+
+
+def _remove_new_york_snap_categorical_deferred_outputs(content: str) -> str:
+    lines = content.splitlines(keepends=True)
+    deferred_start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.match(r"^  deferred_outputs:\s*(?:#.*)?$", line)
+        ),
+        None,
+    )
+    if deferred_start is None:
+        return content
+
+    deferred_end = len(lines)
+    for index in range(deferred_start + 1, len(lines)):
+        line = lines[index]
+        if re.match(r"^  [A-Za-z_][^:]*:\s*", line):
+            deferred_end = index
+            break
+        if line and not line.startswith((" ", "\n", "\r")):
+            deferred_end = index
+            break
+
+    entries: list[list[str]] = []
+    prefix_lines: list[str] = []
+    index = deferred_start + 1
+    while index < deferred_end:
+        if re.match(r"^    -\s+", lines[index]):
+            entry_start = index
+            index += 1
+            while index < deferred_end and not re.match(r"^    -\s+", lines[index]):
+                index += 1
+            entries.append(lines[entry_start:index])
+        else:
+            prefix_lines.append(lines[index])
+            index += 1
+
+    kept_entries: list[list[str]] = []
+    removed_any = False
+    for entry in entries:
+        entry_text = "".join(entry)
+        output_match = re.search(r"(?m)^\s*(?:-\s*)?output:\s*([^\s]+)", entry_text)
+        output = output_match.group(1) if output_match else ""
+        if output in NY_SNAP_CATEGORICAL_REPAIRED_OUTPUTS:
+            removed_any = True
+        else:
+            kept_entries.append(entry)
+
+    if not removed_any:
+        return content
+
+    replacement: list[str] = []
+    if kept_entries:
+        replacement.append(lines[deferred_start])
+        replacement.extend(prefix_lines)
+        for entry in kept_entries:
+            replacement.extend(entry)
+
+    return "".join(lines[:deferred_start] + replacement + lines[deferred_end:])
+
+
+def _new_york_snap_categorical_test_surface_available(rules_content: str) -> bool:
+    return all(
+        f"#{output.rsplit('#', 1)[1]}" in rules_content
+        or f"name: {output.rsplit('#', 1)[1]}" in rules_content
+        for output in NY_SNAP_CATEGORICAL_REPAIRED_OUTPUTS
+    )
+
+
+def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
+    repaired = content
+    repaired = repaired.replace(
+        "  - us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member\n",
+        "  - us:statutes/7/2012/j\n",
+        1,
+    )
+    repaired = repaired.replace(
+        "  - name: member_of_household\n"
+        "    kind: data_relation\n"
+        "    data_relation:\n"
+        "      predicate: member_of_household\n",
+        "  - name: ny_snap_categorical_member_of_household\n"
+        "    kind: data_relation\n"
+        "    data_relation:\n"
+        "      predicate: ny_snap_categorical_member_of_household\n",
+        1,
+    )
+    if (
+        "  - name: ny_snap_categorical_member_of_household\n" not in repaired
+        and "  - name: ny_snap_all_members_public_assistance_categorical_path_satisfied\n"
+        in repaired
+    ):
+        repaired = repaired.replace(
+            "  - name: ny_snap_all_members_public_assistance_categorical_path_satisfied\n",
+            "  - name: ny_snap_categorical_member_of_household\n"
+            "    kind: data_relation\n"
+            "    data_relation:\n"
+            "      predicate: ny_snap_categorical_member_of_household\n"
+            "      arity: 2\n"
+            "      arguments:\n"
+            "        - Person\n"
+            "        - Household\n\n"
+            "  - name: ny_snap_all_members_public_assistance_categorical_path_satisfied\n",
+            1,
+        )
+    repaired = repaired.replace(
+        "count_where(member_of_household, "
+        "member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status)",
+        "count_where(ny_snap_categorical_member_of_household, "
+        "member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status)",
+    )
+    repaired = repaired.replace(
+        "len(member_of_household)",
+        "len(ny_snap_categorical_member_of_household)",
+    )
+    repaired = _remove_new_york_snap_categorical_deferred_outputs(repaired)
+    if "  - name: ny_snap_categorically_eligible\n" not in repaired:
+        repaired = repaired.rstrip() + NY_SNAP_CATEGORICAL_FINAL_RULES + "\n"
+    return repaired
+
+
+def _repair_new_york_snap_categorical_eligibility_tests(
+    content: str, *, rules_content: str | None = None
+) -> str:
+    us_relation = "us:statutes/7/2012/j#relation.member_of_household"
+    ny_relation = "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
+    categorical_relation = (
+        "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+        f"{NY_SNAP_CATEGORICAL_MEMBER_RELATION}"
+    )
+    elderly_input = "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
+    try:
+        payload = yaml.safe_load(content)
+    except yaml.YAMLError:
+        payload = None
+    if isinstance(payload, list):
+        changed = False
+        for case in payload:
+            if not isinstance(case, dict):
+                continue
+            inputs = case.get("input")
+            if not isinstance(inputs, dict):
+                continue
+            ny_rows = inputs.pop(ny_relation, None)
+            if ny_rows is not None and categorical_relation not in inputs:
+                inputs[categorical_relation] = ny_rows
+            categorical_rows = inputs.get(categorical_relation)
+            us_rows = inputs.get(us_relation)
+            if not isinstance(categorical_rows, list):
+                continue
+            if not isinstance(us_rows, list):
+                us_rows = [{} for _ in categorical_rows]
+                inputs[us_relation] = us_rows
+            while len(us_rows) < len(categorical_rows):
+                us_rows.append({})
+            for index, categorical_row in enumerate(categorical_rows):
+                if not isinstance(categorical_row, dict) or not isinstance(
+                    us_rows[index], dict
+                ):
+                    continue
+                us_rows[index].setdefault(elderly_input, False)
+            changed = True
+        repaired = yaml.safe_dump(payload, sort_keys=False) if changed else content
+    else:
+        repaired = content
+    if (
+        "all_members_public_assistance_path_makes_household_categorically_eligible"
+        in repaired
+    ):
+        return repaired
+    if rules_content is not None and not (
+        _new_york_snap_categorical_test_surface_available(rules_content)
+    ):
+        return repaired
+    return repaired.rstrip() + NY_SNAP_CATEGORICAL_FINAL_TESTS + "\n"
+
+
+def cmd_repair_new_york_snap_categorical_eligibility(args):
+    """Apply a signed deterministic repair for NY SNAP categorical eligibility."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-ny":
+        print(
+            "repair-new-york-snap-categorical-eligibility must run against "
+            f"rulespec-us-ny; got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = NY_SNAP_CATEGORICAL_RELATIVE
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    repaired_content = _repair_new_york_snap_categorical_eligibility_rules(
+        original_content
+    )
+    repaired_test_content = _repair_new_york_snap_categorical_eligibility_tests(
+        original_test_content, rules_content=repaired_content
+    )
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        print("No New York SNAP categorical eligibility repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original files.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+        finally:
+            if "validation" not in locals() or not validation.all_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="ny-snap-categorical-eligibility-v1",
+            tool="axiom-encode repair-new-york-snap-categorical-eligibility",
+            citation="us-ny:regulations/18-nycrr/387/14/a/5",
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print("Applied New York SNAP categorical eligibility repair")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
+
+
+NY_SNAP_BENEFIT_RELATIVE = Path("policies/otda/snap/fy-2026-benefit-calculation.yaml")
+
+
+def _repair_new_york_snap_benefit_rules(content: str) -> str:
+    repaired = content.replace(
+        "          snap_income_eligible\n"
+        "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
+        "          (\n"
+        "            snap_income_limit_exemption_for_categorically_eligible_household\n"
+        "            or snap_standard_income_eligible\n"
+        "          )\n"
+        "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
+        1,
+    )
+    repaired = repaired.replace(
+        "        formula: count_where(member_of_household, snap_member_ssn_requirement_eligible) > 0\n",
+        "        formula: count_where(member_of_household, snap_member_ssn_requirement_ineligible) == 0\n",
+        1,
+    )
+    repaired = repaired.replace(
+        "          count_where(member_of_household, snap_member_work_requirement_eligible) > 0\n"
+        "          and count_where(member_of_household, snap_member_work_requirement_ineligible) == 0\n",
+        "          count_where(member_of_household, snap_member_work_requirement_ineligible) == 0\n",
+        1,
+    )
+    repaired = repaired.replace(
+        "        formula: count_where(member_of_household, snap_member_student_eligible) > 0\n",
+        "        formula: count_where(member_of_household, snap_member_student_ineligible) == 0\n",
+        1,
+    )
+    if "  - name: member_of_household\n" not in repaired:
+        repaired = repaired.replace(
+            "  - name: shelter_costs\n",
+            "  - name: member_of_household\n"
+            "    kind: data_relation\n"
+            "    data_relation:\n"
+            "      predicate: member_of_household\n"
+            "      arity: 2\n"
+            "      arguments:\n"
+            "        - Person\n"
+            "        - Household\n\n"
+            "  - name: shelter_costs\n",
+            1,
+        )
+    return repaired
+
+
+def _ny_snap_categorical_member_defaults(
+    elderly_or_disabled: object = False,
+) -> dict[str, object]:
+    return {
+        "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": (
+            elderly_or_disabled
+        ),
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_paid_family_assistance_or_nonemergency_safety_net_benefits": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_family_assistance_or_nonemergency_safety_net_grant_amount": 0,
+    }
+
+
+def _repair_new_york_snap_benefit_relation_tests(content: str) -> str:
+    try:
+        payload = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return content
+    if not isinstance(payload, list):
+        return content
+
+    us_relation = "us:statutes/7/2012/j#relation.member_of_household"
+    policy_relation = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation#relation."
+        "member_of_household"
+    )
+    old_categorical_relation = (
+        "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
+    )
+    categorical_relation = (
+        "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+        f"{NY_SNAP_CATEGORICAL_MEMBER_RELATION}"
+    )
+    elderly_input = "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
+    prorated_input = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+        "#input.snap_initial_month_prorated_allotment"
+    )
+
+    changed = False
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        old_rows = inputs.pop(old_categorical_relation, None)
+        if old_rows is not None and categorical_relation not in inputs:
+            inputs[categorical_relation] = old_rows
+            changed = True
+        us_rows = inputs.get(us_relation)
+        if isinstance(us_rows, list):
+            if policy_relation not in inputs:
+                inputs[policy_relation] = us_rows
+                changed = True
+            if categorical_relation not in inputs:
+                categorical_rows = []
+                for row in us_rows:
+                    elderly = False
+                    if isinstance(row, dict):
+                        elderly = row.get(elderly_input, False)
+                    categorical_rows.append(
+                        _ny_snap_categorical_member_defaults(elderly)
+                    )
+                inputs[categorical_relation] = categorical_rows
+                changed = True
+        if (
+            case.get("name")
+            == "initial_month_proration_uses_new_york_certification_rule"
+            and inputs.get(prorated_input) != 153
+        ):
+            inputs[prorated_input] = 153
+            changed = True
+
+    if not changed:
+        return content
+    return yaml.safe_dump(payload, sort_keys=False)
+
+
+def _repair_new_york_snap_benefit_tests(content: str) -> str:
+    repaired = content.replace(
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_failed_periodic_reporting_requirement",
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements",
+    )
+    repaired = repaired.replace(
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_failed_snap_work_requirements",
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_disqualified_for_failure_to_comply_with_work_requirements",
+    )
+    repaired = re.sub(
+        r"^(\s*)us:regulations/7-cfr/273/10#input\.snap_countable_earned_income: (.*)\n",
+        (
+            r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            r"#input.snap_countable_earned_income: \2\n"
+            r"\1us:statutes/7/2014/e/2#input.snap_countable_earned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: \2\n"
+        ),
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^(\s*)us:regulations/7-cfr/273/10#input\.snap_countable_unearned_income: (.*)\n",
+        (
+            r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            r"#input.snap_countable_unearned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0\n"
+        ),
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/5#input\."
+        r"household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi: .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/1#"
+        r"(snap_allotment|snap_initial_month_proration_applies|"
+        r"snap_initial_month_prorated_allotment): .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/1#input\."
+        r"(initial_application_month|application_date|"
+        r"public_institution_joint_ssi_snap_application_before_release|"
+        r"public_institution_release_date|"
+        r"migrant_or_seasonal_farmworker_household_in_job_stream|"
+        r"break_in_participation_days): .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/12/f/3/v/[abc]#"
+        r"snap_(standard|limited|individual)_utility_allowance: .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/5#"
+        r"snap_income_eligible: .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    if (
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_ineligible_to_participate_in_snap" not in repaired
+    ):
+        repaired = repaired.replace(
+            "    us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements: false\n",
+            "    us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements: false\n"
+            "    us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_ineligible_to_participate_in_snap: false\n",
+            1,
+        )
+    local_prorated_input = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+        "#input.snap_initial_month_prorated_allotment"
+    )
+    if local_prorated_input not in repaired:
+        repaired = repaired.replace(
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.household_shelter_costs_incurred: 500\n",
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.household_shelter_costs_incurred: 500\n"
+            f"    {local_prorated_input}: 0\n",
+            1,
+        )
+    if (
+        "us-ny:regulations/18-nycrr/387/14/a/1#input.application_date: '2026-01-16'\n"
+        f"    {local_prorated_input}: 153\n" not in repaired
+    ):
+        repaired = repaired.replace(
+            "    us-ny:regulations/18-nycrr/387/14/a/1#input.application_date: '2026-01-16'\n",
+            "    us-ny:regulations/18-nycrr/387/14/a/1#input.application_date: '2026-01-16'\n"
+            f"    {local_prorated_input}: 153\n",
+            1,
+        )
+    output_ref = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+        "#ny_snap_excess_shelter_cost"
+    )
+    if output_ref not in repaired:
+        repaired = repaired.replace(
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#shelter_costs: 1562\n"
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#snap_excess_shelter_deduction: 744\n",
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#shelter_costs: 1562\n"
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#ny_snap_excess_shelter_cost: 1266.5\n"
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#snap_excess_shelter_deduction: 744\n",
+            1,
+        )
+    if (
+        "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
+        not in repaired
+    ):
+        repaired = (
+            repaired.rstrip()
+            + """
+
+- name: initial_month_prorated_allotment_below_minimum_gets_zero_issuance
+  period: 2026-01
+  input:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.snap_initial_month_prorated_allotment: 5
+  output:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_initial_month_allotment_after_minimum_issuance: 0
+"""
+        )
+    return _repair_new_york_snap_benefit_relation_tests(repaired)
+
+
+def cmd_repair_new_york_snap_benefit_tests(args):
+    """Apply a signed deterministic repair for NY SNAP benefit companion tests."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-ny":
+        print(
+            "repair-new-york-snap-benefit-tests must run against "
+            f"rulespec-us-ny; got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = NY_SNAP_BENEFIT_RELATIVE
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    repaired_content = _repair_new_york_snap_benefit_rules(original_content)
+    repaired_content, repaired_rules = _repair_missing_source_proof_atoms(
+        repaired_content
+    )
+    repaired_test_content = _repair_new_york_snap_benefit_tests(original_test_content)
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        print("No New York SNAP benefit test repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original file.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+        finally:
+            if "validation" not in locals() or not validation.all_passed:
+                rules_file.write_text(original_content)
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="ny-snap-benefit-tests-v1",
+            tool="axiom-encode repair-new-york-snap-benefit-tests",
+            citation="us-ny:policies/otda/snap/fy-2026-benefit-calculation",
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print("Applied New York SNAP benefit companion-test repair")
+    if repaired_rules:
+        print(f"proof_repairs={', '.join(repaired_rules)}")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
     print(f"manifest={manifest_path}")
 
 
@@ -5782,6 +7343,8 @@ def cmd_repair_section_172_c_capacity(args):
 def _ensure_no_unmanifested_preexisting_rulespec_changes(
     repo_path: Path,
     manifest_groups: list[tuple[Path, list[Path]]],
+    *,
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_SOURCE_ROOTS)),
 ) -> None:
     """Refuse to sign over target files already dirty outside encoder manifests."""
     try:
@@ -5812,7 +7375,7 @@ def _ensure_no_unmanifested_preexisting_rulespec_changes(
     )
     issues = guard_generated_change_issues(
         repo_path,
-        roots=tuple(sorted(RULESPEC_SOURCE_ROOTS)),
+        roots=roots,
         changed_files=sorted(dirty_targets | relevant_manifest_paths),
     )
     if not issues:

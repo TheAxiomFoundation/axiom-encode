@@ -67,8 +67,11 @@ class JurisdictionConfig:
     program_relative_path: Path
     output_id_by_label: dict[str, str]
     utility_allowance_labels: tuple[str, ...]
+    relation_id: str
+    member_entity_type: str
     temp_prefix: str
     display_name: str
+    additional_relation_ids: tuple[str, ...] = ()
 
 
 JURISDICTION_CONFIGS = {
@@ -107,8 +110,41 @@ JURISDICTION_CONFIGS = {
             "snap_one_utility_allowance",
             "snap_individual_utility_allowance",
         ),
+        relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+        member_entity_type="Member",
         temp_prefix="co-snap-pe-ecps-",
         display_name="Colorado SNAP",
+    ),
+    "us-ca": JurisdictionConfig(
+        jurisdiction="us-ca",
+        state_code="CA",
+        repo_name="rulespec-us-ca",
+        program_relative_path=Path(
+            "policies/cdss/snap/fy-2026-benefit-calculation.yaml"
+        ),
+        output_id_by_label={
+            **COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
+            "snap_regular_month_allotment": (
+                "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit"
+            ),
+            "snap_net_income": "us:regulations/7-cfr/273/10#snap_net_monthly_income",
+            "snap_eligible": (
+                "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_eligible"
+            ),
+            "snap_excess_shelter_deduction": (
+                "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction"
+            ),
+            "snap_standard_utility_allowance": (
+                "us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance"
+            ),
+        },
+        utility_allowance_labels=("snap_standard_utility_allowance",),
+        relation_id=(
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household"
+        ),
+        member_entity_type="Person",
+        temp_prefix="ca-snap-pe-ecps-",
+        display_name="California SNAP",
     ),
     "us-ny": JurisdictionConfig(
         jurisdiction="us-ny",
@@ -119,8 +155,14 @@ JURISDICTION_CONFIGS = {
         ),
         output_id_by_label={
             **COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
+            "snap_gross_monthly_income": (
+                "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_gross_monthly_income"
+            ),
             "snap_eligible": (
                 "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible"
+            ),
+            "snap_excess_shelter_deduction": (
+                "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction"
             ),
             "snap_standard_utility_allowance": (
                 "us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance"
@@ -137,8 +179,18 @@ JURISDICTION_CONFIGS = {
             "snap_limited_utility_allowance",
             "snap_individual_utility_allowance",
         ),
+        relation_id=(
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#relation.member_of_household"
+        ),
+        member_entity_type="Person",
         temp_prefix="ny-snap-pe-ecps-",
         display_name="New York SNAP",
+        additional_relation_ids=(
+            AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+            "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+            "ny_snap_categorical_member_of_household",
+        ),
     ),
 }
 AXIOM_MEMBER_INPUT_ID_BY_LABEL = {
@@ -752,6 +804,15 @@ def project_income_resource_inputs(
             "snap_countable_unearned_income": unearned_income,
             "snap_countable_financial_resources": assets,
         }
+    if config.jurisdiction == "us-ca":
+        return {
+            "snap_gross_monthly_earned_income": earned_income,
+            "snap_total_monthly_unearned_income": unearned_income,
+            "snap_countable_financial_resources": assets,
+            "snap_categorically_eligible_for_resource_exemption": bool(
+                values["meets_snap_categorical_eligibility"][idx]
+            ),
+        }
     return {
         "employee_wages_received": earned_income,
         "other_gain_or_benefit_payments": unearned_income,
@@ -770,6 +831,19 @@ def project_deduction_inputs(
     child_support_deduction: float,
     medical_deduction: float,
 ) -> dict[str, Any]:
+    if config.jurisdiction == "us-ca":
+        return {
+            "dependent_care_deduction": dependent_care_deduction,
+            "child_support_deduction": child_support_deduction,
+            "medical_deduction": medical_deduction,
+            "snap_allowable_monthly_dependent_care_expenses": (
+                dependent_care_deduction
+            ),
+            "snap_allowable_monthly_child_support_payments": child_support_deduction,
+            "snap_total_medical_expenses": medical_expenses_for_deduction(
+                medical_deduction
+            ),
+        }
     if config.jurisdiction == "us-ny":
         return {
             "dependent_care_deduction": dependent_care_deduction,
@@ -1028,6 +1102,7 @@ def load_policyengine_cases(
             **project_income_resource_inputs(config, values, idx),
             "household_size": int(values["snap_unit_size"][idx]),
             "household_shelter_costs_incurred": money(values["housing_cost"][idx]),
+            "us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction": 0,
             "household_lives_in_application_state": True,
             "household_in_project_area_solely_for_vacation": False,
             "household_contains_individual_participating_in_more_than_one_household_or_project_area": False,
@@ -1057,6 +1132,7 @@ def load_policyengine_cases(
                 bool(values["meets_snap_work_requirements"][idx])
             )
         )
+        member_inputs.update(project_jurisdiction_member_inputs(config))
         member_inputs["snap_member_is_elderly_or_disabled"] = bool(
             values["has_usda_elderly_disabled"][idx]
         )
@@ -1094,9 +1170,26 @@ def project_jurisdiction_household_inputs(
             "household_has_earned_income_budgeted_for_snap": (
                 money(values["snap_earned_income"][idx]) > 0
             ),
-            "household_member_failed_snap_work_requirements": not bool(
-                values["meets_snap_work_requirements"][idx]
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements": (
+                not bool(values["meets_snap_work_requirements"][idx])
             ),
+            "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements": False,
+            "household_member_disqualified_for_intentional_program_violation": False,
+            "household_member_ineligible_to_participate_in_snap": False,
+        }
+    return {}
+
+
+def project_jurisdiction_member_inputs(config: JurisdictionConfig) -> dict[str, Any]:
+    if config.jurisdiction == "us-ny":
+        base = "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        return {
+            f"{base}member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits": False,
+            f"{base}member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid": False,
+            f"{base}member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped": False,
+            f"{base}member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits": False,
+            f"{base}member_paid_family_assistance_or_nonemergency_safety_net_benefits": False,
+            f"{base}member_family_assistance_or_nonemergency_safety_net_grant_amount": 0,
         }
     return {}
 
@@ -1113,6 +1206,12 @@ def project_raw_utility_inputs(
     idx: int,
     utility_region: str,
 ) -> dict[str, bool]:
+    if config.jurisdiction == "us-ca":
+        return {
+            "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": bool(
+                values["heating_cooling_expense"][idx] > 0
+            )
+        }
     if config.jurisdiction == "us-ny":
         non_phone_utility = any(
             bool(values[name][idx] > 0)
@@ -1160,6 +1259,12 @@ def project_raw_utility_inputs(
 def project_utility_allowance_type(
     config: JurisdictionConfig, utility_type: str, utility_region: str
 ) -> dict[str, bool]:
+    if config.jurisdiction == "us-ca":
+        return {
+            "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": (
+                utility_type == "SUA"
+            )
+        }
     if config.jurisdiction == "us-ny":
         inputs = new_york_utility_region_inputs(utility_region)
         if utility_type == "SUA":
@@ -1225,7 +1330,7 @@ def money(value: Any) -> float:
 
 
 def native(value: Any) -> Any:
-    if isinstance(value, np.generic):
+    if np is not None and isinstance(value, np.generic):
         value = value.item()
     if isinstance(value, float):
         return money(value)
@@ -1284,6 +1389,9 @@ def run_axiom_cases(
     cases: list[ProjectedCase],
     period: Period,
     output_ids: list[str],
+    relation_id: str,
+    additional_relation_ids: tuple[str, ...],
+    member_entity_type: str,
     env: dict[str, str],
 ) -> list[dict[str, Any]]:
     interval = {
@@ -1313,18 +1421,19 @@ def run_axiom_cases(
             )
         for member_index, member_inputs in enumerate(case.member_inputs, 1):
             member_entity_id = f"{entity_id}-member-{member_index}"
-            relations.append(
-                {
-                    "name": AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
-                    "tuple": [member_entity_id, entity_id],
-                    "interval": interval,
-                }
-            )
+            for current_relation_id in (relation_id, *additional_relation_ids):
+                relations.append(
+                    {
+                        "name": current_relation_id,
+                        "tuple": [member_entity_id, entity_id],
+                        "interval": interval,
+                    }
+                )
             for name, value in member_inputs.items():
                 inputs.append(
                     {
                         "name": name,
-                        "entity": "Member",
+                        "entity": member_entity_type,
                         "entity_id": member_entity_id,
                         "interval": interval,
                         "value": scalar_value(value),
@@ -1631,6 +1740,9 @@ def main(args: argparse.Namespace | None = None) -> int:
             cases=cases,
             period=period,
             output_ids=list(config.output_id_by_label.values()),
+            relation_id=config.relation_id,
+            additional_relation_ids=config.additional_relation_ids,
+            member_entity_type=config.member_entity_type,
             env=env,
         )
 

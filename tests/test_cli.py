@@ -25,12 +25,15 @@ from axiom_encode.cli import (
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
     _apply_generated_encoding_result,
+    _california_snap_repair_guard_manifest_groups,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
     _ensure_generated_dependency_files_safe,
+    _ensure_no_california_snap_sua_layout_collision,
+    _ensure_no_unmanifested_preexisting_rulespec_changes,
     _find_rulespec_dependents,
     _has_zero_output_test,
     _hoist_nested_test_tables,
@@ -44,6 +47,8 @@ from axiom_encode.cli import (
     _remove_invalid_dependent_test_inputs,
     _remove_unknown_test_output_refs,
     _repair_anaphoric_scope_identifiers,
+    _repair_california_snap_policy_composition,
+    _repair_california_snap_program_tests,
     _repair_colorado_snap_401,
     _repair_colorado_snap_401_tests,
     _repair_colorado_snap_2072,
@@ -59,6 +64,10 @@ from axiom_encode.cli import (
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
+    _repair_new_york_snap_benefit_rules,
+    _repair_new_york_snap_benefit_tests,
+    _repair_new_york_snap_categorical_eligibility_rules,
+    _repair_new_york_snap_categorical_eligibility_tests,
     _repair_person_scoped_definition_entities,
     _repair_scalar_relation_rows,
     _repair_section_151_imports,
@@ -108,6 +117,7 @@ from axiom_encode.cli import (
     cmd_repair_section_63_f_stale_test_inputs,
     cmd_repair_section_172_c_capacity,
     cmd_repair_section_911_a_1_exclusion,
+    cmd_repair_snap_273_10_allotment,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
     cmd_repair_unreferenced_proof_imports,
@@ -5040,6 +5050,506 @@ rules:
         assert test_payload[-1]["output"] == {
             "us:statutes/26/1401/b/1#self_employment_income_tax": 61.59745
         }
+
+    def test_repair_california_snap_policy_composition_adds_sua_shelter_bridge(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "fy-2026-benefit-calculation.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  kind: composition
+imports:
+  - us:regulations/7-cfr/273/10
+  - us-ca:regulations/mpp/63-503/324
+rules:
+  - name: snap_excess_shelter_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: California CalFresh FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_excess_shelter_deduction_for_net_income
+  - name: snap_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: California CalFresh FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_standard_income_eligible
+"""
+        )
+
+        _repair_california_snap_policy_composition(rules_file)
+
+        repaired = rules_file.read_text()
+        assert "  - us-ca:policies/cdss/snap/standard-utility-allowance\n" in repaired
+        assert "  - name: shelter_costs\n" in repaired
+        assert (
+            "household_shelter_costs_incurred + snap_standard_utility_allowance"
+            in repaired
+        )
+        assert "  - name: snap_total_allowable_shelter_expenses\n" in repaired
+        assert "  - name: snap_member_eligible\n" in repaired
+        assert "  - name: snap_household_member_eligible\n" in repaired
+        assert "and snap_household_member_eligible" in repaired
+
+    def test_repair_california_snap_program_tests_uses_sua_shelter_input(
+        self, tmp_path
+    ):
+        test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"
+        test_file.write_text(
+            """- name: shelter_costs_raise_benefit_when_income_is_positive
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 500
+  output:
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 204.5
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 182
+- name: ineligible_member_receives_zero
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 0
+  output:
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_citizenship_eligible: not_holds
+"""
+        )
+
+        _repair_california_snap_program_tests(test_file)
+
+        repaired = test_file.read_text()
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses"
+            not in repaired
+        )
+        assert (
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500"
+            in repaired
+        )
+        assert (
+            "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
+            in repaired
+        )
+        assert (
+            "us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance: 663"
+            in repaired
+        )
+        assert (
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744"
+            in repaired
+        )
+        assert (
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: not_holds"
+            in repaired
+        )
+
+    def test_california_snap_sua_migration_rejects_old_and_new_paths(self, tmp_path):
+        repo = tmp_path / "rulespec-us-ca"
+        old_path = (
+            repo / "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
+        )
+        new_path = repo / "policies/cdss/snap/standard-utility-allowance.yaml"
+        old_path.parent.mkdir(parents=True)
+        new_path.parent.mkdir(parents=True)
+        old_path.write_text("format: rulespec/v1\n")
+        new_path.write_text("format: rulespec/v1\n")
+
+        with pytest.raises(RuntimeError, match="both old and new RuleSpec paths"):
+            _ensure_no_california_snap_sua_layout_collision(repo)
+
+    def test_california_snap_guard_covers_dirty_old_sua_path(self, tmp_path):
+        repo = tmp_path / "rulespec-us-ca"
+        old_path = (
+            repo / "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
+        )
+        old_path.parent.mkdir(parents=True)
+        old_path.write_text("format: rulespec/v1\n")
+        subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "initial"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        old_path.write_text("format: rulespec/v1\nmodule:\n  summary: dirty\n")
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(RuntimeError) as exc,
+        ):
+            _ensure_no_unmanifested_preexisting_rulespec_changes(
+                repo,
+                _california_snap_repair_guard_manifest_groups(repo),
+                roots=("guidance", "policies", "regulations", "statutes"),
+            )
+
+        assert (
+            ".axiom/encoding-manifests/guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.json"
+            in str(exc.value)
+        )
+
+    def test_repair_new_york_snap_categorical_eligibility_adds_final_outputs(self):
+        rules = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+  deferred_outputs:
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible
+      reason: Missing work requirement dependency.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption
+      reason: Missing final categorical eligibility.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household
+      reason: Missing final categorical eligibility.
+  summary: New York SNAP categorical eligibility.
+imports:
+  - us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+      arguments:
+        - Person
+        - Household
+  - name: ny_snap_residual_130_percent_categorical_path_satisfied
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: existing_path
+"""
+
+        repaired = _repair_new_york_snap_categorical_eligibility_rules(rules)
+
+        assert "deferred_outputs:" not in repaired
+        assert "  - us:statutes/7/2012/j\n" in repaired
+        assert "name: member_of_household" not in repaired
+        assert "  - name: ny_snap_categorically_eligible\n" in repaired
+        assert (
+            "not household_member_disqualified_for_intentional_program_violation"
+            in repaired
+        )
+        assert "count_where(member_of_household, member_disqualified" not in repaired
+        assert (
+            "  - name: snap_categorically_eligible_for_resource_exemption\n" in repaired
+        )
+        assert (
+            "  - name: snap_income_limit_exemption_for_categorically_eligible_household\n"
+            in repaired
+        )
+
+    def test_repair_new_york_snap_categorical_eligibility_keeps_unrelated_deferred_outputs(
+        self,
+    ):
+        rules = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+  deferred_outputs:
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible
+      reason: Missing work requirement dependency.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#still_deferred_output
+      reason: Still requires encoder follow-up.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption
+      reason: Missing final categorical eligibility.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household
+      reason: Missing final categorical eligibility.
+  summary: New York SNAP categorical eligibility.
+rules:
+  - name: ny_snap_residual_130_percent_categorical_path_satisfied
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: existing_path
+"""
+
+        repaired = _repair_new_york_snap_categorical_eligibility_rules(rules)
+
+        assert "  deferred_outputs:\n" in repaired
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#still_deferred_output"
+            in repaired
+        )
+        assert "reason: Still requires encoder follow-up." in repaired
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible"
+            not in repaired
+        )
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption"
+            not in repaired
+        )
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household"
+            not in repaired
+        )
+
+    def test_repair_new_york_snap_categorical_eligibility_tests_cover_blockers(self):
+        repaired = _repair_new_york_snap_categorical_eligibility_tests(
+            """- name: all_members_public_assistance_path_makes_household_categorically_eligible
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_paid_family_assistance_or_nonemergency_safety_net_benefits: false
+        us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_or_nonemergency_safety_net_grant_amount: 0
+  output: {}
+"""
+        )
+
+        assert (
+            "all_members_public_assistance_path_makes_household_categorically_eligible"
+            in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
+            not in repaired
+        )
+        repaired_payload = yaml.safe_load(repaired)
+        repaired_inputs = repaired_payload[0]["input"]
+        repaired_member = repaired_inputs[
+            "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+            "ny_snap_categorical_member_of_household"
+        ][0]
+        assert (
+            repaired_member[
+                "us-ny:regulations/18-nycrr/387/14/a/5#input."
+                "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits"
+            ]
+            is True
+        )
+        assert (
+            repaired_inputs["us:statutes/7/2012/j#relation.member_of_household"][0][
+                "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
+            ]
+            is False
+        )
+
+        appended = _repair_new_york_snap_categorical_eligibility_tests(
+            "- name: existing\n  output: {}\n"
+        )
+        assert (
+            "intentional_program_violation_blocks_categorical_eligibility" in appended
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_disqualified_for_intentional_program_violation: true"
+            in appended
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: not_holds"
+            in appended
+        )
+
+    def test_repair_new_york_snap_categorical_eligibility_tests_noop_for_current_surface(
+        self,
+    ):
+        current_rules = """format: rulespec/v1
+rules:
+  - name: ny_snap_categorically_eligible
+    kind: derived
+  - name: snap_categorically_eligible_for_resource_exemption
+    kind: derived
+  - name: snap_income_eligible
+    kind: derived
+"""
+        original_tests = "- name: existing\n  output: {}\n"
+
+        repaired = _repair_new_york_snap_categorical_eligibility_tests(
+            original_tests, rules_content=current_rules
+        )
+
+        assert repaired == original_tests
+
+    def test_repair_new_york_snap_benefit_tests_covers_excess_shelter_cost(self):
+        repaired_rules = _repair_new_york_snap_benefit_rules(
+            """rules:
+  - name: snap_eligible
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_income_eligible
+          and (snap_resource_eligible or ny_snap_categorically_eligible)
+          and snap_ssn_eligible
+  - name: snap_ssn_eligible
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(member_of_household, snap_member_ssn_requirement_eligible) > 0
+  - name: snap_work_requirement_eligible
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          count_where(member_of_household, snap_member_work_requirement_eligible) > 0
+          and count_where(member_of_household, snap_member_work_requirement_ineligible) == 0
+  - name: snap_student_eligible
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(member_of_household, snap_member_student_eligible) > 0
+  - name: shelter_costs
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_shelter_costs_incurred
+"""
+        )
+
+        assert "snap_income_eligible" not in repaired_rules
+        assert (
+            "snap_income_limit_exemption_for_categorically_eligible_household"
+            in repaired_rules
+        )
+        assert "or snap_standard_income_eligible" in repaired_rules
+        assert "snap_member_ssn_requirement_eligible" not in repaired_rules
+        assert (
+            "count_where(member_of_household, snap_member_ssn_requirement_ineligible) == 0"
+            in repaired_rules
+        )
+        assert "snap_member_work_requirement_eligible" not in repaired_rules
+        assert (
+            "count_where(member_of_household, snap_member_work_requirement_ineligible) == 0"
+            in repaired_rules
+        )
+        assert "snap_member_student_eligible" not in repaired_rules
+        assert (
+            "count_where(member_of_household, snap_member_student_ineligible) == 0"
+            in repaired_rules
+        )
+        assert "  - name: member_of_household\n" in repaired_rules
+
+        repaired = _repair_new_york_snap_benefit_tests(
+            """- name: ongoing_month_derives_new_york_allotment_with_heating_cooling_allowance
+  period: 2026-01
+  input:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500
+    us:regulations/7-cfr/273/10#input.snap_countable_earned_income: 1000
+    us:regulations/7-cfr/273/10#input.snap_countable_unearned_income: 0
+    us-ny:regulations/18-nycrr/387/14/a/1#input.initial_application_month: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_snap_work_requirements: false
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+  output:
+    us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment: 298
+    us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance: 1062
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_income_eligible: holds
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#shelter_costs: 1562
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744
+"""
+        )
+
+        repaired_case = yaml.safe_load(repaired)[0]
+        repaired_inputs = repaired_case["input"]
+        assert (
+            repaired_inputs[
+                "us-ny:regulations/18-nycrr/387/14/a/5#input."
+                "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements"
+            ]
+            is False
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements: false"
+            in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_ineligible_to_participate_in_snap: false" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#ny_snap_excess_shelter_cost: 1266.5" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.snap_initial_month_prorated_allotment: 0" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#relation.member_of_household" in repaired_inputs
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+            "ny_snap_categorical_member_of_household" in repaired_inputs
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.snap_countable_earned_income: 1000" in repaired
+        )
+        assert (
+            "us:statutes/7/2014/e/2#input.snap_countable_earned_income: 1000"
+            in repaired
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 1000"
+            in repaired
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 0"
+            in repaired
+        )
+        assert "us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0" in repaired
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_countable_earned_income"
+            not in repaired
+        )
+        assert (
+            "household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi"
+            not in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/1#input.initial_application_month"
+            not in repaired
+        )
+        assert (
+            "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
+            in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#snap_initial_month_allotment_after_minimum_issuance: 0" in repaired
+        )
+        assert "us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment" not in repaired
+        assert (
+            "us-ny:regulations/18-nycrr/387/12/f/3/v/a"
+            "#snap_standard_utility_allowance" not in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#snap_income_eligible" not in repaired
+        )
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):
         test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"
@@ -10919,6 +11429,149 @@ rules:
             "regulations/7-cfr/273/10.yaml",
         ]
         assert payload["tool"] == "axiom-encode repair-nonnegative-floors"
+
+    def test_repair_snap_273_10_allotment_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/10.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:policies/usda/snap/fy-2026-cola/deductions
+  - us:regulations/7-cfr/273/9
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
+"""
+        )
+        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
+        test_file.write_text(
+            """- name: one_person_household_receives_minimum_benefit
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298
+  output:
+    us:regulations/7-cfr/273/10#snap_minimum_benefit: 24
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_snap_273_10_allotment(args)
+
+        content = target.read_text()
+        assert "us:policies/usda/snap/fy-2026-cola/maximum-allotments" in content
+        assert "snap_maximum_allotment_for_household_size" not in content
+        assert "snap_maximum_allotment - ceil(" in content
+        test_content = test_file.read_text()
+        assert (
+            "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1"
+            in test_content
+        )
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "regulations/7-cfr/273/10.yaml",
+            "regulations/7-cfr/273/10.test.yaml",
+        ]
+        assert payload["tool"] == "axiom-encode repair-snap-273-10-allotment"
+
+    def test_repair_snap_273_10_allotment_restores_files_when_validation_raises(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/10.yaml"
+        target.parent.mkdir(parents=True)
+        original_rules = """format: rulespec/v1
+imports:
+  - us:policies/usda/snap/fy-2026-cola/deductions
+  - us:regulations/7-cfr/273/9
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
+"""
+        target.write_text(original_rules)
+        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
+        original_tests = """- name: one_person_household_receives_minimum_benefit
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298
+  output:
+    us:regulations/7-cfr/273/10#snap_minimum_benefit: 24
+"""
+        test_file.write_text(original_tests)
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FailingPipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                raise RuntimeError("validator crashed")
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FailingPipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+            pytest.raises(RuntimeError, match="validator crashed"),
+        ):
+            cmd_repair_snap_273_10_allotment(args)
+
+        assert target.read_text() == original_rules
+        assert test_file.read_text() == original_tests
+        assert not (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
+        ).exists()
 
     def test_repair_current_year_final_amounts_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"
