@@ -3677,6 +3677,7 @@ def _repair_california_snap_policy_composition(path: Path) -> None:
         CALIFORNIA_SNAP_OLD_SUA_IMPORT,
         CALIFORNIA_SNAP_SUA_IMPORT,
     )
+    content = _ensure_california_snap_member_relation_rule_text(content)
     content = _ensure_yaml_import_text(
         content,
         CALIFORNIA_SNAP_SUA_IMPORT,
@@ -3721,6 +3722,26 @@ def _repair_california_snap_policy_composition(path: Path) -> None:
     path.write_text(content)
 
 
+def _ensure_california_snap_member_relation_rule_text(content: str) -> str:
+    if "\n  - name: member_of_household\n" in f"\n{content}":
+        return content
+    relation_rule = """  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+      arguments:
+        - Person
+        - Household
+"""
+    marker = "\n  - name: shelter_costs\n"
+    if marker in content:
+        return content.replace(marker, f"\n{relation_rule}{marker}", 1)
+    if not content.endswith("\n"):
+        content += "\n"
+    return f"{content}{relation_rule}"
+
+
 def _california_snap_member_eligible_rule() -> dict[str, object]:
     return _bridge_rule(
         name="snap_member_eligible",
@@ -3748,6 +3769,12 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         "us:statutes/7/2012/j#relation.member_of_household",
         "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household",
     )
+    content = re.sub(
+        r"\n- name: member_eligibility_bridge_holds_for_basic_eligible_member\n.*?(?=\n- name: |\Z)",
+        "",
+        content,
+        flags=re.S,
+    )
     base_output_anchor = (
         "  output:\n"
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_gross_monthly_income: 0\n"
@@ -3758,7 +3785,6 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_countable_unearned_income: 0\n"
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_gross_monthly_income: 0\n"
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_eligible: holds\n"
-        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_member_eligible: holds\n"
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: holds\n"
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 0\n"
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_total_allowable_shelter_expenses: 0\n"
@@ -3770,6 +3796,11 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         and base_output_anchor in content
     ):
         content = content.replace(base_output_anchor, base_output_coverage, 1)
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_member_eligible: holds\n",
+        "",
+    )
+    content = content.rstrip() + "\n\n" + _california_snap_member_test_case()
     if "us:regulations/7-cfr/273/10#input.household_size:" not in content:
         content = content.replace(
             "    us:policies/usda/snap/fy-2026-cola/income-eligibility-standards#input.household_size: 1\n",
@@ -3896,6 +3927,42 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 298\n",
     )
     path.write_text(content)
+
+
+def _california_snap_member_test_case() -> str:
+    return """- name: member_eligibility_bridge_holds_for_basic_eligible_member
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
+    us:regulations/7-cfr/273/4#input.member_is_us_citizen: true
+    us:regulations/7-cfr/273/4#input.member_is_us_noncitizen_national: false
+    us:regulations/7-cfr/273/5#input.enrolled_at_least_half_time: false
+    us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn: false
+    us:regulations/7-cfr/273/6#input.member_has_documentary_or_collateral_evidence_of_ssn_application_or_every_effort: false
+    us:regulations/7-cfr/273/6#input.state_agency_fault_in_ssn_application_processing: false
+    us:regulations/7-cfr/273/6#input.member_unable_to_obtain_documents_required_for_ssn_application_with_caseworker_assistance_needed: false
+    us:regulations/7-cfr/273/6#input.member_ssn_application_filed_pending_state_agency_notification: false
+    us:regulations/7-cfr/273/6#input.member_later_provided_ssn_ending_disqualification: false
+    us:regulations/7-cfr/273/7#input.member_age: 60
+    us:regulations/7-cfr/273/4#input.member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member: false
+    us:regulations/7-cfr/273/4#input.member_is_hmong_or_highland_laotian_qualifying_person_or_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_trafficking_victim_or_qualifying_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_with_forty_qualifying_quarters: false
+    us:regulations/7-cfr/273/4#input.member_is_refugee: false
+    us:regulations/7-cfr/273/4#input.member_is_asylee: false
+    us:regulations/7-cfr/273/4#input.member_has_deportation_or_removal_withheld: false
+    us:regulations/7-cfr/273/4#input.member_is_cuban_or_haitian_entrant: false
+    us:regulations/7-cfr/273/4#input.member_is_amerasian_immigrant: false
+    us:regulations/7-cfr/273/4#input.member_has_eligible_military_connection: false
+    us:regulations/7-cfr/273/4#input.member_receives_blindness_or_disability_benefits: false
+    us:regulations/7-cfr/273/4#input.member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22: false
+    us:regulations/7-cfr/273/4#input.member_is_under_age_eighteen: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_subject_to_five_year_wait: false
+    us:regulations/7-cfr/273/4#input.qualified_alien_five_year_status_period_met: false
+    us:regulations/7-cfr/273/4#input.alien_status_documentation_missing_or_unwilling: false
+  output:
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_member_eligible: holds
+"""
 
 
 def _repair_colorado_snap_policy_composition(path: Path) -> None:
