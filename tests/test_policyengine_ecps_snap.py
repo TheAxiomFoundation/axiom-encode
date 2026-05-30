@@ -134,6 +134,7 @@ def test_run_axiom_cases_uses_configured_california_member_entity(
         period=period,
         output_ids=["output-id"],
         relation_id=config.relation_id,
+        additional_relation_ids=config.additional_relation_ids,
         member_entity_type=config.member_entity_type,
         env={},
     )
