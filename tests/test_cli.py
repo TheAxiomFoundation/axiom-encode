@@ -44,6 +44,8 @@ from axiom_encode.cli import (
     _remove_invalid_dependent_test_inputs,
     _remove_unknown_test_output_refs,
     _repair_anaphoric_scope_identifiers,
+    _repair_california_snap_policy_composition,
+    _repair_california_snap_program_tests,
     _repair_colorado_snap_401,
     _repair_colorado_snap_401_tests,
     _repair_colorado_snap_2072,
@@ -5040,6 +5042,97 @@ rules:
         assert test_payload[-1]["output"] == {
             "us:statutes/26/1401/b/1#self_employment_income_tax": 61.59745
         }
+
+    def test_repair_california_snap_policy_composition_adds_sua_shelter_bridge(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "fy-2026-benefit-calculation.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  kind: composition
+imports:
+  - us:regulations/7-cfr/273/10
+  - us-ca:regulations/mpp/63-503/324
+rules:
+  - name: snap_excess_shelter_deduction
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: California CalFresh FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_excess_shelter_deduction_for_net_income
+  - name: snap_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: California CalFresh FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: snap_standard_income_eligible
+"""
+        )
+
+        _repair_california_snap_policy_composition(rules_file)
+
+        repaired = rules_file.read_text()
+        assert (
+            "  - us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance\n"
+            in repaired
+        )
+        assert "  - name: shelter_costs\n" in repaired
+        assert "household_shelter_costs_incurred + snap_standard_utility_allowance" in repaired
+        assert "  - name: snap_total_allowable_shelter_expenses\n" in repaired
+        assert "  - name: snap_member_eligible\n" in repaired
+        assert "  - name: snap_household_member_eligible\n" in repaired
+        assert "and snap_household_member_eligible" in repaired
+
+    def test_repair_california_snap_program_tests_uses_sua_shelter_input(
+        self, tmp_path
+    ):
+        test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"
+        test_file.write_text(
+            """- name: shelter_costs_raise_benefit_when_income_is_positive
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 500
+  output:
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 204.5
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 182
+- name: ineligible_member_receives_zero
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 0
+  output:
+    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_citizenship_eligible: not_holds
+"""
+        )
+
+        _repair_california_snap_program_tests(test_file)
+
+        repaired = test_file.read_text()
+        assert "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses" not in repaired
+        assert (
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500"
+            in repaired
+        )
+        assert "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage" in repaired
+        assert (
+            "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance: 663"
+            in repaired
+        )
+        assert (
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744"
+            in repaired
+        )
+        assert (
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: not_holds"
+            in repaired
+        )
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):
         test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"

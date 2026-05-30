@@ -1044,6 +1044,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_ca_snap_refs_parser = subparsers.add_parser(
+        "repair-california-snap-shelter-surface",
+        help="Apply signed deterministic repairs for California SNAP shelter and member surface drift",
+    )
+    repair_ca_snap_refs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-ca repository root used for manifest signing",
+    )
+    repair_ca_snap_refs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1641,6 +1660,8 @@ def main():
         cmd_repair_missing_source_proofs(args)
     elif args.command == "repair-colorado-snap-federal-refs":
         cmd_repair_colorado_snap_federal_refs(args)
+    elif args.command == "repair-california-snap-shelter-surface":
+        cmd_repair_california_snap_shelter_surface(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -3262,6 +3283,15 @@ COLORADO_SNAP_REPAIR_RELATIVE_OUTPUTS = (
     COLORADO_SNAP_CCR_ROOT / "4.407.3.yaml",
 )
 
+CALIFORNIA_SNAP_SHELTER_SURFACE_REPAIR_MODEL = "california-snap-shelter-surface-v1"
+CALIFORNIA_SNAP_PROGRAM_RELATIVE = Path(
+    "policies/cdss/snap/fy-2026-benefit-calculation.yaml"
+)
+CALIFORNIA_SNAP_SUA_IMPORT = (
+    "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance"
+)
+CALIFORNIA_SNAP_REPAIR_RELATIVE_OUTPUTS = (CALIFORNIA_SNAP_PROGRAM_RELATIVE,)
+
 
 def cmd_repair_colorado_snap_federal_refs(args):
     """Apply signed deterministic repairs for Colorado SNAP federal ref drift."""
@@ -3438,6 +3468,257 @@ def _write_colorado_snap_repair_manifests(
                 )
             )
     return manifest_paths
+
+
+def cmd_repair_california_snap_shelter_surface(args):
+    """Apply signed deterministic repairs for California SNAP composition drift."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-ca":
+        print(
+            "repair-california-snap-shelter-surface must run against "
+            f"rulespec-us-ca; got {repo_path}"
+        )
+        sys.exit(1)
+
+    manifest_groups = _california_snap_repair_manifest_groups(repo_path)
+    for relative_output, _files in manifest_groups:
+        rules_file = repo_path / relative_output
+        if not rules_file.exists():
+            print(f"RuleSpec file not found: {rules_file}")
+            sys.exit(1)
+    try:
+        _ensure_no_unmanifested_preexisting_rulespec_changes(
+            repo_path,
+            manifest_groups,
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+
+    tracked_files = _unique_paths(
+        [path for _relative_output, files in manifest_groups for path in files]
+    )
+    preexisting_changed_files = _changed_manifest_group_files(
+        repo_path,
+        manifest_groups,
+    )
+    originals = {
+        path: path.read_text() if path.exists() else None for path in tracked_files
+    }
+
+    try:
+        _repair_california_snap_policy_composition(
+            repo_path / CALIFORNIA_SNAP_PROGRAM_RELATIVE
+        )
+        _repair_california_snap_program_tests(
+            _rulespec_test_path(repo_path / CALIFORNIA_SNAP_PROGRAM_RELATIVE)
+        )
+
+        changed_by_command = _unique_paths(
+            [
+                path
+                for path in tracked_files
+                if _path_differs_from_original(path, originals.get(path))
+            ]
+        )
+        changed_files = _unique_paths(preexisting_changed_files + changed_by_command)
+        if not changed_files:
+            print("No California SNAP shelter surface repairs found.")
+            return
+    except Exception:
+        _restore_original_files(originals)
+        raise
+
+    manifest_paths = _write_california_snap_repair_manifests(
+        repo_path=repo_path,
+        signing_key=signing_key,
+        axiom_encode_git=axiom_encode_git,
+        manifest_groups=manifest_groups,
+        changed_files=changed_files,
+    )
+
+    print("Applied California SNAP shelter surface repair")
+    for path in changed_files:
+        print(f"changed={path.relative_to(repo_path)}")
+    for manifest_path in manifest_paths:
+        print(f"manifest={manifest_path}")
+
+
+def _california_snap_repair_manifest_groups(
+    repo_path: Path,
+) -> list[tuple[Path, list[Path]]]:
+    groups: list[tuple[Path, list[Path]]] = []
+    for relative_output in CALIFORNIA_SNAP_REPAIR_RELATIVE_OUTPUTS:
+        rules_file = repo_path / relative_output
+        test_file = _rulespec_test_path(rules_file)
+        files = [rules_file]
+        if test_file.exists():
+            files.append(test_file)
+        groups.append((relative_output, files))
+    return groups
+
+
+def _write_california_snap_repair_manifests(
+    *,
+    repo_path: Path,
+    signing_key: str,
+    axiom_encode_git: dict[str, object],
+    manifest_groups: list[tuple[Path, list[Path]]],
+    changed_files: list[Path],
+) -> list[Path]:
+    changed = {path.resolve() for path in changed_files}
+    manifest_paths: list[Path] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        for relative_output, files in manifest_groups:
+            applied_files = [path for path in files if path.resolve() in changed]
+            if not applied_files:
+                continue
+            generated_output = output_root / "deterministic-repair" / relative_output
+            generated_output.parent.mkdir(parents=True, exist_ok=True)
+            generated_output.write_text((repo_path / relative_output).read_text())
+            result = argparse.Namespace(
+                output_file=str(generated_output),
+                runner="deterministic-repair",
+                backend="deterministic",
+                model=CALIFORNIA_SNAP_SHELTER_SURFACE_REPAIR_MODEL,
+                tool="axiom-encode repair-california-snap-shelter-surface",
+                citation=(
+                    f"{_repo_jurisdiction_prefix(repo_path)}:"
+                    f"{_relative_rulespec_import_target(relative_output)}"
+                ),
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=None,
+            )
+            manifest_paths.append(
+                _write_applied_encoding_manifest(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=repo_path,
+                    relative_output=relative_output,
+                    applied_files=applied_files,
+                    run_id="deterministic-repair",
+                    signing_key=signing_key,
+                    axiom_encode_git=axiom_encode_git,
+                )
+            )
+    return manifest_paths
+
+
+def _repair_california_snap_policy_composition(path: Path) -> None:
+    content = path.read_text()
+    content = _ensure_yaml_import_text(
+        content,
+        CALIFORNIA_SNAP_SUA_IMPORT,
+        before_import="us-ca:regulations/mpp/63-503/324",
+    )
+    content = _upsert_rules_text(
+        content,
+        [
+            _derived_money_bridge_rule(
+                "shelter_costs",
+                "household_shelter_costs_incurred + snap_standard_utility_allowance",
+                source="California CalFresh shelter utility allowance composition bridge",
+            ),
+            _derived_money_bridge_rule(
+                "snap_total_allowable_shelter_expenses",
+                "shelter_costs",
+                source="California CalFresh shelter utility allowance composition bridge",
+            ),
+            _california_snap_member_eligible_rule(),
+            _derived_judgment_bridge_rule(
+                "snap_residency_eligible",
+                "snap_household_residency_eligible",
+                source="California CalFresh SNAP eligibility composition bridge",
+            ),
+            _derived_judgment_bridge_rule(
+                "snap_household_member_eligible",
+                "count_where(member_of_household, snap_member_eligible) > 0",
+                source="California CalFresh SNAP eligibility composition bridge",
+            ),
+            _derived_judgment_bridge_rule(
+                "snap_eligible",
+                (
+                    "snap_residency_eligible\n"
+                    "and snap_household_member_eligible\n"
+                    "and snap_resource_eligible\n"
+                    "and snap_standard_income_eligible"
+                ),
+                source="California CalFresh SNAP eligibility composition bridge",
+            ),
+        ],
+    )
+    path.write_text(content)
+
+
+def _california_snap_member_eligible_rule() -> dict[str, object]:
+    return _bridge_rule(
+        name="snap_member_eligible",
+        kind="derived",
+        dtype="Judgment",
+        formula=(
+            "snap_member_citizenship_or_alien_status_eligible\n"
+            "and snap_member_ssn_requirement_eligible\n"
+            "and snap_member_work_requirement_eligible\n"
+            "and snap_member_student_eligible"
+        ),
+        source="California CalFresh SNAP eligibility member composition bridge",
+        entity="Person",
+        period="Month",
+    )
+
+
+def _repair_california_snap_program_tests(path: Path) -> None:
+    content = path.read_text()
+    content = content.replace(
+        "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 0",
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 0",
+    )
+    content = content.replace(
+        "us:regulations/7-cfr/273/10#input.snap_total_allowable_shelter_expenses: 500",
+        "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500",
+    )
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_ssn_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_work_requirement_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_student_eligible: holds\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_citizenship_eligible: holds\n",
+        "",
+    )
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_residency_citizenship_eligible: not_holds\n",
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_household_member_eligible: not_holds\n",
+    )
+    shelter_case_input = (
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500\n"
+    )
+    if (
+        shelter_case_input in content
+        and "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
+        not in content
+    ):
+        content = content.replace(
+            shelter_case_input,
+            shelter_case_input
+            + "    ? us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
+            + "    : true\n",
+            1,
+        )
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 204.5\n",
+        "    us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance: 663\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 1163\n"
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744\n",
+    )
+    content = content.replace(
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 182\n",
+        "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit: 298\n",
+    )
+    path.write_text(content)
 
 
 def _repair_colorado_snap_policy_composition(path: Path) -> None:
@@ -3694,13 +3975,18 @@ def _derived_money_bridge_rule(
     )
 
 
-def _derived_judgment_bridge_rule(name: str, formula: str) -> dict[str, object]:
+def _derived_judgment_bridge_rule(
+    name: str,
+    formula: str,
+    *,
+    source: str = "Colorado SNAP federal surface bridge",
+) -> dict[str, object]:
     return _bridge_rule(
         name=name,
         kind="derived",
         dtype="Judgment",
         formula=formula,
-        source="Colorado SNAP federal surface bridge",
+        source=source,
         entity="Household",
         period="Month",
     )
