@@ -5416,16 +5416,19 @@ NY_SNAP_CATEGORICAL_FINAL_TESTS = """
 
 
 def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
-    repaired = re.sub(
-        r"(?ms)^  deferred_outputs:\n"
-        r"(?:    - output: us-ny:regulations/18-nycrr/387/14/a/5#"
-        r"(?:ny_snap_categorically_eligible|"
-        r"snap_categorically_eligible_for_resource_exemption|"
-        r"snap_income_limit_exemption_for_categorically_eligible_household)\n"
-        r"(?:      .*\n|        .*\n)*)+",
-        "",
-        content,
-    )
+    repaired = content
+    deferred_start = repaired.find("  deferred_outputs:\n")
+    if deferred_start != -1 and all(
+        output in repaired[deferred_start:]
+        for output in (
+            "#ny_snap_categorically_eligible",
+            "#snap_categorically_eligible_for_resource_exemption",
+            "#snap_income_limit_exemption_for_categorically_eligible_household",
+        )
+    ):
+        deferred_end = repaired.find("\n  summary:", deferred_start)
+        if deferred_end != -1:
+            repaired = repaired[:deferred_start] + repaired[deferred_end + 1 :]
     if "  - name: ny_snap_categorically_eligible\n" not in repaired:
         repaired = repaired.rstrip() + NY_SNAP_CATEGORICAL_FINAL_RULES + "\n"
     return repaired
