@@ -110,6 +110,7 @@ from axiom_encode.cli import (
     cmd_repair_section_63_f_stale_test_inputs,
     cmd_repair_section_172_c_capacity,
     cmd_repair_section_911_a_1_exclusion,
+    cmd_repair_snap_273_10_allotment,
     cmd_repair_tax_filing_status_branches,
     cmd_repair_tax_status_components,
     cmd_repair_unreferenced_proof_imports,
@@ -11018,6 +11019,84 @@ rules:
             "regulations/7-cfr/273/10.yaml",
         ]
         assert payload["tool"] == "axiom-encode repair-nonnegative-floors"
+
+    def test_repair_snap_273_10_allotment_writes_signed_manifest(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us"
+        target = policy_repo / "regulations/7-cfr/273/10.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+imports:
+  - us:policies/usda/snap/fy-2026-cola/deductions
+  - us:regulations/7-cfr/273/9
+rules:
+  - name: snap_calculated_monthly_allotment_before_minimums
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
+"""
+        )
+        test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
+        test_file.write_text(
+            """- name: one_person_household_receives_minimum_benefit
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298
+  output:
+    us:regulations/7-cfr/273/10#snap_minimum_benefit: 24
+"""
+        )
+        args = SimpleNamespace(
+            repo=policy_repo,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == target.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_snap_273_10_allotment(args)
+
+        content = target.read_text()
+        assert "us:policies/usda/snap/fy-2026-cola/maximum-allotments" in content
+        assert "snap_maximum_allotment_for_household_size" not in content
+        assert "snap_maximum_allotment - ceil(" in content
+        test_content = test_file.read_text()
+        assert (
+            "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1"
+            in test_content
+        )
+        manifest = (
+            policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
+        )
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert [applied_file["path"] for applied_file in payload["applied_files"]] == [
+            "regulations/7-cfr/273/10.yaml",
+            "regulations/7-cfr/273/10.test.yaml",
+        ]
+        assert payload["tool"] == "axiom-encode repair-snap-273-10-allotment"
 
     def test_repair_current_year_final_amounts_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us"

@@ -1063,6 +1063,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_snap_273_10_parser = subparsers.add_parser(
+        "repair-snap-273-10-allotment",
+        help="Apply signed deterministic repairs for 7 CFR 273.10 maximum-allotment drift",
+    )
+    repair_snap_273_10_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us repository root used for manifest signing",
+    )
+    repair_snap_273_10_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1662,6 +1681,8 @@ def main():
         cmd_repair_colorado_snap_federal_refs(args)
     elif args.command == "repair-california-snap-shelter-surface":
         cmd_repair_california_snap_shelter_surface(args)
+    elif args.command == "repair-snap-273-10-allotment":
+        cmd_repair_snap_273_10_allotment(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -5108,6 +5129,135 @@ def cmd_repair_nonnegative_floors(args):
         "Applied nonnegative floor repair to "
         f"{relative_output}: {', '.join(repaired_rules)}"
     )
+    print(f"manifest={manifest_path}")
+
+
+def _repair_snap_273_10_allotment_rules(content: str) -> str:
+    content = _ensure_yaml_import_text(
+        content,
+        "us:policies/usda/snap/fy-2026-cola/maximum-allotments",
+        before_import="us:regulations/7-cfr/273/9",
+    )
+    return content.replace(
+        "snap_maximum_allotment_for_household_size",
+        "snap_maximum_allotment",
+    )
+
+
+def _repair_snap_273_10_allotment_tests(content: str) -> str:
+    return content.replace(
+        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298\n",
+        "    us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1\n",
+    )
+
+
+def cmd_repair_snap_273_10_allotment(args):
+    """Apply a signed deterministic repair for the 273.10 allotment input drift."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us":
+        print(
+            "repair-snap-273-10-allotment must run against rulespec-us; "
+            f"got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = Path("regulations/7-cfr/273/10.yaml")
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_content = rules_file.read_text()
+    original_test_content = test_file.read_text()
+    repaired_content = _repair_snap_273_10_allotment_rules(original_content)
+    repaired_test_content = _repair_snap_273_10_allotment_tests(original_test_content)
+
+    applied_files = [rules_file, test_file]
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
+        manifest_path = repo_path / _applied_encoding_manifest_path(relative_output)
+        if manifest_path.exists():
+            current_hashes = {
+                rules_file.relative_to(repo_path).as_posix(): _sha256_file(rules_file),
+                test_file.relative_to(repo_path).as_posix(): _sha256_file(test_file),
+            }
+            payload = json.loads(manifest_path.read_text())
+            manifest_hashes = {
+                item.get("path"): item.get("sha256")
+                for item in payload.get("applied_files", [])
+                if isinstance(item, dict)
+            }
+            if all(
+                manifest_hashes.get(path) == sha for path, sha in current_hashes.items()
+            ):
+                print("No 7 CFR 273.10 maximum-allotment repairs found.")
+                return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(repaired_content)
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        rules_file.write_text(repaired_content)
+        test_file.write_text(repaired_test_content)
+
+        validation = ValidatorPipeline(
+            policy_repo_path=repo_path,
+            axiom_rules_path=axiom_rules_path,
+            enable_oracles=False,
+            require_policy_proofs=True,
+        ).validate(rules_file, skip_reviewers=True)
+        if not validation.all_passed:
+            rules_file.write_text(original_content)
+            test_file.write_text(original_test_content)
+            issues = [
+                result.error for result in validation.results.values() if result.error
+            ]
+            print("Repair failed validation; restored original files.")
+            for issue in issues:
+                print(f"- {issue}")
+            sys.exit(1)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="snap-273-10-allotment-v1",
+            tool="axiom-encode repair-snap-273-10-allotment",
+            citation="us:regulations/7-cfr/273/10",
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=applied_files,
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print("Applied 7 CFR 273.10 maximum-allotment repair")
+    print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
     print(f"manifest={manifest_path}")
 
 
