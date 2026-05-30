@@ -5582,6 +5582,25 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
         "household_member_disqualified_for_failure_to_comply_with_work_requirements",
     )
     repaired = re.sub(
+        r"^(\s*)us:regulations/7-cfr/273/10#input\.snap_countable_earned_income: (.*)\n",
+        (
+            r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            r"#input.snap_countable_earned_income: \2\n"
+            r"\1us:statutes/7/2014/e/2#input.snap_countable_earned_income: \2\n"
+        ),
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^(\s*)us:regulations/7-cfr/273/10#input\.snap_countable_unearned_income: (.*)\n",
+        (
+            r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            r"#input.snap_countable_unearned_income: \2\n"
+        ),
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
         r"^    us-ny:regulations/18-nycrr/387/14/a/1#"
         r"(snap_allotment|snap_initial_month_proration_applies|"
         r"snap_initial_month_prorated_allotment): .*\n",

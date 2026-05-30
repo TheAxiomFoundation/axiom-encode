@@ -5214,6 +5214,7 @@ rules:
   period: 2026-01
   input:
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500
+    us:regulations/7-cfr/273/10#input.snap_countable_earned_income: 1000
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_snap_work_requirements: false
   output:
@@ -5245,6 +5246,18 @@ rules:
         assert (
             "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
             "#input.snap_initial_month_prorated_allotment: 0" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.snap_countable_earned_income: 1000" in repaired
+        )
+        assert (
+            "us:statutes/7/2014/e/2#input.snap_countable_earned_income: 1000"
+            in repaired
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_countable_earned_income"
+            not in repaired
         )
         assert (
             "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
