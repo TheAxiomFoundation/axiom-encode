@@ -5219,6 +5219,10 @@ rules:
           snap_income_eligible
           and (snap_resource_eligible or ny_snap_categorically_eligible)
           and snap_ssn_eligible
+  - name: snap_ssn_eligible
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(member_of_household, snap_member_ssn_requirement_eligible) > 0
 """
         )
 
@@ -5228,6 +5232,11 @@ rules:
             in repaired_rules
         )
         assert "or snap_standard_income_eligible" in repaired_rules
+        assert "snap_member_ssn_requirement_eligible" not in repaired_rules
+        assert (
+            "count_where(member_of_household, snap_member_ssn_requirement_ineligible) == 0"
+            in repaired_rules
+        )
 
         repaired = _repair_new_york_snap_benefit_tests(
             """- name: ongoing_month_derives_new_york_allotment_with_heating_cooling_allowance

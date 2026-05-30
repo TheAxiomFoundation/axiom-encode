@@ -5569,7 +5569,7 @@ NY_SNAP_BENEFIT_RELATIVE = Path("policies/otda/snap/fy-2026-benefit-calculation.
 
 
 def _repair_new_york_snap_benefit_rules(content: str) -> str:
-    return content.replace(
+    repaired = content.replace(
         "          snap_income_eligible\n"
         "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
         "          (\n"
@@ -5579,6 +5579,12 @@ def _repair_new_york_snap_benefit_rules(content: str) -> str:
         "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
         1,
     )
+    repaired = repaired.replace(
+        "        formula: count_where(member_of_household, snap_member_ssn_requirement_eligible) > 0\n",
+        "        formula: count_where(member_of_household, snap_member_ssn_requirement_ineligible) == 0\n",
+        1,
+    )
+    return repaired
 
 
 def _repair_new_york_snap_benefit_tests(content: str) -> str:
