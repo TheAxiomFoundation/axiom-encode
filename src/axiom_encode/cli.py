@@ -5635,9 +5635,16 @@ def cmd_repair_new_york_snap_benefit_tests(args):
         print(f"RuleSpec companion test file not found: {test_file}")
         sys.exit(1)
 
+    original_content = rules_file.read_text()
     original_test_content = test_file.read_text()
+    repaired_content, repaired_rules = _repair_missing_source_proof_atoms(
+        original_content
+    )
     repaired_test_content = _repair_new_york_snap_benefit_tests(original_test_content)
-    if repaired_test_content == original_test_content:
+    if (
+        repaired_content == original_content
+        and repaired_test_content == original_test_content
+    ):
         print("No New York SNAP benefit test repairs found.")
         return
 
@@ -5651,10 +5658,11 @@ def cmd_repair_new_york_snap_benefit_tests(args):
         output_root = Path(tmpdir)
         generated_output = output_root / "deterministic-repair" / relative_output
         generated_output.parent.mkdir(parents=True, exist_ok=True)
-        generated_output.write_text(rules_file.read_text())
+        generated_output.write_text(repaired_content)
         generated_test = _rulespec_test_path(generated_output)
         generated_test.write_text(repaired_test_content)
 
+        rules_file.write_text(repaired_content)
         test_file.write_text(repaired_test_content)
         try:
             validation = ValidatorPipeline(
@@ -5675,6 +5683,7 @@ def cmd_repair_new_york_snap_benefit_tests(args):
                 sys.exit(1)
         finally:
             if "validation" not in locals() or not validation.all_passed:
+                rules_file.write_text(original_content)
                 test_file.write_text(original_test_content)
 
         result = argparse.Namespace(
@@ -5700,6 +5709,9 @@ def cmd_repair_new_york_snap_benefit_tests(args):
         )
 
     print("Applied New York SNAP benefit companion-test repair")
+    if repaired_rules:
+        print(f"proof_repairs={', '.join(repaired_rules)}")
+    print(f"changed={relative_output}")
     print(f"changed={_rulespec_test_path(relative_output)}")
     print(f"manifest={manifest_path}")
 
