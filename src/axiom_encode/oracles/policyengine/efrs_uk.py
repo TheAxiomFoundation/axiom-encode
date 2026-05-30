@@ -1,10 +1,9 @@
 """Compare UK RuleSpec output against PolicyEngine Enhanced FRS.
 
-The UK counterpart to the ECPS tax comparators starts with surfaces whose
-RuleSpec inputs can be projected from PolicyEngine's Enhanced FRS without using
-the compared output itself as an input. Surfaces that are mapped in the oracle
-registry but still require legal predicates not exposed by the EFRS projection
-are reported as skipped rather than silently ignored.
+The UK counterpart to the ECPS tax comparators covers mapped surfaces whose
+RuleSpec inputs can be projected from PolicyEngine's Enhanced FRS, plus scalar
+parameter surfaces whose generated RuleSpec values can be compared against
+PolicyEngine component outputs.
 """
 
 from __future__ import annotations
@@ -816,9 +815,16 @@ def run_axiom_parameter_outputs(
     program: Path,
     request: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    parameter_values = rulespec_scalar_parameter_values(program)
     results: list[dict[str, Any]] = []
+    parameter_cache: dict[str, dict[str, float]] = {}
     for query in request.get("queries", []):
+        period_start = str((query.get("period") or {}).get("start") or "")
+        if period_start not in parameter_cache:
+            parameter_cache[period_start] = rulespec_scalar_parameter_values(
+                program,
+                period_start=period_start,
+            )
+        parameter_values = parameter_cache[period_start]
         outputs: dict[str, dict[str, Any]] = {}
         for output in query.get("outputs", []):
             if output not in parameter_values:
@@ -828,23 +834,39 @@ def run_axiom_parameter_outputs(
     return results
 
 
-def rulespec_scalar_parameter_values(program: Path) -> dict[str, float]:
+def rulespec_scalar_parameter_values(
+    program: Path, *, period_start: str
+) -> dict[str, float]:
     payload = yaml.safe_load(program.read_text()) or {}
     base = rule_base_from_program(program)
     values: dict[str, float] = {}
     for rule in payload.get("rules") or []:
         if str(rule.get("kind") or "").strip() != "parameter":
             continue
-        versions = rule.get("versions") or []
-        if not versions:
+        version = effective_parameter_version(rule.get("versions") or [], period_start)
+        if version is None:
             continue
-        formula = str(versions[0].get("formula") or "").strip().replace("_", "")
+        formula = str(version.get("formula") or "").strip().replace("_", "")
         try:
             value = float(formula)
         except ValueError:
             continue
         values[f"{base}#{rule['name']}"] = value
     return values
+
+
+def effective_parameter_version(
+    versions: list[dict[str, Any]],
+    period_start: str,
+) -> dict[str, Any] | None:
+    eligible = [
+        version
+        for version in versions
+        if str(version.get("effective_from") or "") <= period_start
+    ]
+    if not eligible:
+        return None
+    return max(eligible, key=lambda version: str(version.get("effective_from") or ""))
 
 
 def rule_base_from_program(program: Path) -> str:

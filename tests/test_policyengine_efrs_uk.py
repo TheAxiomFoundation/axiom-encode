@@ -313,6 +313,9 @@ rules:
     versions:
       - effective_from: '0001-01-01'
         formula: |-
+          300
+      - effective_from: '2026-04-01'
+        formula: |-
           338.58
 """.strip()
     )
@@ -322,9 +325,10 @@ rules:
         request={
             "queries": [
                 {
+                    "period": {"start": "2026-04-01"},
                     "outputs": [
                         "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25"
-                    ]
+                    ],
                 }
             ]
         },
