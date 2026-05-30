@@ -1,15 +1,22 @@
 import shutil
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 
+from axiom_encode.oracles.policyengine import ecps_snap
 from axiom_encode.oracles.policyengine.ecps_snap import (
     COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
     JURISDICTION_CONFIGS,
+    Period,
+    ProjectedCase,
     add_snapscreener_results,
+    project_deduction_inputs,
     project_income_resource_inputs,
+    project_raw_utility_inputs,
     project_utility_allowance_type,
     projected_child_support_payment,
+    run_axiom_cases,
     set_input_value,
 )
 from axiom_encode.oracles.snapscreener import (
@@ -45,6 +52,106 @@ def test_new_york_projector_uses_federal_income_and_resource_inputs():
         "snap_countable_unearned_income": 67.89,
         "snap_countable_financial_resources": 999,
     }
+
+
+def test_california_projectors_use_california_snap_input_surface():
+    config = JURISDICTION_CONFIGS["us-ca"]
+    values = {
+        "snap_earned_income": [123.45],
+        "snap_unearned_income": [67.89],
+        "snap_assets": [999],
+        "meets_snap_categorical_eligibility": [True],
+        "heating_cooling_expense": [10],
+    }
+
+    assert project_income_resource_inputs(config, values, 0) == {
+        "snap_gross_monthly_earned_income": 123.45,
+        "snap_total_monthly_unearned_income": 67.89,
+        "snap_countable_financial_resources": 999,
+        "snap_categorically_eligible_for_resource_exemption": True,
+    }
+    assert project_deduction_inputs(
+        config,
+        dependent_care_deduction=12,
+        child_support_deduction=34,
+        medical_deduction=200,
+    ) == {
+        "dependent_care_deduction": 12,
+        "child_support_deduction": 34,
+        "medical_deduction": 200,
+        "snap_allowable_monthly_dependent_care_expenses": 12,
+        "snap_allowable_monthly_child_support_payments": 34,
+        "snap_total_medical_expenses": 235,
+    }
+    assert project_raw_utility_inputs(config, values, 0, "") == {
+        "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": True
+    }
+    assert project_utility_allowance_type(config, "SUA", "") == {
+        "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": True
+    }
+    assert project_utility_allowance_type(config, "LUA", "") == {
+        "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": False
+    }
+
+
+def test_run_axiom_cases_uses_configured_california_member_entity(
+    monkeypatch, tmp_path
+):
+    runtime_requests = []
+
+    def fake_run(cmd, **kwargs):
+        assert "run-compiled" in cmd
+        runtime_requests.append(ecps_snap.json.loads(kwargs["input"]))
+        return ecps_snap.subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=ecps_snap.json.dumps({"results": [{"outputs": {}}]}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(ecps_snap.subprocess, "run", fake_run)
+    period = Period(
+        label="2026-01",
+        year=2026,
+        month=1,
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 31),
+    )
+    config = JURISDICTION_CONFIGS["us-ca"]
+
+    run_axiom_cases(
+        binary=tmp_path / "axiom-rules-engine",
+        artifact=tmp_path / "program.json",
+        cases=[
+            ProjectedCase(
+                spm_unit_id=42,
+                household_id=420,
+                inputs={"household-input": 1},
+                member_inputs=[{"member-input": True}],
+                pe_outputs={},
+            )
+        ],
+        period=period,
+        output_ids=["output-id"],
+        relation_id=config.relation_id,
+        member_entity_type=config.member_entity_type,
+        env={},
+    )
+
+    assert config.member_entity_type == "Person"
+    request = runtime_requests[0]
+    assert request["dataset"]["relations"] == [
+        {
+            "name": config.relation_id,
+            "tuple": ["spm-42-member-1", "spm-42"],
+            "interval": {"start": "2026-01-01", "end": "2026-01-31"},
+        }
+    ]
+    inputs_by_name = {
+        input_item["name"]: input_item for input_item in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name["household-input"]["entity"] == "Household"
+    assert inputs_by_name["member-input"]["entity"] == "Person"
 
 
 def test_common_snap_outputs_track_current_federal_rulespec_surface():

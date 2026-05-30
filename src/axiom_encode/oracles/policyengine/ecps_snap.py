@@ -68,6 +68,7 @@ class JurisdictionConfig:
     output_id_by_label: dict[str, str]
     utility_allowance_labels: tuple[str, ...]
     relation_id: str
+    member_entity_type: str
     temp_prefix: str
     display_name: str
 
@@ -109,6 +110,7 @@ JURISDICTION_CONFIGS = {
             "snap_individual_utility_allowance",
         ),
         relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+        member_entity_type="Member",
         temp_prefix="co-snap-pe-ecps-",
         display_name="Colorado SNAP",
     ),
@@ -139,6 +141,7 @@ JURISDICTION_CONFIGS = {
         relation_id=(
             "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household"
         ),
+        member_entity_type="Person",
         temp_prefix="ca-snap-pe-ecps-",
         display_name="California SNAP",
     ),
@@ -170,6 +173,7 @@ JURISDICTION_CONFIGS = {
             "snap_individual_utility_allowance",
         ),
         relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+        member_entity_type="Member",
         temp_prefix="ny-snap-pe-ecps-",
         display_name="New York SNAP",
     ),
@@ -1292,7 +1296,7 @@ def money(value: Any) -> float:
 
 
 def native(value: Any) -> Any:
-    if isinstance(value, np.generic):
+    if np is not None and isinstance(value, np.generic):
         value = value.item()
     if isinstance(value, float):
         return money(value)
@@ -1352,6 +1356,7 @@ def run_axiom_cases(
     period: Period,
     output_ids: list[str],
     relation_id: str,
+    member_entity_type: str,
     env: dict[str, str],
 ) -> list[dict[str, Any]]:
     interval = {
@@ -1392,7 +1397,7 @@ def run_axiom_cases(
                 inputs.append(
                     {
                         "name": name,
-                        "entity": "Member",
+                        "entity": member_entity_type,
                         "entity_id": member_entity_id,
                         "interval": interval,
                         "value": scalar_value(value),
@@ -1700,6 +1705,7 @@ def main(args: argparse.Namespace | None = None) -> int:
             period=period,
             output_ids=list(config.output_id_by_label.values()),
             relation_id=config.relation_id,
+            member_entity_type=config.member_entity_type,
             env=env,
         )
 
