@@ -61,6 +61,7 @@ from axiom_encode.cli import (
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
+    _repair_new_york_snap_benefit_tests,
     _repair_new_york_snap_categorical_eligibility_rules,
     _repair_new_york_snap_categorical_eligibility_tests,
     _repair_person_scoped_definition_entities,
@@ -5277,6 +5278,51 @@ rules:
         )
 
         assert repaired == original_tests
+
+    def test_repair_new_york_snap_benefit_tests_covers_excess_shelter_cost(self):
+        repaired = _repair_new_york_snap_benefit_tests(
+            """- name: ongoing_month_derives_new_york_allotment_with_heating_cooling_allowance
+  period: 2026-01
+  input:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
+    us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_snap_work_requirements: false
+  output:
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#shelter_costs: 1562
+    us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744
+"""
+        )
+
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements: false"
+            in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements: false"
+            in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_ineligible_to_participate_in_snap: false" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#ny_snap_excess_shelter_cost: 1266.5" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#input.snap_initial_month_prorated_allotment: 0" in repaired
+        )
+        assert (
+            "initial_month_prorated_allotment_below_minimum_gets_zero_issuance"
+            in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#snap_initial_month_allotment_after_minimum_issuance: 0" in repaired
+        )
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):
         test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"
