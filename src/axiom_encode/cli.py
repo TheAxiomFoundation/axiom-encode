@@ -3687,8 +3687,7 @@ def _repair_california_snap_program_tests(path: Path) -> None:
     )
     if (
         base_shelter_input in content
-        and "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
-        not in content
+        and base_sua_input not in content
     ):
         content = content.replace(
             base_shelter_input,
