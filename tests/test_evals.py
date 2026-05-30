@@ -30,12 +30,15 @@ from axiom_encode.harness.evals import (
     _command_looks_out_of_bounds,
     _context_file_executable_surfaces,
     _eval_result_from_payload,
+    _format_subparagraph_coverage_checklist,
     _hydrate_eval_root,
     _is_single_amount_table_slice,
     _materialize_eval_artifact,
     _normalize_nonannual_test_period_value,
     _normalize_test_periods_to_effective_dates,
     _post_openai_eval_request,
+    _resolve_eval_output_path,
+    _resolve_eval_reference_source_id,
     _rulespec_validation_target,
     _run_codex_prompt_eval,
     _select_cross_section_context_files,
@@ -133,6 +136,43 @@ def test_canonical_target_ref_prefix_handles_canonical_source_id():
     )
 
 
+def test_canonical_target_ref_prefix_uses_policy_repo_for_repo_relative_source_id(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us-ny"
+    repo.mkdir()
+
+    assert (
+        _canonical_target_ref_prefix(
+            "regulations/18-nycrr/387/14/a/1",
+            Path("regulations/18-nycrr/387/14/a/1.yaml"),
+            policy_repo_path=repo,
+        )
+        == "us-ny:regulations/18-nycrr/387/14/a/1"
+    )
+
+
+def test_canonical_target_ref_prefix_omits_repo_relative_source_without_repo():
+    assert (
+        _canonical_target_ref_prefix(
+            "regulations/18-nycrr/387/14/a/1",
+            Path("regulations/18-nycrr/387/14/a/1.yaml"),
+        )
+        is None
+    )
+
+
+def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
+    checklist = _format_subparagraph_coverage_checklist(
+        "(a) First category is eligible.\n(b) Second category is ineligible.",
+        "us-ny/regulation/18-nycrr/387/14/a/5",
+    )
+
+    assert "copy the relevant string exactly" in checklist
+    assert "human-readable source like `18 NYCRR 387.14(a)(5)(i)(a)`" in checklist
+    assert "us-ny/regulation/18-nycrr/387/14/a/5(a)" in checklist
+
+
 @pytest.mark.parametrize(
     "citation,expected",
     [
@@ -193,6 +233,16 @@ def test_resolve_eval_output_path_uses_path_like_citation_directly():
     )
 
 
+def test_resolve_eval_output_path_uses_repo_relative_source_root_directly():
+    """Repo-relative logical targets are valid --source-id output paths."""
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+
+    assert _resolve_eval_output_path(
+        "policies/otda/snap/fy-2026-benefit-calculation",
+        requested_source="us/guidance/usda/fns/snap-fy2026-cola/page-1",
+    ) == Path("policies/otda/snap/fy-2026-benefit-calculation.yaml")
+
+
 def test_resolve_eval_output_path_uses_requested_source_when_citation_is_free_text():
     """Free-text source_id falls through to requested_source for path derivation.
 
@@ -206,20 +256,43 @@ def test_resolve_eval_output_path_uses_requested_source_when_citation_is_free_te
     `source/<slug>.yaml` — outside any rulespec source-root directory,
     so downstream compile validators couldn't find it.
     """
-    from axiom_encode.harness.evals import _resolve_eval_output_path
-
     assert _resolve_eval_output_path(
         "SNAP earned income deduction under 7 USC 2014(e)(2)(B)",
         requested_source="us/statute/7/2014/e/2/B",
     ) == Path("statutes/7/2014/e/2/B.yaml")
 
 
+def test_eval_reference_source_id_uses_requested_source_with_free_text_citation(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us-ny"
+    repo.mkdir()
+
+    target_ref_source = _resolve_eval_reference_source_id(
+        "New York SNAP utility allowance",
+        requested_source="regulations/18-nycrr/387/14/a/1",
+    )
+    relative_output = _resolve_eval_output_path(
+        "New York SNAP utility allowance",
+        requested_source="regulations/18-nycrr/387/14/a/1",
+    )
+
+    assert target_ref_source == "regulations/18-nycrr/387/14/a/1"
+    assert relative_output == Path("regulations/18-nycrr/387/14/a/1.yaml")
+    assert (
+        _canonical_target_ref_prefix(
+            target_ref_source,
+            relative_output,
+            policy_repo_path=repo,
+        )
+        == "us-ny:regulations/18-nycrr/387/14/a/1"
+    )
+
+
 def test_resolve_eval_output_path_ignores_requested_source_when_also_free_text():
     """If both inputs are free-text, fall back to the existing USC parser
     (which may itself error out — that's a separate bug, not this fix's job).
     """
-    from axiom_encode.harness.evals import _resolve_eval_output_path
-
     # citation is path-like USC; requested_source is also path-like but
     # different — citation wins because it's path-like.
     assert _resolve_eval_output_path(
@@ -596,7 +669,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     )
     assert "rate-applied result at that lower entity" in prompt
     assert "Treat legal subject nouns as stronger evidence" in prompt
-    assert "usually require\n  `entity: Person`" in prompt
+    assert "use `entity: Person` for the current source's own amount" in prompt
     assert "thresholded, capped, base-limited" in prompt
     assert (
         "do not flatten the cited mechanics into `current_base * imported_rate`"

@@ -893,6 +893,28 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_companion_test_refs_parser = subparsers.add_parser(
+        "repair-companion-test-references",
+        help="Apply signed deterministic repairs for stale companion-test references",
+    )
+    repair_companion_test_refs_parser.add_argument(
+        "file", type=Path, help="RuleSpec YAML file"
+    )
+    repair_companion_test_refs_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository root used for manifest signing",
+    )
+    repair_companion_test_refs_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     repair_oracle_parameter_tests_parser = subparsers.add_parser(
         "repair-oracle-parameter-tests",
         help="Apply signed deterministic repairs for missing oracle parameter tests",
@@ -1579,6 +1601,8 @@ def main():
         cmd_repair_section_63_f_stale_test_inputs(args)
     elif args.command == "repair-imported-test-inputs":
         cmd_repair_imported_test_inputs(args)
+    elif args.command == "repair-companion-test-references":
+        cmd_repair_companion_test_references(args)
     elif args.command == "repair-oracle-parameter-tests":
         cmd_repair_oracle_parameter_tests(args)
     elif args.command == "repair-tax-filing-status-branches":
@@ -5488,6 +5512,108 @@ def cmd_repair_imported_test_inputs(args):
         )
 
     print(f"Applied imported test input repair to {relative_output}")
+    print(f"manifest={manifest_path}")
+
+
+def cmd_repair_companion_test_references(args):
+    """Apply signed deterministic repairs for stale companion test references."""
+    repo_path = Path(args.repo).resolve()
+    rules_file = Path(args.file)
+    if not rules_file.is_absolute():
+        rules_file = repo_path / rules_file
+    rules_file = rules_file.resolve()
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    try:
+        relative_output = rules_file.relative_to(repo_path)
+    except ValueError:
+        print(f"RuleSpec file {rules_file} is not under repo {repo_path}")
+        sys.exit(1)
+
+    test_file = _rulespec_test_path(rules_file)
+    if not test_file.exists():
+        print(f"Companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_test_content = test_file.read_text()
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    repaired_refs: list[str] = []
+    for _ in range(20):
+        failures = _rulespec_companion_test_failures(
+            test_file,
+            root=repo_path,
+            axiom_rules_path=axiom_rules_path,
+        )
+        if not failures:
+            break
+        issues = [str(failure.get("message") or "") for failure in failures]
+        removed_inputs = _remove_invalid_test_input_refs(
+            test_file=test_file,
+            issues=issues,
+        )
+        removed_outputs = _remove_unknown_test_output_refs(
+            test_file=test_file,
+            issues=issues,
+        )
+        if not removed_inputs and not removed_outputs:
+            break
+        repaired_refs.extend([f"input:{ref}" for ref in removed_inputs])
+        repaired_refs.extend([f"output:{ref}" for ref in removed_outputs])
+
+    if not repaired_refs:
+        print("No companion test reference repairs found.")
+        return
+
+    failures = _rulespec_companion_test_failures(
+        test_file,
+        root=repo_path,
+        axiom_rules_path=axiom_rules_path,
+    )
+    if failures:
+        test_file.write_text(original_test_content)
+        print("Repair failed validation; restored original test file.")
+        for failure in failures[:50]:
+            print(f"- {failure.get('case')}: {failure.get('message')}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="companion-test-references-v1",
+            tool="axiom-encode repair-companion-test-references",
+            citation=(
+                f"{_repo_jurisdiction_prefix(repo_path)}:"
+                f"{_relative_rulespec_import_target(relative_output)}"
+            ),
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print(f"Applied companion test reference repair to {relative_output}")
+    print(f"repaired={', '.join(sorted(set(repaired_refs)))}")
     print(f"manifest={manifest_path}")
 
 
@@ -11481,6 +11607,44 @@ def _remove_invalid_test_input_refs(
     return sorted(removable_refs)
 
 
+def _remove_unknown_test_output_refs(
+    *,
+    test_file: Path,
+    issues: list[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    unknown_refs = _unknown_output_refs_from_issues(issues)
+    if not unknown_refs:
+        return []
+
+    try:
+        test_payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(test_payload, list):
+        return []
+
+    removable_refs = _expand_refs_with_matching_test_output_keys(
+        test_payload,
+        unknown_refs,
+    )
+
+    changed = False
+    for test_case in test_payload:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if _remove_mapping_keys_recursive(outputs, removable_refs):
+            changed = True
+    if not changed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+    )
+    return sorted(removable_refs)
+
+
 def _rewrite_import_output_test_input_refs(
     *,
     test_file: Path,
@@ -11945,6 +12109,15 @@ def _invalid_input_refs_from_issues(issues: list[str]) -> set[str]:
     return refs
 
 
+def _unknown_output_refs_from_issues(issues: list[str]) -> set[str]:
+    refs: set[str] = set()
+    pattern = r"unknown executable output (?P<output>\S+)"
+    for issue in issues:
+        for match in re.finditer(pattern, str(issue)):
+            refs.add(match.group("output").strip())
+    return refs
+
+
 def _expand_refs_with_matching_test_input_keys(
     value: object,
     refs: set[str],
@@ -11959,6 +12132,27 @@ def _expand_refs_with_matching_test_input_keys(
             continue
         if _rulespec_ref_without_jurisdiction(key_text) in tails:
             expanded.add(key_text)
+    return expanded
+
+
+def _expand_refs_with_matching_test_output_keys(
+    value: object,
+    refs: set[str],
+) -> set[str]:
+    if not refs:
+        return set()
+    tails = {_rulespec_ref_without_jurisdiction(ref) for ref in refs}
+    expanded = set(refs)
+    for test_case in value if isinstance(value, list) else []:
+        if not isinstance(test_case, dict):
+            continue
+        outputs = test_case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for key in outputs:
+            key_text = str(key)
+            if _rulespec_ref_without_jurisdiction(key_text) in tails:
+                expanded.add(key_text)
     return expanded
 
 
@@ -12912,6 +13106,37 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_scalar_rows: list[str] = []
+                while not can_apply:
+                    repaired_batch = (
+                        _try_repair_generated_scalar_relation_rows_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_batch:
+                        break
+                    repaired_scalar_rows.extend(repaired_batch)
+                    outcome["auto_repaired_scalar_relation_rows"] = repaired_scalar_rows
+                    print(
+                        "  apply=auto_repaired_scalar_relation_rows:"
+                        + ",".join(repaired_batch)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_module_layout = _try_repair_generated_module_layout_for_apply(
                     result,
                     output_root=args.output,
@@ -13795,6 +14020,44 @@ def cmd_encode(args):
                         repaired_output_cases
                     )
             if not can_apply:
+                repaired_positive_cases = []
+                while not can_apply:
+                    repaired_test_cases = (
+                        _try_repair_generated_judgment_positive_tests_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_test_cases:
+                        break
+                    repaired_positive_cases.extend(repaired_test_cases)
+                    prior_repairs = outcome.get("auto_repaired_judgment_positive_tests")
+                    if not isinstance(prior_repairs, list):
+                        prior_repairs = []
+                    outcome["auto_repaired_judgment_positive_tests"] = [
+                        *prior_repairs,
+                        *repaired_test_cases,
+                    ]
+                    print(
+                        "  apply=auto_repaired_judgment_positive_tests:"
+                        + ",".join(repaired_test_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_output_cases = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -14109,6 +14372,210 @@ def _try_repair_generated_table_relation_tests_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _split_table_row_relation_test_cases(test_file)
+
+
+_SCALAR_RELATION_ROW_ISSUE_PATTERN = re.compile(
+    r"Test case `(?P<case>[^`]+)` input invalid: relation "
+    r"`(?P<relation>[^`]+)` item #(?P<index>\d+) must be a mapping"
+)
+
+
+def _try_repair_generated_scalar_relation_rows_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Replace scalar relation rows with companion-test row mappings.
+
+    Generated tests occasionally write relation inputs as `- true`. The engine
+    needs each relation row to be a mapping of child facts. This repair is only
+    applied when validation has identified the exact bad row, and it derives the
+    replacement row from an existing companion test for the same relation target.
+    """
+    parsed_issues = [
+        parsed
+        for issue in issues
+        if (parsed := _parse_scalar_relation_row_issue(str(issue))) is not None
+    ]
+    if not parsed_issues:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _repair_scalar_relation_rows(
+        test_file=test_file,
+        policy_repo_path=policy_repo_path,
+        parsed_issues=parsed_issues,
+    )
+
+
+def _parse_scalar_relation_row_issue(
+    issue: str,
+) -> tuple[str, str, int] | None:
+    match = _SCALAR_RELATION_ROW_ISSUE_PATTERN.search(issue)
+    if match is None:
+        return None
+    return (
+        match.group("case"),
+        match.group("relation"),
+        int(match.group("index")),
+    )
+
+
+def _repair_scalar_relation_rows(
+    *,
+    test_file: Path,
+    policy_repo_path: Path,
+    parsed_issues: list[tuple[str, str, int]],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    repairs_by_case_relation: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for case_name, relation_ref, row_index in parsed_issues:
+        repairs_by_case_relation[(case_name, relation_ref)].add(row_index)
+
+    repaired: list[str] = []
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        case_name = str(case.get("name") or "")
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        for relation_ref, rows in list(inputs.items()):
+            relation_key = str(relation_ref)
+            repair_rows = repairs_by_case_relation.get((case_name, relation_key))
+            if not repair_rows or not isinstance(rows, list):
+                continue
+            for row_index in sorted(repair_rows):
+                list_index = row_index - 1
+                if list_index < 0 or list_index >= len(rows):
+                    continue
+                scalar_value = rows[list_index]
+                if isinstance(scalar_value, dict):
+                    continue
+                replacement = _relation_row_replacement_from_companion_tests(
+                    relation_key,
+                    scalar_value,
+                    policy_repo_path=policy_repo_path,
+                )
+                if replacement is None:
+                    continue
+                rows[list_index] = replacement
+                repaired.append(f"{case_name}:{relation_key}[{row_index}]")
+
+    if not repaired:
+        return []
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _relation_row_replacement_from_companion_tests(
+    relation_ref: str,
+    scalar_value: object,
+    *,
+    policy_repo_path: Path,
+) -> dict[str, object] | None:
+    exemplar_rows = _relation_rows_from_companion_tests(
+        relation_ref,
+        policy_repo_path=policy_repo_path,
+    )
+    if not exemplar_rows:
+        return None
+    for row in exemplar_rows:
+        if _relation_row_matches_scalar_value(row, scalar_value):
+            return copy.deepcopy(row)
+    if isinstance(scalar_value, bool):
+        template = copy.deepcopy(exemplar_rows[0])
+        changed = False
+        for key, value in list(template.items()):
+            if isinstance(value, bool):
+                template[key] = scalar_value
+                changed = True
+        if changed:
+            return template
+    return None
+
+
+def _relation_row_matches_scalar_value(
+    row: dict[str, object],
+    scalar_value: object,
+) -> bool:
+    if isinstance(scalar_value, bool):
+        return any(value is scalar_value for value in row.values())
+    return False
+
+
+def _relation_rows_from_companion_tests(
+    relation_ref: str,
+    *,
+    policy_repo_path: Path,
+) -> list[dict[str, object]]:
+    relation_test_file = _companion_test_file_for_relation_ref(
+        relation_ref,
+        policy_repo_path=policy_repo_path,
+    )
+    if relation_test_file is None or not relation_test_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(relation_test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    rows: list[dict[str, object]] = []
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        relation_rows = inputs.get(relation_ref)
+        if not isinstance(relation_rows, list):
+            continue
+        for row in relation_rows:
+            if isinstance(row, dict):
+                rows.append(copy.deepcopy(row))
+    return rows
+
+
+def _companion_test_file_for_relation_ref(
+    relation_ref: str,
+    *,
+    policy_repo_path: Path,
+) -> Path | None:
+    relation_base = relation_ref.split("#", 1)[0].strip().strip("/")
+    if ":" not in relation_base:
+        return None
+    prefix, relative = relation_base.split(":", 1)
+    if not prefix or not relative:
+        return None
+    relative_path = Path(relative)
+    if relative_path.suffix not in {".yaml", ".yml"}:
+        relative_path = relative_path.with_suffix(".yaml")
+    repo_roots = []
+    current_prefix = _repo_jurisdiction_prefix(policy_repo_path)
+    if prefix == current_prefix:
+        repo_roots.append(policy_repo_path)
+    repo_roots.append(policy_repo_path.parent / f"rulespec-{prefix}")
+    for repo_root in repo_roots:
+        test_file = _rulespec_test_path(repo_root / relative_path)
+        if test_file.exists():
+            return test_file
+    return None
 
 
 def _split_table_row_relation_test_cases(test_file: Path) -> list[str]:

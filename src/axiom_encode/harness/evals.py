@@ -23,6 +23,7 @@ import requests
 import yaml
 
 from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
     Concept,
     ConceptRegistry,
@@ -118,6 +119,17 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statutes", "regulation"}
+_RULESPEC_SOURCE_ROOT_TOKENS = {
+    "guidance",
+    "manual",
+    "manuals",
+    "policies",
+    "policy",
+    "regulation",
+    "regulations",
+    "statute",
+    "statutes",
+}
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
 _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
 _CODEX_LONG_SOURCE_CHAR_THRESHOLD = 40_000
@@ -1835,13 +1847,17 @@ def _candidate_corpus_citation_paths(identifier: str) -> tuple[str, ...]:
 
 
 def _looks_like_corpus_citation_path(identifier: str) -> bool:
-    parts = identifier.split("/")
+    parts = [part for part in identifier.strip().strip("/").split("/") if part]
+    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return True
     return len(parts) >= 3 and parts[1] in {
         "guidance",
         "manual",
         "manuals",
+        "policies",
         "policy",
         "regulation",
+        "regulations",
         "statute",
         "statutes",
     }
@@ -2604,7 +2620,13 @@ def _relative_rulespec_source_path(path: Path) -> Path | None:
 _MINIMAL_SCOPE_HINT = """Source-scope protocol (minimal):
 - Match each executable rule's `entity:` to the legal subject stated by the supplied source text.
 - If the source uses the word "household" or "household's", use `entity: Household`. Prefer `Household` over `SnapUnit` for plain household-level SNAP rules.
-- If the source uses "individual", "person", "member", "claimant", "child", "dependent", "spouse", or "employee", use `entity: Person` (or `Employer` for employer amounts).
+- If the source says "households in which all members", "households with a member",
+  or another household-level condition expressed through member facts, encode the
+  executable eligibility/result on `Household`. Use person/member facts only as
+  inputs or relation children needed to evaluate that household rule.
+- If the source's legal subject is an "individual", "person", "member", "claimant",
+  "child", "dependent", "spouse", or "employee" rather than a household/unit
+  described through those people, use `entity: Person` (or `Employer` for employer amounts).
 - Any rule that uses `entity: SnapUnit` (or another filtered entity) requires the same file to also declare that entity via a `kind: derived_relation` rule. The declaration shape is:
 
 ```yaml
@@ -2780,7 +2802,9 @@ def _run_single_eval(
         workspace.context_files,
         target_file_name=relative_output.name,
         target_ref_prefix=_canonical_target_ref_prefix(
-            target_ref_source, relative_output
+            target_ref_source,
+            relative_output,
+            policy_repo_path=policy_path,
         ),
         include_tests=include_tests,
         runner_backend=runner.backend,
@@ -2901,13 +2925,20 @@ def _run_single_source_eval(
     relative_output = _resolve_eval_output_path(
         source_id, requested_source=requested_source
     )
+    target_ref_source = _resolve_eval_reference_source_id(
+        source_id, requested_source=requested_source
+    )
     prompt = _build_eval_prompt(
         source_id,
         mode,
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
-        target_ref_prefix=_canonical_target_ref_prefix(source_id, relative_output),
+        target_ref_prefix=_canonical_target_ref_prefix(
+            target_ref_source,
+            relative_output,
+            policy_repo_path=policy_path,
+        ),
         include_tests=True,
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -3005,13 +3036,28 @@ def _resolve_eval_output_path(
          sites that always rendered free-text source_ids to
          ``source/<slug>.yaml``.
     """
-    if _looks_like_corpus_citation_path(citation):
-        return _source_identifier_to_relative_rulespec_path(citation)
-    if requested_source and _looks_like_corpus_citation_path(requested_source):
-        return _source_identifier_to_relative_rulespec_path(requested_source)
+    source_identifier = _resolve_eval_reference_source_id(
+        citation,
+        requested_source=requested_source,
+    )
+    if source_identifier != citation or _looks_like_corpus_citation_path(citation):
+        return _source_identifier_to_relative_rulespec_path(source_identifier)
     if fallback is not None:
         return fallback(citation)
     return _source_identifier_to_relative_rulespec_path(citation)
+
+
+def _resolve_eval_reference_source_id(
+    citation: str,
+    *,
+    requested_source: str | None = None,
+) -> str:
+    """Return the source identifier that should anchor output and test refs."""
+    if _looks_like_corpus_citation_path(citation):
+        return citation
+    if requested_source and _looks_like_corpus_citation_path(requested_source):
+        return requested_source
+    return citation
 
 
 def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
@@ -3025,6 +3071,10 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     time (issue #71).
     """
     parts = [part for part in source_id.strip().strip("/").split("/") if part]
+    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
+        tail = parts[1:]
+        if tail:
+            return Path(parts[0]) / _dotted_leaf_to_nested_yaml_path(tail)
     if len(parts) >= 3:
         document_roots = {
             "guidance": "guidance",
@@ -3102,14 +3152,37 @@ def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:
     return tail
 
 
-def _canonical_target_ref_prefix(source_id: str, relative_path: Path) -> str | None:
+def _canonical_target_ref_prefix(
+    source_id: str,
+    relative_path: Path,
+    *,
+    policy_repo_path: Path | None = None,
+) -> str | None:
     parts = [part for part in source_id.strip().strip("/").split("/") if part]
     if len(parts) < 3:
         return None
     if relative_path.parts and relative_path.parts[0] == "source":
         return None
-    jurisdiction = parts[0].split(":", 1)[0]
+    jurisdiction = _canonical_target_ref_jurisdiction(
+        parts, policy_repo_path=policy_repo_path
+    )
+    if not jurisdiction:
+        return None
     return f"{jurisdiction}:{_relative_rulespec_path_to_import_target(relative_path)}"
+
+
+def _canonical_target_ref_jurisdiction(
+    source_id_parts: list[str],
+    *,
+    policy_repo_path: Path | None = None,
+) -> str | None:
+    """Return the jurisdiction prefix for generated test references."""
+    first = source_id_parts[0].split(":", 1)[0]
+    if ":" in source_id_parts[0]:
+        return first
+    if first in _RULESPEC_SOURCE_ROOT_TOKENS:
+        return jurisdiction_prefix(policy_repo_path) if policy_repo_path else None
+    return first
 
 
 def _rulespec_test_path(path: Path) -> Path:
@@ -3427,6 +3500,12 @@ Test file rules:
 - If context files import this target file or reference this target file's outputs, use that as a signal to repair the dependency graph, not as a requirement to preserve old names. Keep an old output only when it remains the cleanest source-faithful RuleSpec surface.
 - Do not preserve existing factual input slots referenced by copied formulas or companion tests when a cleaner source-faithful encoding removes them. For names listed under invalid copied local inputs, do not preserve, rename, or recreate them.
 - For cross-reference boundary facts that remain local because the cited source is not present in context at all, keep the legal pointer in the identifier. If context for the cited source is present but unsupported, deferred, empty, or missing the exact displacement or exception export, encode a source-grounded local boundary predicate for whether that cited source displaces or blocks the requested source's formula; do not defer the requested formula merely because the copied cited file exports only its own separate amount.
+- When this source text itself names the operative factual disqualification,
+  exception, or eligibility condition, encode that named condition as a local
+  factual input even if the sentence cites another section for definitions or
+  compliance procedures. Do not defer the target output solely because the
+  cited section is absent when the source gives enough facts to evaluate the
+  branch as true or false.
 - For repo-backed artifacts, every `input:` and `output:` key must be a canonical
   legal RuleSpec reference that resolves to an actual file and fragment; do not
   use bare friendly keys or absolute-looking placeholders.
@@ -4312,6 +4391,15 @@ Subparagraphs without (a) or (b) are an automatic CI failure under the
 source-subparagraph-coverage validator. There is no implicit "covered by
 the umbrella rule" path — composite rules cite the parent section, not
 the children.
+
+The citation strings below are exact validator keys, not examples. To satisfy
+coverage with an executable rule, copy the relevant string exactly into that
+rule's `source:` field, such as `source: us-ny/regulation/.../5(a)`. A
+human-readable source like `18 NYCRR 387.14(a)(5)(i)(a)` may be useful in prose
+but does not satisfy this checklist. If a top-level checklist item has nested
+legal clauses, at least one rule for that top-level item must cite the exact
+top-level checklist string, or the item must be listed under
+`module.deferred_outputs`.
 
 Subparagraphs requiring action:
 {rows_text}
