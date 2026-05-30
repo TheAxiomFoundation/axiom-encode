@@ -5616,6 +5616,17 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
         flags=re.MULTILINE,
     )
     repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/1#input\."
+        r"(initial_application_month|application_date|"
+        r"public_institution_joint_ssi_snap_application_before_release|"
+        r"public_institution_release_date|"
+        r"migrant_or_seasonal_farmworker_household_in_job_stream|"
+        r"break_in_participation_days): .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
         r"^    us-ny:regulations/18-nycrr/387/12/f/3/v/[abc]#"
         r"snap_(standard|limited|individual)_utility_allowance: .*\n",
         "",
