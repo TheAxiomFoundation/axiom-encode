@@ -527,7 +527,12 @@ def _coverage_item_from_mapping(
 
 def _infer_program_from_legal_id(legal_id: str) -> str:
     lowered = legal_id.lower()
-    if lowered.startswith("uk:statutes/ukpga/2007/3/35"):
+    if lowered.startswith(
+        (
+            "uk:statutes/ukpga/2007/3/23",
+            "uk:statutes/ukpga/2007/3/35",
+        )
+    ):
         return "tax"
     if lowered.startswith("uk:regulations/uksi/2006/965/2"):
         return "child_benefit"
