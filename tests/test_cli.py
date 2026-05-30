@@ -61,6 +61,7 @@ from axiom_encode.cli import (
     _repair_missing_source_proof_atoms,
     _repair_mixed_derived_entity_output_tests,
     _repair_mixed_scalar_output_tests,
+    _repair_new_york_snap_benefit_rules,
     _repair_new_york_snap_benefit_tests,
     _repair_new_york_snap_categorical_eligibility_rules,
     _repair_new_york_snap_categorical_eligibility_tests,
@@ -5209,6 +5210,25 @@ rules:
         )
 
     def test_repair_new_york_snap_benefit_tests_covers_excess_shelter_cost(self):
+        repaired_rules = _repair_new_york_snap_benefit_rules(
+            """rules:
+  - name: snap_eligible
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          snap_income_eligible
+          and (snap_resource_eligible or ny_snap_categorically_eligible)
+          and snap_ssn_eligible
+"""
+        )
+
+        assert "snap_income_eligible" not in repaired_rules
+        assert (
+            "snap_income_limit_exemption_for_categorically_eligible_household"
+            in repaired_rules
+        )
+        assert "or snap_standard_income_eligible" in repaired_rules
+
         repaired = _repair_new_york_snap_benefit_tests(
             """- name: ongoing_month_derives_new_york_allotment_with_heating_cooling_allowance
   period: 2026-01
@@ -5223,6 +5243,7 @@ rules:
   output:
     us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment: 298
     us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance: 1062
+    us-ny:regulations/18-nycrr/387/14/a/5#snap_income_eligible: holds
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#shelter_costs: 1562
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744
 """
@@ -5291,6 +5312,9 @@ rules:
         assert (
             "us-ny:regulations/18-nycrr/387/12/f/3/v/a"
             "#snap_standard_utility_allowance" not in repaired
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#snap_income_eligible" not in repaired
         )
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):

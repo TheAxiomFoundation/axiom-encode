@@ -5568,6 +5568,19 @@ def cmd_repair_new_york_snap_categorical_eligibility(args):
 NY_SNAP_BENEFIT_RELATIVE = Path("policies/otda/snap/fy-2026-benefit-calculation.yaml")
 
 
+def _repair_new_york_snap_benefit_rules(content: str) -> str:
+    return content.replace(
+        "          snap_income_eligible\n"
+        "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
+        "          (\n"
+        "            snap_income_limit_exemption_for_categorically_eligible_household\n"
+        "            or snap_standard_income_eligible\n"
+        "          )\n"
+        "          and (snap_resource_eligible or ny_snap_categorically_eligible)\n",
+        1,
+    )
+
+
 def _repair_new_york_snap_benefit_tests(content: str) -> str:
     repaired = content.replace(
         "us-ny:regulations/18-nycrr/387/14/a/5#input."
@@ -5632,6 +5645,13 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
     repaired = re.sub(
         r"^    us-ny:regulations/18-nycrr/387/12/f/3/v/[abc]#"
         r"snap_(standard|limited|individual)_utility_allowance: .*\n",
+        "",
+        repaired,
+        flags=re.MULTILINE,
+    )
+    repaired = re.sub(
+        r"^    us-ny:regulations/18-nycrr/387/14/a/5#"
+        r"snap_income_eligible: .*\n",
         "",
         repaired,
         flags=re.MULTILINE,
@@ -5731,8 +5751,9 @@ def cmd_repair_new_york_snap_benefit_tests(args):
 
     original_content = rules_file.read_text()
     original_test_content = test_file.read_text()
+    repaired_content = _repair_new_york_snap_benefit_rules(original_content)
     repaired_content, repaired_rules = _repair_missing_source_proof_atoms(
-        original_content
+        repaired_content
     )
     repaired_test_content = _repair_new_york_snap_benefit_tests(original_test_content)
     if (
