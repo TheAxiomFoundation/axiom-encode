@@ -132,7 +132,7 @@ JURISDICTION_CONFIGS = {
                 "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction"
             ),
             "snap_standard_utility_allowance": (
-                "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance"
+                "us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance"
             ),
         },
         utility_allowance_labels=("snap_standard_utility_allowance",),

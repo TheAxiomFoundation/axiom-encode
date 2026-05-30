@@ -3287,10 +3287,20 @@ CALIFORNIA_SNAP_SHELTER_SURFACE_REPAIR_MODEL = "california-snap-shelter-surface-
 CALIFORNIA_SNAP_PROGRAM_RELATIVE = Path(
     "policies/cdss/snap/fy-2026-benefit-calculation.yaml"
 )
-CALIFORNIA_SNAP_SUA_IMPORT = (
+CALIFORNIA_SNAP_SUA_RELATIVE = Path(
+    "policies/cdss/snap/standard-utility-allowance.yaml"
+)
+CALIFORNIA_SNAP_SUA_IMPORT = "us-ca:policies/cdss/snap/standard-utility-allowance"
+CALIFORNIA_SNAP_OLD_SUA_RELATIVE = Path(
+    "guidance/cdss/acin-2025-i-46-25/standard-utility-allowance.yaml"
+)
+CALIFORNIA_SNAP_OLD_SUA_IMPORT = (
     "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance"
 )
-CALIFORNIA_SNAP_REPAIR_RELATIVE_OUTPUTS = (CALIFORNIA_SNAP_PROGRAM_RELATIVE,)
+CALIFORNIA_SNAP_REPAIR_RELATIVE_OUTPUTS = (
+    CALIFORNIA_SNAP_PROGRAM_RELATIVE,
+    CALIFORNIA_SNAP_SUA_RELATIVE,
+)
 
 
 def cmd_repair_colorado_snap_federal_refs(args):
@@ -3483,7 +3493,10 @@ def cmd_repair_california_snap_shelter_surface(args):
     manifest_groups = _california_snap_repair_manifest_groups(repo_path)
     for relative_output, _files in manifest_groups:
         rules_file = repo_path / relative_output
-        if not rules_file.exists():
+        old_sua = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
+        if not rules_file.exists() and not (
+            relative_output == CALIFORNIA_SNAP_SUA_RELATIVE and old_sua.exists()
+        ):
             print(f"RuleSpec file not found: {rules_file}")
             sys.exit(1)
     try:
@@ -3501,15 +3514,22 @@ def cmd_repair_california_snap_shelter_surface(args):
     tracked_files = _unique_paths(
         [path for _relative_output, files in manifest_groups for path in files]
     )
+    migration_files = [
+        repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE,
+        _rulespec_test_path(repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE),
+        repo_path / _applied_encoding_manifest_path(CALIFORNIA_SNAP_OLD_SUA_RELATIVE),
+    ]
     preexisting_changed_files = _changed_manifest_group_files(
         repo_path,
         manifest_groups,
     )
     originals = {
-        path: path.read_text() if path.exists() else None for path in tracked_files
+        path: path.read_text() if path.exists() else None
+        for path in _unique_paths(tracked_files + migration_files)
     }
 
     try:
+        _migrate_california_snap_sua_layout(repo_path)
         _repair_california_snap_policy_composition(
             repo_path / CALIFORNIA_SNAP_PROGRAM_RELATIVE
         )
@@ -3555,7 +3575,7 @@ def _california_snap_repair_manifest_groups(
         rules_file = repo_path / relative_output
         test_file = _rulespec_test_path(rules_file)
         files = [rules_file]
-        if test_file.exists():
+        if test_file.exists() or relative_output == CALIFORNIA_SNAP_SUA_RELATIVE:
             files.append(test_file)
         groups.append((relative_output, files))
     return groups
@@ -3609,8 +3629,45 @@ def _write_california_snap_repair_manifests(
     return manifest_paths
 
 
+def _migrate_california_snap_sua_layout(repo_path: Path) -> None:
+    """Move generated CA SUA RuleSpec out of the disallowed guidance/ root."""
+    old_rules_file = repo_path / CALIFORNIA_SNAP_OLD_SUA_RELATIVE
+    old_test_file = _rulespec_test_path(old_rules_file)
+    old_manifest_file = repo_path / _applied_encoding_manifest_path(
+        CALIFORNIA_SNAP_OLD_SUA_RELATIVE
+    )
+    new_rules_file = repo_path / CALIFORNIA_SNAP_SUA_RELATIVE
+    new_test_file = _rulespec_test_path(new_rules_file)
+
+    for old_file, new_file in (
+        (old_rules_file, new_rules_file),
+        (old_test_file, new_test_file),
+    ):
+        if not old_file.exists() and not new_file.exists():
+            continue
+        if old_file.exists():
+            content = old_file.read_text()
+        else:
+            content = new_file.read_text()
+        content = content.replace(
+            CALIFORNIA_SNAP_OLD_SUA_IMPORT,
+            CALIFORNIA_SNAP_SUA_IMPORT,
+        )
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        new_file.write_text(content)
+        if old_file.exists():
+            old_file.unlink()
+
+    if old_manifest_file.exists():
+        old_manifest_file.unlink()
+
+
 def _repair_california_snap_policy_composition(path: Path) -> None:
     content = path.read_text()
+    content = content.replace(
+        CALIFORNIA_SNAP_OLD_SUA_IMPORT,
+        CALIFORNIA_SNAP_SUA_IMPORT,
+    )
     content = _ensure_yaml_import_text(
         content,
         CALIFORNIA_SNAP_SUA_IMPORT,
@@ -3674,6 +3731,10 @@ def _california_snap_member_eligible_rule() -> dict[str, object]:
 
 def _repair_california_snap_program_tests(path: Path) -> None:
     content = path.read_text()
+    content = content.replace(
+        CALIFORNIA_SNAP_OLD_SUA_IMPORT,
+        CALIFORNIA_SNAP_SUA_IMPORT,
+    )
     content = content.replace(
         "us:statutes/7/2012/j#relation.member_of_household",
         "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household",
@@ -3739,9 +3800,11 @@ def _repair_california_snap_program_tests(path: Path) -> None:
     )
     base_shelter_input = "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 0\n"
     base_sua_input = (
-        "    ? us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
+        "    ? us-ca:policies/cdss/snap/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
         "    : false\n"
     )
+    while base_sua_input + base_sua_input in content:
+        content = content.replace(base_sua_input + base_sua_input, base_sua_input)
     if base_shelter_input in content and base_sua_input not in content:
         content = content.replace(
             base_shelter_input,
@@ -3776,9 +3839,14 @@ def _repair_california_snap_program_tests(path: Path) -> None:
     )
     shelter_case_input = "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500\n"
     shelter_sua_input = (
-        "    ? us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
+        "    ? us-ca:policies/cdss/snap/standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage\n"
         "    : true\n"
     )
+    while shelter_sua_input + shelter_sua_input in content:
+        content = content.replace(
+            shelter_sua_input + shelter_sua_input,
+            shelter_sua_input,
+        )
     if shelter_case_input in content and shelter_sua_input not in content:
         content = content.replace(
             shelter_case_input,
@@ -3788,7 +3856,7 @@ def _repair_california_snap_program_tests(path: Path) -> None:
     for old_shelter_output in ("204", "204.5"):
         content = content.replace(
             f"    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: {old_shelter_output}\n",
-            "    us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance: 663\n"
+            "    us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance: 663\n"
             "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#shelter_costs: 1163\n"
             "    us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744\n",
         )

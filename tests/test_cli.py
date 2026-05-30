@@ -5080,10 +5080,7 @@ rules:
         _repair_california_snap_policy_composition(rules_file)
 
         repaired = rules_file.read_text()
-        assert (
-            "  - us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance\n"
-            in repaired
-        )
+        assert "  - us-ca:policies/cdss/snap/standard-utility-allowance\n" in repaired
         assert "  - name: shelter_costs\n" in repaired
         assert (
             "household_shelter_costs_incurred + snap_standard_utility_allowance"
@@ -5131,7 +5128,7 @@ rules:
             in repaired
         )
         assert (
-            "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance: 663"
+            "us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance: 663"
             in repaired
         )
         assert (
