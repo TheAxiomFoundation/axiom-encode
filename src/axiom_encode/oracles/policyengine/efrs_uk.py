@@ -965,6 +965,10 @@ def known_policyengine_divergence(
             math.isclose(axiom_value, 27.05, abs_tol=1e-9)
             or math.isclose(axiom_value, 17.90, abs_tol=1e-9)
         )
+        and (
+            math.isclose(policyengine_value, 26.935709699992934, abs_tol=0.005)
+            or math.isclose(policyengine_value, 17.836506423219888, abs_tol=0.005)
+        )
     ):
         return UKEFRSOracleDivergence(
             surface=surface,
@@ -986,6 +990,10 @@ def known_policyengine_divergence(
         and (
             math.isclose(axiom_value, 238.00, abs_tol=1e-9)
             or math.isclose(axiom_value, 363.25, abs_tol=1e-9)
+        )
+        and (
+            math.isclose(policyengine_value, 229.3929826081932, abs_tol=0.01)
+            or math.isclose(policyengine_value, 350.12286608501375, abs_tol=0.01)
         )
     ):
         return UKEFRSOracleDivergence(
