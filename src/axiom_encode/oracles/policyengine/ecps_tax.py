@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -2268,8 +2269,24 @@ def scalar_value(value: Any) -> dict[str, Any]:
     if isinstance(value, int):
         return {"kind": "integer", "value": value}
     if isinstance(value, float):
-        return {"kind": "decimal", "value": str(value)}
+        return {"kind": "decimal", "value": decimal_literal(value)}
     return {"kind": "text", "value": str(value)}
+
+
+def decimal_literal(value: float) -> str:
+    text = str(value)
+    if "e" not in text.lower():
+        return text
+    try:
+        decimal = Decimal(text)
+    except InvalidOperation:
+        return text
+    fixed = format(decimal, "f")
+    if "." in fixed:
+        fixed = fixed.rstrip("0").rstrip(".")
+    if fixed in {"", "-0"}:
+        return "0"
+    return fixed
 
 
 def output_number(output: Any) -> float:
