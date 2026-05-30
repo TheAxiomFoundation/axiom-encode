@@ -5225,10 +5225,17 @@ rules:
             "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
             not in repaired
         )
+        repaired_payload = yaml.safe_load(repaired)
+        repaired_inputs = repaired_payload[0]["input"]
+        repaired_member = repaired_inputs[
+            "us:statutes/7/2012/j#relation.member_of_household"
+        ][0]
         assert (
-            "        us-ny:regulations/18-nycrr/387/14/a/5#input."
-            "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true"
-            in repaired
+            repaired_member[
+                "us-ny:regulations/18-nycrr/387/14/a/5#input."
+                "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits"
+            ]
+            is True
         )
 
         appended = _repair_new_york_snap_categorical_eligibility_tests(
