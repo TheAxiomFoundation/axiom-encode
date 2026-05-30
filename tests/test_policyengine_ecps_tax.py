@@ -91,6 +91,153 @@ def test_person_entity_id_is_stable_and_namespaced():
     assert person_entity_id(42) == "person_42"
 
 
+def test_run_axiom_program_compiles_through_canonical_repo_alias(
+    monkeypatch,
+    tmp_path,
+):
+    rulespec_root = tmp_path / "rulespec-uk-worktree"
+    program = rulespec_root / "statutes" / "ukpga" / "2007" / "3" / "35.yaml"
+    program.parent.mkdir(parents=True)
+    program.write_text("format: rulespec/v1\nrules: []\n")
+    axiom_rules_path = tmp_path / "axiom-rules-engine"
+    binary = axiom_rules_path / "target" / "release" / "axiom-rules-engine"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("")
+
+    compiled_programs = []
+    compile_env_roots = []
+    runtime_requests = []
+
+    def fake_run(cmd, **kwargs):
+        if len(cmd) >= 6 and cmd[:3] == ["git", "-C", str(rulespec_root)]:
+            return ecps_tax.subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout="https://github.com/TheAxiomFoundation/rulespec-uk.git\n",
+                stderr="",
+            )
+        if "compile" in cmd:
+            compiled_programs.append(cmd[cmd.index("--program") + 1])
+            compile_env_roots.extend(
+                kwargs["env"]["AXIOM_RULESPEC_REPO_ROOTS"].split(ecps_tax.os.pathsep)
+            )
+            output_path = cmd[cmd.index("--output") + 1]
+            with open(output_path, "w") as artifact:
+                artifact.write(
+                    ecps_tax.json.dumps(
+                        {
+                            "program": {
+                                "parameters": [],
+                                "derived": [
+                                    {
+                                        "id": "uk-worktree:statutes/ukpga/2007/3/35#personal_allowance",
+                                        "name": "personal_allowance",
+                                        "entity": "Person",
+                                    }
+                                ],
+                            }
+                        }
+                    )
+                )
+            return ecps_tax.subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if "run-compiled" in cmd:
+            runtime_requests.append(ecps_tax.json.loads(kwargs["input"]))
+            return ecps_tax.subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=ecps_tax.json.dumps(
+                    {
+                        "results": [
+                            {
+                                "outputs": {
+                                    "uk-worktree:statutes/ukpga/2007/3/35#personal_allowance": {
+                                        "kind": "scalar",
+                                        "value": {
+                                            "kind": "integer",
+                                            "value": 12570,
+                                        },
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(ecps_tax.subprocess, "run", fake_run)
+
+    results = ecps_tax.run_axiom_program(
+        program=program,
+        request={
+            "mode": "explain",
+            "dataset": {
+                "inputs": [
+                    {
+                        "name": "uk:statutes/ukpga/2007/3/35#input.adjusted_net_income",
+                        "entity": "Person",
+                        "entity_id": "person_1",
+                        "interval": {
+                            "start": "2026-01-01",
+                            "end": "2026-12-31",
+                        },
+                        "value": {
+                            "kind": "decimal",
+                            "value": "20000",
+                        },
+                    }
+                ],
+                "relations": [
+                    {
+                        "name": "uk:statutes/ukpga/2007/3/35#relation.members",
+                        "tuple": ["person_1", "household_1"],
+                        "interval": {
+                            "start": "2026-01-01",
+                            "end": "2026-12-31",
+                        },
+                    }
+                ],
+            },
+            "queries": [
+                {
+                    "entity_id": "person_1",
+                    "period": {
+                        "period_kind": "tax_year",
+                        "start": "2026-01-01",
+                        "end": "2026-12-31",
+                    },
+                    "outputs": ["uk:statutes/ukpga/2007/3/35#personal_allowance"],
+                }
+            ],
+        },
+        rulespec_root=rulespec_root,
+        axiom_rules_path=axiom_rules_path,
+    )
+
+    assert (
+        results[0]["outputs"]["uk:statutes/ukpga/2007/3/35#personal_allowance"][
+            "value"
+        ]["value"]
+        == 12570
+    )
+    assert compiled_programs
+    assert "rulespec-uk" in compiled_programs[0].split("/")
+    assert "rulespec-uk-worktree" not in compiled_programs[0].split("/")
+    assert runtime_requests[0]["dataset"]["inputs"][0]["name"] == (
+        "uk-worktree:statutes/ukpga/2007/3/35#input.adjusted_net_income"
+    )
+    assert runtime_requests[0]["dataset"]["relations"][0]["name"] == (
+        "uk-worktree:statutes/ukpga/2007/3/35#relation.members"
+    )
+    assert runtime_requests[0]["queries"][0]["outputs"] == [
+        "uk-worktree:statutes/ukpga/2007/3/35#personal_allowance"
+    ]
+    assert str(rulespec_root) in compile_env_roots
+    assert str(rulespec_root.parent) in compile_env_roots
+    assert compile_env_roots[0] != str(rulespec_root)
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
