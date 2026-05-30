@@ -3716,7 +3716,18 @@ def _repair_california_snap_program_tests(path: Path) -> None:
         content = content.replace(
             "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n",
             "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n"
+            "    us:regulations/7-cfr/273/3#input.resident_of_battered_women_and_children_shelter_and_prior_abusive_household_member: false\n"
             "    us:regulations/7-cfr/273/8#input.snap_categorically_eligible_for_resource_exemption: false\n",
+            1,
+        )
+    elif (
+        "us:regulations/7-cfr/273/3#input.resident_of_battered_women_and_children_shelter_and_prior_abusive_household_member:"
+        not in content
+    ):
+        content = content.replace(
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n",
+            "    us:regulations/7-cfr/273/3#input.household_contains_individual_participating_in_more_than_one_household_or_project_area: false\n"
+            "    us:regulations/7-cfr/273/3#input.resident_of_battered_women_and_children_shelter_and_prior_abusive_household_member: false\n",
             1,
         )
     content = content.replace(
