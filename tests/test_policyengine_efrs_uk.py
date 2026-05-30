@@ -5,13 +5,18 @@ import pytest
 
 import axiom_encode.oracles.policyengine.efrs_uk as efrs_uk
 from axiom_encode.oracles.policyengine.efrs_uk import (
+    CHILD_BENEFIT_BASE,
+    CHILD_BENEFIT_OUTPUTS,
     PERSONAL_ALLOWANCE_BASE,
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
+    WEEKS_IN_YEAR,
+    build_child_benefit_request,
     build_personal_allowance_request,
     compare_outputs,
     compare_uk_efrs,
     policyengine_person_variables_for_surfaces,
+    project_child_benefit_inputs,
     project_personal_allowance_inputs,
     select_person_indices,
 )
@@ -82,6 +87,67 @@ def test_personal_allowance_request_projects_efrs_people():
     }
 
 
+def test_child_benefit_projection_uses_child_index():
+    projected = project_child_benefit_inputs(
+        {
+            "child_benefit_child_index": 2,
+            "child_benefit_respective_amount": 17.90 * WEEKS_IN_YEAR,
+        }
+    )
+
+    assert projected == {
+        "during_subsistence_of_marriage_any_party_married_to_more_than_one_person": False,
+        "marriage_ceremony_took_place_under_law_permitting_polygamy": False,
+        "specified_benefit_allowance_or_increase_paid_for_week_to_person": False,
+        "specified_benefit_is_in_respect_of_only_elder_or_eldest_child_for_child_benefit_entitlement": False,
+        "child_or_qualifying_young_person_is_only_elder_or_eldest_for_payee": False,
+        "paragraph_2_relationship_coordination_applies": False,
+        "child_or_qualifying_young_person_is_elder_or_eldest_among_paragraph_2_children": False,
+        "payee_is_voluntary_organisation": False,
+        "payee_resides_with_parent_otherwise_than_paragraph_2_a": False,
+    }
+
+
+def test_child_benefit_request_filters_to_positive_respective_amount_rows():
+    request = build_child_benefit_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "child_benefit_child_index": -1,
+                    "child_benefit_respective_amount": 0,
+                },
+                {
+                    "person_id": 8,
+                    "child_benefit_child_index": 1,
+                    "child_benefit_respective_amount": 27.05 * WEEKS_IN_YEAR,
+                },
+            ],
+            "person_ids": [7, 8],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_8",
+            "period": {
+                "period_kind": "custom",
+                "name": "benefit_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+            "outputs": [CHILD_BENEFIT_OUTPUTS["child_benefit_weekly_rate"]["axiom"]],
+        }
+    ]
+    assert {record["name"]: record["value"] for record in request["dataset"]["inputs"]}[
+        f"{CHILD_BENEFIT_BASE}#input.child_or_qualifying_young_person_is_only_elder_or_eldest_for_payee"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+
+
 def test_select_person_indices_uses_positive_weights_and_explicit_ids():
     rows = [
         {"person_id": 10, "person_weight": 0},
@@ -98,8 +164,12 @@ def test_select_person_indices_uses_positive_weights_and_explicit_ids():
 
 
 def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
-    assert policyengine_person_variables_for_surfaces(["personal-allowance"]) == (
+    assert policyengine_person_variables_for_surfaces(
+        ["personal-allowance", "child-benefit"]
+    ) == (
         "adjusted_net_income",
+        "child_benefit_child_index",
+        "child_benefit_respective_amount",
         "gift_aid_grossed_up",
         "personal_allowance",
     )
@@ -138,7 +208,6 @@ def test_compare_outputs_reports_personal_allowance_mismatch():
     assert report.mismatches[0].entity_id == "person_7"
     assert report.output_summary[0]["mismatches"] == 1
     assert {item["surface"] for item in report.skipped_surfaces} == {
-        "child-benefit",
         "pension-credit",
         "universal-credit",
     }
@@ -174,6 +243,78 @@ def test_compare_outputs_classifies_known_policyengine_personal_allowance_roundi
     assert len(report.oracle_divergences) == 1
     assert report.oracle_divergences[0].issue_url.endswith("/issues/1738")
     assert report.output_summary[0]["oracle_divergences"] == 1
+
+
+def test_compare_outputs_compares_child_benefit_weekly_rate():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "child_benefit_child_index": -1,
+                    "child_benefit_respective_amount": 0,
+                },
+                {
+                    "person_id": 8,
+                    "child_benefit_child_index": 1,
+                    "child_benefit_respective_amount": 27.05 * WEEKS_IN_YEAR,
+                },
+            ],
+            "person_ids": [7, 8],
+        },
+        axiom_outputs_by_surface={
+            "child-benefit": [
+                {
+                    "outputs": {
+                        CHILD_BENEFIT_OUTPUTS["child_benefit_weekly_rate"][
+                            "axiom"
+                        ]: decimal_output(27.05)
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_persons == 2
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+    assert report.output_summary[0]["compared"] == 1
+
+
+def test_compare_outputs_classifies_known_policyengine_child_benefit_amounts():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 8,
+                    "child_benefit_child_index": 1,
+                    "child_benefit_respective_amount": 26.935709699992934
+                    * WEEKS_IN_YEAR,
+                },
+            ],
+            "person_ids": [8],
+        },
+        axiom_outputs_by_surface={
+            "child-benefit": [
+                {
+                    "outputs": {
+                        CHILD_BENEFIT_OUTPUTS["child_benefit_weekly_rate"][
+                            "axiom"
+                        ]: decimal_output(27.05)
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.mismatches == []
+    assert len(report.oracle_divergences) == 1
+    assert report.oracle_divergences[0].issue_url.endswith("/issues/1739")
 
 
 def test_compare_uk_efrs_runs_axiom_personal_allowance(
@@ -225,7 +366,7 @@ def test_compare_uk_efrs_runs_axiom_personal_allowance(
         axiom_rules_path=None,
         year=2026,
         sample_size=100,
-        surface="all",
+        surface="personal-allowance",
         dataset="enhanced_frs_2023_24",
         data_folder=Path(".axiom/policyengine-data"),
         tolerance=0.01,

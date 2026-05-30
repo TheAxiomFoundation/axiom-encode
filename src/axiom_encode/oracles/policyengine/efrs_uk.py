@@ -28,9 +28,12 @@ from .ecps_tax import (
 )
 
 DEFAULT_DATASET = "enhanced_frs_2023_24"
+WEEKS_IN_YEAR = 52
 
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
+CHILD_BENEFIT_PROGRAM_PATH = Path("regulations/uksi/2006/965/2.yaml")
+CHILD_BENEFIT_BASE = "uk:regulations/uksi/2006/965/2"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -39,12 +42,20 @@ PERSONAL_ALLOWANCE_OUTPUTS = {
     },
 }
 
+CHILD_BENEFIT_OUTPUTS = {
+    "child_benefit_weekly_rate": {
+        "axiom": f"{CHILD_BENEFIT_BASE}#child_benefit_weekly_rate",
+        "pe": "child_benefit_respective_amount",
+        "pe_transform": "annual_to_weekly",
+    },
+}
+
 
 @dataclass(frozen=True)
 class UKEFRSSurfaceSpec:
     program: Path
     entity: str
-    outputs: dict[str, dict[str, str]]
+    outputs: dict[str, dict[str, Any]]
     pe_variables: tuple[str, ...]
 
 
@@ -59,18 +70,18 @@ SURFACE_SPECS = {
             "personal_allowance",
         ),
     ),
+    "child-benefit": UKEFRSSurfaceSpec(
+        program=CHILD_BENEFIT_PROGRAM_PATH,
+        entity="person",
+        outputs=CHILD_BENEFIT_OUTPUTS,
+        pe_variables=(
+            "child_benefit_child_index",
+            "child_benefit_respective_amount",
+        ),
+    ),
 }
 
 SKIPPED_SURFACES = [
-    {
-        "surface": "child-benefit",
-        "reason": (
-            "rulespec-uk currently exposes the branch-selected weekly rate, but "
-            "the generated rule depends on eldest-child, relationship "
-            "coordination, voluntary-organisation, and specified-benefit legal "
-            "predicates that are not yet projected from EFRS rows."
-        ),
-    },
     {
         "surface": "pension-credit",
         "reason": (
@@ -524,6 +535,8 @@ def build_axiom_request(
 ) -> dict[str, Any]:
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
+    if surface == "child-benefit":
+        return build_child_benefit_request(pe_data=pe_data, year=year)
     raise ValueError(f"unsupported UK EFRS surface: {surface}")
 
 
@@ -533,7 +546,7 @@ def build_personal_allowance_request(
     interval = tax_year_interval(year)
     inputs: list[dict[str, Any]] = []
     queries: list[dict[str, Any]] = []
-    for row in pe_data["persons"]:
+    for row in rows_for_surface(pe_data, "personal-allowance"):
         entity_id = person_entity_id(int(row_value(row, "person_id")))
         for name, value in project_personal_allowance_inputs(row).items():
             inputs.append(
@@ -561,6 +574,38 @@ def build_personal_allowance_request(
     }
 
 
+def build_child_benefit_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_week_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "child-benefit"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        for name, value in project_child_benefit_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{CHILD_BENEFIT_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in CHILD_BENEFIT_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -569,6 +614,33 @@ def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
         "individual_meets_requirements_under_section_56": True,
         "adjusted_net_income": max(0.0, adjusted_net_income - gift_aid_grossed_up),
     }
+
+
+def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
+    child_index = int(row_value(row, "child_benefit_child_index", -1))
+    is_eldest = child_index == 1
+    return {
+        "during_subsistence_of_marriage_any_party_married_to_more_than_one_person": False,
+        "marriage_ceremony_took_place_under_law_permitting_polygamy": False,
+        "specified_benefit_allowance_or_increase_paid_for_week_to_person": False,
+        "specified_benefit_is_in_respect_of_only_elder_or_eldest_child_for_child_benefit_entitlement": False,
+        "child_or_qualifying_young_person_is_only_elder_or_eldest_for_payee": is_eldest,
+        "paragraph_2_relationship_coordination_applies": False,
+        "child_or_qualifying_young_person_is_elder_or_eldest_among_paragraph_2_children": is_eldest,
+        "payee_is_voluntary_organisation": False,
+        "payee_resides_with_parent_otherwise_than_paragraph_2_a": False,
+    }
+
+
+def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, Any]]:
+    persons = pe_data["persons"]
+    if surface == "child-benefit":
+        return [
+            row
+            for row in persons
+            if money(row_value(row, "child_benefit_respective_amount", 0)) > 0
+        ]
+    return persons
 
 
 def compare_outputs(
@@ -595,16 +667,16 @@ def compare_outputs(
         for name in spec.outputs
     }
     compared_values = 0
-    persons = pe_data["persons"]
     for surface, axiom_outputs in axiom_outputs_by_surface.items():
         output_specs = SURFACE_SPECS[surface].outputs
+        persons = rows_for_surface(pe_data, surface)
         for index, result in enumerate(axiom_outputs):
             pe_row = persons[index]
             entity_id = person_entity_id(int(row_value(pe_row, "person_id")))
             outputs = result.get("outputs") or {}
             for name, spec in output_specs.items():
                 axiom_value = output_number(outputs.get(spec["axiom"]))
-                pe_value = money(row_value(pe_row, spec["pe"]))
+                pe_value = policyengine_output_value(spec, pe_row)
                 diff = axiom_value - pe_value
                 abs_diff = abs(diff)
                 compared_values += 1
@@ -662,8 +734,24 @@ def compare_outputs(
             "meeting the Section 56 residence/citizenship-condition boundary "
             "facts, matching the usual PolicyEngine UK EFRS personal allowance "
             "surface until those upstream legal predicates are encoded.",
+            "Child Benefit comparison filters to positive PolicyEngine "
+            "child_benefit_respective_amount rows, divides that annualized "
+            "PolicyEngine output by 52 to compare against the RuleSpec weekly "
+            "rate, and projects the eldest-child branch from "
+            "child_benefit_child_index.",
+            "Child Benefit relationship-coordination, voluntary-organisation, "
+            "specified-benefit, and polygamous-marriage branches are projected "
+            "false because PolicyEngine UK's child_benefit_respective_amount "
+            "does not expose those legal predicates separately.",
         ],
     )
+
+
+def policyengine_output_value(spec: dict[str, Any], row: Any) -> float:
+    raw_value = money(row_value(row, spec["pe"]))
+    if spec.get("pe_transform") == "annual_to_weekly":
+        return raw_value / WEEKS_IN_YEAR
+    return raw_value
 
 
 def known_policyengine_divergence(
@@ -694,6 +782,28 @@ def known_policyengine_divergence(
                 "ITA 2007 s.35(3)."
             ),
             issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1738",
+        )
+    if (
+        surface == "child-benefit"
+        and output == "child_benefit_weekly_rate"
+        and 0 < diff < 0.2
+        and (
+            math.isclose(axiom_value, 27.05, abs_tol=1e-9)
+            or math.isclose(axiom_value, 17.90, abs_tol=1e-9)
+        )
+    ):
+        return UKEFRSOracleDivergence(
+            surface=surface,
+            entity_id=entity_id,
+            output=output,
+            axiom=axiom_value,
+            policyengine=policyengine_value,
+            diff=diff,
+            reason=(
+                "PolicyEngine UK currently uses forecast-indexed 2026 Child "
+                "Benefit amounts instead of the published 2026-27 weekly rates."
+            ),
+            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1739",
         )
     return None
 
@@ -778,6 +888,15 @@ def tax_year_interval(year: int) -> dict[str, str]:
         "period_kind": "tax_year",
         "start": f"{year:04d}-01-01",
         "end": f"{year:04d}-12-31",
+    }
+
+
+def benefit_week_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "custom",
+        "name": "benefit_week",
+        "start": f"{year:04d}-04-06",
+        "end": f"{year:04d}-04-12",
     }
 
 
