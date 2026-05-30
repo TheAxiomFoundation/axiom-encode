@@ -5538,20 +5538,39 @@ def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
 def _repair_new_york_snap_categorical_eligibility_tests(
     content: str, *, rules_content: str | None = None
 ) -> str:
-    repaired = re.sub(
-        r"(    us:statutes/7/2012/j#relation\.member_of_household:\n"
-        r"      - us:statutes/7/2012/j#input\.snap_member_is_elderly_or_disabled: .*\n)"
-        r"    us-ny:regulations/18-nycrr/387/14/a/5#relation\.member_of_household:\n"
-        r"      - (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: .*\n)"
-        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: .*\n)"
-        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: .*\n)"
-        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: .*\n)"
-        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_paid_family_assistance_or_nonemergency_safety_net_benefits: .*\n)"
-        r"        (us-ny:regulations/18-nycrr/387/14/a/5#input\.member_family_assistance_or_nonemergency_safety_net_grant_amount: .*\n)",
-        r"\1        \2        \3        \4        \5        \6        \7",
-        content,
-        flags=re.MULTILINE,
-    )
+    us_relation = "us:statutes/7/2012/j#relation.member_of_household"
+    ny_relation = "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
+    elderly_input = "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
+    try:
+        payload = yaml.safe_load(content)
+    except yaml.YAMLError:
+        payload = None
+    if isinstance(payload, list):
+        changed = False
+        for case in payload:
+            if not isinstance(case, dict):
+                continue
+            inputs = case.get("input")
+            if not isinstance(inputs, dict) or ny_relation not in inputs:
+                continue
+            ny_rows = inputs.pop(ny_relation)
+            us_rows = inputs.get(us_relation)
+            if not isinstance(ny_rows, list):
+                continue
+            if not isinstance(us_rows, list):
+                us_rows = [{} for _ in ny_rows]
+                inputs[us_relation] = us_rows
+            while len(us_rows) < len(ny_rows):
+                us_rows.append({})
+            for index, ny_row in enumerate(ny_rows):
+                if not isinstance(ny_row, dict) or not isinstance(us_rows[index], dict):
+                    continue
+                us_rows[index].setdefault(elderly_input, False)
+                us_rows[index].update(ny_row)
+            changed = True
+        repaired = yaml.safe_dump(payload, sort_keys=False) if changed else content
+    else:
+        repaired = content
     if (
         "all_members_public_assistance_path_makes_household_categorically_eligible"
         in repaired
