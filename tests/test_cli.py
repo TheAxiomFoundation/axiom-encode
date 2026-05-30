@@ -2143,6 +2143,48 @@ rules:
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
+    def test_executes_companion_tests_with_absolute_relation_inputs(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        target = repo / "statutes/1/relation.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            """format: rulespec/v1
+rules:
+  - name: income_component_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: household_income
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(income_component_of_household.amount)
+"""
+        )
+        target.with_name("relation.test.yaml").write_text(
+            """- name: sums_relation_rows
+  period: 2026-01
+  input:
+    us:statutes/1/relation#relation.income_component_of_household:
+      - us:statutes/1/relation#input.amount: 5
+      - us:statutes/1/relation#input.amount: 7
+  output:
+    us:statutes/1/relation#household_income: 12
+"""
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(self._args(repo, json_output=True))
+
+        assert exc_info.value.code == 0
+        assert json.loads(capsys.readouterr().out)["success"] is True
+
     def test_executes_companion_tests_failure_json(self, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=16)
 
@@ -2456,6 +2498,120 @@ rules:
         assert len(compile_programs) == 1
         assert "rulespec-us" in compile_programs[0].parts
         assert "rulespec-us-clean.abcd" not in str(compile_programs[0])
+
+    def test_executes_relation_tests_from_canonical_alias_checkout(
+        self, capsys, monkeypatch, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us-clean.abcd"
+        rules_file = repo / "statutes/1/relation.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: members
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2024-01-01'
+        formula: sum(members.income)
+"""
+        )
+        rules_file.with_name("relation.test.yaml").write_text(
+            """- name: canonical_temp_checkout_relation_input
+  period: 2026-01
+  input:
+    us:statutes/1/relation#relation.members:
+      - us:statutes/1/relation#input.income: 5
+  output:
+    us:statutes/1/relation#benefit: 5
+"""
+        )
+
+        engine_root = tmp_path / "axiom-rules-engine"
+        binary = engine_root / "target/debug/axiom-rules-engine"
+        relation_names: list[str] = []
+
+        def fake_binary(self):
+            return binary
+
+        def fake_run(cmd, **kwargs):
+            if len(cmd) >= 6 and cmd[:3] == ["git", "-C", str(repo)]:
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="https://github.com/TheAxiomFoundation/rulespec-us.git\n",
+                    stderr="",
+                )
+            if "compile" in cmd:
+                output_path = Path(cmd[cmd.index("--output") + 1])
+                output_path.write_text(
+                    json.dumps(
+                        {
+                            "program": {
+                                "parameters": [],
+                                "derived": [
+                                    {
+                                        "id": "us-clean.abcd:statutes/1/relation#benefit",
+                                        "name": "benefit",
+                                        "entity": "Household",
+                                    }
+                                ],
+                            }
+                        }
+                    )
+                )
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if "run-compiled" in cmd:
+                request = json.loads(kwargs["input"])
+                relation_names.extend(
+                    relation["name"] for relation in request["dataset"]["relations"]
+                )
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "results": [
+                                {
+                                    "outputs": {
+                                        "us-clean.abcd:statutes/1/relation#benefit": {
+                                            "kind": "scalar",
+                                            "value": {"kind": "integer", "value": 5},
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ),
+                    stderr="",
+                )
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        args = MagicMock()
+        args.root = repo
+        args.paths = []
+        args.json = True
+        args.axiom_rules_path = engine_root
+
+        monkeypatch.setattr(
+            "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
+            fake_binary,
+        )
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_test(args)
+
+        assert exc_info.value.code == 0
+        assert json.loads(capsys.readouterr().out)["success"] is True
+        assert relation_names == ["us-clean.abcd:statutes/1/relation#relation.members"]
 
     def test_discovery_skips_axiom_dependency_tree(self, tmp_path):
         root = tmp_path / "workspace"
@@ -6253,6 +6409,155 @@ rules:
         assert run.outcome["auto_repaired_scalar_relation_rows"] == [
             "first_generated_case:us:statutes/7/2012/j#relation.member_of_household[1]",
             "second_generated_case:us:statutes/7/2012/j#relation.member_of_household[1]",
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_repairs_scalar_rows_after_test_input_repair(
+        self, capsys, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-uk"
+        policy_repo.mkdir()
+        args = self._make_args(
+            tmp_path,
+            backend="codex",
+            citation="uk/statute/ukpga/2007/3/23",
+            policy_repo_path=policy_repo,
+            sync=False,
+        )
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "ukpga"
+            / "2007"
+            / "3"
+            / "23.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: income_components_charged_to_income_tax
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: total_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-04-06'
+        formula: sum(income_components_charged_to_income_tax.amount_charged_to_income_tax_for_tax_year)
+"""
+        )
+        test_file = output_file.with_name("23.test.yaml")
+        test_file.write_text(
+            """- name: ordinary_taxpayer_liability_steps
+  period: 2026
+  input:
+    uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax:
+      - 30000
+  output:
+    uk:statutes/ukpga/2007/3/23#total_income: 30000
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = policy_repo / "statutes/ukpga/2007/3/23.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (
+                        False,
+                        [
+                            "statutes/ukpga/2007/3/23.yaml: ci: "
+                            "Test case `ordinary_taxpayer_liability_steps` "
+                            "assigns computed RuleSpec output(s) as input"
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/ukpga/2007/3/23.yaml: ci: "
+                            "Test case `ordinary_taxpayer_liability_steps` input invalid: relation "
+                            "`uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax` "
+                            "item #1 must be a mapping"
+                        ],
+                        {},
+                    ),
+                    (
+                        False,
+                        [
+                            "statutes/ukpga/2007/3/23.yaml: ci: "
+                            "Test input assignment missing: "
+                            "`ordinary_taxpayer_liability_steps` does not assign "
+                            "#input.amount_charged_to_income_tax_for_tax_year."
+                        ],
+                        {},
+                    ),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._try_repair_generated_test_input_assignments_for_apply",
+                side_effect=[
+                    ["ordinary_taxpayer_liability_steps"],
+                    [],
+                    ["ordinary_taxpayer_liability_steps_child_fact"],
+                ],
+            ) as mock_assignment_repair,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_test_input_assignments:"
+            "ordinary_taxpayer_liability_steps"
+        ) in output
+        assert (
+            "apply=auto_repaired_scalar_relation_rows:"
+            "ordinary_taxpayer_liability_steps:"
+            "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax[1]"
+        ) in output
+        assert (
+            "apply=auto_repaired_test_input_assignments:"
+            "ordinary_taxpayer_liability_steps_child_fact"
+        ) in output
+        assert mock_overlay.call_count == 4
+        assert mock_assignment_repair.call_count == 3
+        mock_apply.assert_called_once()
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][
+            "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax"
+        ] == [
+            {
+                "uk:statutes/ukpga/2007/3/23#input.amount_charged_to_income_tax_for_tax_year": 30000
+            }
+        ]
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_test_input_assignments"] == [
+            "ordinary_taxpayer_liability_steps",
+            "ordinary_taxpayer_liability_steps_child_fact",
+        ]
+        assert run.outcome["auto_repaired_scalar_relation_rows"] == [
+            "ordinary_taxpayer_liability_steps:"
+            "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax[1]"
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
@@ -10243,6 +10548,81 @@ rules: []
         [case] = yaml.safe_load(test_file.read_text())
         assert case["input"]["us:statutes/7/2012/j#relation.member_of_household"] == [
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+        ]
+
+    def test_repair_scalar_relation_rows_from_generated_formula(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-uk"
+        policy_repo.mkdir()
+        rules_file = (
+            tmp_path / "generated" / "statutes" / "ukpga" / "2007" / "3" / "23.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: ITA 2007 section 23 calculates liability steps.
+rules:
+  - name: income_components_charged_to_income_tax
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: total_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-04-06'
+        formula: sum(income_components_charged_to_income_tax.amount_charged_to_income_tax_for_tax_year)
+"""
+        )
+        test_file = rules_file.with_name("23.test.yaml")
+        test_file.write_text(
+            """- name: charged_income_less_reliefs_and_allowances
+  period: 2026
+  input:
+    uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax:
+      - 30000
+      - 5000
+  output:
+    uk:statutes/ukpga/2007/3/23#total_income: 35000
+"""
+        )
+
+        repaired = _repair_scalar_relation_rows(
+            rules_file=rules_file,
+            test_file=test_file,
+            policy_repo_path=policy_repo,
+            parsed_issues=[
+                (
+                    "charged_income_less_reliefs_and_allowances",
+                    "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax",
+                    1,
+                ),
+                (
+                    "charged_income_less_reliefs_and_allowances",
+                    "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax",
+                    2,
+                ),
+            ],
+        )
+
+        assert repaired == [
+            "charged_income_less_reliefs_and_allowances:"
+            "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax[1]",
+            "charged_income_less_reliefs_and_allowances:"
+            "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax[2]",
+        ]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][
+            "uk:statutes/ukpga/2007/3/23#relation.income_components_charged_to_income_tax"
+        ] == [
+            {
+                "uk:statutes/ukpga/2007/3/23#input.amount_charged_to_income_tax_for_tax_year": 30000
+            },
+            {
+                "uk:statutes/ukpga/2007/3/23#input.amount_charged_to_income_tax_for_tax_year": 5000
+            },
         ]
 
     def test_apply_overlay_validation_rejects_dropped_source_relation(self, tmp_path):

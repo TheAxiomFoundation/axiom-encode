@@ -2131,6 +2131,7 @@ def _execute_rulespec_test_file(
                     parameter_by_id=parameter_by_id,
                     derived_ids=derived_ids,
                     derived_by_id=derived_by_id,
+                    policy_repo_path=item_policy_repo_path,
                 )
             )
         except Exception as error:
@@ -2167,6 +2168,7 @@ def _execute_rulespec_test_case(
     parameter_by_id: dict[str, dict],
     derived_ids: set[str],
     derived_by_id: dict[str, dict],
+    policy_repo_path: Path,
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
@@ -2180,13 +2182,17 @@ def _execute_rulespec_test_case(
         key = str(key)
         flat_inputs[key] = value
         if isinstance(value, list) and "#relation." in key:
+            relation_name = _rulespec_test_relation_request_name(
+                key,
+                policy_repo_path=policy_repo_path,
+            )
             for row_index, row in enumerate(value):
                 related_id = f"related_{row_index}"
                 # The current relation slot convention is related entity first,
                 # enclosing entity second.
                 relations.append(
                     {
-                        "name": key,
+                        "name": relation_name,
                         "tuple": [related_id, root_entity_id],
                         "interval": interval,
                     }
@@ -2466,6 +2472,20 @@ def _execute_rulespec_test_case(
                 }
             )
     return failures
+
+
+def _rulespec_test_relation_request_name(
+    key: str,
+    *,
+    policy_repo_path: Path,
+) -> str:
+    if ":" in key:
+        prefix, relative = key.split(":", 1)
+        canonical_prefix = _repo_jurisdiction_prefix(policy_repo_path)
+        local_prefix = policy_repo_path.name.removeprefix("rulespec-")
+        if prefix == canonical_prefix and local_prefix != canonical_prefix:
+            return f"{local_prefix}:{relative}"
+    return key
 
 
 def _safe_artifact_stem(path: Path) -> str:
@@ -14011,6 +14031,62 @@ def cmd_encode(args):
                         repaired_input_cases
                     )
             if not can_apply:
+                repaired_scalar_rows = list(
+                    outcome.get("auto_repaired_scalar_relation_rows") or []
+                )
+                repaired_input_cases = list(
+                    outcome.get("auto_repaired_test_input_assignments") or []
+                )
+                while not can_apply:
+                    repaired_batch = (
+                        _try_repair_generated_scalar_relation_rows_for_apply(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_batch:
+                        repaired_test_cases = (
+                            _try_repair_generated_test_input_assignments_for_apply(
+                                result,
+                                output_root=args.output,
+                                policy_repo_path=policy_repo_path,
+                                issues=apply_issues,
+                            )
+                        )
+                        if not repaired_test_cases:
+                            break
+                        repaired_input_cases.extend(repaired_test_cases)
+                        outcome["auto_repaired_test_input_assignments"] = (
+                            repaired_input_cases
+                        )
+                        print(
+                            "  apply=auto_repaired_test_input_assignments:"
+                            + ",".join(repaired_test_cases)
+                        )
+                    else:
+                        repaired_scalar_rows.extend(repaired_batch)
+                        outcome["auto_repaired_scalar_relation_rows"] = (
+                            repaired_scalar_rows
+                        )
+                        print(
+                            "  apply=auto_repaired_scalar_relation_rows:"
+                            + ",".join(repaired_batch)
+                        )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_output_cases: list[str] = []
                 while not can_apply:
                     repaired_test_cases = (
@@ -14437,6 +14513,7 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
     return _repair_scalar_relation_rows(
+        rules_file=rules_file,
         test_file=test_file,
         policy_repo_path=policy_repo_path,
         parsed_issues=parsed_issues,
@@ -14458,6 +14535,7 @@ def _parse_scalar_relation_row_issue(
 
 def _repair_scalar_relation_rows(
     *,
+    rules_file: Path | None = None,
     test_file: Path,
     policy_repo_path: Path,
     parsed_issues: list[tuple[str, str, int]],
@@ -14501,6 +14579,12 @@ def _repair_scalar_relation_rows(
                     policy_repo_path=policy_repo_path,
                 )
                 if replacement is None:
+                    replacement = _relation_row_replacement_from_generated_rules(
+                        relation_key,
+                        scalar_value,
+                        rules_file=rules_file,
+                    )
+                if replacement is None:
                     continue
                 rows[list_index] = replacement
                 repaired.append(f"{case_name}:{relation_key}[{row_index}]")
@@ -14536,6 +14620,78 @@ def _relation_row_replacement_from_companion_tests(
         if changed:
             return template
     return None
+
+
+def _relation_row_replacement_from_generated_rules(
+    relation_ref: str,
+    scalar_value: object,
+    *,
+    rules_file: Path | None,
+) -> dict[str, object] | None:
+    """Infer a relation row mapping when a generated formula uses one child fact.
+
+    Companion tests are preferred because they preserve established row shape.
+    New generated files can define a relation and immediately test it before any
+    companion exists; in that case a scalar row like `- 30000` is unambiguous
+    only when the formulas reference exactly one child fact through
+    `relation_name.child_fact`.
+    """
+    if rules_file is None or not rules_file.exists():
+        return None
+    relation_name = _relation_name_from_relation_ref(relation_ref)
+    if not relation_name:
+        return None
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return None
+    child_names = _single_relation_child_fact_names(payload, relation_name)
+    if len(child_names) != 1:
+        return None
+    relation_base = relation_ref.split("#", 1)[0].strip()
+    child_ref = f"{relation_base}#input.{next(iter(child_names))}"
+    return {child_ref: copy.deepcopy(scalar_value)}
+
+
+def _relation_name_from_relation_ref(relation_ref: str) -> str:
+    fragment = relation_ref.split("#", 1)[1] if "#" in relation_ref else relation_ref
+    fragment = fragment.strip()
+    if fragment.startswith("relation."):
+        return fragment.removeprefix("relation.").strip()
+    return ""
+
+
+def _single_relation_child_fact_names(
+    payload: object,
+    relation_name: str,
+) -> set[str]:
+    if not isinstance(payload, dict) or not relation_name:
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    escaped_relation = re.escape(relation_name)
+    child_pattern = re.compile(
+        rf"(?<![A-Za-z0-9_]){escaped_relation}\."
+        r"(?P<child>[A-Za-z_][A-Za-z0-9_]*)\b"
+    )
+    child_names: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            child_names.update(
+                match.group("child") for match in child_pattern.finditer(formula)
+            )
+    return child_names
 
 
 def _relation_row_matches_scalar_value(
