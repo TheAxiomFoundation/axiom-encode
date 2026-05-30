@@ -5215,6 +5215,7 @@ rules:
   input:
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#input.household_shelter_costs_incurred: 500
     us:regulations/7-cfr/273/10#input.snap_countable_earned_income: 1000
+    us:regulations/7-cfr/273/10#input.snap_countable_unearned_income: 0
     us-ny:regulations/18-nycrr/387/14/a/1#input.initial_application_month: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
@@ -5257,6 +5258,15 @@ rules:
             "us:statutes/7/2014/e/2#input.snap_countable_earned_income: 1000"
             in repaired
         )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: 1000"
+            in repaired
+        )
+        assert (
+            "us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: 0"
+            in repaired
+        )
+        assert "us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0" in repaired
         assert (
             "us:regulations/7-cfr/273/10#input.snap_countable_earned_income"
             not in repaired

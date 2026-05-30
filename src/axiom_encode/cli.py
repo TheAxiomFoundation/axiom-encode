@@ -5587,6 +5587,7 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
             r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
             r"#input.snap_countable_earned_income: \2\n"
             r"\1us:statutes/7/2014/e/2#input.snap_countable_earned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_gross_monthly_earned_income: \2\n"
         ),
         repaired,
         flags=re.MULTILINE,
@@ -5596,6 +5597,8 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
         (
             r"\1us-ny:policies/otda/snap/fy-2026-benefit-calculation"
             r"#input.snap_countable_unearned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_total_monthly_unearned_income: \2\n"
+            r"\1us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0\n"
         ),
         repaired,
         flags=re.MULTILINE,
