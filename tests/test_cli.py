@@ -5288,6 +5288,8 @@ rules:
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_snap_work_requirements: false
   output:
+    us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment: 298
+    us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance: 1062
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#shelter_costs: 1562
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 744
 """
@@ -5322,6 +5324,11 @@ rules:
         assert (
             "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
             "#snap_initial_month_allotment_after_minimum_issuance: 0" in repaired
+        )
+        assert "us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment" not in repaired
+        assert (
+            "us-ny:regulations/18-nycrr/387/12/f/3/v/a"
+            "#snap_standard_utility_allowance" not in repaired
         )
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):
