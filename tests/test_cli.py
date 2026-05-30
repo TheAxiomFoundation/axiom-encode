@@ -5186,6 +5186,57 @@ rules:
             in repaired
         )
 
+    def test_repair_new_york_snap_categorical_eligibility_keeps_unrelated_deferred_outputs(
+        self,
+    ):
+        rules = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ny/regulation/18-nycrr/387/14/a/5
+  deferred_outputs:
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible
+      reason: Missing work requirement dependency.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#still_deferred_output
+      reason: Still requires encoder follow-up.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption
+      reason: Missing final categorical eligibility.
+    - output: us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household
+      reason: Missing final categorical eligibility.
+  summary: New York SNAP categorical eligibility.
+rules:
+  - name: ny_snap_residual_130_percent_categorical_path_satisfied
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: existing_path
+"""
+
+        repaired = _repair_new_york_snap_categorical_eligibility_rules(rules)
+
+        assert "  deferred_outputs:\n" in repaired
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#still_deferred_output"
+            in repaired
+        )
+        assert "reason: Still requires encoder follow-up." in repaired
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible"
+            not in repaired
+        )
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption"
+            not in repaired
+        )
+        assert (
+            "output: us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household"
+            not in repaired
+        )
+
     def test_repair_new_york_snap_categorical_eligibility_tests_cover_blockers(self):
         repaired = _repair_new_york_snap_categorical_eligibility_tests(
             "- name: existing\n  output: {}\n"
@@ -5206,6 +5257,26 @@ rules:
             "us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption: not_holds"
             in repaired
         )
+
+    def test_repair_new_york_snap_categorical_eligibility_tests_noop_for_current_surface(
+        self,
+    ):
+        current_rules = """format: rulespec/v1
+rules:
+  - name: ny_snap_categorically_eligible
+    kind: derived
+  - name: snap_categorically_eligible_for_resource_exemption
+    kind: derived
+  - name: snap_income_eligible
+    kind: derived
+"""
+        original_tests = "- name: existing\n  output: {}\n"
+
+        repaired = _repair_new_york_snap_categorical_eligibility_tests(
+            original_tests, rules_content=current_rules
+        )
+
+        assert repaired == original_tests
 
     def test_repair_colorado_snap_program_tests_covers_bridge_outputs(self, tmp_path):
         test_file = tmp_path / "fy-2026-benefit-calculation.test.yaml"

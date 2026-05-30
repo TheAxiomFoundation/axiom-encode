@@ -5414,30 +5414,99 @@ NY_SNAP_CATEGORICAL_FINAL_TESTS = """
     us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household: not_holds
 """
 
+NY_SNAP_CATEGORICAL_REPAIRED_OUTPUTS = (
+    "us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible",
+    "us-ny:regulations/18-nycrr/387/14/a/5#snap_categorically_eligible_for_resource_exemption",
+    "us-ny:regulations/18-nycrr/387/14/a/5#snap_income_limit_exemption_for_categorically_eligible_household",
+)
+
+
+def _remove_new_york_snap_categorical_deferred_outputs(content: str) -> str:
+    lines = content.splitlines(keepends=True)
+    deferred_start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.match(r"^  deferred_outputs:\s*(?:#.*)?$", line)
+        ),
+        None,
+    )
+    if deferred_start is None:
+        return content
+
+    deferred_end = len(lines)
+    for index in range(deferred_start + 1, len(lines)):
+        line = lines[index]
+        if re.match(r"^  [A-Za-z_][^:]*:\s*", line):
+            deferred_end = index
+            break
+        if line and not line.startswith((" ", "\n", "\r")):
+            deferred_end = index
+            break
+
+    entries: list[list[str]] = []
+    prefix_lines: list[str] = []
+    index = deferred_start + 1
+    while index < deferred_end:
+        if re.match(r"^    -\s+", lines[index]):
+            entry_start = index
+            index += 1
+            while index < deferred_end and not re.match(r"^    -\s+", lines[index]):
+                index += 1
+            entries.append(lines[entry_start:index])
+        else:
+            prefix_lines.append(lines[index])
+            index += 1
+
+    kept_entries: list[list[str]] = []
+    removed_any = False
+    for entry in entries:
+        entry_text = "".join(entry)
+        output_match = re.search(r"(?m)^\s*(?:-\s*)?output:\s*([^\s]+)", entry_text)
+        output = output_match.group(1) if output_match else ""
+        if output in NY_SNAP_CATEGORICAL_REPAIRED_OUTPUTS:
+            removed_any = True
+        else:
+            kept_entries.append(entry)
+
+    if not removed_any:
+        return content
+
+    replacement: list[str] = []
+    if kept_entries:
+        replacement.append(lines[deferred_start])
+        replacement.extend(prefix_lines)
+        for entry in kept_entries:
+            replacement.extend(entry)
+
+    return "".join(lines[:deferred_start] + replacement + lines[deferred_end:])
+
+
+def _new_york_snap_categorical_test_surface_available(rules_content: str) -> bool:
+    return all(
+        f"#{output.rsplit('#', 1)[1]}" in rules_content
+        or f"name: {output.rsplit('#', 1)[1]}" in rules_content
+        for output in NY_SNAP_CATEGORICAL_REPAIRED_OUTPUTS
+    )
+
 
 def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
-    repaired = content
-    deferred_start = repaired.find("  deferred_outputs:\n")
-    if deferred_start != -1 and all(
-        output in repaired[deferred_start:]
-        for output in (
-            "#ny_snap_categorically_eligible",
-            "#snap_categorically_eligible_for_resource_exemption",
-            "#snap_income_limit_exemption_for_categorically_eligible_household",
-        )
-    ):
-        deferred_end = repaired.find("\n  summary:", deferred_start)
-        if deferred_end != -1:
-            repaired = repaired[:deferred_start] + repaired[deferred_end + 1 :]
+    repaired = _remove_new_york_snap_categorical_deferred_outputs(content)
     if "  - name: ny_snap_categorically_eligible\n" not in repaired:
         repaired = repaired.rstrip() + NY_SNAP_CATEGORICAL_FINAL_RULES + "\n"
     return repaired
 
 
-def _repair_new_york_snap_categorical_eligibility_tests(content: str) -> str:
+def _repair_new_york_snap_categorical_eligibility_tests(
+    content: str, *, rules_content: str | None = None
+) -> str:
     if (
         "all_members_public_assistance_path_makes_household_categorically_eligible"
         in content
+    ):
+        return content
+    if rules_content is not None and not (
+        _new_york_snap_categorical_test_surface_available(rules_content)
     ):
         return content
     return content.rstrip() + NY_SNAP_CATEGORICAL_FINAL_TESTS + "\n"
@@ -5469,7 +5538,7 @@ def cmd_repair_new_york_snap_categorical_eligibility(args):
         original_content
     )
     repaired_test_content = _repair_new_york_snap_categorical_eligibility_tests(
-        original_test_content
+        original_test_content, rules_content=repaired_content
     )
     if (
         repaired_content == original_content
