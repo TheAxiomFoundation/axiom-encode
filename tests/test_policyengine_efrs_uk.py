@@ -1,4 +1,5 @@
 import argparse
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_child_benefit_request,
     build_pension_credit_request,
     build_personal_allowance_request,
+    build_uk_efrs_coverage_report,
     build_universal_credit_request,
     compare_outputs,
     compare_uk_efrs,
@@ -33,6 +35,14 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
 
 def decimal_output(value):
     return {"value": {"value": str(value)}}
+
+
+class FakePolicyEngineVariable:
+    def __init__(self, name, entity, *, adds=None, subtracts=None):
+        self.name = name
+        self.entity = entity
+        self.adds = adds
+        self.subtracts = subtracts
 
 
 def test_personal_allowance_projection_matches_policyengine_gift_aid_taper():
@@ -402,6 +412,138 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     )
 
 
+def test_uk_efrs_coverage_report_counts_computed_pe_backlog(tmp_path):
+    source_root = tmp_path / "variables"
+    gov_root = source_root / "gov" / "hmrc"
+    input_root = source_root / "input"
+    gov_root.mkdir(parents=True)
+    input_root.mkdir(parents=True)
+    (gov_root / "income_tax.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+class income_tax(Variable):
+    entity = Person
+    def formula(person, period, parameters):
+        return person("taxable_income", period)
+
+class personal_allowance(Variable):
+    entity = Person
+    def formula(person, period, parameters):
+        return 12570
+""".strip()
+    )
+    (input_root / "employment_income.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+class employment_income(Variable):
+    entity = Person
+    adds = ["employment_income_before_lsr"]
+
+class age(Variable):
+    entity = Person
+""".strip()
+    )
+
+    report = build_uk_efrs_coverage_report(
+        policyengine_variables=[
+            FakePolicyEngineVariable("income_tax", "person"),
+            FakePolicyEngineVariable("personal_allowance", "person"),
+            FakePolicyEngineVariable(
+                "employment_income",
+                "person",
+                adds=["employment_income_before_lsr"],
+            ),
+            FakePolicyEngineVariable("age", "person"),
+        ],
+        source_root=source_root,
+    )
+
+    assert report.variables_total == 4
+    assert report.computed_variables_total == 3
+    assert report.computed_variables_by_entity == {"person": 3}
+    assert report.computed_variables_by_domain == {"gov": 2, "input": 1}
+    assert report.computed_covered_variables == ["personal_allowance"]
+    assert report.missing_variables_total == 2
+    assert [variable.name for variable in report.missing_variables] == [
+        "income_tax",
+        "employment_income",
+    ]
+
+
+def test_uk_efrs_coverage_report_filters_domain_and_entity(tmp_path):
+    source_root = tmp_path / "variables"
+    (source_root / "gov").mkdir(parents=True)
+    (source_root / "household").mkdir(parents=True)
+    (source_root / "gov" / "tax.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+class income_tax(Variable):
+    entity = Person
+    def formula(person, period, parameters):
+        return 1
+
+class universal_credit(Variable):
+    entity = BenUnit
+    def formula(benunit, period, parameters):
+        return 1
+""".strip()
+    )
+    (source_root / "household" / "net_income.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+class hbai_household_net_income(Variable):
+    entity = Household
+    def formula(household, period, parameters):
+        return 1
+""".strip()
+    )
+
+    report = build_uk_efrs_coverage_report(
+        policyengine_variables=[
+            FakePolicyEngineVariable("income_tax", "person"),
+            FakePolicyEngineVariable("universal_credit", "benunit"),
+            FakePolicyEngineVariable("hbai_household_net_income", "household"),
+        ],
+        source_root=source_root,
+        domain_filter="gov",
+        entity_filter="benunit",
+    )
+
+    assert report.variables_total == 1
+    assert report.computed_variables_total == 1
+    assert report.missing_variables_total == 1
+    assert report.missing_variables[0].name == "universal_credit"
+
+
+def test_uk_efrs_coverage_report_serializes_json(tmp_path):
+    source_root = tmp_path / "variables" / "gov"
+    source_root.mkdir(parents=True)
+    (source_root / "income_tax.py").write_text(
+        """
+from policyengine_uk.model_api import *
+
+class income_tax(Variable):
+    entity = Person
+    def formula(person, period, parameters):
+        return 1
+""".strip()
+    )
+
+    report = build_uk_efrs_coverage_report(
+        policyengine_variables=[FakePolicyEngineVariable("income_tax", "person")],
+        source_root=source_root.parent,
+    )
+
+    payload = report.to_json()
+    assert payload["missing_variables_total"] == 1
+    assert payload["missing_variables"][0]["name"] == "income_tax"
+    assert "personal_allowance" in payload["covered_output_variables"]
+
+
 def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
     def fake_version(package):
         versions = {
@@ -429,6 +571,16 @@ def test_policyengine_uk_version_guard_allows_pinned_versions(monkeypatch):
     monkeypatch.setattr(efrs_uk, "version", fake_version)
 
     require_policyengine_uk_versions()
+
+
+def test_policyengine_uk_version_guard_names_coverage_command(monkeypatch):
+    def fake_version(package):
+        raise PackageNotFoundError(package)
+
+    monkeypatch.setattr(efrs_uk, "version", fake_version)
+
+    with pytest.raises(SystemExit, match="axiom-encode uk-efrs-coverage"):
+        require_policyengine_uk_versions(command="uk-efrs-coverage")
 
 
 def test_compare_outputs_reports_personal_allowance_mismatch():

@@ -320,6 +320,16 @@ class TestMain:
                 main()
                 mock_cmd.assert_called_once()
 
+    def test_uk_efrs_coverage_command_dispatches(self):
+        with patch("sys.argv", ["axiom_encode", "uk-efrs-coverage"]):
+            with patch(
+                "axiom_encode.cli.run_uk_efrs_coverage", return_value=0
+            ) as mock_cmd:
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                assert exc_info.value.code == 0
+                mock_cmd.assert_called_once()
+
     def test_calibration_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "calibration"]):
             with patch("axiom_encode.cli.cmd_calibration") as mock_cmd:

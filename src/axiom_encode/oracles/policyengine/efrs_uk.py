@@ -9,9 +9,11 @@ PolicyEngine component outputs.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import math
 import sys
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -274,6 +276,121 @@ SURFACE_SPECS = {
 
 SKIPPED_SURFACES: list[dict[str, str]] = []
 
+ENTITY_WEIGHT_COLUMNS = {
+    "person": "person_weight",
+    "benunit": "benunit_weight",
+    "household": "household_weight",
+}
+
+ENTITY_ID_COLUMNS = {
+    "person": "person_id",
+    "benunit": "benunit_id",
+    "household": "household_id",
+}
+
+
+@dataclass(frozen=True)
+class UKEFRSVariableSource:
+    name: str
+    entity: str
+    domain: str
+    path: str
+    has_formula: bool
+    has_aggregate: bool
+
+    @property
+    def computation_kind(self) -> str:
+        if self.has_formula and self.has_aggregate:
+            return "formula+aggregate"
+        if self.has_formula:
+            return "formula"
+        if self.has_aggregate:
+            return "aggregate"
+        return "input"
+
+
+@dataclass(frozen=True)
+class UKEFRSVariableMetadata:
+    name: str
+    entity: str
+    domain: str
+    path: str
+    computed: bool
+    computation_kind: str
+    covered_output: bool
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "entity": self.entity,
+            "domain": self.domain,
+            "path": self.path,
+            "computed": self.computed,
+            "computation_kind": self.computation_kind,
+            "covered_output": self.covered_output,
+        }
+
+
+@dataclass(frozen=True)
+class UKEFRSVariableActivity:
+    name: str
+    entity: str
+    nonzero_count: int
+    finite_count: int
+    nonfinite_count: int
+    weighted_abs_total: float
+    max_abs_value: float
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "entity": self.entity,
+            "nonzero_count": self.nonzero_count,
+            "finite_count": self.finite_count,
+            "nonfinite_count": self.nonfinite_count,
+            "weighted_abs_total": self.weighted_abs_total,
+            "max_abs_value": self.max_abs_value,
+        }
+
+
+@dataclass(frozen=True)
+class UKEFRSCoverageReport:
+    policyengine_versions: dict[str, str]
+    source_root: str | None
+    domain_filter: str | None
+    entity_filter: str | None
+    variables_total: int
+    computed_variables_total: int
+    computed_variables_by_entity: dict[str, int]
+    computed_variables_by_domain: dict[str, int]
+    covered_output_variables: list[str]
+    projection_support_variables: list[str]
+    computed_covered_variables: list[str]
+    missing_variables_total: int
+    missing_variables: list[UKEFRSVariableMetadata]
+    activity: list[UKEFRSVariableActivity]
+    activity_errors: list[dict[str, str]]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "policyengine_versions": self.policyengine_versions,
+            "source_root": self.source_root,
+            "domain_filter": self.domain_filter,
+            "entity_filter": self.entity_filter,
+            "variables_total": self.variables_total,
+            "computed_variables_total": self.computed_variables_total,
+            "computed_variables_by_entity": self.computed_variables_by_entity,
+            "computed_variables_by_domain": self.computed_variables_by_domain,
+            "covered_output_variables": self.covered_output_variables,
+            "projection_support_variables": self.projection_support_variables,
+            "computed_covered_count": len(self.computed_covered_variables),
+            "computed_covered_variables": self.computed_covered_variables,
+            "missing_variables_total": self.missing_variables_total,
+            "missing_variables": [item.to_json() for item in self.missing_variables],
+            "activity": [item.to_json() for item in self.activity],
+            "activity_errors": self.activity_errors,
+        }
+
 
 @dataclass(frozen=True)
 class UKEFRSComparisonRow:
@@ -425,6 +542,69 @@ def main(args: argparse.Namespace) -> int:
         )
     if args.fail_on_mismatch and report.mismatches:
         return 1
+    return 0
+
+
+def configure_coverage_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--year", type=int, default=2026)
+    parser.add_argument(
+        "--domain",
+        default=None,
+        help=(
+            "Restrict computed-variable backlog to a PolicyEngine source domain "
+            "such as gov, household, input, contrib, or misc"
+        ),
+    )
+    parser.add_argument(
+        "--entity",
+        choices=sorted(ENTITY_WEIGHT_COLUMNS),
+        default=None,
+        help="Restrict computed-variable backlog to one PolicyEngine entity",
+    )
+    parser.add_argument(
+        "--dataset",
+        default=DEFAULT_DATASET,
+        help=(
+            "PolicyEngine UK dataset logical name, HuggingFace URI, or local .h5 "
+            "path for --with-efrs-activity"
+        ),
+    )
+    parser.add_argument(
+        "--data-folder",
+        type=Path,
+        default=Path(".axiom") / "policyengine-data",
+        help="PolicyEngine dataset cache folder",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=40,
+        help="Maximum missing variables to print in text mode",
+    )
+    parser.add_argument(
+        "--with-efrs-activity",
+        action="store_true",
+        help=(
+            "Run PolicyEngine over EFRS for missing variables and rank by "
+            "observed activity"
+        ),
+    )
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+
+def main_coverage(args: argparse.Namespace) -> int:
+    report = build_uk_efrs_coverage_report(
+        year=args.year,
+        dataset=args.dataset,
+        data_folder=args.data_folder,
+        domain_filter=args.domain,
+        entity_filter=args.entity,
+        include_efrs_activity=args.with_efrs_activity,
+    )
+    if args.json:
+        print(json.dumps(report.to_json(), indent=2, sort_keys=True))
+    else:
+        print_uk_efrs_coverage_report(report, top=args.top)
     return 0
 
 
@@ -717,6 +897,497 @@ def policyengine_variables_for_surfaces(
         if spec.entity == entity:
             variables.update(spec.pe_variables)
     return tuple(sorted(variables))
+
+
+def build_uk_efrs_coverage_report(
+    *,
+    year: int = 2026,
+    dataset: str = DEFAULT_DATASET,
+    data_folder: Path = Path(".axiom") / "policyengine-data",
+    domain_filter: str | None = None,
+    entity_filter: str | None = None,
+    include_efrs_activity: bool = False,
+    policyengine_variables: list[Any] | None = None,
+    source_root: Path | None = None,
+) -> UKEFRSCoverageReport:
+    versions = policyengine_uk_versions()
+    variables = discover_policyengine_uk_variables(
+        policyengine_variables=policyengine_variables,
+        source_root=source_root,
+    )
+    scoped_variables = [
+        variable
+        for variable in variables
+        if (domain_filter is None or variable.domain == domain_filter)
+        and (entity_filter is None or variable.entity == entity_filter)
+    ]
+    computed_variables = [
+        variable for variable in scoped_variables if variable.computed
+    ]
+    covered_outputs = covered_uk_policyengine_output_variables()
+    support_variables = uk_policyengine_projection_support_variables()
+    computed_covered = sorted(
+        variable.name
+        for variable in computed_variables
+        if variable.name in set(covered_outputs)
+    )
+    missing_variables = [
+        variable
+        for variable in computed_variables
+        if variable.name not in set(covered_outputs)
+    ]
+    activity: list[UKEFRSVariableActivity] = []
+    activity_errors: list[dict[str, str]] = []
+    if include_efrs_activity and missing_variables:
+        activity, activity_errors = policyengine_uk_efrs_activity(
+            missing_variables,
+            year=year,
+            dataset=dataset,
+            data_folder=data_folder,
+        )
+
+    source_root_label = None
+    if source_root is not None:
+        source_root_label = str(source_root.resolve())
+    else:
+        resolved_source_root = policyengine_uk_variables_source_root(required=False)
+        if resolved_source_root is not None:
+            source_root_label = str(resolved_source_root)
+
+    return UKEFRSCoverageReport(
+        policyengine_versions=versions,
+        source_root=source_root_label,
+        domain_filter=domain_filter,
+        entity_filter=entity_filter,
+        variables_total=len(scoped_variables),
+        computed_variables_total=len(computed_variables),
+        computed_variables_by_entity=dict(
+            sorted(Counter(variable.entity for variable in computed_variables).items())
+        ),
+        computed_variables_by_domain=dict(
+            sorted(Counter(variable.domain for variable in computed_variables).items())
+        ),
+        covered_output_variables=covered_outputs,
+        projection_support_variables=support_variables,
+        computed_covered_variables=computed_covered,
+        missing_variables_total=len(missing_variables),
+        missing_variables=sorted(
+            missing_variables,
+            key=lambda variable: (
+                variable.domain,
+                variable.entity,
+                variable.path,
+                variable.name,
+            ),
+        ),
+        activity=sorted(
+            activity,
+            key=lambda item: (
+                item.nonzero_count > 0,
+                item.weighted_abs_total,
+                item.nonzero_count,
+            ),
+            reverse=True,
+        ),
+        activity_errors=activity_errors,
+    )
+
+
+def discover_policyengine_uk_variables(
+    *,
+    policyengine_variables: list[Any] | None = None,
+    source_root: Path | None = None,
+) -> list[UKEFRSVariableMetadata]:
+    raw_variables = (
+        policyengine_variables
+        if policyengine_variables is not None
+        else load_policyengine_uk_variables()
+    )
+    resolved_source_root = source_root or policyengine_uk_variables_source_root()
+    source_index = parse_policyengine_uk_variable_sources(resolved_source_root)
+    covered_outputs = set(covered_uk_policyengine_output_variables())
+    metadata: list[UKEFRSVariableMetadata] = []
+    for raw_variable in raw_variables:
+        name = str(variable_attribute(raw_variable, "name"))
+        source = source_index.get(name)
+        entity = normalize_policyengine_entity(
+            variable_attribute(raw_variable, "entity", source.entity if source else "")
+        )
+        has_aggregate = bool(variable_attribute(raw_variable, "adds", None)) or bool(
+            variable_attribute(raw_variable, "subtracts", None)
+        )
+        if source is not None:
+            has_aggregate = has_aggregate or source.has_aggregate
+            has_formula = source.has_formula
+            domain = source.domain
+            path = source.path
+            computation_kind = source.computation_kind
+        else:
+            has_formula = False
+            domain = "unknown"
+            path = ""
+            computation_kind = "aggregate" if has_aggregate else "input"
+        computed = has_formula or has_aggregate
+        metadata.append(
+            UKEFRSVariableMetadata(
+                name=name,
+                entity=entity,
+                domain=domain,
+                path=path,
+                computed=computed,
+                computation_kind=computation_kind if computed else "input",
+                covered_output=name in covered_outputs,
+            )
+        )
+    return sorted(metadata, key=lambda variable: variable.name)
+
+
+def load_policyengine_uk_variables() -> list[Any]:
+    require_policyengine_uk_versions(command="uk-efrs-coverage")
+    try:
+        from policyengine.tax_benefit_models.uk import uk_latest
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
+    return list(uk_latest.variables)
+
+
+def parse_policyengine_uk_variable_sources(
+    source_root: Path,
+) -> dict[str, UKEFRSVariableSource]:
+    sources: dict[str, UKEFRSVariableSource] = {}
+    for source_file in sorted(source_root.rglob("*.py")):
+        if source_file.name == "__init__.py":
+            continue
+        relative_path = source_file.relative_to(source_root)
+        domain = relative_path.parts[0] if relative_path.parts else "unknown"
+        try:
+            tree = ast.parse(source_file.read_text())
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if not class_extends_variable(node):
+                continue
+            entity = ""
+            has_aggregate = False
+            has_formula = any(
+                isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and item.name.startswith("formula")
+                for item in node.body
+            )
+            for item in node.body:
+                targets: list[ast.expr] = []
+                value: ast.expr | None = None
+                if isinstance(item, ast.Assign):
+                    targets = list(item.targets)
+                    value = item.value
+                elif isinstance(item, ast.AnnAssign):
+                    targets = [item.target]
+                    value = item.value
+                for target in targets:
+                    if not isinstance(target, ast.Name):
+                        continue
+                    if target.id == "entity" and value is not None:
+                        entity = normalize_policyengine_entity(ast_value_name(value))
+                    if target.id in {"adds", "subtracts"}:
+                        has_aggregate = True
+            sources[node.name] = UKEFRSVariableSource(
+                name=node.name,
+                entity=entity,
+                domain=domain,
+                path=relative_path.as_posix(),
+                has_formula=has_formula,
+                has_aggregate=has_aggregate,
+            )
+    return sources
+
+
+def class_extends_variable(node: ast.ClassDef) -> bool:
+    return any(ast_value_name(base) == "Variable" for base in node.bases)
+
+
+def ast_value_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Constant):
+        return str(node.value)
+    if isinstance(node, ast.Subscript):
+        return ast_value_name(node.value)
+    return ""
+
+
+def variable_attribute(raw_variable: Any, name: str, default: Any = None) -> Any:
+    if isinstance(raw_variable, dict):
+        return raw_variable.get(name, default)
+    return getattr(raw_variable, name, default)
+
+
+def normalize_policyengine_entity(value: Any) -> str:
+    text = str(value or "").strip()
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+    normalized = {
+        "Person": "person",
+        "BenUnit": "benunit",
+        "BenefitUnit": "benunit",
+        "Household": "household",
+    }.get(text, text)
+    return normalized.lower()
+
+
+def covered_uk_policyengine_output_variables() -> list[str]:
+    return sorted(
+        {
+            str(output["pe"])
+            for spec in SURFACE_SPECS.values()
+            for output in spec.outputs.values()
+        }
+    )
+
+
+def uk_policyengine_projection_support_variables() -> list[str]:
+    covered_outputs = set(covered_uk_policyengine_output_variables())
+    return sorted(
+        {
+            variable
+            for spec in SURFACE_SPECS.values()
+            for variable in spec.pe_variables
+            if variable not in covered_outputs
+        }
+    )
+
+
+def policyengine_uk_variables_source_root(*, required: bool = True) -> Path | None:
+    try:
+        import policyengine_uk
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        if required:
+            raise SystemExit(
+                policyengine_uk_install_message("uk-efrs-coverage")
+            ) from exc
+        return None
+    source_root = Path(policyengine_uk.__file__).resolve().parent / "variables"
+    if not source_root.exists():
+        if required:
+            raise SystemExit(
+                f"PolicyEngine UK variable source root not found: {source_root}"
+            )
+        return None
+    return source_root
+
+
+def policyengine_uk_versions() -> dict[str, str]:
+    try:
+        return {
+            "policyengine": version("policyengine"),
+            "policyengine-core": version("policyengine-core"),
+            "policyengine-uk": version("policyengine-uk"),
+        }
+    except PackageNotFoundError:
+        return {
+            "policyengine": "not installed",
+            "policyengine-core": "not installed",
+            "policyengine-uk": "not installed",
+        }
+
+
+def policyengine_uk_efrs_activity(
+    variables: list[UKEFRSVariableMetadata],
+    *,
+    year: int,
+    dataset: str,
+    data_folder: Path,
+) -> tuple[list[UKEFRSVariableActivity], list[dict[str, str]]]:
+    require_policyengine_uk_versions(command="uk-efrs-coverage")
+    try:
+        import numpy as np
+        import pandas as pd
+        from policyengine.core import Simulation
+        from policyengine.provenance.manifest import dataset_logical_name
+        from policyengine.tax_benefit_models.uk import ensure_datasets, uk_latest
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
+
+    log("Loading PolicyEngine UK EFRS...")
+    local_dataset = local_policyengine_uk_dataset(dataset=dataset, year=year)
+    if local_dataset is not None:
+        pe_dataset = local_dataset
+    else:
+        resolved_dataset = resolve_policyengine_uk_dataset_reference(dataset)
+        datasets = ensure_datasets(
+            datasets=[resolved_dataset],
+            years=[year],
+            data_folder=str(data_folder),
+        )
+        pe_dataset = datasets[f"{dataset_logical_name(resolved_dataset)}_{year}"]
+
+    extra_variables: dict[str, list[str]] = defaultdict(list)
+    variables_by_name = {variable.name: variable for variable in variables}
+    for variable in variables:
+        if variable.entity in ENTITY_WEIGHT_COLUMNS:
+            extra_variables[variable.entity].append(variable.name)
+
+    log("Running PolicyEngine UK outputs for coverage activity...")
+    sim = Simulation(
+        dataset=pe_dataset,
+        tax_benefit_model_version=uk_latest,
+        extra_variables=dict(extra_variables),
+    )
+    sim.run()
+
+    activity: list[UKEFRSVariableActivity] = []
+    errors: list[dict[str, str]] = []
+    for entity, names in sorted(extra_variables.items()):
+        output_table = getattr(sim.output_dataset.data, entity)
+        raw_table = getattr(pe_dataset.data, entity)
+        weight_column = ENTITY_WEIGHT_COLUMNS[entity]
+        id_column = ENTITY_ID_COLUMNS[entity]
+        if weight_column not in raw_table.columns:
+            errors.append(
+                {
+                    "entity": entity,
+                    "variable": "*",
+                    "error": f"missing weight column {weight_column}",
+                }
+            )
+            continue
+        if id_column not in raw_table.columns or id_column not in output_table.columns:
+            errors.append(
+                {
+                    "entity": entity,
+                    "variable": "*",
+                    "error": f"missing id column {id_column}",
+                }
+            )
+            continue
+        raw_weights = raw_table[[id_column, weight_column]].copy()
+        output_ids = output_table[[id_column]].copy()
+        aligned_weights = output_ids.merge(
+            raw_weights,
+            on=id_column,
+            how="left",
+            validate="one_to_one",
+        )
+        weights = pd.Series(
+            pd.to_numeric(aligned_weights[weight_column], errors="coerce")
+        )
+        weight_values = weights.to_numpy(dtype=float, na_value=np.nan)
+        weight_values = np.where(np.isfinite(weight_values), weight_values, 0.0)
+        for name in sorted(names):
+            if name not in output_table.columns:
+                errors.append(
+                    {
+                        "entity": entity,
+                        "variable": name,
+                        "error": "missing PolicyEngine output column",
+                    }
+                )
+                continue
+            raw_values = pd.Series(pd.to_numeric(output_table[name], errors="coerce"))
+            values = raw_values.to_numpy(dtype=float, na_value=np.nan)
+            finite = np.isfinite(values)
+            nonzero = finite & (np.abs(values) > 1e-9)
+            weighted_abs_total = float(
+                np.sum(np.abs(values[finite]) * weight_values[finite])
+            )
+            max_abs_value = float(np.max(np.abs(values[finite]))) if finite.any() else 0
+            variable = variables_by_name[name]
+            activity.append(
+                UKEFRSVariableActivity(
+                    name=variable.name,
+                    entity=variable.entity,
+                    nonzero_count=int(np.sum(nonzero)),
+                    finite_count=int(np.sum(finite)),
+                    nonfinite_count=int(len(values) - np.sum(finite)),
+                    weighted_abs_total=weighted_abs_total,
+                    max_abs_value=max_abs_value,
+                )
+            )
+    return activity, errors
+
+
+def print_uk_efrs_coverage_report(
+    report: UKEFRSCoverageReport,
+    *,
+    top: int,
+) -> None:
+    print("PolicyEngine UK EFRS coverage")
+    print(
+        "PolicyEngine versions: "
+        + ", ".join(
+            f"{package}=={version}"
+            for package, version in report.policyengine_versions.items()
+        )
+    )
+    if report.source_root:
+        print(f"Variable source root: {report.source_root}")
+    if report.domain_filter or report.entity_filter:
+        print(
+            "Scope: "
+            f"domain={report.domain_filter or 'all'}, "
+            f"entity={report.entity_filter or 'all'}"
+        )
+    print(f"Variables in scope: {report.variables_total:,}")
+    print(f"Computed/aggregate variables in scope: {report.computed_variables_total:,}")
+    print(
+        "Direct Axiom-covered PE outputs in scope: "
+        f"{len(report.computed_covered_variables):,}"
+    )
+    print(f"Missing computed PE outputs in scope: {report.missing_variables_total:,}")
+    print()
+    print("Computed variables by entity:")
+    for entity, count in report.computed_variables_by_entity.items():
+        print(f"  - {entity}: {count:,}")
+    print("Computed variables by source domain:")
+    for domain, count in report.computed_variables_by_domain.items():
+        print(f"  - {domain}: {count:,}")
+    print()
+    print("Currently direct-covered PE output variables:")
+    for name in report.covered_output_variables:
+        marker = "*" if name in report.computed_covered_variables else "-"
+        print(f"  {marker} {name}")
+    if report.projection_support_variables:
+        print()
+        print("PE variables used only to project current RuleSpec inputs:")
+        for name in report.projection_support_variables:
+            print(f"  - {name}")
+    if report.activity:
+        print()
+        print(f"Top missing EFRS-active PE variables (first {top:,}):")
+        activity_by_name = {item.name: item for item in report.activity}
+        missing_by_name = {item.name: item for item in report.missing_variables}
+        for activity in report.activity[:top]:
+            variable = missing_by_name.get(activity.name)
+            location = variable.path if variable else activity.entity
+            print(
+                f"  - {activity.name} ({location}): "
+                f"nonzero={activity.nonzero_count:,}, "
+                f"weighted_abs_total={activity.weighted_abs_total:.2f}, "
+                f"max_abs={activity.max_abs_value:.2f}, "
+                f"nonfinite={activity.nonfinite_count:,}"
+            )
+        inactive_count = sum(1 for item in report.activity if item.nonzero_count == 0)
+        print(f"Missing variables with zero nonzero EFRS rows: {inactive_count:,}")
+        if activity_by_name:
+            print()
+    print(f"Missing computed PE variables (first {top:,}):")
+    for variable in report.missing_variables[:top]:
+        print(
+            f"  - {variable.name} "
+            f"({variable.entity}, {variable.domain}, {variable.computation_kind}) "
+            f"{variable.path}"
+        )
+    if report.activity_errors:
+        print()
+        print("Activity errors:")
+        for error in report.activity_errors[:top]:
+            print(
+                f"  - {error.get('entity', '?')}:{error.get('variable', '?')}: "
+                f"{error.get('error', '')}"
+            )
 
 
 def select_person_indices(
@@ -1578,35 +2249,35 @@ def resolve_workspace_root(root: Path | None) -> Path:
     return cwd
 
 
-def require_policyengine_uk_versions() -> None:
+def require_policyengine_uk_versions(command: str = "uk-efrs-compare") -> None:
     try:
         policyengine_version = version("policyengine")
         policyengine_core_version = version("policyengine-core")
         policyengine_uk_version = version("policyengine-uk")
     except PackageNotFoundError as exc:
-        raise SystemExit(policyengine_uk_install_message()) from exc
+        raise SystemExit(policyengine_uk_install_message(command)) from exc
     if policyengine_version != POLICYENGINE_VERSION:
         raise SystemExit(
             f"policyengine=={POLICYENGINE_VERSION} required; found "
-            f"{policyengine_version}. {policyengine_uk_install_message()}"
+            f"{policyengine_version}. {policyengine_uk_install_message(command)}"
         )
     if policyengine_core_version != POLICYENGINE_CORE_VERSION:
         raise SystemExit(
             f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
-            f"{policyengine_core_version}. {policyengine_uk_install_message()}"
+            f"{policyengine_core_version}. {policyengine_uk_install_message(command)}"
         )
     if policyengine_uk_version != POLICYENGINE_UK_VERSION:
         raise SystemExit(
             f"policyengine-uk=={POLICYENGINE_UK_VERSION} required; found "
-            f"{policyengine_uk_version}. {policyengine_uk_install_message()}"
+            f"{policyengine_uk_version}. {policyengine_uk_install_message(command)}"
         )
 
 
-def policyengine_uk_install_message() -> str:
+def policyengine_uk_install_message(command: str = "uk-efrs-compare") -> str:
     return (
         "Run with: uv run "
         f"--with 'policyengine[uk]=={POLICYENGINE_VERSION}' "
-        "axiom-encode uk-efrs-compare"
+        f"axiom-encode {command}"
     )
 
 
