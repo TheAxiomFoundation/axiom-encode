@@ -9,6 +9,7 @@ surface under test as Axiom inputs.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -21,6 +22,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
+from axiom_encode.harness.validator_pipeline import (
+    _canonical_rulespec_compile_path,
+    _rulespec_public_item_keys,
+    _rulespec_repo_alias_parent,
+)
 
 try:
     import numpy as np
@@ -1920,7 +1928,22 @@ def run_axiom_program(
     if not binary.exists():
         raise SystemExit(f"axiom-rules-engine binary not found: {binary}")
     env = os.environ.copy()
-    env["AXIOM_RULESPEC_REPO_ROOTS"] = str(rulespec_root)
+    roots = [rulespec_root, rulespec_root.parent]
+    alias_parent = _rulespec_repo_alias_parent(rulespec_root)
+    if alias_parent is not None:
+        roots.insert(0, alias_parent)
+    existing_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
+    if existing_roots:
+        roots.extend(Path(root) for root in existing_roots.split(os.pathsep) if root)
+    deduped_roots: list[str] = []
+    seen: set[str] = set()
+    for root in roots:
+        raw = str(root)
+        if raw and raw not in seen:
+            seen.add(raw)
+            deduped_roots.append(raw)
+    env["AXIOM_RULESPEC_REPO_ROOTS"] = os.pathsep.join(deduped_roots)
+    compile_program = _canonical_rulespec_compile_path(program, rulespec_root)
     with tempfile.TemporaryDirectory(prefix="axiom-tax-ecps-") as tmpdir:
         artifact = Path(tmpdir) / f"{program.stem}.json"
         compile_result = subprocess.run(
@@ -1928,7 +1951,7 @@ def run_axiom_program(
                 str(binary),
                 "compile",
                 "--program",
-                str(program),
+                str(compile_program),
                 "--output",
                 str(artifact),
             ],
@@ -1942,9 +1965,15 @@ def run_axiom_program(
             raise SystemExit(
                 compile_result.stderr.strip() or compile_result.stdout.strip()
             )
+        artifact_payload = json.loads(artifact.read_text())
+        runtime_request, public_output_by_runtime = _runtime_axiom_request(
+            request,
+            artifact_payload=artifact_payload,
+            rulespec_root=rulespec_root,
+        )
         run_result = subprocess.run(
             [str(binary), "run-compiled", "--artifact", str(artifact)],
-            input=json.dumps(request),
+            input=json.dumps(runtime_request),
             capture_output=True,
             text=True,
             cwd=str(axiom_rules_path),
@@ -1953,7 +1982,109 @@ def run_axiom_program(
         )
         if run_result.returncode != 0:
             raise SystemExit(run_result.stderr.strip() or run_result.stdout.strip())
-        return json.loads(run_result.stdout)["results"]
+        results = json.loads(run_result.stdout)["results"]
+        _restore_public_axiom_outputs(
+            results,
+            public_output_by_runtime=public_output_by_runtime,
+        )
+        return results
+
+
+def _runtime_axiom_request(
+    request: dict[str, Any],
+    *,
+    artifact_payload: dict[str, Any],
+    rulespec_root: Path,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    runtime_by_public_output = _runtime_output_ids_by_public_name(
+        artifact_payload,
+        rulespec_root=rulespec_root,
+    )
+    runtime_request = copy.deepcopy(request)
+    for item in (runtime_request.get("dataset") or {}).get("inputs") or []:
+        if isinstance(item, dict) and isinstance(item.get("name"), str):
+            item["name"] = _runtime_rulespec_name(
+                item["name"],
+                rulespec_root=rulespec_root,
+            )
+    for item in (runtime_request.get("dataset") or {}).get("relations") or []:
+        if isinstance(item, dict) and isinstance(item.get("name"), str):
+            item["name"] = _runtime_rulespec_name(
+                item["name"],
+                rulespec_root=rulespec_root,
+            )
+
+    public_output_by_runtime: dict[str, str] = {}
+    for query in runtime_request.get("queries") or []:
+        if not isinstance(query, dict):
+            continue
+        outputs = query.get("outputs")
+        if not isinstance(outputs, list):
+            continue
+        runtime_outputs: list[Any] = []
+        for output in outputs:
+            if not isinstance(output, str):
+                runtime_outputs.append(output)
+                continue
+            runtime_output = runtime_by_public_output.get(
+                output
+            ) or _runtime_rulespec_name(
+                output,
+                rulespec_root=rulespec_root,
+            )
+            runtime_outputs.append(runtime_output)
+            public_output_by_runtime[runtime_output] = output
+        query["outputs"] = runtime_outputs
+    return runtime_request, public_output_by_runtime
+
+
+def _runtime_output_ids_by_public_name(
+    artifact_payload: dict[str, Any],
+    *,
+    rulespec_root: Path,
+) -> dict[str, str]:
+    output_by_public: dict[str, str] = {}
+    program = artifact_payload.get("program") or {}
+    for section in ("parameters", "derived"):
+        for item in program.get(section) or []:
+            if not isinstance(item, dict):
+                continue
+            runtime_id = item.get("id")
+            if not isinstance(runtime_id, str) or not runtime_id:
+                continue
+            for public_key in _rulespec_public_item_keys(
+                item,
+                policy_repo_path=rulespec_root,
+            ):
+                output_by_public[public_key] = runtime_id
+    return output_by_public
+
+
+def _runtime_rulespec_name(name: str, *, rulespec_root: Path) -> str:
+    if ":" not in name:
+        return name
+    prefix, relative = name.split(":", 1)
+    canonical_prefix = jurisdiction_prefix(rulespec_root)
+    local_prefix = rulespec_root.name.removeprefix("rulespec-")
+    if prefix == canonical_prefix and local_prefix != canonical_prefix:
+        return f"{local_prefix}:{relative}"
+    return name
+
+
+def _restore_public_axiom_outputs(
+    results: list[Any],
+    *,
+    public_output_by_runtime: dict[str, str],
+) -> None:
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        outputs = result.get("outputs")
+        if not isinstance(outputs, dict):
+            continue
+        for runtime_output, public_output in public_output_by_runtime.items():
+            if runtime_output in outputs and public_output not in outputs:
+                outputs[public_output] = outputs[runtime_output]
 
 
 def compare_outputs(
