@@ -67,6 +67,7 @@ class JurisdictionConfig:
     program_relative_path: Path
     output_id_by_label: dict[str, str]
     utility_allowance_labels: tuple[str, ...]
+    relation_id: str
     temp_prefix: str
     display_name: str
 
@@ -107,8 +108,39 @@ JURISDICTION_CONFIGS = {
             "snap_one_utility_allowance",
             "snap_individual_utility_allowance",
         ),
+        relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
         temp_prefix="co-snap-pe-ecps-",
         display_name="Colorado SNAP",
+    ),
+    "us-ca": JurisdictionConfig(
+        jurisdiction="us-ca",
+        state_code="CA",
+        repo_name="rulespec-us-ca",
+        program_relative_path=Path(
+            "policies/cdss/snap/fy-2026-benefit-calculation.yaml"
+        ),
+        output_id_by_label={
+            **COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
+            "snap_regular_month_allotment": (
+                "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_benefit"
+            ),
+            "snap_net_income": "us:regulations/7-cfr/273/10#snap_net_monthly_income",
+            "snap_eligible": (
+                "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_eligible"
+            ),
+            "snap_excess_shelter_deduction": (
+                "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction"
+            ),
+            "snap_standard_utility_allowance": (
+                "us-ca:guidance/cdss/acin-2025-i-46-25/standard-utility-allowance#snap_standard_utility_allowance"
+            ),
+        },
+        utility_allowance_labels=("snap_standard_utility_allowance",),
+        relation_id=(
+            "us-ca:policies/cdss/snap/fy-2026-benefit-calculation#relation.member_of_household"
+        ),
+        temp_prefix="ca-snap-pe-ecps-",
+        display_name="California SNAP",
     ),
     "us-ny": JurisdictionConfig(
         jurisdiction="us-ny",
@@ -137,6 +169,7 @@ JURISDICTION_CONFIGS = {
             "snap_limited_utility_allowance",
             "snap_individual_utility_allowance",
         ),
+        relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
         temp_prefix="ny-snap-pe-ecps-",
         display_name="New York SNAP",
     ),
@@ -752,6 +785,15 @@ def project_income_resource_inputs(
             "snap_countable_unearned_income": unearned_income,
             "snap_countable_financial_resources": assets,
         }
+    if config.jurisdiction == "us-ca":
+        return {
+            "snap_gross_monthly_earned_income": earned_income,
+            "snap_total_monthly_unearned_income": unearned_income,
+            "snap_countable_financial_resources": assets,
+            "snap_categorically_eligible_for_resource_exemption": bool(
+                values["meets_snap_categorical_eligibility"][idx]
+            ),
+        }
     return {
         "employee_wages_received": earned_income,
         "other_gain_or_benefit_payments": unearned_income,
@@ -770,6 +812,19 @@ def project_deduction_inputs(
     child_support_deduction: float,
     medical_deduction: float,
 ) -> dict[str, Any]:
+    if config.jurisdiction == "us-ca":
+        return {
+            "dependent_care_deduction": dependent_care_deduction,
+            "child_support_deduction": child_support_deduction,
+            "medical_deduction": medical_deduction,
+            "snap_allowable_monthly_dependent_care_expenses": (
+                dependent_care_deduction
+            ),
+            "snap_allowable_monthly_child_support_payments": child_support_deduction,
+            "snap_total_medical_expenses": medical_expenses_for_deduction(
+                medical_deduction
+            ),
+        }
     if config.jurisdiction == "us-ny":
         return {
             "dependent_care_deduction": dependent_care_deduction,
@@ -1113,6 +1168,12 @@ def project_raw_utility_inputs(
     idx: int,
     utility_region: str,
 ) -> dict[str, bool]:
+    if config.jurisdiction == "us-ca":
+        return {
+            "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": bool(
+                values["heating_cooling_expense"][idx] > 0
+            )
+        }
     if config.jurisdiction == "us-ny":
         non_phone_utility = any(
             bool(values[name][idx] > 0)
@@ -1160,6 +1221,12 @@ def project_raw_utility_inputs(
 def project_utility_allowance_type(
     config: JurisdictionConfig, utility_type: str, utility_region: str
 ) -> dict[str, bool]:
+    if config.jurisdiction == "us-ca":
+        return {
+            "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": (
+                utility_type == "SUA"
+            )
+        }
     if config.jurisdiction == "us-ny":
         inputs = new_york_utility_region_inputs(utility_region)
         if utility_type == "SUA":
@@ -1284,6 +1351,7 @@ def run_axiom_cases(
     cases: list[ProjectedCase],
     period: Period,
     output_ids: list[str],
+    relation_id: str,
     env: dict[str, str],
 ) -> list[dict[str, Any]]:
     interval = {
@@ -1315,7 +1383,7 @@ def run_axiom_cases(
             member_entity_id = f"{entity_id}-member-{member_index}"
             relations.append(
                 {
-                    "name": AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
+                    "name": relation_id,
                     "tuple": [member_entity_id, entity_id],
                     "interval": interval,
                 }
@@ -1631,6 +1699,7 @@ def main(args: argparse.Namespace | None = None) -> int:
             cases=cases,
             period=period,
             output_ids=list(config.output_id_by_label.values()),
+            relation_id=config.relation_id,
             env=env,
         )
 
