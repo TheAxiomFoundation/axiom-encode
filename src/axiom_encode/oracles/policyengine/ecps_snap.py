@@ -155,8 +155,14 @@ JURISDICTION_CONFIGS = {
         ),
         output_id_by_label={
             **COMMON_AXIOM_OUTPUT_ID_BY_LABEL,
+            "snap_gross_monthly_income": (
+                "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_gross_monthly_income"
+            ),
             "snap_eligible": (
                 "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_eligible"
+            ),
+            "snap_excess_shelter_deduction": (
+                "us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_excess_shelter_deduction"
             ),
             "snap_standard_utility_allowance": (
                 "us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance"
@@ -1096,6 +1102,7 @@ def load_policyengine_cases(
             **project_income_resource_inputs(config, values, idx),
             "household_size": int(values["snap_unit_size"][idx]),
             "household_shelter_costs_incurred": money(values["housing_cost"][idx]),
+            "us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction": 0,
             "household_lives_in_application_state": True,
             "household_in_project_area_solely_for_vacation": False,
             "household_contains_individual_participating_in_more_than_one_household_or_project_area": False,
