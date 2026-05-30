@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,8 +27,7 @@ from .ecps_tax import (
     within_tolerance,
 )
 
-DATASET = "hf://policyengine/policyengine-uk-data/enhanced_frs_2023_24.h5"
-DATASET_STEM = "enhanced_frs_2023_24"
+DEFAULT_DATASET = "enhanced_frs_2023_24"
 
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
@@ -104,10 +104,17 @@ class UKEFRSComparisonRow:
 
 
 @dataclass(frozen=True)
+class UKEFRSOracleDivergence(UKEFRSComparisonRow):
+    reason: str
+    issue_url: str
+
+
+@dataclass(frozen=True)
 class UKEFRSComparisonReport:
     compared_persons: int
     compared_values: int
     mismatches: list[UKEFRSComparisonRow]
+    oracle_divergences: list[UKEFRSOracleDivergence]
     output_summary: list[dict[str, Any]]
     skipped_surfaces: list[dict[str, str]]
     projection_notes: list[str]
@@ -118,6 +125,8 @@ class UKEFRSComparisonReport:
             "compared_values": self.compared_values,
             "mismatch_count": len(self.mismatches),
             "mismatches": [row.__dict__ for row in self.mismatches],
+            "oracle_divergence_count": len(self.oracle_divergences),
+            "oracle_divergences": [row.__dict__ for row in self.oracle_divergences],
             "output_summary": self.output_summary,
             "skipped_surfaces": self.skipped_surfaces,
             "projection_notes": self.projection_notes,
@@ -171,6 +180,15 @@ def configure_parser(parser: argparse.ArgumentParser) -> None:
         help="UK EFRS surface to compare; defaults to all implemented surfaces",
     )
     parser.add_argument(
+        "--dataset",
+        default=DEFAULT_DATASET,
+        help=(
+            "PolicyEngine UK dataset logical name, HuggingFace URI, or local .h5 "
+            "path. Defaults to enhanced_frs_2023_24 and prefers local managed "
+            "mirrors when available."
+        ),
+    )
+    parser.add_argument(
         "--data-folder",
         type=Path,
         default=Path(".axiom") / "policyengine-data",
@@ -207,6 +225,7 @@ def main(args: argparse.Namespace) -> int:
         year=args.year,
         sample_size=args.sample_size,
         surface=args.surface,
+        dataset=args.dataset,
         data_folder=args.data_folder,
         tolerance=args.tolerance,
         relative_tolerance=args.relative_tolerance,
@@ -233,6 +252,7 @@ def compare_uk_efrs(
     year: int,
     sample_size: int,
     surface: str,
+    dataset: str,
     data_folder: Path,
     tolerance: float,
     relative_tolerance: float,
@@ -246,6 +266,7 @@ def compare_uk_efrs(
     pe_data = load_policyengine_uk_data(
         year=year,
         sample_size=sample_size,
+        dataset=dataset,
         data_folder=data_folder,
         person_ids=person_ids,
         person_variables=policyengine_person_variables_for_surfaces(surfaces),
@@ -279,6 +300,7 @@ def load_policyengine_uk_data(
     *,
     year: int,
     sample_size: int,
+    dataset: str,
     data_folder: Path,
     person_ids: tuple[int, ...] = (),
     person_variables: tuple[str, ...] = SURFACE_SPECS[
@@ -287,26 +309,35 @@ def load_policyengine_uk_data(
 ) -> dict[str, Any]:
     try:
         from policyengine.core import Simulation
+        from policyengine.provenance.manifest import dataset_logical_name
         from policyengine.tax_benefit_models.uk import ensure_datasets, uk_latest
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message()) from exc
 
     log("Loading PolicyEngine UK EFRS...")
-    datasets = ensure_datasets(
-        datasets=[DATASET],
-        years=[year],
-        data_folder=str(data_folder),
-    )
-    dataset = datasets[f"{DATASET_STEM}_{year}"]
-    sim = Simulation(
+    local_dataset = local_policyengine_uk_dataset(
         dataset=dataset,
+        year=year,
+    )
+    if local_dataset is not None:
+        pe_dataset = local_dataset
+    else:
+        resolved_dataset = resolve_policyengine_uk_dataset_reference(dataset)
+        datasets = ensure_datasets(
+            datasets=[resolved_dataset],
+            years=[year],
+            data_folder=str(data_folder),
+        )
+        pe_dataset = datasets[f"{dataset_logical_name(resolved_dataset)}_{year}"]
+    sim = Simulation(
+        dataset=pe_dataset,
         tax_benefit_model_version=uk_latest,
         extra_variables={"person": list(person_variables)},
     )
     log("Running PolicyEngine UK outputs...")
     sim.run()
 
-    raw_persons = dataset.data.person[["person_id", "person_weight"]].copy()
+    raw_persons = pe_dataset.data.person[["person_id", "person_weight"]].copy()
     person_outputs = sim.output_dataset.data.person[["person_id", *person_variables]]
     merged = raw_persons.merge(
         person_outputs,
@@ -325,6 +356,112 @@ def load_policyengine_uk_data(
         "persons": selected,
         "person_ids": [int(row_value(row, "person_id")) for row in selected],
     }
+
+
+def resolve_policyengine_uk_dataset_reference(dataset: str) -> str:
+    if "://" in dataset:
+        return dataset
+    try:
+        from policyengine.provenance.manifest import resolve_dataset_reference
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+    return resolve_dataset_reference("uk", dataset)
+
+
+def local_policyengine_uk_dataset(
+    *,
+    dataset: str,
+    year: int,
+) -> Any | None:
+    local_path = local_policyengine_uk_dataset_path(dataset)
+    if local_path is None:
+        return None
+    try:
+        import pandas as pd
+        from microdf import MicroDataFrame
+        from policyengine.tax_benefit_models.uk.datasets import (
+            PolicyEngineUKDataset,
+            UKYearData,
+        )
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    with pd.HDFStore(local_path, mode="r") as store:
+        raw_person = store["person"].copy()
+        raw_benunit = store["benunit"].copy()
+        household = store["household"].copy()
+
+    person = raw_person.merge(
+        household[["household_id", "household_weight"]],
+        left_on="person_household_id",
+        right_on="household_id",
+        how="left",
+    )
+    person = person.rename(columns={"household_weight": "person_weight"}).drop(
+        columns=["household_id"]
+    )
+    benunit_household_map = person[
+        ["person_benunit_id", "person_household_id"]
+    ].drop_duplicates()
+    benunit = raw_benunit.merge(
+        benunit_household_map,
+        left_on="benunit_id",
+        right_on="person_benunit_id",
+        how="left",
+    )
+    benunit = benunit.merge(
+        household[["household_id", "household_weight"]],
+        left_on="person_household_id",
+        right_on="household_id",
+        how="left",
+    )
+    benunit = benunit.rename(columns={"household_weight": "benunit_weight"}).drop(
+        columns=[
+            "person_benunit_id",
+            "person_household_id",
+            "household_id",
+        ],
+        errors="ignore",
+    )
+
+    dataset_id = Path(local_path).stem
+    return PolicyEngineUKDataset(
+        id=f"{dataset_id}_local_{year}",
+        name=f"{dataset_id}-local-{year}",
+        description=f"Local UK Dataset for year {year} based on {dataset_id}",
+        filepath=str(Path(".axiom") / "policyengine-data" / f"{dataset_id}_{year}.h5"),
+        year=int(year),
+        data=UKYearData(
+            person=MicroDataFrame(person, weights="person_weight"),
+            benunit=MicroDataFrame(benunit, weights="benunit_weight"),
+            household=MicroDataFrame(household, weights="household_weight"),
+        ),
+    )
+
+
+def local_policyengine_uk_dataset_path(dataset: str) -> Path | None:
+    direct_path = Path(dataset).expanduser()
+    if direct_path.exists():
+        return direct_path.resolve()
+    try:
+        from policyengine.provenance.manifest import (
+            resolve_dataset_reference,
+            resolve_local_managed_dataset_source,
+        )
+    except ImportError:
+        return None
+
+    resolved_dataset = dataset
+    if "://" not in dataset:
+        try:
+            resolved_dataset = resolve_dataset_reference("uk", dataset)
+        except ValueError:
+            return None
+    local_source = resolve_local_managed_dataset_source("uk", resolved_dataset)
+    local_path = Path(local_source).expanduser()
+    if local_path.exists():
+        return local_path.resolve()
+    return None
 
 
 def policyengine_person_variables_for_surfaces(
@@ -442,12 +579,14 @@ def compare_outputs(
     relative_tolerance: float,
 ) -> UKEFRSComparisonReport:
     mismatches: list[UKEFRSComparisonRow] = []
+    oracle_divergences: list[UKEFRSOracleDivergence] = []
     summary: dict[str, dict[str, Any]] = {
         f"{surface}:{name}": {
             "surface": surface,
             "output": name,
             "compared": 0,
             "mismatches": 0,
+            "oracle_divergences": 0,
             "max_abs_diff": 0.0,
             "max_relative_diff": 0.0,
         }
@@ -484,21 +623,34 @@ def compare_outputs(
                     absolute_tolerance=tolerance,
                     relative_tolerance=relative_tolerance,
                 ):
-                    summary[summary_key]["mismatches"] += 1
-                    mismatches.append(
-                        UKEFRSComparisonRow(
-                            surface=surface,
-                            entity_id=entity_id,
-                            output=name,
-                            axiom=axiom_value,
-                            policyengine=pe_value,
-                            diff=diff,
-                        )
+                    divergence = known_policyengine_divergence(
+                        surface=surface,
+                        output=name,
+                        entity_id=entity_id,
+                        axiom_value=axiom_value,
+                        policyengine_value=pe_value,
+                        diff=diff,
                     )
+                    if divergence is not None:
+                        summary[summary_key]["oracle_divergences"] += 1
+                        oracle_divergences.append(divergence)
+                    else:
+                        summary[summary_key]["mismatches"] += 1
+                        mismatches.append(
+                            UKEFRSComparisonRow(
+                                surface=surface,
+                                entity_id=entity_id,
+                                output=name,
+                                axiom=axiom_value,
+                                policyengine=pe_value,
+                                diff=diff,
+                            )
+                        )
     return UKEFRSComparisonReport(
         compared_persons=len(pe_data["person_ids"]),
         compared_values=compared_values,
         mismatches=mismatches,
+        oracle_divergences=oracle_divergences,
         output_summary=list(summary.values()),
         skipped_surfaces=SKIPPED_SURFACES,
         projection_notes=[
@@ -514,6 +666,38 @@ def compare_outputs(
     )
 
 
+def known_policyengine_divergence(
+    *,
+    surface: str,
+    output: str,
+    entity_id: str,
+    axiom_value: float,
+    policyengine_value: float,
+    diff: float,
+) -> UKEFRSOracleDivergence | None:
+    if (
+        surface == "personal-allowance"
+        and output == "personal_allowance"
+        and 0 < diff < 1
+        and math.isclose(axiom_value, math.ceil(policyengine_value), abs_tol=1e-9)
+    ):
+        return UKEFRSOracleDivergence(
+            surface=surface,
+            entity_id=entity_id,
+            output=output,
+            axiom=axiom_value,
+            policyengine=policyengine_value,
+            diff=diff,
+            reason=(
+                "PolicyEngine UK currently returns fractional tapered personal "
+                "allowances instead of rounding up to the nearest pound under "
+                "ITA 2007 s.35(3)."
+            ),
+            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1738",
+        )
+    return None
+
+
 def print_report(
     report: UKEFRSComparisonReport,
     *,
@@ -526,12 +710,14 @@ def print_report(
     print(f"Tolerance: {tolerance:g}")
     print(f"Relative tolerance: {relative_tolerance:g}")
     print(f"Mismatches: {len(report.mismatches):,}")
+    print(f"Known PolicyEngine oracle divergences: {len(report.oracle_divergences):,}")
     print()
     print("By output:")
     for item in report.output_summary:
         print(
             f"  - {item['surface']}:{item['output']}: "
             f"{item['mismatches']:,}/{item['compared']:,} mismatch, "
+            f"{item['oracle_divergences']:,} known PE divergence, "
             f"max_abs_diff={item['max_abs_diff']:.2f}, "
             f"max_rel_diff={item['max_relative_diff']:.2g}"
         )
@@ -545,6 +731,17 @@ def print_report(
                 f"  - entity={row.entity_id} {row.surface}:{row.output}: "
                 f"axiom={row.axiom:.2f} pe={row.policyengine:.2f} "
                 f"diff={row.diff:.2f}"
+            )
+    if report.oracle_divergences:
+        print()
+        print("Known PolicyEngine oracle divergences:")
+        for row in sorted(
+            report.oracle_divergences, key=lambda item: abs(item.diff), reverse=True
+        )[:20]:
+            print(
+                f"  - entity={row.entity_id} {row.surface}:{row.output}: "
+                f"axiom={row.axiom:.2f} pe={row.policyengine:.2f} "
+                f"diff={row.diff:.2f}; {row.issue_url}"
             )
     print()
     print("Skipped mapped UK surfaces:")

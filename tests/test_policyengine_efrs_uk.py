@@ -134,6 +134,7 @@ def test_compare_outputs_reports_personal_allowance_mismatch():
     assert report.compared_persons == 1
     assert report.compared_values == 1
     assert len(report.mismatches) == 1
+    assert report.oracle_divergences == []
     assert report.mismatches[0].entity_id == "person_7"
     assert report.output_summary[0]["mismatches"] == 1
     assert {item["surface"] for item in report.skipped_surfaces} == {
@@ -141,6 +142,38 @@ def test_compare_outputs_reports_personal_allowance_mismatch():
         "pension-credit",
         "universal-credit",
     }
+
+
+def test_compare_outputs_classifies_known_policyengine_personal_allowance_rounding():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "personal_allowance": 12_569.5,
+                }
+            ],
+            "person_ids": [7],
+        },
+        axiom_outputs_by_surface={
+            "personal-allowance": [
+                {
+                    "outputs": {
+                        PERSONAL_ALLOWANCE_OUTPUTS["personal_allowance"][
+                            "axiom"
+                        ]: decimal_output(12_570)
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.mismatches == []
+    assert len(report.oracle_divergences) == 1
+    assert report.oracle_divergences[0].issue_url.endswith("/issues/1738")
+    assert report.output_summary[0]["oracle_divergences"] == 1
 
 
 def test_compare_uk_efrs_runs_axiom_personal_allowance(
@@ -193,6 +226,7 @@ def test_compare_uk_efrs_runs_axiom_personal_allowance(
         year=2026,
         sample_size=100,
         surface="all",
+        dataset="enhanced_frs_2023_24",
         data_folder=Path(".axiom/policyengine-data"),
         tolerance=0.01,
         relative_tolerance=2e-7,
@@ -224,6 +258,7 @@ def test_main_returns_nonzero_when_requested_for_mismatches(monkeypatch, tmp_pat
                     diff=-1,
                 )
             ],
+            oracle_divergences=[],
             output_summary=[],
             skipped_surfaces=[],
             projection_notes=[],
@@ -239,6 +274,7 @@ def test_main_returns_nonzero_when_requested_for_mismatches(monkeypatch, tmp_pat
                 year=2026,
                 sample_size=100,
                 surface="all",
+                dataset="enhanced_frs_2023_24",
                 data_folder=Path(".axiom/policyengine-data"),
                 tolerance=0.01,
                 relative_tolerance=2e-7,
