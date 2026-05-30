@@ -5279,7 +5279,8 @@ rules:
         repaired_payload = yaml.safe_load(repaired)
         repaired_inputs = repaired_payload[0]["input"]
         repaired_member = repaired_inputs[
-            "us:statutes/7/2012/j#relation.member_of_household"
+            "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+            "ny_snap_categorical_member_of_household"
         ][0]
         assert (
             repaired_member[
@@ -5287,6 +5288,12 @@ rules:
                 "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits"
             ]
             is True
+        )
+        assert (
+            repaired_inputs["us:statutes/7/2012/j#relation.member_of_household"][0][
+                "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
+            ]
+            is False
         )
 
         appended = _repair_new_york_snap_categorical_eligibility_tests(
@@ -5348,6 +5355,10 @@ rules:
     versions:
       - effective_from: '2025-10-01'
         formula: count_where(member_of_household, snap_member_student_eligible) > 0
+  - name: shelter_costs
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_shelter_costs_incurred
 """
         )
 
@@ -5372,6 +5383,7 @@ rules:
             "count_where(member_of_household, snap_member_student_ineligible) == 0"
             in repaired_rules
         )
+        assert "  - name: member_of_household\n" in repaired_rules
 
         repaired = _repair_new_york_snap_benefit_tests(
             """- name: ongoing_month_derives_new_york_allotment_with_heating_cooling_allowance
@@ -5384,6 +5396,8 @@ rules:
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_periodic_reporting_requirement: false
     us-ny:regulations/18-nycrr/387/14/a/5#input.household_member_failed_snap_work_requirements: false
+    us:statutes/7/2012/j#relation.member_of_household:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
   output:
     us-ny:regulations/18-nycrr/387/14/a/1#snap_allotment: 298
     us-ny:regulations/18-nycrr/387/12/f/3/v/a#snap_standard_utility_allowance: 1062
@@ -5393,10 +5407,14 @@ rules:
 """
         )
 
+        repaired_case = yaml.safe_load(repaired)[0]
+        repaired_inputs = repaired_case["input"]
         assert (
-            "us-ny:regulations/18-nycrr/387/14/a/5#input."
-            "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements: false"
-            in repaired
+            repaired_inputs[
+                "us-ny:regulations/18-nycrr/387/14/a/5#input."
+                "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements"
+            ]
+            is False
         )
         assert (
             "us-ny:regulations/18-nycrr/387/14/a/5#input."
@@ -5414,6 +5432,14 @@ rules:
         assert (
             "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
             "#input.snap_initial_month_prorated_allotment: 0" in repaired
+        )
+        assert (
+            "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#relation.member_of_household" in repaired_inputs
+        )
+        assert (
+            "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+            "ny_snap_categorical_member_of_household" in repaired_inputs
         )
         assert (
             "us-ny:policies/otda/snap/fy-2026-benefit-calculation"

@@ -5304,6 +5304,7 @@ def cmd_repair_snap_273_10_allotment(args):
 
 
 NY_SNAP_CATEGORICAL_RELATIVE = Path("regulations/18-nycrr/387/14/a/5.yaml")
+NY_SNAP_CATEGORICAL_MEMBER_RELATION = "ny_snap_categorical_member_of_household"
 NY_SNAP_CATEGORICAL_FINAL_RULES = """
 
   - name: ny_snap_categorically_eligible
@@ -5389,7 +5390,8 @@ NY_SNAP_CATEGORICAL_FINAL_TESTS = """
     us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
     us:statutes/7/2012/j#relation.member_of_household:
       - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
-        us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.ny_snap_categorical_member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
@@ -5415,7 +5417,8 @@ NY_SNAP_CATEGORICAL_FINAL_TESTS = """
     us:regulations/7-cfr/273/10#input.snap_income_exclusions: 0
     us:statutes/7/2012/j#relation.member_of_household:
       - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: false
-        us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
+    us-ny:regulations/18-nycrr/387/14/a/5#relation.ny_snap_categorical_member_of_household:
+      - us-ny:regulations/18-nycrr/387/14/a/5#input.member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits: true
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped: false
         us-ny:regulations/18-nycrr/387/14/a/5#input.member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits: false
@@ -5516,18 +5519,44 @@ def _repair_new_york_snap_categorical_eligibility_rules(content: str) -> str:
         "  - us:statutes/7/2012/j\n",
         1,
     )
-    repaired = re.sub(
-        r"\n  - name: member_of_household\n"
-        r"    kind: data_relation\n"
-        r"    data_relation:\n"
-        r"      predicate: member_of_household\n"
-        r"      arity: 2\n"
-        r"      arguments:\n"
-        r"        - Person\n"
-        r"        - Household\n",
-        "\n",
-        repaired,
-        count=1,
+    repaired = repaired.replace(
+        "  - name: member_of_household\n"
+        "    kind: data_relation\n"
+        "    data_relation:\n"
+        "      predicate: member_of_household\n",
+        "  - name: ny_snap_categorical_member_of_household\n"
+        "    kind: data_relation\n"
+        "    data_relation:\n"
+        "      predicate: ny_snap_categorical_member_of_household\n",
+        1,
+    )
+    if (
+        "  - name: ny_snap_categorical_member_of_household\n" not in repaired
+        and "  - name: ny_snap_all_members_public_assistance_categorical_path_satisfied\n"
+        in repaired
+    ):
+        repaired = repaired.replace(
+            "  - name: ny_snap_all_members_public_assistance_categorical_path_satisfied\n",
+            "  - name: ny_snap_categorical_member_of_household\n"
+            "    kind: data_relation\n"
+            "    data_relation:\n"
+            "      predicate: ny_snap_categorical_member_of_household\n"
+            "      arity: 2\n"
+            "      arguments:\n"
+            "        - Person\n"
+            "        - Household\n\n"
+            "  - name: ny_snap_all_members_public_assistance_categorical_path_satisfied\n",
+            1,
+        )
+    repaired = repaired.replace(
+        "count_where(member_of_household, "
+        "member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status)",
+        "count_where(ny_snap_categorical_member_of_household, "
+        "member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status)",
+    )
+    repaired = repaired.replace(
+        "len(member_of_household)",
+        "len(ny_snap_categorical_member_of_household)",
     )
     repaired = _remove_new_york_snap_categorical_deferred_outputs(repaired)
     if "  - name: ny_snap_categorically_eligible\n" not in repaired:
@@ -5540,6 +5569,10 @@ def _repair_new_york_snap_categorical_eligibility_tests(
 ) -> str:
     us_relation = "us:statutes/7/2012/j#relation.member_of_household"
     ny_relation = "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
+    categorical_relation = (
+        "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+        f"{NY_SNAP_CATEGORICAL_MEMBER_RELATION}"
+    )
     elderly_input = "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
     try:
         payload = yaml.safe_load(content)
@@ -5551,22 +5584,26 @@ def _repair_new_york_snap_categorical_eligibility_tests(
             if not isinstance(case, dict):
                 continue
             inputs = case.get("input")
-            if not isinstance(inputs, dict) or ny_relation not in inputs:
+            if not isinstance(inputs, dict):
                 continue
-            ny_rows = inputs.pop(ny_relation)
+            ny_rows = inputs.pop(ny_relation, None)
+            if ny_rows is not None and categorical_relation not in inputs:
+                inputs[categorical_relation] = ny_rows
+            categorical_rows = inputs.get(categorical_relation)
             us_rows = inputs.get(us_relation)
-            if not isinstance(ny_rows, list):
+            if not isinstance(categorical_rows, list):
                 continue
             if not isinstance(us_rows, list):
-                us_rows = [{} for _ in ny_rows]
+                us_rows = [{} for _ in categorical_rows]
                 inputs[us_relation] = us_rows
-            while len(us_rows) < len(ny_rows):
+            while len(us_rows) < len(categorical_rows):
                 us_rows.append({})
-            for index, ny_row in enumerate(ny_rows):
-                if not isinstance(ny_row, dict) or not isinstance(us_rows[index], dict):
+            for index, categorical_row in enumerate(categorical_rows):
+                if not isinstance(categorical_row, dict) or not isinstance(
+                    us_rows[index], dict
+                ):
                     continue
                 us_rows[index].setdefault(elderly_input, False)
-                us_rows[index].update(ny_row)
             changed = True
         repaired = yaml.safe_dump(payload, sort_keys=False) if changed else content
     else:
@@ -5714,7 +5751,109 @@ def _repair_new_york_snap_benefit_rules(content: str) -> str:
         "        formula: count_where(member_of_household, snap_member_student_ineligible) == 0\n",
         1,
     )
+    if "  - name: member_of_household\n" not in repaired:
+        repaired = repaired.replace(
+            "  - name: shelter_costs\n",
+            "  - name: member_of_household\n"
+            "    kind: data_relation\n"
+            "    data_relation:\n"
+            "      predicate: member_of_household\n"
+            "      arity: 2\n"
+            "      arguments:\n"
+            "        - Person\n"
+            "        - Household\n\n"
+            "  - name: shelter_costs\n",
+            1,
+        )
     return repaired
+
+
+def _ny_snap_categorical_member_defaults(
+    elderly_or_disabled: object = False,
+) -> dict[str, object]:
+    return {
+        "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": (
+            elderly_or_disabled
+        ),
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_determined_eligible_for_family_assistance_or_nonemergency_safety_net_benefits": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_paid_family_assistance_or_nonemergency_safety_net_benefits": False,
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "member_family_assistance_or_nonemergency_safety_net_grant_amount": 0,
+    }
+
+
+def _repair_new_york_snap_benefit_relation_tests(content: str) -> str:
+    try:
+        payload = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return content
+    if not isinstance(payload, list):
+        return content
+
+    us_relation = "us:statutes/7/2012/j#relation.member_of_household"
+    policy_relation = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation#relation."
+        "member_of_household"
+    )
+    old_categorical_relation = (
+        "us-ny:regulations/18-nycrr/387/14/a/5#relation.member_of_household"
+    )
+    categorical_relation = (
+        "us-ny:regulations/18-nycrr/387/14/a/5#relation."
+        f"{NY_SNAP_CATEGORICAL_MEMBER_RELATION}"
+    )
+    elderly_input = "us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled"
+    prorated_input = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+        "#input.snap_initial_month_prorated_allotment"
+    )
+
+    changed = False
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            continue
+        old_rows = inputs.pop(old_categorical_relation, None)
+        if old_rows is not None and categorical_relation not in inputs:
+            inputs[categorical_relation] = old_rows
+            changed = True
+        us_rows = inputs.get(us_relation)
+        if isinstance(us_rows, list):
+            if policy_relation not in inputs:
+                inputs[policy_relation] = us_rows
+                changed = True
+            if categorical_relation not in inputs:
+                categorical_rows = []
+                for row in us_rows:
+                    elderly = False
+                    if isinstance(row, dict):
+                        elderly = row.get(elderly_input, False)
+                    categorical_rows.append(
+                        _ny_snap_categorical_member_defaults(elderly)
+                    )
+                inputs[categorical_relation] = categorical_rows
+                changed = True
+        if (
+            case.get("name")
+            == "initial_month_proration_uses_new_york_certification_rule"
+            and inputs.get(prorated_input) != 153
+        ):
+            inputs[prorated_input] = 153
+            changed = True
+
+    if not changed:
+        return content
+    return yaml.safe_dump(payload, sort_keys=False)
 
 
 def _repair_new_york_snap_benefit_tests(content: str) -> str:
@@ -5862,7 +6001,7 @@ def _repair_new_york_snap_benefit_tests(content: str) -> str:
     us-ny:policies/otda/snap/fy-2026-benefit-calculation#snap_initial_month_allotment_after_minimum_issuance: 0
 """
         )
-    return repaired
+    return _repair_new_york_snap_benefit_relation_tests(repaired)
 
 
 def cmd_repair_new_york_snap_benefit_tests(args):
