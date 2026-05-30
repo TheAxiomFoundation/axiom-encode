@@ -1101,6 +1101,25 @@ def main():
         help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
     )
 
+    repair_ny_snap_benefit_tests_parser = subparsers.add_parser(
+        "repair-new-york-snap-benefit-tests",
+        help="Apply signed deterministic repairs for New York SNAP benefit companion tests",
+    )
+    repair_ny_snap_benefit_tests_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="rulespec-us-ny repository root used for manifest signing",
+    )
+    repair_ny_snap_benefit_tests_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        default=None,
+        help="Path to axiom-rules-engine repo (defaults to sibling checkout)",
+    )
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -1704,6 +1723,8 @@ def main():
         cmd_repair_snap_273_10_allotment(args)
     elif args.command == "repair-new-york-snap-categorical-eligibility":
         cmd_repair_new_york_snap_categorical_eligibility(args)
+    elif args.command == "repair-new-york-snap-benefit-tests":
+        cmd_repair_new_york_snap_benefit_tests(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -5540,6 +5561,145 @@ def cmd_repair_new_york_snap_categorical_eligibility(args):
 
     print("Applied New York SNAP categorical eligibility repair")
     print(f"changed={relative_output}")
+    print(f"changed={_rulespec_test_path(relative_output)}")
+    print(f"manifest={manifest_path}")
+
+
+NY_SNAP_BENEFIT_RELATIVE = Path("policies/otda/snap/fy-2026-benefit-calculation.yaml")
+
+
+def _repair_new_york_snap_benefit_tests(content: str) -> str:
+    repaired = content.replace(
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_failed_periodic_reporting_requirement",
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_disqualified_for_failure_to_comply_with_periodic_reporting_requirements",
+    )
+    repaired = repaired.replace(
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_failed_snap_work_requirements",
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_disqualified_for_failure_to_comply_with_work_requirements",
+    )
+    if (
+        "us-ny:regulations/18-nycrr/387/14/a/5#input."
+        "household_member_ineligible_to_participate_in_snap" not in repaired
+    ):
+        repaired = repaired.replace(
+            "    us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements: false\n",
+            "    us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_disqualified_for_failure_to_comply_with_work_requirements: false\n"
+            "    us-ny:regulations/18-nycrr/387/14/a/5#input."
+            "household_member_ineligible_to_participate_in_snap: false\n",
+            1,
+        )
+    output_ref = (
+        "us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+        "#ny_snap_excess_shelter_cost"
+    )
+    if output_ref not in repaired:
+        repaired = repaired.replace(
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#shelter_costs: 1562\n"
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#snap_excess_shelter_deduction: 744\n",
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#shelter_costs: 1562\n"
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#ny_snap_excess_shelter_cost: 1266.5\n"
+            "    us-ny:policies/otda/snap/fy-2026-benefit-calculation"
+            "#snap_excess_shelter_deduction: 744\n",
+            1,
+        )
+    return repaired
+
+
+def cmd_repair_new_york_snap_benefit_tests(args):
+    """Apply a signed deterministic repair for NY SNAP benefit companion tests."""
+    repo_path = Path(args.repo).resolve()
+    if _repo_jurisdiction_prefix(repo_path) != "us-ny":
+        print(
+            "repair-new-york-snap-benefit-tests must run against "
+            f"rulespec-us-ny; got {repo_path}"
+        )
+        sys.exit(1)
+
+    relative_output = NY_SNAP_BENEFIT_RELATIVE
+    rules_file = repo_path / relative_output
+    test_file = _rulespec_test_path(rules_file)
+    if not rules_file.exists():
+        print(f"RuleSpec file not found: {rules_file}")
+        sys.exit(1)
+    if not test_file.exists():
+        print(f"RuleSpec companion test file not found: {test_file}")
+        sys.exit(1)
+
+    original_test_content = test_file.read_text()
+    repaired_test_content = _repair_new_york_snap_benefit_tests(original_test_content)
+    if repaired_test_content == original_test_content:
+        print("No New York SNAP benefit test repairs found.")
+        return
+
+    signing_key = _require_applied_encoding_manifest_signing_key()
+    axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+    axiom_rules_path = getattr(
+        args, "axiom_rules_path", None
+    ) or _resolve_runtime_axiom_rules_checkout(repo_path)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_root = Path(tmpdir)
+        generated_output = output_root / "deterministic-repair" / relative_output
+        generated_output.parent.mkdir(parents=True, exist_ok=True)
+        generated_output.write_text(rules_file.read_text())
+        generated_test = _rulespec_test_path(generated_output)
+        generated_test.write_text(repaired_test_content)
+
+        test_file.write_text(repaired_test_content)
+        try:
+            validation = ValidatorPipeline(
+                policy_repo_path=repo_path,
+                axiom_rules_path=axiom_rules_path,
+                enable_oracles=False,
+                require_policy_proofs=True,
+            ).validate(rules_file, skip_reviewers=True)
+            if not validation.all_passed:
+                issues = [
+                    result.error
+                    for result in validation.results.values()
+                    if result.error
+                ]
+                print("Repair failed validation; restored original file.")
+                for issue in issues:
+                    print(f"- {issue}")
+                sys.exit(1)
+        finally:
+            if "validation" not in locals() or not validation.all_passed:
+                test_file.write_text(original_test_content)
+
+        result = argparse.Namespace(
+            output_file=str(generated_output),
+            runner="deterministic-repair",
+            backend="deterministic",
+            model="ny-snap-benefit-tests-v1",
+            tool="axiom-encode repair-new-york-snap-benefit-tests",
+            citation="us-ny:policies/otda/snap/fy-2026-benefit-calculation",
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=None,
+        )
+        manifest_path = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo_path,
+            relative_output=relative_output,
+            applied_files=[rules_file, test_file],
+            run_id="deterministic-repair",
+            signing_key=signing_key,
+            axiom_encode_git=axiom_encode_git,
+        )
+
+    print("Applied New York SNAP benefit companion-test repair")
     print(f"changed={_rulespec_test_path(relative_output)}")
     print(f"manifest={manifest_path}")
 
