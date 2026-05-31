@@ -91,6 +91,50 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_colorado_tanf_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "regulations/9-ccr-2503-6/3.606.1/F.yaml",
+        """format: rulespec/v1
+rules:
+  - name: basic_cash_assistance_grant_standard
+    kind: derived
+    versions:
+      - effective_from: '2025-07-01'
+        formula: grant_table_amount
+  - name: basic_cash_assistance_need_standard
+    kind: derived
+    versions:
+      - effective_from: '2025-07-01'
+        formula: need_table_amount
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "regulations/9-ccr-2503-6/3.606.1/K.yaml",
+        """format: rulespec/v1
+rules:
+  - name: basic_cash_assistance_authorized_grant_for_eligible_assistance_unit
+    kind: derived
+    versions:
+      - effective_from: '2025-07-01'
+        formula: grant_standard - net_countable_income
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tanf")
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {"known_not_comparable": 3}
+    assert report["untested_comparable"] == 0
+    assert {item["program"] for item in report["items"]} == {"tanf"}
+    assert {item["mapping_type"] for item in report["items"]} == {"not_comparable"}
+    assert {item["candidate_priority"] for item in report["items"]} == {"P4"}
+    assert all(
+        "PolicyEngine-US exposes adjacent Colorado TANF variables"
+        in str(item["rationale"])
+        for item in report["items"]
+    )
+
+
 def test_policyengine_coverage_ignores_nested_axiom_dependency_checkout(tmp_path):
     content = """format: rulespec/v1
 rules:
