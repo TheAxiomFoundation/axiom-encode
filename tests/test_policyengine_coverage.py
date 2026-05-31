@@ -959,6 +959,101 @@ rules:
     assert {item["tested"] for item in report["items"]} == {True}
 
 
+def test_policyengine_coverage_maps_colorado_state_tax_and_us_interest_adjustments(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/d.yaml",
+        """format: rulespec/v1
+rules:
+  - name: state_income_tax_deduction_addition_limit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1992-01-01'
+        formula: itemized_deductions - standard_deduction
+  - name: state_income_tax_deduction_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1992-01-01'
+        formula: min(state_income_tax_deduction, state_income_tax_deduction_addition_limit)
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/d.test.yaml",
+        """- name: state income tax deduction addback outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/3/d#state_income_tax_deduction_addition_limit: 4000
+    us-co:statutes/39/39-22-104/3/d#state_income_tax_deduction_addition_to_federal_taxable_income: 500
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: united_states_possessions_obligations_interest_income_subtraction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1989-01-01'
+        formula: max(0, us_obligation_interest_included_in_federal_taxable_income)
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/a.test.yaml",
+        """- name: us obligations interest subtraction output
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/4/a#united_states_possessions_obligations_interest_income_subtraction: 1200
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 3
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 1,
+    }
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    state_addback = items_by_id[
+        "us-co:statutes/39/39-22-104/3/d#state_income_tax_deduction_addition_to_federal_taxable_income"
+    ]
+    state_addback_limit = items_by_id[
+        "us-co:statutes/39/39-22-104/3/d#state_income_tax_deduction_addition_limit"
+    ]
+    us_interest = items_by_id[
+        "us-co:statutes/39/39-22-104/4/a#united_states_possessions_obligations_interest_income_subtraction"
+    ]
+    assert state_addback["policyengine_variable"] == "co_state_addback"
+    assert state_addback["status"] == "comparable"
+    assert state_addback["tested"] is True
+    assert state_addback_limit["status"] == "known_not_comparable"
+    assert state_addback_limit["policyengine_variable"] == "co_state_addback"
+    assert us_interest["policyengine_variable"] == "us_govt_interest"
+    assert us_interest["status"] == "comparable"
+    assert us_interest["tested"] is True
+
+
 def test_policyengine_coverage_classifies_colorado_deduction_addbacks(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/o.yaml",
