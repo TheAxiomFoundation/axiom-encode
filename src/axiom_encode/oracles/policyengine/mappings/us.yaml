@@ -1328,6 +1328,183 @@ mappings:
     candidate_priority: P2
     rationale: This RuleSpec output is the person-level statutory AMT amount before the regular-tax offset and before nonresident apportionment; PolicyEngine exposes a tax-unit tentative minimum tax derived from its Colorado AMTI aggregate.
 
+  - legal_id: us-co:statutes/39/39-22-129/4.5#single_return_low_income_upper_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC single-filer threshold where the per-child amount falls from $1,200 to $600.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#single_return_middle_income_lower_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC single-filer threshold where the $600 per-child amount begins.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#single_return_middle_income_upper_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - thresholds
+      - 2
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC single-filer threshold where the per-child amount falls from $600 to $200.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#single_return_high_income_lower_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - thresholds
+      - 2
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC single-filer threshold where the $200 per-child amount begins.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#single_return_high_income_upper_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - thresholds
+      - 3
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC single-filer threshold where the per-child amount falls to zero.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#joint_return_low_income_upper_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.joint
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC joint-filer threshold where the per-child amount falls from $1,200 to $600.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#joint_return_middle_income_lower_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.joint
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC joint-filer threshold where the $600 per-child amount begins.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#joint_return_middle_income_upper_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.joint
+    parameter_key_path:
+      - thresholds
+      - 2
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC joint-filer threshold where the per-child amount falls from $600 to $200.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#joint_return_high_income_lower_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.joint
+    parameter_key_path:
+      - thresholds
+      - 2
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC joint-filer threshold where the $200 per-child amount begins.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#joint_return_high_income_upper_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.joint
+    parameter_key_path:
+      - thresholds
+      - 3
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC joint-filer threshold where the per-child amount falls to zero.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#low_income_child_credit_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - amounts
+      - 0
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC low-income per-child amount; PE stores the same amount in both single and joint bracket scales.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#middle_income_child_credit_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC middle-income per-child amount; PE stores the same amount in both single and joint bracket scales.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#high_income_child_credit_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.ctc.amount.single
+    parameter_key_path:
+      - amounts
+      - 2
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado CTC high-income per-child amount; PE stores the same amount in both single and joint bracket scales.
+
+  - legal_id: us-co:statutes/39/39-22-129/4.5#child_tax_credit_per_eligible_child
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_ctc
+    candidate_priority: P2
+    rationale: This RuleSpec output is a statutory per-child amount selected from resident single/joint AGI bands; PolicyEngine exposes final tax-unit co_ctc after eligible-child counting, filing-status mapping, and inflation-adjusted bracket-scale lookup.
+
   - legal_id: us-co:statutes/39/39-22-123.5#credit_percentage_after_revenue_adjustment
     country: us
     program: tax
@@ -13554,6 +13731,14 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Colorado AMT section 105 generated outputs include statutory minimum-tax-credit and nonresident-apportionment pieces, plus deferred final AMT assembly; PolicyEngine exposes only the AMT rate parameter and tax-unit AMT variables unless an exact mapping above records a narrower adjacent target.
+
+  - legal_id_prefix: us-co:statutes/39/39-22-129/4.5#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_ctc
+    candidate_priority: P2
+    rationale: Remaining Colorado CTC subsection 4.5 outputs are adjacent current-law statutory helpers; exact mappings above compare the threshold and amount parameters, while PolicyEngine exposes final tax-unit co_ctc after eligible-child counting, filing-status mapping, and inflation adjustments.
 
   - legal_id_prefix: us-co:statutes/39/39-22-123.5#
     country: us

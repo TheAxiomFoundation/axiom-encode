@@ -1537,6 +1537,87 @@ rules:
     assert credit["policyengine_variable"] is None
 
 
+def test_policyengine_coverage_classifies_colorado_ctc_45_outputs(tmp_path):
+    output_names = (
+        "single_return_low_income_upper_threshold",
+        "single_return_middle_income_lower_threshold",
+        "single_return_middle_income_upper_threshold",
+        "single_return_high_income_lower_threshold",
+        "single_return_high_income_upper_threshold",
+        "joint_return_low_income_upper_threshold",
+        "joint_return_middle_income_lower_threshold",
+        "joint_return_middle_income_upper_threshold",
+        "joint_return_high_income_lower_threshold",
+        "joint_return_high_income_upper_threshold",
+        "low_income_child_credit_amount",
+        "middle_income_child_credit_amount",
+        "high_income_child_credit_amount",
+        "child_tax_credit_per_eligible_child",
+    )
+    rules = "\n".join(
+        f"""  - name: {name}
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1'"""
+        for name in output_names
+    )
+    outputs = "\n".join(
+        f"    us-co:statutes/39/39-22-129/4.5#{name}: 1" for name in output_names
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-129/4.5.yaml",
+        f"""format: rulespec/v1
+rules:
+{rules}
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-129/4.5.test.yaml",
+        f"""- name: colorado ctc current-law outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {{}}
+  output:
+{outputs}
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == len(output_names)
+    assert report["status_counts"] == {
+        "comparable": len(output_names) - 1,
+        "known_not_comparable": 1,
+    }
+    assert report["untested_comparable"] == 0
+    assert {item["tested"] for item in report["items"]} == {True}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    per_child = items_by_id[
+        "us-co:statutes/39/39-22-129/4.5#child_tax_credit_per_eligible_child"
+    ]
+    threshold = items_by_id[
+        "us-co:statutes/39/39-22-129/4.5#single_return_low_income_upper_threshold"
+    ]
+    amount = items_by_id[
+        "us-co:statutes/39/39-22-129/4.5#low_income_child_credit_amount"
+    ]
+    assert per_child["status"] == "known_not_comparable"
+    assert per_child["policyengine_variable"] == "co_ctc"
+    assert threshold["status"] == "comparable"
+    assert (
+        threshold["policyengine_parameter"]
+        == "gov.states.co.tax.income.credits.ctc.amount.single"
+    )
+    assert amount["status"] == "comparable"
+    assert (
+        amount["policyengine_parameter"]
+        == "gov.states.co.tax.income.credits.ctc.amount.single"
+    )
+
+
 def test_policyengine_coverage_classifies_colorado_eitc_outputs(tmp_path):
     output_names = (
         "base_credit_percentage",
