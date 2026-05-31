@@ -1450,6 +1450,93 @@ rules:
     assert subtraction["policyengine_variable"] == "co_pension_subtraction"
 
 
+def test_policyengine_coverage_infers_unmapped_colorado_title_39_as_tax(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-999.yaml",
+        """format: rulespec/v1
+rules:
+  - name: unmapped_colorado_tax_output
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1'
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 1
+    assert report["status_counts"] == {"unmapped": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us-co:statutes/39/39-22-999#unmapped_colorado_tax_output"
+    )
+    assert item["program"] == "tax"
+
+
+def test_policyengine_coverage_classifies_colorado_amt_outputs(tmp_path):
+    output_names = (
+        "alternative_minimum_tax_rate",
+        "minimum_tax_credit_percentage",
+        "individual_alternative_minimum_tax_amount_before_regular_tax_offset",
+        "individual_minimum_tax_credit_before_nonresident_apportionment",
+        "nonresident_apportionment_ratio",
+        "individual_minimum_tax_credit",
+    )
+    rules = "\n".join(
+        f"""  - name: {name}
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1'"""
+        for name in output_names
+    )
+    outputs = "\n".join(
+        f"    us-co:statutes/39/39-22-105#{name}: 1" for name in output_names
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-105.yaml",
+        f"""format: rulespec/v1
+rules:
+{rules}
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-105.test.yaml",
+        f"""- name: colorado amt outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {{}}
+  output:
+{outputs}
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == len(output_names)
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 5,
+    }
+    assert report["untested_comparable"] == 0
+    assert {item["tested"] for item in report["items"]} == {True}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    rate = items_by_id["us-co:statutes/39/39-22-105#alternative_minimum_tax_rate"]
+    tentative_tax = items_by_id[
+        "us-co:statutes/39/39-22-105#individual_alternative_minimum_tax_amount_before_regular_tax_offset"
+    ]
+    credit = items_by_id["us-co:statutes/39/39-22-105#individual_minimum_tax_credit"]
+    assert rate["policyengine_parameter"] == "gov.states.co.tax.income.amt.rate"
+    assert rate["status"] == "comparable"
+    assert tentative_tax["policyengine_variable"] == "co_tentative_minimum_tax"
+    assert tentative_tax["status"] == "known_not_comparable"
+    assert credit["status"] == "known_not_comparable"
+    assert credit["policyengine_variable"] is None
+
+
 def test_policyengine_coverage_classifies_colorado_eitc_outputs(tmp_path):
     output_names = (
         "base_credit_percentage",

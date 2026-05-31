@@ -1311,6 +1311,23 @@ mappings:
     candidate_priority: P4
     rationale: This RuleSpec output is the person-level statutory subtraction amount; PE exposes a tax-unit aggregate limited to head and spouse military-retirement pay.
 
+  - legal_id: us-co:statutes/39/39-22-105#alternative_minimum_tax_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.amt.rate
+    period: year
+    comparison: rate
+    rationale: Same Colorado alternative minimum tax rate, stored in PE as the Colorado AMT rate parameter.
+
+  - legal_id: us-co:statutes/39/39-22-105#individual_alternative_minimum_tax_amount_before_regular_tax_offset
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_tentative_minimum_tax
+    candidate_priority: P2
+    rationale: This RuleSpec output is the person-level statutory AMT amount before the regular-tax offset and before nonresident apportionment; PolicyEngine exposes a tax-unit tentative minimum tax derived from its Colorado AMTI aggregate.
+
   - legal_id: us-co:statutes/39/39-22-123.5#credit_percentage_after_revenue_adjustment
     country: us
     program: tax
@@ -13532,6 +13549,12 @@ mappings:
     rationale: "Source-specific intermediate output (rule `timely_application_for_recertification`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
 prefixes:
+  - legal_id_prefix: us-co:statutes/39/39-22-105#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Colorado AMT section 105 generated outputs include statutory minimum-tax-credit and nonresident-apportionment pieces, plus deferred final AMT assembly; PolicyEngine exposes only the AMT rate parameter and tax-unit AMT variables unless an exact mapping above records a narrower adjacent target.
+
   - legal_id_prefix: us-co:statutes/39/39-22-123.5#
     country: us
     program: tax

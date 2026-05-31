@@ -544,6 +544,7 @@ def _infer_program_from_legal_id(legal_id: str) -> str:
         return "snap"
     if (
         lowered.startswith("us:statutes/26/")
+        or lowered.startswith("us-co:statutes/39/")
         or lowered.startswith("us:policies/irs/")
         or lowered.startswith("us:policies/ssa/")
     ):
