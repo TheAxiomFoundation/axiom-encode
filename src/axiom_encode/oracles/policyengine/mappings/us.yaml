@@ -1023,6 +1023,25 @@ mappings:
     mapping_type: not_comparable
     rationale: This generated output is the statutory 4.55% base rate before applying later TABOR/form-rate reductions; PolicyEngine exposes the final Colorado form rate for each tax year.
 
+  - legal_id: us-co:statutes/39/39-22-104/3/d#state_income_tax_deduction_addition_limit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_state_addback
+    candidate_priority: P4
+    rationale: This RuleSpec output is the statutory cap used inside the Colorado state-income-tax deduction addback; PolicyEngine computes the same cap inside co_state_addback rather than exposing it as a separate variable.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/d#state_income_tax_deduction_addition_to_federal_taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: co_state_addback
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado state income tax addback amount. PolicyEngine implements the filing-guide worksheet to derive the state-income-tax deduction claimed and statutory itemized-minus-standard-deduction limit from federal tax inputs.
+
   - legal_id: us-co:statutes/39/39-22-104/3/o#single_return_adjusted_gross_income_threshold_for_section_199a_addition
     country: us
     program: tax
@@ -1148,6 +1167,17 @@ mappings:
     policyengine_variable: co_federal_deduction_addback
     candidate_priority: P3
     rationale: This RuleSpec output is the subsection (3)(p.5) initial-window amount and includes the healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback amount without that repeal condition.
+
+  - legal_id: us-co:statutes/39/39-22-104/4/a#united_states_possessions_obligations_interest_income_subtraction
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: us_govt_interest
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado subtraction for interest income on obligations of the United States and its possessions to the extent included in federal taxable income; PolicyEngine supplies that amount as us_govt_interest and includes it in Colorado subtractions.
 
   - legal_id: us-co:statutes/39/39-22-104/4/m#charitable_contribution_subtraction_floor
     country: us
