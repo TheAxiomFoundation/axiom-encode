@@ -14101,6 +14101,79 @@ rules:
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 
+def test_repair_nonnegative_amount_reductions_floors_scaled_income_base_in_credit():
+    content = """format: rulespec/v1
+rules:
+  - name: child_care_expenses_tax_credit_before_part_year_apportionment
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2019-01-01'
+        formula: |-
+          if child_care_expenses_tax_credit_allowed: min(child_care_expenses_credit_percentage * applicable_child_care_expenses_after_earned_income_limit, maximum_credit_for_dependent_count) else: 0
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["child_care_expenses_tax_credit_before_part_year_apportionment"]
+    assert (
+        "min(max(0, child_care_expenses_credit_percentage * "
+        "applicable_child_care_expenses_after_earned_income_limit), "
+        "maximum_credit_for_dependent_count)" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
+def test_repair_nonnegative_amount_reductions_floors_parenthesized_scaled_income_base():
+    content = """format: rulespec/v1
+rules:
+  - name: child_care_expenses_tax_credit_before_part_year_apportionment
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2019-01-01'
+        formula: |-
+          min((child_care_expenses_credit_percentage * earned_income), maximum_credit_for_dependent_count)
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["child_care_expenses_tax_credit_before_part_year_apportionment"]
+    assert (
+        "min(max(0, (child_care_expenses_credit_percentage * earned_income)), "
+        "maximum_credit_for_dependent_count)" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
+def test_repair_nonnegative_amount_reductions_floors_wrapped_scaled_income_base():
+    content = """format: rulespec/v1
+rules:
+  - name: child_care_expenses_tax_credit_before_part_year_apportionment
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2019-01-01'
+        formula: |-
+          min(ceil(child_care_expenses_credit_percentage * earned_income), maximum_credit_for_dependent_count)
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["child_care_expenses_tax_credit_before_part_year_apportionment"]
+    assert (
+        "min(max(0, ceil(child_care_expenses_credit_percentage * earned_income)), "
+        "maximum_credit_for_dependent_count)" in repaired
+    )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
 def test_current_year_final_amount_table_rejects_recomputed_maximum(tmp_path):
     repo = tmp_path / "rulespec-us"
     imported = repo / "policies/irs/rev-proc-2025-32/earned-income-credit.yaml"

@@ -864,6 +864,10 @@ _NONNEGATIVE_INCOME_BASE_FORMULA_PATTERN = re.compile(
     r"\bmin\s*\([^)]*\b[A-Za-z_][A-Za-z0-9_]*(?:income|earnings|wages)[A-Za-z0-9_]*\b[^)]*\)",
     flags=re.IGNORECASE,
 )
+_INCOME_BASE_IDENTIFIER_PATTERN = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:income|earnings|wages)[A-Za-z0-9_]*\b",
+    flags=re.IGNORECASE,
+)
 _ZERO_FLOORED_INCOME_BASE_PATTERN = re.compile(
     r"\bmax\s*\(\s*0\s*,[^)]*\b[A-Za-z_][A-Za-z0-9_]*(?:income|earnings|wages)[A-Za-z0-9_]*\b",
     flags=re.IGNORECASE,
@@ -7742,15 +7746,40 @@ def _repair_nonnegative_amount_reduction_expression(expression: str) -> str:
 
 
 def _repair_nonnegative_income_base_expression(expression: str) -> str:
-    return re.sub(
-        r"\bmin\s*\(\s*"
-        r"(?P<income>[A-Za-z_][A-Za-z0-9_]*(?:income|earnings|wages)[A-Za-z0-9_]*)"
-        r"\s*,",
-        r"min(max(0, \g<income>),",
-        expression,
-        count=1,
-        flags=re.IGNORECASE,
-    )
+    for start, end, arguments in _min_call_spans(expression):
+        repaired_arguments = [argument.strip() for argument in arguments]
+        for index, argument in enumerate(arguments):
+            stripped_argument = argument.strip()
+            if not _INCOME_BASE_IDENTIFIER_PATTERN.search(stripped_argument):
+                continue
+            if _ZERO_FLOORED_INCOME_BASE_PATTERN.search(stripped_argument):
+                continue
+            repaired_arguments[index] = f"max(0, {stripped_argument})"
+            return (
+                f"{expression[:start]}min({', '.join(repaired_arguments)})"
+                f"{expression[end:]}"
+            )
+    return expression
+
+
+def _min_call_spans(expression: str) -> list[tuple[int, int, list[str]]]:
+    spans: list[tuple[int, int, list[str]]] = []
+    for match in _MIN_FUNCTION_CALL_PATTERN.finditer(expression):
+        open_index = match.end() - 1
+        depth = 0
+        for index in range(open_index, len(expression)):
+            char = expression[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    arguments = _split_top_level_call_arguments(
+                        expression[open_index + 1 : index]
+                    )
+                    spans.append((match.start(), index + 1, arguments))
+                    break
+    return spans
 
 
 @dataclass(frozen=True)
