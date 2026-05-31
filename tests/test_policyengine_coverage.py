@@ -1450,6 +1450,92 @@ rules:
     assert subtraction["policyengine_variable"] == "co_pension_subtraction"
 
 
+def test_policyengine_coverage_classifies_colorado_eitc_outputs(tmp_path):
+    output_names = (
+        "base_credit_percentage",
+        "temporary_credit_percentage_increase",
+        "revenue_adjustment_regime",
+        "adjustment_factor_threshold_for_single_year_increase",
+        "single_year_revenue_growth_percentage_point_increase",
+        "adjustment_factor_lower_bound_for_small_increase",
+        "small_revenue_growth_percentage_point_increase",
+        "adjustment_factor_lower_bound_for_moderate_increase",
+        "moderate_revenue_growth_percentage_point_increase",
+        "adjustment_factor_lower_bound_for_large_increase",
+        "large_revenue_growth_percentage_point_increase",
+        "adjustment_factor_lower_bound_for_larger_increase",
+        "larger_revenue_growth_percentage_point_increase",
+        "adjustment_factor_lower_bound_for_maximum_increase",
+        "maximum_revenue_growth_percentage_point_increase",
+        "revenue_growth_adjustment_percentage_points",
+        "credit_percentage_after_revenue_adjustment",
+        "regular_federal_return_eitc_branch_before_part_year_apportionment",
+        "missing_valid_ssn_eitc_branch_before_part_year_apportionment",
+        "regular_federal_return_eitc_branch_refundable_excess",
+        "missing_valid_ssn_eitc_branch_refundable_excess",
+        "regular_federal_return_eitc_branch_excluded_from_public_benefit_income_or_resources",
+        "missing_valid_ssn_eitc_branch_excluded_from_public_benefit_income_or_resources",
+    )
+    rules = "\n".join(
+        f"""  - name: {name}
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1'"""
+        for name in output_names
+    )
+    outputs = "\n".join(
+        f"    us-co:statutes/39/39-22-123.5#{name}: 1" for name in output_names
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-123.5.yaml",
+        f"""format: rulespec/v1
+rules:
+{rules}
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-123.5.test.yaml",
+        f"""- name: colorado eitc outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {{}}
+  output:
+{outputs}
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == len(output_names)
+    assert report["status_counts"] == {"known_not_comparable": len(output_names)}
+    assert report["untested_comparable"] == 0
+    assert {item["program"] for item in report["items"]} == {"tax"}
+    assert {item["tested"] for item in report["items"]} == {True}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    rate = items_by_id[
+        "us-co:statutes/39/39-22-123.5#credit_percentage_after_revenue_adjustment"
+    ]
+    regular_branch = items_by_id[
+        "us-co:statutes/39/39-22-123.5#regular_federal_return_eitc_branch_before_part_year_apportionment"
+    ]
+    missing_ssn_branch = items_by_id[
+        "us-co:statutes/39/39-22-123.5#missing_valid_ssn_eitc_branch_before_part_year_apportionment"
+    ]
+    refundable_excess = items_by_id[
+        "us-co:statutes/39/39-22-123.5#regular_federal_return_eitc_branch_refundable_excess"
+    ]
+    assert (
+        rate["policyengine_parameter"] == "gov.states.co.tax.income.credits.eitc.match"
+    )
+    assert rate["candidate_priority"] == "P2"
+    assert regular_branch["policyengine_variable"] == "co_eitc"
+    assert missing_ssn_branch["policyengine_variable"] == "co_eitc"
+    assert refundable_excess["policyengine_variable"] is None
+
+
 def test_policyengine_coverage_classifies_3102a_collection_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3102/a.yaml",
