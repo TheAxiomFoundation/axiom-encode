@@ -84,6 +84,7 @@ from axiom_encode.cli import (
     _require_axiom_encode_version_provenance,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
+    _rewrite_judgment_numeric_comparisons,
     _sha256_file,
     _sha256_text,
     _sign_applied_encoding_manifest,
@@ -91,6 +92,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
+    _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
@@ -4345,6 +4347,175 @@ rules:
 
         assert repaired == []
         assert rules_file.read_text() == original
+
+    def test_rewrite_judgment_numeric_comparisons_updates_formula(self, tmp_path):
+        rules_file = tmp_path / "credit.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: eligibility
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      resident
+      and imported_credit_allowed == 0
+      and 1 == local_judgment
+- name: amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      if imported_credit_allowed != 0: 0 else: amount_before_credit
+"""
+        )
+
+        repaired = _rewrite_judgment_numeric_comparisons(
+            rules_file,
+            names={"imported_credit_allowed", "local_judgment"},
+        )
+
+        assert repaired == ["eligibility", "amount"]
+        payload = yaml.safe_load(rules_file.read_text())
+        eligibility_formula = payload["rules"][0]["versions"][0]["formula"]
+        amount_formula = payload["rules"][1]["versions"][0]["formula"]
+        assert "and not imported_credit_allowed" in eligibility_formula
+        assert "and local_judgment" in eligibility_formula
+        assert amount_formula == (
+            "if imported_credit_allowed: 0 else: amount_before_credit"
+        )
+
+    def test_judgment_numeric_comparison_repair_uses_issue_name(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "credit.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+- us-co:statutes/39/39-22-119#child_and_dependent_care_expenses_credit_allowed
+rules:
+- name: low_income_child_care_credit_eligibility
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      resident_individual
+      and child_and_dependent_care_expenses_credit_allowed == 0
+- name: unrelated_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      if other_status == 0: 0 else: 100
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_judgment_numeric_comparisons_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "Test case `single dependent credit below cap` execution failed: "
+                "derived 'child_and_dependent_care_expenses_credit_allowed' "
+                "is judgment, but a scalar was requested"
+            ],
+        )
+
+        assert repaired == ["low_income_child_care_credit_eligibility"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["versions"][0]["formula"] == (
+            "resident_individual\n"
+            "and not child_and_dependent_care_expenses_credit_allowed"
+        )
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "if other_status == 0: 0 else: 100"
+        )
+
+    def test_judgment_numeric_comparison_repair_skips_non_truth_decimals(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "credit.yaml"
+        original = """format: rulespec/v1
+rules:
+- name: amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      if imported_credit_allowed == 0.5: 1 else: 0
+- name: other_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      if imported_credit_allowed != 1.5: 1 else: 0
+"""
+        rules_file.write_text(original)
+
+        repaired = _rewrite_judgment_numeric_comparisons(
+            rules_file,
+            names={"imported_credit_allowed"},
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_judgment_numeric_comparison_repair_falls_back_to_local_judgments(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "credit.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: source_judgment
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: resident
+- name: eligibility
+  kind: derived
+  entity: TaxUnit
+  dtype: Judgment
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: source_judgment != 1
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_judgment_numeric_comparisons_for_apply(
+            result,
+            output_root=output_root,
+            issues=["execution failed: rule is judgment, but a scalar was requested"],
+        )
+
+        assert repaired == ["eligibility"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][1]["versions"][0]["formula"] == "not source_judgment"
 
     def test_convert_versioned_boolean_parameters_to_indicators(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"

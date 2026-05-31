@@ -15538,6 +15538,34 @@ def cmd_encode(args):
                 if repaired_zero_cases:
                     outcome["auto_repaired_zero_branch_tests"] = repaired_zero_cases
             if not can_apply:
+                repaired_judgment_comparisons = (
+                    _try_repair_generated_judgment_numeric_comparisons_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_judgment_comparisons:
+                    outcome["auto_repaired_judgment_numeric_comparisons"] = (
+                        repaired_judgment_comparisons
+                    )
+                    print(
+                        "  apply=auto_repaired_judgment_numeric_comparisons:"
+                        + ",".join(repaired_judgment_comparisons)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_test_cases = _try_repair_generated_exception_tests_for_apply(
                     result,
                     output_root=args.output,
@@ -16092,6 +16120,29 @@ def _try_repair_generated_boolean_comparison_predicates_for_apply(
     )
 
 
+def _try_repair_generated_judgment_numeric_comparisons_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite generated Judgment numeric comparisons into predicates."""
+    if not any(_issue_mentions_judgment_scalar_request(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    rule_names = _judgment_scalar_rule_names_from_issues(issues)
+    if not rule_names:
+        rule_names = _local_judgment_rule_names(rules_file)
+    if not rule_names:
+        return []
+    return _rewrite_judgment_numeric_comparisons(rules_file, names=rule_names)
+
+
 def _try_repair_generated_boolean_parameter_inputs_for_apply(
     result,
     *,
@@ -16137,6 +16188,10 @@ def _issue_mentions_boolean_comparison_in_scalar_position(issue: str) -> bool:
     return "binary op" in text and "in scalar position" in text
 
 
+def _issue_mentions_judgment_scalar_request(issue: str) -> bool:
+    return "is judgment, but a scalar was requested" in str(issue).lower()
+
+
 def _boolean_comparison_rule_names_from_issues(issues: list[str]) -> set[str]:
     names: set[str] = set()
     for issue in issues:
@@ -16150,6 +16205,22 @@ def _boolean_comparison_rule_names_from_issues(issues: list[str]) -> set[str]:
             r"variable `([A-Za-z_][A-Za-z0-9_]*)`",
         ):
             names.update(re.findall(pattern, text))
+    return names
+
+
+def _judgment_scalar_rule_names_from_issues(issues: list[str]) -> set[str]:
+    names: set[str] = set()
+    for issue in issues:
+        text = str(issue)
+        if not _issue_mentions_judgment_scalar_request(text):
+            continue
+        for match in re.finditer(
+            r"(?:derived|parameter|rule|variable)\s+[`']"
+            r"([A-Za-z_][A-Za-z0-9_]*)[`']\s+is judgment",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            names.add(match.group(1))
     return names
 
 
@@ -16176,6 +16247,27 @@ def _single_boolean_comparison_candidate_rule_name(rules_file: Path) -> set[str]
         and _rule_has_top_level_comparison_formula(rule)
     }
     return candidates if len(candidates) == 1 else set()
+
+
+def _local_judgment_rule_names(rules_file: Path) -> set[str]:
+    if not rules_file.exists():
+        return set()
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    return {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("name") or "").strip()
+        and str(rule.get("dtype") or "").strip().lower() == "judgment"
+    }
 
 
 def _convert_versioned_boolean_parameters_to_indicators(
@@ -16754,6 +16846,88 @@ def _promote_boolean_comparison_predicates_to_judgment(
     if test_file is not None:
         _rewrite_boolean_test_values_as_judgments(test_file, set(repaired))
     return repaired
+
+
+def _rewrite_judgment_numeric_comparisons(
+    rules_file: Path,
+    *,
+    names: set[str],
+) -> list[str]:
+    if not rules_file.exists() or not names:
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_changed = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            rewritten = _rewrite_judgment_numeric_comparison_formula(
+                formula,
+                names=names,
+            )
+            if rewritten != formula:
+                version["formula"] = rewritten
+                rule_changed = True
+        if rule_changed:
+            repaired.append(str(rule.get("name") or "formula_rule"))
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _rewrite_judgment_numeric_comparison_formula(
+    formula: str,
+    *,
+    names: set[str],
+) -> str:
+    rewritten = str(formula)
+    for name in sorted(names, key=len, reverse=True):
+        escaped = re.escape(name)
+        name_token = rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])"
+        zero = r"(?<![A-Za-z0-9_.])0(?:\.0+)?(?![A-Za-z0-9_.])"
+        one = r"(?<![A-Za-z0-9_.])1(?:\.0+)?(?![A-Za-z0-9_.])"
+        replacements = (
+            (rf"{name_token}\s*==\s*{zero}", f"not {name}"),
+            (rf"\b{zero}\s*==\s*{name_token}", f"not {name}"),
+            (rf"{name_token}\s*!=\s*{zero}", name),
+            (rf"\b{zero}\s*!=\s*{name_token}", name),
+            (rf"{name_token}\s*==\s*{one}", name),
+            (rf"\b{one}\s*==\s*{name_token}", name),
+            (rf"{name_token}\s*!=\s*{one}", f"not {name}"),
+            (rf"\b{one}\s*!=\s*{name_token}", f"not {name}"),
+            (rf"{name_token}\s*==\s*false\b", f"not {name}"),
+            (rf"\bfalse\s*==\s*{name_token}", f"not {name}"),
+            (rf"{name_token}\s*!=\s*false\b", name),
+            (rf"\bfalse\s*!=\s*{name_token}", name),
+            (rf"{name_token}\s*==\s*true\b", name),
+            (rf"\btrue\s*==\s*{name_token}", name),
+            (rf"{name_token}\s*!=\s*true\b", f"not {name}"),
+            (rf"\btrue\s*!=\s*{name_token}", f"not {name}"),
+        )
+        for pattern, replacement in replacements:
+            rewritten = re.sub(pattern, replacement, rewritten, flags=re.IGNORECASE)
+    return rewritten
 
 
 def _rule_has_comparison_formula(rule: dict[str, object]) -> bool:
