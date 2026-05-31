@@ -1102,7 +1102,6 @@ def load_policyengine_cases(
             **project_income_resource_inputs(config, values, idx),
             "household_size": int(values["snap_unit_size"][idx]),
             "household_shelter_costs_incurred": money(values["housing_cost"][idx]),
-            "us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction": 0,
             "household_lives_in_application_state": True,
             "household_in_project_area_solely_for_vacation": False,
             "household_contains_individual_participating_in_more_than_one_household_or_project_area": False,
@@ -1118,6 +1117,12 @@ def load_policyengine_cases(
         }
         for input_name, value in projected_inputs.items():
             set_input_value(inputs, input_name, value)
+        set_input_value(
+            inputs,
+            "snap_claimed_homeless_shelter_deduction",
+            0,
+            required=False,
+        )
         member_inputs = project_student_member_inputs(
             bool(student_ok_by_spm.get(spm_id, False))
         )

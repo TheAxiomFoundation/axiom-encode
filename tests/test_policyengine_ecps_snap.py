@@ -39,6 +39,25 @@ def test_set_input_value_updates_every_matching_legal_input():
     assert set(inputs.values()) == {4}
 
 
+def test_set_input_value_can_skip_optional_unknown_inputs():
+    inputs = {
+        "us-co:regulations/10-ccr-2506-1/4.407.3#input.verified_higher_homeless_shelter_costs": False,
+    }
+
+    set_input_value(
+        inputs,
+        "snap_claimed_homeless_shelter_deduction",
+        0,
+        required=False,
+    )
+
+    assert "snap_claimed_homeless_shelter_deduction" not in inputs
+    assert (
+        "us:regulations/7-cfr/273/10#input.snap_claimed_homeless_shelter_deduction"
+        not in inputs
+    )
+
+
 def test_new_york_projector_uses_federal_income_and_resource_inputs():
     values = {
         "snap_earned_income": [123.45],

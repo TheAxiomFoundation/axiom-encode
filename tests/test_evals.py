@@ -439,6 +439,24 @@ class TestCorpusSourceResolution:
         assert source.body == "(a) First rate period."
         assert "(c) Third rate period" not in source.body
 
+    def test_resolves_numeric_child_path_stops_at_later_omitted_sibling(self, tmp_path):
+        corpus_path = _write_test_corpus_provision(
+            tmp_path,
+            citation_path="us-co/statute/39/39-22-104",
+            body=(
+                "(1) First addition rule.\n"
+                "(3) Third addition rule after omitted subsection."
+            ),
+        )
+
+        source = resolve_corpus_source_unit(
+            "us-co/statute/39/39-22-104/1",
+            corpus_path,
+        )
+
+        assert source.body == "(1) First addition rule."
+        assert "(3) Third addition rule" not in source.body
+
     def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
         provisions_dir = (
@@ -6151,6 +6169,53 @@ rules:
         assert "except as otherwise provided in section" in prompt
         assert "cited provision's separate amount" in prompt
         assert "subsection_x_does_not_displace_this_subsection" in prompt
+
+    def test_build_eval_prompt_scopes_partial_extent_to_numeric_target_paragraph(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_file = policy_repo_root / "statutes" / "26" / "999" / "1" / "a.yaml"
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: child_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxable_amount * rate
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 999(1)",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "(1) First rule imposes a tax.\n"
+                "(3) Wages are exempt from taxes imposed by this section "
+                "to the extent such wages are subject exclusively to another "
+                "country's social security laws."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 999(1)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="1.yaml",
+            target_ref_prefix="us:statutes/26/999/1",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Target-specific schema limit" not in prompt
 
     def test_build_eval_prompt_recommends_final_deduction_imports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"

@@ -1870,8 +1870,25 @@ def _sibling_parenthetical_marker_pattern(
 def _numeric_sibling_parenthetical_marker(fragment: str) -> str:
     stem = fragment.split(".", 1)[0]
     same_stem = _same_stem_dotted_sibling_marker(stem, fragment)
-    next_stem = str(int(stem) + 1)
-    return rf"\((?:{same_stem}|{next_stem}(?:\.[0-9]+)*)\)"
+    following_stem = _following_numeric_parenthetical_stem_marker(stem)
+    return rf"\((?:{same_stem}|{following_stem}(?:\.[0-9]+)*)\)"
+
+
+def _following_numeric_parenthetical_stem_marker(stem: str) -> str:
+    digits = str(int(stem))
+    same_width_patterns: list[str] = []
+    for idx, digit in enumerate(digits):
+        lower = int(digit) + 1
+        if idx == 0:
+            lower = max(lower, 1)
+        if lower > 9:
+            continue
+        prefix = re.escape(digits[:idx])
+        suffix_len = len(digits) - idx - 1
+        suffix = rf"[0-9]{{{suffix_len}}}" if suffix_len else ""
+        same_width_patterns.append(rf"{prefix}[{lower}-9]{suffix}")
+    longer_width = rf"[1-9][0-9]{{{len(digits)},}}"
+    return "(?:" + "|".join([*same_width_patterns, longer_width]) + ")"
 
 
 def _alpha_sibling_parenthetical_marker(fragment: str, *, top_level: bool) -> str:
