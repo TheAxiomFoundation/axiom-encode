@@ -13353,13 +13353,8 @@ mappings:
   - legal_id: us-tn:regulations/1240-01/04/27/block-1#snap_standard_deduction
     country: us
     program: snap
-    mapping_type: direct_variable
-    policyengine_variable: snap_standard_deduction
-    entity: spm_unit
-    period: month
-    unit: USD
-    comparison: money
-    rationale: "State SNAP output `snap_standard_deduction` matches the PolicyEngine variable `snap_standard_deduction` via the ECPS adapter catalog (rule_names includes `snap_standard_deduction`)."
+    mapping_type: not_comparable
+    rationale: "Historical Tennessee regulation table value from 1240-01-04-.27 block 1. It shares the generic rule name `snap_standard_deduction`, but the encoded table is not the current FY PolicyEngine SNAP standard deduction parameter and should not be treated as a direct oracle comparable."
 
   - legal_id: us-tn:regulations/1240-01/04/27/block-1#snap_max_shelter_deduction_non_elderly_disabled
     country: us
@@ -13370,13 +13365,8 @@ mappings:
   - legal_id: us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance
     country: us
     program: snap
-    mapping_type: direct_variable
-    policyengine_variable: snap_standard_utility_allowance
-    entity: spm_unit
-    period: month
-    unit: USD
-    comparison: money
-    rationale: "State SNAP output `snap_standard_utility_allowance` matches the PolicyEngine variable `snap_standard_utility_allowance` via the ECPS adapter catalog (rule_names includes `snap_standard_utility_allowance`)."
+    mapping_type: not_comparable
+    rationale: "Historical Tennessee regulation table value from 1240-01-04-.27 block 1. It shares the generic rule name `snap_standard_utility_allowance`, but the encoded table is not the current FY PolicyEngine SNAP utility allowance parameter and should not be treated as a direct oracle comparable."
 
   - legal_id: us-tn:regulations/1240-01/04/27/block-1#snap_basic_utility_allowance
     country: us
