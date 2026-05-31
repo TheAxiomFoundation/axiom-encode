@@ -26,8 +26,11 @@ from axiom_encode.cli import (
     _append_generated_judgment_positive_tests_if_missing,
     _apply_generated_encoding_result,
     _california_snap_repair_guard_manifest_groups,
+    _collapse_additive_versioned_derived_formulas,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
+    _convert_indexed_parameter_values_to_derived_formulas,
+    _convert_versioned_boolean_parameters_to_indicators,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
@@ -42,11 +45,13 @@ from axiom_encode.cli import (
     _local_factual_input_names_from_rules_content,
     _looks_like_absolute_rulespec_output_target,
     _person_scoped_definition_issue_names,
+    _promote_boolean_comparison_predicates_to_judgment,
     _qualify_deferred_output_subsection_paths,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
     _remove_unknown_test_output_refs,
     _repair_anaphoric_scope_identifiers,
+    _repair_bare_indexed_parameter_references,
     _repair_california_snap_policy_composition,
     _repair_california_snap_program_tests,
     _repair_colorado_snap_401,
@@ -85,8 +90,10 @@ from axiom_encode.cli import (
     _source_relation_preservation_issues,
     _split_table_row_relation_test_cases,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
+    _try_repair_generated_boolean_comparison_predicates_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
+    _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
@@ -3945,6 +3952,685 @@ module:
             "us:statutes/26/3241/b#section_3201_applicable_percentage_for_tax_unit"
         ]
         assert run.outcome["auto_repaired_module_rules"] == ["tier_2_employee_tax"]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_collapse_additive_versioned_derived_formulas(self, tmp_path):
+        rules_file = tmp_path / "39-22-123.5.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: colorado_eitc_applicable_percentage
+  kind: derived
+  entity: Person
+  dtype: Number
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+      - path: versions[1].formula
+        kind: formula
+      - path: versions[2].formula
+        kind: formula
+  versions:
+  - effective_from: '2024-01-01'
+    formula: colorado_eitc_base_percentage
+  - effective_from: '2025-01-01'
+    formula: colorado_eitc_base_percentage + colorado_eitc_2025_adjustment
+  - effective_from: '2026-01-01'
+    formula: colorado_eitc_base_percentage + colorado_eitc_2026_adjustment
+"""
+        )
+
+        repaired = _collapse_additive_versioned_derived_formulas(rules_file)
+
+        assert repaired == ["colorado_eitc_applicable_percentage"]
+        payload = yaml.safe_load(rules_file.read_text())
+        rule = payload["rules"][0]
+        assert rule["versions"] == [
+            {
+                "effective_from": "2024-01-01",
+                "formula": (
+                    "colorado_eitc_base_percentage + "
+                    "(if taxable_year_uses_colorado_eitc_applicable_percentage_version_2: "
+                    "colorado_eitc_2025_adjustment else: 0) + "
+                    "(if taxable_year_uses_colorado_eitc_applicable_percentage_version_3: "
+                    "colorado_eitc_2026_adjustment else: 0)"
+                ),
+            }
+        ]
+        assert {atom["path"] for atom in rule["metadata"]["proof"]["atoms"]} == {
+            "versions[0].formula"
+        }
+
+    def test_collapse_additive_versioned_derived_formulas_skips_branches(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "branch.yaml"
+        original = """format: rulespec/v1
+rules:
+- name: branching_rule
+  kind: derived
+  entity: Person
+  dtype: Number
+  period: Year
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if eligible: amount else: 0'
+  - effective_from: '2026-01-01'
+    formula: 'if eligible: amount + bonus else: 0'
+"""
+        rules_file.write_text(original)
+
+        assert _collapse_additive_versioned_derived_formulas(rules_file) == []
+        assert rules_file.read_text() == original
+
+    def test_collapse_versioned_derived_conditional_rates_to_base_parameter(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "credit.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: colorado_eitc_regular_allowed
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Year
+  source: 39-22-123.5(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+      - path: versions[1].formula
+        kind: amount
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if resident_individual: federal_eitc * 0.35 else: 0'
+  - effective_from: '2026-01-01'
+    formula: 'if resident_individual: federal_eitc * (0.25 + adjustment_2026) else: 0'
+"""
+        )
+
+        repaired = _collapse_additive_versioned_derived_formulas(rules_file)
+
+        assert repaired == [
+            "colorado_eitc_regular_allowed_base_percentage",
+            "colorado_eitc_regular_allowed",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        parameter, rule = payload["rules"]
+        assert parameter["name"] == "colorado_eitc_regular_allowed_base_percentage"
+        assert parameter["kind"] == "parameter"
+        assert parameter["versions"] == [
+            {"effective_from": "2025-01-01", "formula": "0.35"},
+            {"effective_from": "2026-01-01", "formula": "0.25"},
+        ]
+        assert rule["versions"] == [
+            {
+                "effective_from": "2025-01-01",
+                "formula": (
+                    "if resident_individual: federal_eitc * "
+                    "(colorado_eitc_regular_allowed_base_percentage + "
+                    "(if taxable_year_uses_colorado_eitc_regular_allowed_version_2: "
+                    "adjustment_2026 else: 0)) "
+                    "else: 0"
+                ),
+            }
+        ]
+        assert {atom["path"] for atom in rule["metadata"]["proof"]["atoms"]} == {
+            "versions[0].formula"
+        }
+
+    def test_collapse_versioned_selector_formulas_adds_date_window_inputs(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "credit.yaml"
+        test_file = tmp_path / "credit.test.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: colorado_eitc_adjustment_percentage_point_increase
+  kind: derived
+  entity: Person
+  dtype: Number
+  period: Year
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: default
+      - path: versions[1].formula
+        kind: formula
+      - path: versions[2].formula
+        kind: formula
+  versions:
+  - effective_from: '2013-08-07'
+    formula: '0'
+  - effective_from: '2025-01-01'
+    formula: colorado_eitc_2025_adjustment
+  - effective_from: '2026-01-01'
+    formula: colorado_eitc_later_adjustment
+"""
+        )
+        test_file.write_text(
+            """- name: old_year
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input:
+    us-co:statutes/39/39-22-123.5#input.existing: true
+  output:
+    us-co:statutes/39/39-22-123.5#colorado_eitc_adjustment_percentage_point_increase: 0
+- name: later_year
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us-co:statutes/39/39-22-123.5#input.existing: true
+  output:
+    us-co:statutes/39/39-22-123.5#colorado_eitc_adjustment_percentage_point_increase: 0.15
+"""
+        )
+
+        repaired = _collapse_additive_versioned_derived_formulas(rules_file, test_file)
+
+        assert repaired == ["colorado_eitc_adjustment_percentage_point_increase"]
+        payload = yaml.safe_load(rules_file.read_text())
+        rule = payload["rules"][0]
+        assert rule["versions"] == [
+            {
+                "effective_from": "2013-08-07",
+                "formula": (
+                    "if taxable_year_uses_colorado_eitc_adjustment_percentage_point_increase_version_3: "
+                    "colorado_eitc_later_adjustment else: "
+                    "if taxable_year_uses_colorado_eitc_adjustment_percentage_point_increase_version_2: "
+                    "colorado_eitc_2025_adjustment else: 0"
+                ),
+            }
+        ]
+        tests = yaml.safe_load(test_file.read_text())
+        old_inputs = tests[0]["input"]
+        later_inputs = tests[1]["input"]
+        version_2 = (
+            "us-co:statutes/39/39-22-123.5#input."
+            "taxable_year_uses_colorado_eitc_adjustment_percentage_point_increase_version_2"
+        )
+        version_3 = (
+            "us-co:statutes/39/39-22-123.5#input."
+            "taxable_year_uses_colorado_eitc_adjustment_percentage_point_increase_version_3"
+        )
+        assert old_inputs[version_2] is False
+        assert old_inputs[version_3] is False
+        assert later_inputs[version_2] is False
+        assert later_inputs[version_3] is True
+
+    def test_promote_boolean_comparison_predicates_to_judgment_updates_tests(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "credit.yaml"
+        test_file = tmp_path / "credit.test.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: credit_excluded_from_income
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: credit_amount > 0
+- name: unrelated_boolean_comparison
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: other_amount > 0
+"""
+        )
+        test_file.write_text(
+            """- name: positive
+  output:
+    us-co:statutes/39/39-22-123.5#credit_excluded_from_income: true
+- name: negative
+  output:
+    us-co:statutes/39/39-22-123.5#credit_excluded_from_income: false
+"""
+        )
+
+        repaired = _promote_boolean_comparison_predicates_to_judgment(
+            rules_file,
+            test_file,
+            names={"credit_excluded_from_income"},
+        )
+
+        assert repaired == ["credit_excluded_from_income"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["dtype"] == "Judgment"
+        assert payload["rules"][1]["dtype"] == "Boolean"
+        tests = yaml.safe_load(test_file.read_text())
+        assert (
+            tests[0]["output"][
+                "us-co:statutes/39/39-22-123.5#credit_excluded_from_income"
+            ]
+            == "holds"
+        )
+        assert (
+            tests[1]["output"][
+                "us-co:statutes/39/39-22-123.5#credit_excluded_from_income"
+            ]
+            == "not_holds"
+        )
+
+    def test_boolean_comparison_repair_falls_back_to_single_candidate(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "credit.yaml"
+        test_file = output_root / "runner" / "credit.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: credit_excluded_from_income
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: credit_amount > 0
+"""
+        )
+        test_file.write_text(
+            """- name: positive
+  output:
+    us-co:statutes/39/39-22-123.5#credit_excluded_from_income: true
+"""
+        )
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_boolean_comparison_predicates_for_apply(
+            result,
+            output_root=output_root,
+            issues=["formula lower error: binary op Gt in scalar position"],
+        )
+
+        assert repaired == ["credit_excluded_from_income"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][0]["dtype"] == "Judgment"
+        tests = yaml.safe_load(test_file.read_text())
+        assert (
+            tests[0]["output"][
+                "us-co:statutes/39/39-22-123.5#credit_excluded_from_income"
+            ]
+            == "holds"
+        )
+
+    def test_boolean_comparison_repair_skips_ambiguous_unnamed_error(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "credit.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: credit_excluded_from_income
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: credit_amount > 0
+- name: unrelated_boolean_comparison
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: other_amount > 0
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_boolean_comparison_predicates_for_apply(
+            result,
+            output_root=output_root,
+            issues=["formula lower error: binary op Gt in scalar position"],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_boolean_comparison_repair_skips_scalar_conditional_candidate(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "runner" / "credit.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+rules:
+- name: threshold_indicator
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if income > threshold: 1 else: 0'
+- name: broken_amount
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: amount + (income > threshold)
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(output_file=rules_file, runner="runner")
+
+        repaired = _try_repair_generated_boolean_comparison_predicates_for_apply(
+            result,
+            output_root=output_root,
+            issues=["formula lower error: binary op Gt in scalar position"],
+        )
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_convert_versioned_boolean_parameters_to_indicators(self, tmp_path):
+        rules_file = tmp_path / "credit.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: transition_rule_applies
+  kind: parameter
+  dtype: Boolean
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'false'
+  - effective_from: '2025-01-01'
+    formula: 'true'
+- name: credit_percentage_adjustment
+  kind: derived
+  entity: Person
+  dtype: Rate
+  period: Year
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'if transition_rule_applies: 0.15 else: 0'
+"""
+        )
+
+        repaired = _convert_versioned_boolean_parameters_to_indicators(
+            rules_file,
+            names={"transition_rule_applies"},
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == ["transition_rule_applies"]
+        assert payload["rules"][0]["dtype"] == "Integer"
+        assert [version["formula"] for version in payload["rules"][0]["versions"]] == [
+            "0",
+            "1",
+        ]
+        assert payload["rules"][1]["versions"][0]["formula"] == (
+            "if transition_rule_applies > 0: 0.15 else: 0"
+        )
+
+    def test_convert_indexed_parameter_values_to_derived_formulas(self, tmp_path):
+        rules_file = tmp_path / "credit.yaml"
+        test_file = tmp_path / "credit.test.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: later_adjustment_factor_band
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 0
+- name: later_adjustment_percentage_point_increase_by_band
+  kind: parameter
+  dtype: Rate
+  indexed_by: later_adjustment_factor_band
+  metadata:
+    proof:
+      atoms:
+      - path: values[1].value
+        kind: parameter
+  values:
+  - effective_from: '0001-01-01'
+    value:
+      0: 0
+      5: 0
+  - effective_from: '2026-01-01'
+    value:
+      0: 0
+      5: 0.05
+      10: 0.10
+"""
+        )
+        test_file.write_text(
+            """- name: prior_year
+  period: '2025'
+  output:
+    us-co:statutes/39/39-22-123.5#later_adjustment_percentage_point_increase_by_band: 0
+- name: later_year
+  period: '2026'
+  output:
+    us-co:statutes/39/39-22-123.5#later_adjustment_percentage_point_increase_by_band: 0.1
+"""
+        )
+
+        repaired = _convert_indexed_parameter_values_to_derived_formulas(
+            rules_file,
+            test_file,
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        repaired_rule = payload["rules"][1]
+        assert repaired == ["later_adjustment_percentage_point_increase_by_band"]
+        assert repaired_rule["kind"] == "derived"
+        assert repaired_rule["entity"] == "Person"
+        assert repaired_rule["period"] == "Year"
+        assert "indexed_by" not in repaired_rule
+        assert "values" not in repaired_rule
+        assert repaired_rule["versions"] == [
+            {
+                "effective_from": "0001-01-01",
+                "formula": (
+                    "if taxable_year_uses_later_adjustment_percentage_point_increase_by_band_version_2: "
+                    "(if later_adjustment_factor_band == 10: 0.1 else: "
+                    "if later_adjustment_factor_band == 5: 0.05 else: 0) "
+                    "else: 0"
+                ),
+            }
+        ]
+        assert (
+            repaired_rule["metadata"]["proof"]["atoms"][0]["path"]
+            == "versions[0].formula"
+        )
+        tests = yaml.safe_load(test_file.read_text())
+        selector = (
+            "us-co:statutes/39/39-22-123.5#input."
+            "taxable_year_uses_later_adjustment_percentage_point_increase_by_band_version_2"
+        )
+        assert tests[0]["input"][selector] is False
+        assert tests[1]["input"][selector] is True
+
+    def test_convert_indexed_parameter_values_skips_unsafe_literals(self, tmp_path):
+        rules_file = tmp_path / "credit.yaml"
+        original = """format: rulespec/v1
+rules:
+- name: later_adjustment_factor_band
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 0
+- name: later_adjustment_percentage_point_increase_by_band
+  kind: parameter
+  dtype: Rate
+  indexed_by: later_adjustment_factor_band
+  values:
+  - effective_from: '2026-01-01'
+    value:
+      0: 0
+      "5+": 0.05
+"""
+        rules_file.write_text(original)
+
+        repaired = _convert_indexed_parameter_values_to_derived_formulas(rules_file)
+
+        assert repaired == []
+        assert rules_file.read_text() == original
+
+    def test_repair_bare_indexed_parameter_references(self, tmp_path):
+        rules_file = tmp_path / "credit.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: estimated_adjustment_factor_later_band
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '3'
+- name: later_adjustment_percentage_point_increase
+  kind: parameter
+  dtype: Rate
+  indexed_by: estimated_adjustment_factor_later_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      0: 0
+      3: 0.15
+- name: applicable_percentage_of_federal_credit
+  kind: derived
+  entity: Person
+  dtype: Rate
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'base_percentage + later_adjustment_percentage_point_increase'
+- name: already_indexed_percentage
+  kind: derived
+  entity: Person
+  dtype: Rate
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'later_adjustment_percentage_point_increase[estimated_adjustment_factor_later_band]'
+"""
+        )
+
+        repaired = _repair_bare_indexed_parameter_references(rules_file)
+
+        assert repaired == ["applicable_percentage_of_federal_credit"]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert payload["rules"][2]["versions"][0]["formula"] == (
+            "base_percentage + "
+            "later_adjustment_percentage_point_increase[estimated_adjustment_factor_later_band]"
+        )
+        assert payload["rules"][3]["versions"][0]["formula"] == (
+            "later_adjustment_percentage_point_increase[estimated_adjustment_factor_later_band]"
+        )
+
+    def test_indexed_parameter_lookup_repair_runs_before_initial_overlay(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(True)
+        output_file = (
+            tmp_path
+            / "out"
+            / "codex-test-model"
+            / "statutes"
+            / "39"
+            / "39-22-123.5.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: estimated_adjustment_factor_later_band
+  kind: derived
+  entity: Person
+  dtype: Integer
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0'
+- name: later_adjustment_percentage_point_increase
+  kind: parameter
+  dtype: Rate
+  indexed_by: estimated_adjustment_factor_later_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      0: 0
+      3: 0.15
+- name: applicable_percentage_of_federal_credit
+  kind: derived
+  entity: Person
+  dtype: Rate
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'base_percentage + later_adjustment_percentage_point_increase'
+"""
+        )
+        result.output_file = str(output_file)
+        applied_file = args.policy_repo_path / "statutes/39/39-22-123.5.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], {}),
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, {}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        output = capsys.readouterr().out
+        assert (
+            "apply=auto_repaired_indexed_parameter_lookups:"
+            "applicable_percentage_of_federal_credit"
+        ) in output
+        repaired = yaml.safe_load(output_file.read_text())
+        assert repaired["rules"][2]["versions"][0]["formula"] == (
+            "base_percentage + "
+            "later_adjustment_percentage_point_increase[estimated_adjustment_factor_later_band]"
+        )
+        mock_overlay.assert_called_once()
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_indexed_parameter_lookups"] == [
+            "applicable_percentage_of_federal_credit"
+        ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
@@ -8965,6 +9651,66 @@ rules: []
             }
         ]
         assert payload["rules"] == []
+
+    def test_nonoperative_source_coverage_repair_adds_deferred_output(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/39/39-22-123.5.yaml"
+        rules_file.parent.mkdir(parents=True)
+        policy_repo = tmp_path / "rulespec-us-co"
+        policy_repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-co/statute/39/39-22-123.5
+  summary: Colorado earned income tax credit.
+rules:
+- name: colorado_earned_income_tax_credit
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: 39-22-123.5(2)
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 0
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_nonoperative_source_coverage_for_apply(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+            issues=[
+                "statutes/39/39-22-123.5.yaml: ci: Source sub-paragraph "
+                "coverage missing: 39-22-123.5(h) ('Now, therefore, it is "
+                "the intent of the general assembly to establish a permanent "
+                "and refundable state earned income tax credit') has no rule "
+                "citing it and no entry in `module.deferred_outputs`."
+            ],
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == ["us-co:statutes/39/39-22-123.5/h#legislative_intent"]
+        assert payload["module"]["deferred_outputs"] == [
+            {
+                "output": ("us-co:statutes/39/39-22-123.5/h#legislative_intent"),
+                "reason": (
+                    "Source subparagraph states legislative findings, intent, "
+                    "or purpose and does not define an executable RuleSpec "
+                    "calculation, eligibility condition, or parameter."
+                ),
+            }
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "colorado_earned_income_tax_credit"
+        ]
 
     def test_missing_same_section_import_repair_adds_existing_file_import(
         self, tmp_path

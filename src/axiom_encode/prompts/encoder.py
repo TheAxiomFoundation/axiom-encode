@@ -146,8 +146,9 @@ Hard requirements:
   `*_lower_bound_band_9`. Define a source-backed band selector as a `derived`
   rule, store each substantive output column as a `kind: parameter` with
   `indexed_by: <band_selector>` and versioned `values`, and have the exported
-  outputs look up the indexed table. Indexed table keys must be integer or
-  numeric keys supported by the RuleSpec engine, not strings such as
+  outputs look up the indexed table with `table_name[band_selector]`; do not
+  use the table parameter bare as a scalar. Indexed table keys must be integer
+  or numeric keys supported by the RuleSpec engine, not strings such as
   `2_5_to_less_than_3_0`. Use structural row bounds inline in the band selector;
   do not promote those row labels to public parameter outputs. Preserve source
   row identity: open lower or upper interval cells are real rows, not defaults
@@ -392,6 +393,21 @@ Hard requirements:
   mixed provision, add `module.deferred_outputs[]` with absolute RuleSpec
   targets for `output`, a plain-language `reason`, and `source_values` entries
   for any source-stated local parameters retained only for that deferred output.
+  Non-operative legislative findings, preambles, intent clauses, and purpose
+  clauses still count for source coverage. Do not turn them into executable
+  formulas; add `module.deferred_outputs[]` for the specific subparagraph with
+  a reason explaining that the text is non-operative legislative intent,
+  findings, or purpose.
+  Do not emit `kind: parameter`, `dtype: Boolean` for date-versioned
+  applicability flags. If a source-stated date flag is needed inside formulas,
+  encode it as a numeric 1/0 indicator parameter and compare it explicitly
+  (for example, `if transition_rule_indicator > 0: ...`), or fold the date
+  effect into the rate, amount, or threshold parameter that uses it.
+  Do not emit top-level `values` lookup tables outside `versions`.
+  Source-backed indexed parameter tables may use `indexed_by` with
+  `versions[].values`; small executable outputs that are not reusable source
+  tables should use explicit derived formulas such as
+  `if band == 10: 0.10 else: ...`.
   Treat category membership phrases such as `person described in section X`,
   `organization described in section X`, or `service described in section X` as
   factual boundary predicates when the current source states the legal effect.
@@ -804,6 +820,10 @@ Hard requirements:
   source-faithful conditional formula when the provision itself defines a
   temporal branch, or encode only the currently applicable provision after
   resolving the source context.
+  When a derived result changes only because a base rate, threshold, cap, or
+  additive adjustment changes over time, put the dated changes on named
+  `parameter` or helper rules and keep the consuming `kind: derived` rule to
+  one formula, such as `base_rate + temporary_adjustment + later_adjustment`.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==`, `and`, and `or`.
   Do not write `else if` or `elif`; chain branches as
   `if condition: value else: if next_condition: next_value else: fallback`.
@@ -877,7 +897,8 @@ Hard requirements:
 - When using negated conjuncts, write them as a multiline formula with each
   `not <predicate>` term on its own line joined by `and`, rather than one
   compact `not A and not B` line.
-- Formula strings reference indexed parameter tables with `table_name[index_expr]`.
+- Formula strings reference indexed parameter tables with `table_name[index_expr]`,
+  never as a bare `table_name` scalar.
 - Every substantive numeric literal must be grounded in the supplied source text unless it is -1, 0, 1, 2, or 3.
 - If you encode a substantive numeric literal, `module.summary` or the rule's proof excerpt
   must include the exact source phrase containing that number. Do not omit a
