@@ -1011,6 +1011,17 @@ mappings:
     comparison: money
     rationale: Same pre-credit Colorado income tax on the subsection (2)-modified tax base; PE computes co_taxable_income times the Colorado income-tax rate before nonrefundable credits.
 
+  - legal_id: us-co:statutes/39/39-22-104/2#federal_taxable_income_after_subsection_2_modifications
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: co_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado taxable income base before applying the state rate; PE computes federal taxable income plus Colorado additions minus Colorado subtractions, floored at zero.
+
   - legal_id: us-co:statutes/39/39-22-104/1.7/a#individual_estate_trust_income_tax_rate_before_2020
     country: us
     program: tax
@@ -1167,6 +1178,56 @@ mappings:
     policyengine_variable: co_federal_deduction_addback
     candidate_priority: P3
     rationale: This RuleSpec output is the subsection (3)(p.5) initial-window amount and includes the healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback amount without that repeal condition.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_federal_adjusted_gross_income_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.agi_threshold
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado federal deduction addback AGI threshold for the ongoing subsection (3)(p.7) rule.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_single_return_deduction_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
+    candidate_priority: P2
+    rationale: This RuleSpec parameter is the 2026 ongoing subsection (3)(p.7) single-return exemption amount; PolicyEngine's federal-deduction exemption table currently retains the prior $12,000 single-filer schedule, so this is an adjacent PE target but not a valid parameter comparison.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_joint_return_deduction_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
+    candidate_priority: P2
+    rationale: This RuleSpec parameter is the 2026 ongoing subsection (3)(p.7) joint-return exemption amount; PolicyEngine's federal-deduction exemption table currently retains the prior $16,000 joint-filer schedule, so this is an adjacent PE target but not a valid parameter comparison.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_return_deduction_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.co.tax.income.additions.federal_deductions.exemption
+    candidate_priority: P4
+    rationale: This RuleSpec output selects the subsection (3)(p.7) single or joint exemption and returns zero outside those filing statuses; PolicyEngine stores the filing-status keyed exemption table rather than exposing this statutory selector as a variable.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_itemized_or_standard_deduction_addition_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_federal_deduction_addback_required
+    candidate_priority: P3
+    rationale: This RuleSpec predicate includes the subsection (3)(p.7) ongoing source-window boundary and healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback predicate without that repeal condition.
+
+  - legal_id: us-co:statutes/39/39-22-104/3/p/7#ongoing_itemized_or_standard_deduction_addition_to_federal_taxable_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_federal_deduction_addback
+    candidate_priority: P3
+    rationale: This RuleSpec output is the subsection (3)(p.7) ongoing amount and includes the healthy-school-meals repeal exception; PolicyEngine exposes a unified federal-deduction addback amount without that repeal condition.
 
   - legal_id: us-co:statutes/39/39-22-104/4/a#united_states_possessions_obligations_interest_income_subtraction
     country: us
@@ -13804,6 +13865,22 @@ mappings:
     rationale: "Source-specific intermediate output (rule `timely_application_for_recertification`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
 prefixes:
+  - legal_id_prefix: us-co:statutes/39/39-22-104/3/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_additions
+    candidate_priority: P3
+    rationale: Remaining Colorado subsection 3 generated outputs decompose source-specific federal-taxable-income additions, predicates, timing windows, and caps; exact mappings above compare PE-exposed parameters or one-to-one variables, while PolicyEngine otherwise exposes only aggregate co_additions and selected addback variables. Keep this prefix visible in candidate triage because future generated outputs may deserve exact mappings.
+
+  - legal_id_prefix: us-co:statutes/39/39-22-104/4/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_subtractions
+    candidate_priority: P3
+    rationale: Remaining Colorado subsection 4 generated outputs decompose source-specific federal-taxable-income subtractions, predicates, timing windows, and caps; exact mappings above compare PE-exposed parameters or one-to-one variables, while PolicyEngine otherwise exposes only aggregate co_subtractions and selected subtraction variables. Keep this prefix visible in candidate triage because future generated outputs may deserve exact mappings.
+
   - legal_id_prefix: us-co:statutes/39/39-22-105#
     country: us
     program: tax

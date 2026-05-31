@@ -898,6 +898,98 @@ rules:
     assert tax["test_output_count"] == 1
 
 
+def test_policyengine_coverage_maps_colorado_taxable_income_base(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: federal_taxable_income_after_subsection_2_modifications
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1987-01-01'
+        formula: 'max(0, federal_taxable_income + additions - subtractions)'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/2.test.yaml",
+        """- name: taxable income base is tested
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/2#federal_taxable_income_after_subsection_2_modifications: 90000
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"comparable": 1}
+    item = report["items"][0]
+    assert (
+        item["legal_id"]
+        == "us-co:statutes/39/39-22-104/2#federal_taxable_income_after_subsection_2_modifications"
+    )
+    assert item["policyengine_variable"] == "co_taxable_income"
+    assert item["tested"] is True
+    assert item["test_output_count"] == 1
+
+
+def test_policyengine_coverage_classifies_remaining_colorado_104_adjustments(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/a.yaml",
+        """format: rulespec/v1
+rules:
+  - name: federal_net_operating_loss_carryover_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1987-01-01'
+        formula: federal_net_operating_loss_carryover
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/z.yaml",
+        """format: rulespec/v1
+rules:
+  - name: retroactive_cares_act_subtraction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2021-01-01'
+        formula: retroactive_cares_act_subtraction_calculated_before_limitation
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    addition = items_by_id[
+        "us-co:statutes/39/39-22-104/3/a#federal_net_operating_loss_carryover_addition_to_federal_taxable_income"
+    ]
+    subtraction = items_by_id[
+        "us-co:statutes/39/39-22-104/4/z#retroactive_cares_act_subtraction"
+    ]
+    assert addition["policyengine_variable"] == "co_additions"
+    assert addition["candidate_priority"] == "P3"
+    assert subtraction["policyengine_variable"] == "co_subtractions"
+    assert subtraction["candidate_priority"] == "P3"
+
+
 def test_policyengine_coverage_classifies_colorado_base_rates_not_comparable(
     tmp_path,
 ):
@@ -1185,6 +1277,59 @@ rules:
 """,
     )
     _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/p/7.yaml",
+        """format: rulespec/v1
+rules:
+  - name: ongoing_federal_adjusted_gross_income_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '300000'
+  - name: ongoing_single_return_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '1000'
+  - name: ongoing_joint_return_deduction_threshold
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '2000'
+  - name: ongoing_return_deduction_threshold
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'if single: ongoing_single_return_deduction_threshold else: ongoing_joint_return_deduction_threshold'
+  - name: ongoing_itemized_or_standard_deduction_addition_applies
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: claims_deduction and not healthy_school_meals_repealed
+  - name: ongoing_itemized_or_standard_deduction_addition_to_federal_taxable_income
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'if ongoing_itemized_or_standard_deduction_addition_applies: deduction_excess else: 0'
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/3/p/7.test.yaml",
+        """- name: subsection p7 deduction addback outputs
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    us-co:statutes/39/39-22-104/3/p/7#ongoing_federal_adjusted_gross_income_threshold: 300000
+    us-co:statutes/39/39-22-104/3/p/7#ongoing_single_return_deduction_threshold: 1000
+    us-co:statutes/39/39-22-104/3/p/7#ongoing_joint_return_deduction_threshold: 2000
+    us-co:statutes/39/39-22-104/3/p/7#ongoing_return_deduction_threshold: 1000
+    us-co:statutes/39/39-22-104/3/p/7#ongoing_itemized_or_standard_deduction_addition_applies: holds
+    us-co:statutes/39/39-22-104/3/p/7#ongoing_itemized_or_standard_deduction_addition_to_federal_taxable_income: 8000
+""",
+    )
+    _write_rulespec_file(
         tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/m.yaml",
         """format: rulespec/v1
 rules:
@@ -1217,10 +1362,10 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="tax")
 
-    assert report["total_outputs"] == 15
+    assert report["total_outputs"] == 21
     assert report["status_counts"] == {
-        "comparable": 9,
-        "known_not_comparable": 6,
+        "comparable": 10,
+        "known_not_comparable": 11,
     }
     assert report["untested_comparable"] == 0
     items_by_id = {item["legal_id"]: item for item in report["items"]}
@@ -1235,6 +1380,15 @@ rules:
     ]
     p5_addback = items_by_id[
         "us-co:statutes/39/39-22-104/3/p/5#initial_window_addition_to_federal_taxable_income"
+    ]
+    p7_agi_threshold = items_by_id[
+        "us-co:statutes/39/39-22-104/3/p/7#ongoing_federal_adjusted_gross_income_threshold"
+    ]
+    p7_single_threshold = items_by_id[
+        "us-co:statutes/39/39-22-104/3/p/7#ongoing_single_return_deduction_threshold"
+    ]
+    p7_addback = items_by_id[
+        "us-co:statutes/39/39-22-104/3/p/7#ongoing_itemized_or_standard_deduction_addition_to_federal_taxable_income"
     ]
     charitable_floor = items_by_id[
         "us-co:statutes/39/39-22-104/4/m#charitable_contribution_subtraction_floor"
@@ -1258,6 +1412,19 @@ rules:
     )
     assert p5_addback["status"] == "known_not_comparable"
     assert p5_addback["policyengine_variable"] == "co_federal_deduction_addback"
+    assert (
+        p7_agi_threshold["policyengine_parameter"]
+        == "gov.states.co.tax.income.additions.federal_deductions.agi_threshold"
+    )
+    assert (
+        p7_single_threshold["policyengine_parameter"]
+        == "gov.states.co.tax.income.additions.federal_deductions.exemption"
+    )
+    assert p7_single_threshold["status"] == "known_not_comparable"
+    assert p7_single_threshold["candidate_priority"] == "P2"
+    assert p7_single_threshold["tested"] is True
+    assert p7_addback["status"] == "known_not_comparable"
+    assert p7_addback["policyengine_variable"] == "co_federal_deduction_addback"
     assert (
         charitable_floor["policyengine_parameter"]
         == "gov.states.co.tax.income.subtractions.charitable_contribution.adjustment"
