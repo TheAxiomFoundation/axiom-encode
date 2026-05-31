@@ -2150,7 +2150,12 @@ def _select_same_section_subsection_context_files(
             )
             if candidate_rel == target_rel:
                 continue
-            candidates = _cited_context_candidates(policy_root, candidate_rel)
+            candidates = _cited_context_candidates(
+                policy_root,
+                candidate_rel,
+                max_child_candidates=None,
+                include_exporting_candidate_children=True,
+            )
             if not candidates:
                 continue
             for candidate in candidates:
@@ -2309,7 +2314,13 @@ def _citation_parts_from_match(match: re.Match[str]) -> CitationParts:
     return CitationParts("", section, fragments)
 
 
-def _cited_context_candidates(policy_root: Path, candidate_rel: Path) -> list[Path]:
+def _cited_context_candidates(
+    policy_root: Path,
+    candidate_rel: Path,
+    *,
+    max_child_candidates: int | None = 8,
+    include_exporting_candidate_children: bool = False,
+) -> list[Path]:
     """Return an exact cited RuleSpec file or child fragments when only a section exists."""
     candidate = policy_root / candidate_rel
     child_root = policy_root / candidate_rel.with_suffix("")
@@ -2323,9 +2334,12 @@ def _cited_context_candidates(policy_root: Path, candidate_rel: Path) -> list[Pa
         child_candidates.sort(
             key=lambda path: (len(path.relative_to(child_root).parts), str(path))
         )
-        child_candidates = child_candidates[:8]
+        if max_child_candidates is not None:
+            child_candidates = child_candidates[:max_child_candidates]
 
     if candidate.exists():
+        if include_exporting_candidate_children and child_candidates:
+            return [candidate, *child_candidates]
         if _context_file_exports(str(candidate)) or not child_candidates:
             return [candidate]
         return [candidate, *child_candidates]
@@ -4963,6 +4977,8 @@ def _format_partial_extent_child_schema_limit_guidance(
     scoped_source_text = _target_source_scope_for_heuristics(
         source_text, target_ref_prefix
     )
+    if _source_opens_amount_adjustment_list(scoped_source_text):
+        return ""
     if not _source_has_partial_extent_child_rewiring_limit(scoped_source_text):
         return ""
     child_prefix = f"{target_ref_prefix.rstrip('/')}/"
@@ -5143,6 +5159,20 @@ def _source_has_partial_extent_child_rewiring_limit(source_text: str) -> bool:
         ):
             return True
     return False
+
+
+def _source_opens_amount_adjustment_list(source_text: str) -> bool:
+    """Return true when the source opens an aggregate list of amount adjustments."""
+    normalized = " ".join(source_text.split())
+    return bool(
+        re.search(
+            r"\bthere\s+shall\s+be\s+"
+            r"(?:added|subtracted|deducted)\s+"
+            r"(?:to|from)\b",
+            normalized[:500],
+            re.IGNORECASE,
+        )
+    )
 
 
 def _format_child_exception_import_guidance(
