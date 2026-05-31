@@ -336,6 +336,12 @@ PE_US_VAR_ADAPTERS = (
         spm=True,
     ),
     PolicyEngineUSVarAdapter(
+        rule_names=("meets_snap_categorical_eligibility",),
+        pe_var="meets_snap_categorical_eligibility",
+        monthly=True,
+        spm=True,
+    ),
+    PolicyEngineUSVarAdapter(
         rule_names=("is_snap_eligible",),
         pe_var="is_snap_eligible",
         monthly=True,

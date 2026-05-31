@@ -37,6 +37,35 @@ mappings:
     candidate_priority: P4
     rationale: PolicyEngine exposes final SNAP eligibility including categorical, resource, and other conditions; this output is limited to the 7 USC 2014(c) income-standard ineligibility predicate.
 
+  - legal_id: us-al:policies/dhr/poe/chapter-09-income-and-deductions/900#household_meets_snap_income_eligibility_standards
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    policyengine_variable: meets_snap_gross_income_test
+    candidate_priority: P4
+    rationale: Alabama's manual output combines categorical eligibility, elderly-or-disabled net-only treatment, and gross/net income standards into a state income bridge. PolicyEngine exposes separate gross, net, categorical, and final eligibility variables, but not this exact combined state bridge.
+
+  - legal_id: us-ma:policies/dta/snap/fy-2026-cola/heating-cooling-standard-utility-allowance#heating_cooling_standard_utility_allowance
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: snap_standard_utility_allowance
+    entity: spm_unit
+    period: month
+    unit: USD
+    comparison: money
+    rationale: Massachusetts heating/cooling SUA is the state standard utility allowance amount when the PolicyEngine SNAP utility allowance type is SUA.
+
+  - legal_id: us-ma:regulations/106-cmr/365/180/A#snap_household_is_categorically_eligible
+    country: us
+    program: snap
+    mapping_type: direct_variable
+    policyengine_variable: meets_snap_categorical_eligibility
+    entity: spm_unit
+    period: month
+    comparison: boolean
+    rationale: Same Massachusetts SNAP categorical eligibility decision at the household/SPM-unit boundary.
+
   - legal_id: us:statutes/7/2014/e/2#snap_earned_income_deduction
     country: us
     program: snap
@@ -13855,6 +13884,18 @@ mappings:
     rationale: "Source-specific intermediate output (rule `timely_application_for_recertification`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
 prefixes:
+  - legal_id_prefix: us:_compose/ca-snap#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Legacy generated CA SNAP compose outputs are Axiom assembly points across federal and state rules. The dashboard compares the maintained axiom-programs composition instead of these stale compose artifacts.
+
+  - legal_id_prefix: us:_compose/ny-snap#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Legacy generated NY SNAP compose outputs are Axiom assembly points across federal and state rules. The dashboard compares the maintained axiom-programs composition instead of these stale compose artifacts.
+
   - legal_id_prefix: us-tn:policies/dhs/snap/
     country: us
     program: snap
