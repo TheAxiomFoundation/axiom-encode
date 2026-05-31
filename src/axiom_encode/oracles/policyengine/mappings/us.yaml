@@ -1311,6 +1311,30 @@ mappings:
     candidate_priority: P4
     rationale: This RuleSpec output is the person-level statutory subtraction amount; PE exposes a tax-unit aggregate limited to head and spouse military-retirement pay.
 
+  - legal_id: us-co:statutes/39/39-22-123.5#credit_percentage_after_revenue_adjustment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.co.tax.income.credits.eitc.match
+    candidate_priority: P2
+    rationale: This RuleSpec output computes Colorado's EITC percentage from the statutory base rate plus temporary and revenue-growth adjustments using the estimated adjustment factor; PolicyEngine stores a final date-varying match parameter and does not expose the adjustment-factor calculation boundary.
+
+  - legal_id: us-co:statutes/39/39-22-123.5#regular_federal_return_eitc_branch_before_part_year_apportionment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_eitc
+    candidate_priority: P2
+    rationale: This RuleSpec output is the person-level regular federal-return branch before part-year apportionment; PolicyEngine exposes a final tax-unit Colorado EITC amount computed from federal eitc and a date-varying match parameter, not this branch-specific statutory boundary.
+
+  - legal_id: us-co:statutes/39/39-22-123.5#missing_valid_ssn_eitc_branch_before_part_year_apportionment
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_eitc
+    candidate_priority: P2
+    rationale: This RuleSpec output is the Colorado branch for credits that would have been allowed but for missing valid employment Social Security numbers; PolicyEngine's co_eitc uses federal eitc and does not expose this alternate state statutory branch.
+
   - legal_id_prefix: us-ny:regulations/18-nycrr/387/14/a/1#
     country: us
     program: snap
@@ -13508,6 +13532,12 @@ mappings:
     rationale: "Source-specific intermediate output (rule `timely_application_for_recertification`, grounded against `Ala. Admin. Code 660-4-7-.08`). Not present in the PolicyEngine ECPS adapter catalog (`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an adapter entry once a one-to-one PE target is identified."
 
 prefixes:
+  - legal_id_prefix: us-co:statutes/39/39-22-123.5#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Colorado EITC generated outputs decompose statutory rates, revenue-growth adjustments, person-level branches, refundable-excess amounts, and public-benefit exclusions; PolicyEngine exposes only a final tax-unit co_eitc amount and date-varying match parameter unless an exact mapping above records a narrower adjacent target.
+
   - legal_id_prefix: us-az:policies/des/faa5/na-child-support-expense/allowable-deductions#
     country: us
     program: snap
