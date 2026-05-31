@@ -213,6 +213,8 @@ Hard requirements:
   export's `dtype:`. An imported `dtype: Judgment` is a predicate, not a scalar
   amount, rate, or base. Never multiply, add, subtract, divide, `min`, or `max`
   a Judgment import as if it were Money, Rate, Count, or another numeric value.
+  Do not compare a Judgment import to `0`, `1`, `true`, or `false`; use the
+  predicate directly (`judgment_name`) or its negation (`not judgment_name`).
   If the current source states a numeric base such as wages, remuneration,
   payments, or amounts attributable to a category and the copied import only
   identifies whether an item is attributable to that category, encode the source-stated numeric base as a local amount fact, or as a relation-filtered
