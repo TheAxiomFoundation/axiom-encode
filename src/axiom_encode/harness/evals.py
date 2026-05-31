@@ -1706,34 +1706,54 @@ def _slice_legal_text_by_parenthetical_fragments(
     text: str,
     fragments: tuple[str, ...],
 ) -> str | None:
-    current = text
-    depth = 0
-    while depth < len(fragments):
-        fragment = fragments[depth]
-        if depth + 1 < len(fragments):
-            combined = _combined_dotted_parenthetical_fragment(
-                fragment, fragments[depth + 1]
-            )
-            if combined is not None:
-                combined_slice = _slice_legal_text_by_parenthetical_fragment(
-                    current,
-                    combined,
-                    top_level=depth == 0,
-                )
-                if combined_slice is not None:
-                    current = combined_slice
-                    depth += 2
-                    continue
+    sliced = _slice_legal_text_by_parenthetical_fragments_from(
+        text,
+        fragments,
+        depth=0,
+    )
+    return sliced.strip() if sliced is not None else None
 
-        current = _slice_legal_text_by_parenthetical_fragment(
-            current,
-            fragment,
-            top_level=depth == 0,
+
+def _slice_legal_text_by_parenthetical_fragments_from(
+    text: str,
+    fragments: tuple[str, ...],
+    *,
+    depth: int,
+) -> str | None:
+    if not fragments:
+        return text
+
+    fragment = fragments[0]
+    simple_slice = _slice_legal_text_by_parenthetical_fragment(
+        text,
+        fragment,
+        top_level=depth == 0,
+    )
+    if simple_slice is not None:
+        simple_result = _slice_legal_text_by_parenthetical_fragments_from(
+            simple_slice,
+            fragments[1:],
+            depth=depth + 1,
         )
-        if current is None:
-            return None
-        depth += 1
-    return current.strip()
+        if simple_result is not None:
+            return simple_result
+
+    if len(fragments) >= 2:
+        combined = _combined_dotted_parenthetical_fragment(fragment, fragments[1])
+        if combined is not None:
+            combined_slice = _slice_legal_text_by_parenthetical_fragment(
+                text,
+                combined,
+                top_level=depth == 0,
+            )
+            if combined_slice is not None:
+                return _slice_legal_text_by_parenthetical_fragments_from(
+                    combined_slice,
+                    fragments[2:],
+                    depth=depth + 2,
+                )
+
+    return None
 
 
 def _combined_dotted_parenthetical_fragment(
@@ -1827,9 +1847,9 @@ def _sibling_parenthetical_marker_pattern(
     if re.fullmatch(r"\d+(?:\.\d+)*", fragment):
         marker = _numeric_sibling_parenthetical_marker(fragment)
     elif re.fullmatch(r"[A-Z](?:\.\d+)*", fragment):
-        marker = _alpha_sibling_parenthetical_marker(fragment)
+        marker = _alpha_sibling_parenthetical_marker(fragment, top_level=top_level)
     elif re.fullmatch(r"[a-z](?:\.\d+)*", fragment):
-        marker = _alpha_sibling_parenthetical_marker(fragment)
+        marker = _alpha_sibling_parenthetical_marker(fragment, top_level=top_level)
     elif len(fragment) == 1 and fragment.isalpha() and fragment.isupper():
         marker = (
             _next_alpha_parenthetical_marker(fragment) if top_level else r"\([A-Z]\)"
@@ -1854,17 +1874,33 @@ def _numeric_sibling_parenthetical_marker(fragment: str) -> str:
     return rf"\((?:{same_stem}|{next_stem}(?:\.[0-9]+)*)\)"
 
 
-def _alpha_sibling_parenthetical_marker(fragment: str) -> str:
+def _alpha_sibling_parenthetical_marker(fragment: str, *, top_level: bool) -> str:
     stem = fragment[0]
     same_stem = _same_stem_dotted_sibling_marker(stem, fragment)
+    following_stem = (
+        _next_alpha_parenthetical_stem_marker(stem)
+        if top_level
+        else _following_alpha_parenthetical_stem_marker(stem)
+    )
+    return rf"\((?:{same_stem}|{following_stem}(?:\.[0-9]+)*)\)"
+
+
+def _next_alpha_parenthetical_stem_marker(stem: str) -> str:
     next_codepoint = ord(stem) + 1
     if stem.islower() and next_codepoint <= ord("z"):
-        next_stem = chr(next_codepoint)
-    elif stem.isupper() and next_codepoint <= ord("Z"):
-        next_stem = chr(next_codepoint)
-    else:
-        next_stem = r"\b\B"
-    return rf"\((?:{same_stem}|{next_stem}(?:\.[0-9]+)*)\)"
+        return chr(next_codepoint)
+    if stem.isupper() and next_codepoint <= ord("Z"):
+        return chr(next_codepoint)
+    return r"\b\B"
+
+
+def _following_alpha_parenthetical_stem_marker(stem: str) -> str:
+    next_codepoint = ord(stem) + 1
+    if stem.islower() and next_codepoint <= ord("z"):
+        return f"[{chr(next_codepoint)}-z]"
+    if stem.isupper() and next_codepoint <= ord("Z"):
+        return f"[{chr(next_codepoint)}-Z]"
+    return r"\b\B"
 
 
 def _same_stem_dotted_sibling_marker(stem: str, fragment: str) -> str:
@@ -5019,7 +5055,7 @@ def _sibling_marker_pattern(fragment: str) -> str | None:
     if re.fullmatch(r"\d+(?:\.\d+)*", fragment):
         return _numeric_sibling_parenthetical_marker(fragment)
     if re.fullmatch(r"[a-z](?:\.\d+)*", fragment, flags=re.IGNORECASE):
-        return _alpha_sibling_parenthetical_marker(fragment)
+        return _alpha_sibling_parenthetical_marker(fragment, top_level=False)
     return None
 
 
