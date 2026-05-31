@@ -1328,6 +1328,84 @@ mappings:
     candidate_priority: P2
     rationale: This RuleSpec output is the person-level statutory AMT amount before the regular-tax offset and before nonresident apportionment; PolicyEngine exposes a tax-unit tentative minimum tax derived from its Colorado AMTI aggregate.
 
+  - legal_id: us-co:statutes/39/39-22-119.5#low_income_adjusted_gross_income_limit
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.cdcc.low_income.federal_agi_threshold
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado low-income child care expenses credit adjusted-gross-income threshold.
+
+  - legal_id: us-co:statutes/39/39-22-119.5#dependent_age_exclusive_limit
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.cdcc.low_income.child_age_threshold
+    period: year
+    comparison: count
+    rationale: Same Colorado low-income child care expenses credit child age threshold.
+
+  - legal_id: us-co:statutes/39/39-22-119.5#single_dependent_credit_cap_dependent_count
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.cdcc.low_income.max_amount
+    parameter_key_path:
+      - thresholds
+      - 1
+    period: year
+    comparison: count
+    rationale: Same Colorado low-income child care expenses credit dependent-count threshold for the single-dependent cap.
+
+  - legal_id: us-co:statutes/39/39-22-119.5#multiple_dependents_credit_cap_minimum_dependents
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.cdcc.low_income.max_amount
+    parameter_key_path:
+      - thresholds
+      - 2
+    period: year
+    comparison: count
+    rationale: Same Colorado low-income child care expenses credit dependent-count threshold for the multiple-dependent cap.
+
+  - legal_id: us-co:statutes/39/39-22-119.5#low_income_child_care_expenses_credit_percentage
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.cdcc.low_income.rate
+    period: year
+    comparison: rate
+    rationale: Same Colorado low-income child care expenses credit percentage.
+
+  - legal_id: us-co:statutes/39/39-22-119.5#single_dependent_credit_cap
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.cdcc.low_income.max_amount
+    parameter_key_path:
+      - amounts
+      - 1
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado low-income child care expenses credit cap for one dependent.
+
+  - legal_id: us-co:statutes/39/39-22-119.5#multiple_dependents_credit_cap
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.co.tax.income.credits.cdcc.low_income.max_amount
+    parameter_key_path:
+      - amounts
+      - 2
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Colorado low-income child care expenses credit cap for two or more dependents.
+
   - legal_id: us-co:statutes/39/39-22-129/4.5#single_return_low_income_upper_threshold
     country: us
     program: tax
@@ -13731,6 +13809,22 @@ prefixes:
     program: tax
     mapping_type: not_comparable
     rationale: Colorado AMT section 105 generated outputs include statutory minimum-tax-credit and nonresident-apportionment pieces, plus deferred final AMT assembly; PolicyEngine exposes only the AMT rate parameter and tax-unit AMT variables unless an exact mapping above records a narrower adjacent target.
+
+  - legal_id_prefix: us-co:statutes/39/39-22-119#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_cdcc
+    candidate_priority: P2
+    rationale: Colorado section 119 generated outputs decompose the regular child and dependent care expenses credit into source-specific eligibility, federal-credit-base, child-care-assistance, inflation-adjusted limit, and refundable-excess pieces; PolicyEngine exposes a final tax-unit co_cdcc amount from capped federal CDCC and match parameters, not these statutory boundaries.
+
+  - legal_id_prefix: us-co:statutes/39/39-22-119.5#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: co_low_income_cdcc
+    candidate_priority: P2
+    rationale: Colorado section 119.5 generated outputs decompose the low-income child care expenses credit into statutory-window, provider-identification, dependent-age, earned-income-limit, cap, eligibility, amount, and refundable-excess pieces; exact parameter mappings above compare shared PE parameters, while PolicyEngine exposes final tax-unit co_low_income_cdcc and a simplified eligibility predicate.
 
   - legal_id_prefix: us-co:statutes/39/39-22-129/4.5#
     country: us
