@@ -14067,6 +14067,13 @@ prefixes:
     mapping_type: not_comparable
     rationale: Colorado manual outputs are source-specific legal computations unless an exact PolicyEngine mapping overrides this prefix.
 
+  - legal_id_prefix: us-co:regulations/9-ccr-2503-6/3.606.1/
+    country: us
+    program: tanf
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Colorado Works basic-cash-assistance outputs decompose certification periods, assistance-unit table selection, current need and grant standards, pregnancy allowance, earned-income reporting, and grant authorization. PolicyEngine-US exposes adjacent Colorado TANF variables built from its own annual parameter table, but does not expose these month-level legal helper boundaries one-to-one; its current grant-standard table also needs a 2025 update before direct oracle comparison.
+
   - legal_id_prefix: us-co:policies/cdhs/snap/
     country: us
     program: snap
