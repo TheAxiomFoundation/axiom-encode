@@ -320,6 +320,33 @@ class TestCorpusSourceResolution:
         assert source.body == "manual child support text"
         assert source.source == "local"
 
+    def test_resolves_state_statute_child_path_to_sliced_section_provision(
+        self, tmp_path
+    ):
+        corpus_path = _write_test_corpus_provision(
+            tmp_path,
+            citation_path="us-co/statute/39/39-22-104",
+            body=(
+                "(1.7) (a) A prior rate applies.\n"
+                "(b) A second prior rate applies.\n"
+                "(c) Except as otherwise provided, a tax of four and "
+                "forty one-hundredths percent is imposed.\n"
+                "(2) Federal taxable income shall be modified before the rate."
+            ),
+        )
+
+        source = resolve_corpus_source_unit(
+            "us-co/statute/39/39-22-104/1.7/c",
+            corpus_path,
+        )
+
+        assert source.citation_path == "us-co/statute/39/39-22-104"
+        assert source.body == (
+            "(c) Except as otherwise provided, a tax of four and "
+            "forty one-hundredths percent is imposed."
+        )
+        assert "(2) Federal taxable income" not in source.body
+
     def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
         provisions_dir = (

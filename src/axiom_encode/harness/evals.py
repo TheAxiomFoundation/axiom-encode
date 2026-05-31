@@ -1690,12 +1690,16 @@ def _slice_parent_corpus_text_for_requested_path(
     if (
         len(requested_parts) <= len(resolved_parts)
         or requested_parts[: len(resolved_parts)] != resolved_parts
-        or resolved_parts[:2] not in (["us", "statute"], ["us", "regulation"])
+        or not _citation_path_supports_parenthetical_slicing(resolved_parts)
     ):
         return text
     missing_fragments = tuple(requested_parts[len(resolved_parts) :])
     sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
     return sliced if sliced is not None else text
+
+
+def _citation_path_supports_parenthetical_slicing(parts: list[str]) -> bool:
+    return len(parts) >= 2 and parts[1] in {"statute", "regulation"}
 
 
 def _slice_legal_text_by_parenthetical_fragments(
@@ -1722,7 +1726,7 @@ def _slice_legal_text_by_parenthetical_fragment(
 ) -> str | None:
     escaped = re.escape(fragment)
     if top_level:
-        marker_pattern = re.compile(rf"(?:^|\n\s*\n)(\({escaped}\)\s+)")
+        marker_pattern = re.compile(rf"(?:^|\n\s*)(\({escaped}\)\s+)")
     else:
         marker_pattern = re.compile(rf"(?<![A-Za-z0-9])(\({escaped}\)\s+)")
     marker_match = next(
@@ -1791,6 +1795,8 @@ def _sibling_parenthetical_marker_pattern(
 ) -> re.Pattern[str]:
     if fragment.isdigit():
         marker = rf"\({int(fragment) + 1}\)"
+    elif top_level and re.fullmatch(r"\d+(?:\.\d+)+", fragment):
+        marker = r"\([0-9]+(?:\.[0-9]+)*\)"
     elif len(fragment) == 1 and fragment.isalpha() and fragment.isupper():
         marker = (
             _next_alpha_parenthetical_marker(fragment) if top_level else r"\([A-Z]\)"
@@ -1804,7 +1810,7 @@ def _sibling_parenthetical_marker_pattern(
     else:
         marker = r"\([A-Za-z0-9]+\)"
     if top_level:
-        return re.compile(rf"\n\s*\n({marker}\s+)")
+        return re.compile(rf"\n\s*({marker}\s+)")
     return re.compile(rf"(?<![A-Za-z0-9])({marker}\s+)")
 
 
