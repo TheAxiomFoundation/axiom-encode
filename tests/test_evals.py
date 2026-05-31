@@ -6058,6 +6058,56 @@ rules:
         assert "`rules: []`" in prompt
         assert "`*_before_exemption`" in prompt
 
+    def test_build_eval_prompt_does_not_defer_amount_adjustment_parent_list(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us-co"
+        child_file = policy_repo_root / "statutes" / "39" / "39-22-104" / "4" / "i.yaml"
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: qualifying_income_subtraction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income_included_in_federal_taxable_income
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="us-co/statute/39/39-22-104/4",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "(4) There shall be subtracted from federal taxable income:\n"
+                "(i) Qualifying income to the extent included in federal "
+                "taxable income and exempt from taxes imposed by this article."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "us-co/statute/39/39-22-104/4",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="4.yaml",
+            target_ref_prefix="us-co:statutes/39/39-22-104/4",
+            include_tests=True,
+            runner_backend="openai",
+        )
+
+        assert "Target-specific schema limit" not in prompt
+        assert "Aggregate parent child outputs detected" in prompt
+        assert (
+            "`us-co:statutes/39/39-22-104/4/i#qualifying_income_subtraction`" in prompt
+        )
+
     def test_build_eval_prompt_does_not_defer_taxable_income_for_incidental_extent(
         self, tmp_path
     ):
@@ -7408,14 +7458,47 @@ rules:
         )
         additions_root.mkdir(parents=True)
         subtractions_root.mkdir(parents=True)
+        addition_parent = additions_root.with_suffix(".yaml")
+        subtraction_parent = subtractions_root.with_suffix(".yaml")
+        addition_parent.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: subsection_3_additions\n"
+            "    kind: derived\n"
+            "    entity: TaxUnit\n"
+            "    dtype: Money\n"
+            "    period: Year\n"
+            "    formula: 0\n"
+        )
+        subtraction_parent.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: subsection_4_subtractions\n"
+            "    kind: derived\n"
+            "    entity: TaxUnit\n"
+            "    dtype: Money\n"
+            "    period: Year\n"
+            "    formula: 0\n"
+        )
+        for label in "abcdefghij":
+            addition_file = additions_root / f"{label}.yaml"
+            addition_test = additions_root / f"{label}.test.yaml"
+            subtraction_file = subtractions_root / f"{label}.yaml"
+            subtraction_test = subtractions_root / f"{label}.test.yaml"
+            addition_file.write_text("format: rulespec/v1\nrules: []\n")
+            addition_test.write_text(f"- name: addition_{label}_case\n  period: 2026\n")
+            subtraction_file.write_text("format: rulespec/v1\nrules: []\n")
+            subtraction_test.write_text(
+                f"- name: subtraction_{label}_case\n  period: 2026\n"
+            )
         addition_file = additions_root / "d.yaml"
         addition_test = additions_root / "d.test.yaml"
+        late_addition_file = additions_root / "j.yaml"
+        late_addition_test = additions_root / "j.test.yaml"
         subtraction_file = subtractions_root / "a.yaml"
         subtraction_test = subtractions_root / "a.test.yaml"
-        addition_file.write_text("format: rulespec/v1\nrules: []\n")
-        addition_test.write_text("- name: addition_case\n  period: 2026\n")
-        subtraction_file.write_text("format: rulespec/v1\nrules: []\n")
-        subtraction_test.write_text("- name: subtraction_case\n  period: 2026\n")
+        late_subtraction_file = subtractions_root / "j.yaml"
+        late_subtraction_test = subtractions_root / "j.test.yaml"
 
         runner = parse_runner_spec("codex:gpt-5.4")
         with patch(
@@ -7441,6 +7524,9 @@ rules:
         }
         assert copied_sources[str(addition_file)]["kind"] == "implementation_precedent"
         assert (
+            copied_sources[str(addition_parent)]["kind"] == "implementation_precedent"
+        )
+        assert (
             copied_sources[str(addition_file)]["import_path"]
             == "us:statutes/39/39-22-104/3/d"
         )
@@ -7448,11 +7534,31 @@ rules:
             copied_sources[str(addition_test)]["kind"] == "implementation_test_context"
         )
         assert (
+            copied_sources[str(late_addition_file)]["kind"]
+            == "implementation_precedent"
+        )
+        assert (
+            copied_sources[str(late_addition_test)]["kind"]
+            == "implementation_test_context"
+        )
+        assert (
             copied_sources[str(subtraction_file)]["import_path"]
             == "us:statutes/39/39-22-104/4/a"
         )
         assert (
+            copied_sources[str(subtraction_parent)]["kind"]
+            == "implementation_precedent"
+        )
+        assert (
             copied_sources[str(subtraction_test)]["kind"]
+            == "implementation_test_context"
+        )
+        assert (
+            copied_sources[str(late_subtraction_file)]["kind"]
+            == "implementation_precedent"
+        )
+        assert (
+            copied_sources[str(late_subtraction_test)]["kind"]
             == "implementation_test_context"
         )
 

@@ -1,0 +1,1 @@
+Include every child RuleSpec file for explicitly cited same-section subsections instead of truncating cited child context, and let amount-adjustment parent lists compose child outputs even when child branches use "to the extent" language.
