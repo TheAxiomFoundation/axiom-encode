@@ -347,6 +347,60 @@ class TestCorpusSourceResolution:
         )
         assert "(2) Federal taxable income" not in source.body
 
+    def test_resolves_state_statute_child_path_stops_at_dotted_alpha_sibling(
+        self, tmp_path
+    ):
+        corpus_path = _write_test_corpus_provision(
+            tmp_path,
+            citation_path="us-co/statute/39/39-22-104",
+            body=(
+                "(4) There shall be subtracted from federal taxable income:\n"
+                "(a) United States obligation interest included in federal "
+                "taxable income.\n"
+                "(a.5) Repealed.\n"
+                "(b) Basis adjustment subtraction.\n"
+                "(3) There shall be added to federal taxable income:\n"
+                "(p) Itemized deduction addback.\n"
+                "(p.5) Healthy school meals deduction addback.\n"
+                "(p.5) Alternate healthy school meals deduction addback.\n"
+                "(p.7) Additional healthy school meals deduction addback.\n"
+                "(q) Food and beverage expense addback."
+            ),
+        )
+
+        us_interest = resolve_corpus_source_unit(
+            "us-co/statute/39/39-22-104/4/a",
+            corpus_path,
+        )
+        itemized_addback = resolve_corpus_source_unit(
+            "us-co/statute/39/39-22-104/3/p",
+            corpus_path,
+        )
+        healthy_school_meals_addback = resolve_corpus_source_unit(
+            "us-co/statute/39/39-22-104/3/p/5",
+            corpus_path,
+        )
+
+        assert us_interest.body == (
+            "(a) United States obligation interest included in federal "
+            "taxable income."
+        )
+        assert "(a.5) Repealed" not in us_interest.body
+        assert itemized_addback.body == "(p) Itemized deduction addback."
+        assert "(p.5) Healthy school meals" not in itemized_addback.body
+        assert healthy_school_meals_addback.body.startswith(
+            "(p.5) Healthy school meals deduction addback."
+        )
+        assert (
+            "(p.5) Alternate healthy school meals"
+            in healthy_school_meals_addback.body
+        )
+        assert (
+            "(p.7) Additional healthy school meals"
+            not in healthy_school_meals_addback.body
+        )
+        assert "(q) Food and beverage" not in healthy_school_meals_addback.body
+
     def test_resolves_usc_child_citation_to_sliced_section_provision(self, tmp_path):
         corpus_path = tmp_path / "axiom-corpus"
         provisions_dir = (
