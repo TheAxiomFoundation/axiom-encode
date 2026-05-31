@@ -1618,6 +1618,159 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_colorado_cdcc_outputs(tmp_path):
+    section_119_names = (
+        "annual_federal_adjusted_gross_income_limit_after_inflation_adjustment",
+        "applicable_federal_adjusted_gross_income_limit",
+        "child_and_dependent_care_credit_percentage",
+        "child_and_dependent_care_expenses_credit_allowed",
+        "child_and_dependent_care_expenses_credit_before_part_year_apportionment",
+        "child_and_dependent_care_expenses_credit_refundable_excess_before_part_year_apportionment",
+        "federal_child_and_dependent_care_credit_base_after_child_care_assistance_limitation",
+        "federal_child_and_dependent_care_credit_base_before_assistance_limitation",
+        "federal_credit_base_uses_allowed_before_federal_tax_liability_limitation_indicator",
+        "income_limit_adjustment_minimum_increase",
+        "income_limit_inflation_adjustment_applies_indicator",
+        "income_limit_rounding_increment",
+        "rounded_federal_adjusted_gross_income_limit_after_cumulative_inflation",
+        "statutory_federal_adjusted_gross_income_limit",
+    )
+    section_1195_comparable_parameters = (
+        "dependent_age_exclusive_limit",
+        "low_income_adjusted_gross_income_limit",
+        "low_income_child_care_expenses_credit_percentage",
+        "multiple_dependents_credit_cap",
+        "multiple_dependents_credit_cap_minimum_dependents",
+        "single_dependent_credit_cap",
+        "single_dependent_credit_cap_dependent_count",
+    )
+    section_1195_remaining_names = (
+        "care_provider_information_requirement_satisfied",
+        "child_care_expense_basis_after_earned_income_limit",
+        "earned_income_limit_for_child_care_expense_basis",
+        "low_income_child_care_credit_tax_year_indicator",
+        "low_income_child_care_expenses_credit_allowed",
+        "low_income_child_care_expenses_credit_before_part_year_apportionment",
+        "low_income_child_care_expenses_credit_dependent_cap",
+        "low_income_child_care_expenses_credit_refundable_excess_before_part_year_apportionment",
+        "person_is_under_dependent_age_limit_for_credit",
+    )
+
+    section_119_rules = "\n".join(
+        f"""  - name: {name}
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1'"""
+        for name in section_119_names
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-119.yaml",
+        f"""format: rulespec/v1
+rules:
+{section_119_rules}
+""",
+    )
+    section_119_outputs = "\n".join(
+        f"    us-co:statutes/39/39-22-119#{name}: 1" for name in section_119_names
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-119.test.yaml",
+        f"""- name: colorado cdcc outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {{}}
+  output:
+{section_119_outputs}
+""",
+    )
+
+    section_1195_parameter_rules = "\n".join(
+        f"""  - name: {name}
+    kind: parameter
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1'"""
+        for name in section_1195_comparable_parameters
+    )
+    section_1195_remaining_rules = "\n".join(
+        f"""  - name: {name}
+    kind: derived
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '1'"""
+        for name in section_1195_remaining_names
+    )
+    section_1195_outputs = "\n".join(
+        f"    us-co:statutes/39/39-22-119.5#{name}: 1"
+        for name in (section_1195_comparable_parameters + section_1195_remaining_names)
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-119.5.yaml",
+        f"""format: rulespec/v1
+rules:
+{section_1195_parameter_rules}
+{section_1195_remaining_rules}
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-119.5.test.yaml",
+        f"""- name: colorado low-income cdcc outputs
+  period:
+    period_kind: tax_year
+    start: '2024-01-01'
+    end: '2024-12-31'
+  input: {{}}
+  output:
+{section_1195_outputs}
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == (
+        len(section_119_names)
+        + len(section_1195_comparable_parameters)
+        + len(section_1195_remaining_names)
+    )
+    assert report["status_counts"] == {
+        "comparable": len(section_1195_comparable_parameters),
+        "known_not_comparable": len(section_119_names)
+        + len(section_1195_remaining_names),
+    }
+    assert report["untested_comparable"] == 0
+    assert {item["tested"] for item in report["items"]} == {True}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    regular_credit = items_by_id[
+        "us-co:statutes/39/39-22-119#child_and_dependent_care_expenses_credit_before_part_year_apportionment"
+    ]
+    low_income_rate = items_by_id[
+        "us-co:statutes/39/39-22-119.5#low_income_child_care_expenses_credit_percentage"
+    ]
+    single_cap = items_by_id[
+        "us-co:statutes/39/39-22-119.5#single_dependent_credit_cap"
+    ]
+    low_income_credit = items_by_id[
+        "us-co:statutes/39/39-22-119.5#low_income_child_care_expenses_credit_before_part_year_apportionment"
+    ]
+    assert regular_credit["status"] == "known_not_comparable"
+    assert regular_credit["policyengine_variable"] == "co_cdcc"
+    assert low_income_rate["status"] == "comparable"
+    assert (
+        low_income_rate["policyengine_parameter"]
+        == "gov.states.co.tax.income.credits.cdcc.low_income.rate"
+    )
+    assert single_cap["status"] == "comparable"
+    assert (
+        single_cap["policyengine_parameter"]
+        == "gov.states.co.tax.income.credits.cdcc.low_income.max_amount"
+    )
+    assert low_income_credit["status"] == "known_not_comparable"
+    assert low_income_credit["policyengine_variable"] == "co_low_income_cdcc"
+
+
 def test_policyengine_coverage_classifies_colorado_eitc_outputs(tmp_path):
     output_names = (
         "base_credit_percentage",
