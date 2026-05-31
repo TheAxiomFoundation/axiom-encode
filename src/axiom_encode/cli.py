@@ -5213,17 +5213,35 @@ def _repair_snap_273_10_allotment_rules(content: str) -> str:
         "us:policies/usda/snap/fy-2026-cola/maximum-allotments",
         before_import="us:regulations/7-cfr/273/9",
     )
-    return content.replace(
+    content = content.replace(
         "snap_maximum_allotment_for_household_size",
         "snap_maximum_allotment",
+    )
+    return content.replace(
+        "snap_maximum_allotment_for_one_person_household",
+        "snap_one_person_thrifty_food_plan_cost",
     )
 
 
 def _repair_snap_273_10_allotment_tests(content: str) -> str:
-    return content.replace(
-        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298\n",
-        "    us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1\n",
+    household_size_input = (
+        "    us:policies/usda/snap/fy-2026-cola/maximum-allotments"
+        "#input.household_size: 1\n"
     )
+    content = content.replace(
+        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298\n",
+        household_size_input,
+    )
+    content = content.replace(
+        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298\n",
+        household_size_input,
+    )
+    while household_size_input + household_size_input in content:
+        content = content.replace(
+            household_size_input + household_size_input,
+            household_size_input,
+        )
+    return content
 
 
 def cmd_repair_snap_273_10_allotment(args):

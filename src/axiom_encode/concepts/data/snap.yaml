@@ -222,13 +222,15 @@ concepts:
       - snap_maximum_allotment_for_household_size
 
   - id: snap.allotment.max_for_one_person
-    canonical_name: snap_maximum_allotment_for_one_person_household
-    producer_anchor: us:regulations/7-cfr/273/10
-    producer_missing: true
+    canonical_name: snap_one_person_thrifty_food_plan_cost
+    producer_anchor: us:policies/usda/snap/fy-2026-cola/maximum-allotments
     description: >-
       Maximum allotment for a one-person household, used to compute the
-      minimum benefit per 7 CFR 273.10(e)(2)(ii)(C). No producer encoded yet.
-    blocked_synonyms: []
+      minimum benefit per 7 CFR 273.10(e)(2)(ii)(C). The FY COLA
+      maximum-allotments file owns this as the one-person Thrifty Food Plan
+      cost.
+    blocked_synonyms:
+      - snap_maximum_allotment_for_one_person_household
 
   # ---------------------------------------------------------------------------
   # Utility allowances (regional)
