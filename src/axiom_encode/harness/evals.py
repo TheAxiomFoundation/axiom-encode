@@ -2130,25 +2130,14 @@ def _select_same_section_subsection_context_files(
     policy_root: Path,
 ) -> list[Path]:
     """Select existing RuleSpecs for same-section subsections cited by source text."""
-    try:
-        parts = parse_usc_citation(citation)
-    except Exception:
+    parts = _citation_parts_for_eval_identifier(citation)
+    if parts is None:
         return []
 
     target_rel = citation_to_relative_rulespec_path(parts)
     selected: list[Path] = []
     seen: set[Path] = set()
-    for match in re.finditer(
-        r"\bsubsection\s+\((?P<subsection>[A-Za-z0-9]+)\)"
-        r"(?P<tail>(?:\([A-Za-z0-9]+\))*)"
-        r"(?:\s+of\s+this\s+section)?(?=\W|$)",
-        source_text,
-        flags=re.IGNORECASE,
-    ):
-        referenced_fragments = (
-            match.group("subsection"),
-            *re.findall(r"\(([A-Za-z0-9]+)\)", match.group("tail") or ""),
-        )
+    for referenced_fragments in _iter_same_section_subsection_references(source_text):
         if referenced_fragments[0] in parts.fragments:
             continue
         for length in range(len(referenced_fragments), 0, -1):
@@ -2171,6 +2160,65 @@ def _select_same_section_subsection_context_files(
                     seen.add(resolved)
             break
     return selected
+
+
+def _citation_parts_for_eval_identifier(citation: str) -> CitationParts | None:
+    """Return citation parts for either USC text or corpus-backed eval identifiers."""
+    target_rel = _target_rel_for_eval_identifier(citation)
+    if target_rel is None:
+        return None
+    path_parts = list(target_rel.parts)
+    if len(path_parts) < 3 or path_parts[0] != "statutes":
+        return None
+    if len(path_parts) == 3:
+        return CitationParts(
+            title=path_parts[1],
+            section=Path(path_parts[2]).stem,
+            fragments=(),
+        )
+    return CitationParts(
+        title=path_parts[1],
+        section=path_parts[2],
+        fragments=tuple((*path_parts[3:-1], Path(path_parts[-1]).stem)),
+    )
+
+
+_SUBSECTION_REFERENCE_START_RE = re.compile(r"\bsubsections?\s+", re.IGNORECASE)
+_PARENTHETICAL_FRAGMENT_RE = re.compile(r"\s*\((?P<fragment>[A-Za-z0-9.]+)\)")
+_SUBSECTION_REFERENCE_SEPARATOR_RE = re.compile(
+    r"\s*(?:,\s*(?:(?:and|or)\b)?|\band\b|\bor\b)\s*",
+    re.IGNORECASE,
+)
+
+
+def _iter_same_section_subsection_references(
+    source_text: str,
+) -> Iterator[tuple[str, ...]]:
+    """Yield subsection fragment paths cited after `subsection(s)` in source text."""
+    for match in _SUBSECTION_REFERENCE_START_RE.finditer(source_text):
+        position = match.end()
+        while True:
+            fragments: list[str] = []
+            while fragment_match := _PARENTHETICAL_FRAGMENT_RE.match(
+                source_text, position
+            ):
+                fragment = fragment_match.group("fragment").strip()
+                if not fragment:
+                    break
+                fragments.append(fragment)
+                position = fragment_match.end()
+
+            if not fragments:
+                break
+            yield tuple(fragments)
+
+            separator = _SUBSECTION_REFERENCE_SEPARATOR_RE.match(source_text, position)
+            if separator is None:
+                break
+            next_position = separator.end()
+            if _PARENTHETICAL_FRAGMENT_RE.match(source_text, next_position) is None:
+                break
+            position = next_position
 
 
 def _select_cross_section_context_files(

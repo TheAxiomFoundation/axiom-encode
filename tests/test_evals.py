@@ -7394,6 +7394,68 @@ rules:
             copied_sources[str(context_test)]["kind"] == "implementation_test_context"
         )
 
+    def test_prepare_eval_workspace_adds_plural_same_section_subsection_context(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        additions_root = (
+            repo_root / "rulespec-us" / "statutes" / "39" / "39-22-104" / "3"
+        )
+        subtractions_root = (
+            repo_root / "rulespec-us" / "statutes" / "39" / "39-22-104" / "4"
+        )
+        additions_root.mkdir(parents=True)
+        subtractions_root.mkdir(parents=True)
+        addition_file = additions_root / "d.yaml"
+        addition_test = additions_root / "d.test.yaml"
+        subtraction_file = subtractions_root / "a.yaml"
+        subtraction_test = subtractions_root / "a.test.yaml"
+        addition_file.write_text("format: rulespec/v1\nrules: []\n")
+        addition_test.write_text("- name: addition_case\n  period: 2026\n")
+        subtraction_file.write_text("format: rulespec/v1\nrules: []\n")
+        subtraction_test.write_text("- name: subtraction_case\n  period: 2026\n")
+
+        runner = parse_runner_spec("codex:gpt-5.4")
+        with patch(
+            "axiom_encode.harness.evals.select_context_files",
+            return_value=[],
+        ):
+            workspace = prepare_eval_workspace(
+                citation="us-co/statute/39/39-22-104/2",
+                runner=runner,
+                output_root=tmp_path / "out",
+                source_text=(
+                    "Federal taxable income shall be modified as provided in "
+                    "subsections (3) and (4) of this section."
+                ),
+                axiom_rules_path=policy_repo_root,
+                mode="repo-augmented",
+                extra_context_paths=[],
+            )
+
+        manifest = json.loads(workspace.manifest_file.read_text())
+        copied_sources = {
+            item["source_path"]: item for item in manifest["context_files"]
+        }
+        assert copied_sources[str(addition_file)]["kind"] == "implementation_precedent"
+        assert (
+            copied_sources[str(addition_file)]["import_path"]
+            == "us:statutes/39/39-22-104/3/d"
+        )
+        assert (
+            copied_sources[str(addition_test)]["kind"] == "implementation_test_context"
+        )
+        assert (
+            copied_sources[str(subtraction_file)]["import_path"]
+            == "us:statutes/39/39-22-104/4/a"
+        )
+        assert (
+            copied_sources[str(subtraction_test)]["kind"]
+            == "implementation_test_context"
+        )
+
     def test_prepare_eval_workspace_adds_same_section_under_subsection_context(
         self, tmp_path
     ):
