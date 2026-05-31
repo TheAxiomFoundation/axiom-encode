@@ -4083,6 +4083,8 @@ RuleSpec requirements:
 - Allowed `period:` values are {", ".join(f"`{period}`" for period in SUPPORTED_EVAL_PERIODS)}.
 - Allowed `dtype:` values are {", ".join(f"`{dtype}`" for dtype in SUPPORTED_EVAL_DTYPES)}, or `Enum[Name]`.
 - Use `dtype: Judgment`, not `dtype: Boolean`, for legal eligibility, availability, applicability, entitlement, and other holds/not-holds style outputs, especially when the formula contains `not`.
+- Do not use `kind: parameter`, `dtype: Boolean` for date-versioned applicability flags. Use a numeric 1/0 indicator parameter with explicit comparisons, or fold the date effect into the rate, amount, or threshold parameter that consumes it.
+- Do not emit top-level `values` lookup tables outside `versions`. Source-backed indexed parameter tables may use `indexed_by` with versioned `values`; every executable derived output must use `versions[].formula`, and formulas must consume those tables with `table_name[index_expr]`, never bare `table_name`. Small non-reusable statutory bands can be expressed as explicit derived conditionals.
 - Do not create derived `dtype: Boolean` helper rules with logical formulas. Use `dtype: Judgment` for derived legal predicates, or leave simple local facts as factual `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}` keys consumed by formulas and tests.
 - Use `unit: USD`, `unit: GBP`, or another explicit unit for money outputs when the source states a currency.
 - Put each rule's formulas under `versions: - effective_from: 'YYYY-MM-DD'` and `formula: |-`.
@@ -4100,7 +4102,7 @@ RuleSpec requirements:
   This overrides preservation of existing local input names: if a copied
   formula uses a date-valued fact name, rename that fact consistently to a
   semantic date-window predicate in formulas and tests.
-- Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context.
+- Do not emit more than one `versions:` entry for `kind: derived`; the runtime does not yet support period-selecting versioned formulas. Use a single source-faithful conditional formula when the provision itself defines a temporal branch, or encode only the currently applicable provision after resolving the source context. When a derived result changes only because a base rate, threshold, cap, or additive adjustment changes over time, put the dated changes on named `parameter` or helper rules and keep the consuming `kind: derived` rule to one formula, such as `base_rate + temporary_adjustment + later_adjustment`.
 - Formula strings use Axiom formula syntax: `if condition: value else: other`, `==` for equality, `and`/`or` for booleans, decimal ratios for percentages, and no Python inline ternary syntax.
   Do not write `else if` or `elif`; chain branches as `if condition: value else: if next_condition: next_value else: fallback`.
 - Function calls in formulas are expression syntax, not Python syntax. Do not
@@ -4506,6 +4508,10 @@ below, the encoded artifact must contain EITHER:
       includes that subparagraph segment (e.g.
       `us:statutes/7/2014/d#unspecified_output`) and whose `reason:` names
       the legal dependency or scope reason blocking encoding.
+
+Legislative findings, preambles, intent clauses, and purpose clauses are still
+source coverage items. If the text is non-operative, satisfy this checklist with
+`module.deferred_outputs[]` rather than inventing an executable formula.
 
 Subparagraphs without (a) or (b) are an automatic CI failure under the
 source-subparagraph-coverage validator. There is no implicit "covered by

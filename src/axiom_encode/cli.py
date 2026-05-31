@@ -14649,6 +14649,21 @@ def cmd_encode(args):
                     "  apply=auto_repaired_out_of_scope_deferred_outputs:"
                     + ",".join(repaired_deferred_scope)
                 )
+            repaired_indexed_parameter_lookups = (
+                _try_repair_generated_indexed_parameter_lookups_for_apply(
+                    result,
+                    output_root=args.output,
+                    issues=[],
+                )
+            )
+            if repaired_indexed_parameter_lookups:
+                outcome["auto_repaired_indexed_parameter_lookups"] = (
+                    repaired_indexed_parameter_lookups
+                )
+                print(
+                    "  apply=auto_repaired_indexed_parameter_lookups:"
+                    + ",".join(repaired_indexed_parameter_lookups)
+                )
             can_apply, apply_issues, supplemental_files = (
                 _validate_generated_encoding_in_policy_overlay(
                     result,
@@ -14785,6 +14800,62 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_versioned_derived = (
+                    _try_repair_generated_versioned_derived_formulas_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_versioned_derived:
+                    outcome["auto_repaired_versioned_derived_formulas"] = (
+                        repaired_versioned_derived
+                    )
+                    print(
+                        "  apply=auto_repaired_versioned_derived_formulas:"
+                        + ",".join(repaired_versioned_derived)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_boolean_predicates = (
+                    _try_repair_generated_boolean_comparison_predicates_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_boolean_predicates:
+                    outcome["auto_repaired_boolean_comparison_predicates"] = (
+                        repaired_boolean_predicates
+                    )
+                    print(
+                        "  apply=auto_repaired_boolean_comparison_predicates:"
+                        + ",".join(repaired_boolean_predicates)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_deferred_source_values = (
                     _try_repair_generated_empty_deferred_source_values_for_apply(
                         result,
@@ -14854,6 +14925,63 @@ def cmd_encode(args):
                     print(
                         "  apply=auto_repaired_deferred_output_paths:"
                         + ",".join(repaired_deferred_outputs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_nonoperative_source_coverage = (
+                    _try_repair_generated_nonoperative_source_coverage_for_apply(
+                        result,
+                        output_root=args.output,
+                        policy_repo_path=policy_repo_path,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_nonoperative_source_coverage:
+                    outcome["auto_repaired_nonoperative_source_coverage"] = (
+                        repaired_nonoperative_source_coverage
+                    )
+                    print(
+                        "  apply=auto_repaired_nonoperative_source_coverage:"
+                        + ",".join(repaired_nonoperative_source_coverage)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_boolean_parameter_inputs = (
+                    _try_repair_generated_boolean_parameter_inputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_boolean_parameter_inputs:
+                    outcome["auto_repaired_boolean_parameter_inputs"] = (
+                        repaired_boolean_parameter_inputs
+                    )
+                    print(
+                        "  apply=auto_repaired_boolean_parameter_inputs:"
+                        + ",".join(repaired_boolean_parameter_inputs)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -15038,6 +15166,62 @@ def cmd_encode(args):
                     print(
                         "  apply=auto_repaired_source_table_band_scalars:"
                         + ",".join(repaired_table_band_scalars)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_indexed_parameter_values = (
+                    _try_repair_generated_indexed_parameter_values_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_indexed_parameter_values:
+                    outcome["auto_repaired_indexed_parameter_values"] = (
+                        repaired_indexed_parameter_values
+                    )
+                    print(
+                        "  apply=auto_repaired_indexed_parameter_values:"
+                        + ",".join(repaired_indexed_parameter_values)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_indexed_parameter_lookups = (
+                    _try_repair_generated_indexed_parameter_lookups_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_indexed_parameter_lookups:
+                    outcome["auto_repaired_indexed_parameter_lookups"] = (
+                        repaired_indexed_parameter_lookups
+                    )
+                    print(
+                        "  apply=auto_repaired_indexed_parameter_lookups:"
+                        + ",".join(repaired_indexed_parameter_lookups)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -15857,6 +16041,799 @@ def _can_attempt_apply(result) -> bool:
         "Generated RuleSpec failed compile validation",
         "Generated RuleSpec failed CI validation",
     }
+
+
+def _try_repair_generated_versioned_derived_formulas_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Collapse simple additive versioned derived formulas before apply."""
+    if not any(_issue_mentions_versioned_derived_formula(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _collapse_additive_versioned_derived_formulas(rules_file, test_file)
+
+
+def _try_repair_generated_boolean_comparison_predicates_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Promote generated Boolean comparison predicates to Judgment outputs."""
+    if not any(
+        _issue_mentions_boolean_comparison_in_scalar_position(issue) for issue in issues
+    ):
+        return []
+    rule_names = _boolean_comparison_rule_names_from_issues(issues)
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rule_names:
+        rule_names = _single_boolean_comparison_candidate_rule_name(rules_file)
+    if not rule_names:
+        return []
+    test_file = _rulespec_test_path(rules_file)
+    return _promote_boolean_comparison_predicates_to_judgment(
+        rules_file,
+        test_file,
+        names=rule_names,
+    )
+
+
+def _try_repair_generated_boolean_parameter_inputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Convert generated date-versioned Boolean parameters into indicators."""
+    missing_inputs = _missing_input_names_from_issues(issues)
+    if not missing_inputs:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _convert_versioned_boolean_parameters_to_indicators(
+        rules_file,
+        names=missing_inputs,
+    )
+
+
+def _missing_input_names_from_issues(issues: list[str]) -> set[str]:
+    names: set[str] = set()
+    for issue in issues:
+        text = str(issue)
+        if "execution failed: missing input `" not in text:
+            continue
+        for match in re.finditer(r"missing input `([A-Za-z_][A-Za-z0-9_]*)`", text):
+            names.add(match.group(1))
+    return names
+
+
+def _issue_mentions_versioned_derived_formula(issue: str) -> bool:
+    text = str(issue)
+    return "multiple formula versions" in text and (
+        "derived variable" in text or "Versioned derived formula unsupported" in text
+    )
+
+
+def _issue_mentions_boolean_comparison_in_scalar_position(issue: str) -> bool:
+    text = str(issue)
+    return "binary op" in text and "in scalar position" in text
+
+
+def _boolean_comparison_rule_names_from_issues(issues: list[str]) -> set[str]:
+    names: set[str] = set()
+    for issue in issues:
+        text = str(issue)
+        if not _issue_mentions_boolean_comparison_in_scalar_position(text):
+            continue
+        for pattern in (
+            r"RuleSpec rule `([A-Za-z_][A-Za-z0-9_]*)`",
+            r"rule `([A-Za-z_][A-Za-z0-9_]*)`",
+            r"output `[^#`]+#([A-Za-z_][A-Za-z0-9_]*)`",
+            r"variable `([A-Za-z_][A-Za-z0-9_]*)`",
+        ):
+            names.update(re.findall(pattern, text))
+    return names
+
+
+def _single_boolean_comparison_candidate_rule_name(rules_file: Path) -> set[str]:
+    if not rules_file.exists():
+        return set()
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+
+    candidates = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("name") or "").strip()
+        and str(rule.get("kind") or "").strip().lower() == "derived"
+        and str(rule.get("dtype") or "").strip() == "Boolean"
+        and _rule_has_top_level_comparison_formula(rule)
+    }
+    return candidates if len(candidates) == 1 else set()
+
+
+def _convert_versioned_boolean_parameters_to_indicators(
+    rules_file: Path,
+    *,
+    names: set[str] | None = None,
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    requested = set(names or ())
+    converted: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if requested and name not in requested:
+            continue
+        if rule.get("kind") != "parameter" or rule.get("dtype") != "Boolean":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not versions:
+            continue
+        normalized_formulas: list[str] = []
+        for version in versions:
+            if not isinstance(version, dict):
+                normalized_formulas = []
+                break
+            formula = version.get("formula")
+            if isinstance(formula, bool):
+                normalized = "true" if formula else "false"
+            else:
+                normalized = str(formula or "").strip().lower()
+            if normalized not in {"true", "false"}:
+                normalized_formulas = []
+                break
+            normalized_formulas.append(normalized)
+        if not normalized_formulas:
+            continue
+
+        rule["dtype"] = "Integer"
+        for version, normalized in zip(versions, normalized_formulas, strict=True):
+            version["formula"] = "1" if normalized == "true" else "0"
+        converted.append(name)
+
+    if not converted:
+        return []
+
+    converted_set = set(converted)
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            version["formula"] = _rewrite_boolean_indicator_references(
+                formula,
+                names=converted_set,
+            )
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return converted
+
+
+def _rewrite_boolean_indicator_references(formula: str, *, names: set[str]) -> str:
+    rewritten = str(formula)
+    for name in sorted(names, key=len, reverse=True):
+        escaped = re.escape(name)
+        rewritten = re.sub(
+            rf"\bif\s+not\s+{escaped}\s*:",
+            f"if {name} <= 0:",
+            rewritten,
+        )
+        rewritten = re.sub(
+            rf"\bif\s+{escaped}\s*:",
+            f"if {name} > 0:",
+            rewritten,
+        )
+        rewritten = re.sub(
+            rf"(?<![A-Za-z0-9_])not\s+{escaped}(?![A-Za-z0-9_])",
+            f"{name} <= 0",
+            rewritten,
+        )
+        rewritten = re.sub(
+            rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])\s+and\b",
+            f"{name} > 0 and",
+            rewritten,
+        )
+        rewritten = re.sub(
+            rf"\band\s+{escaped}(?![A-Za-z0-9_])",
+            f"and {name} > 0",
+            rewritten,
+        )
+        rewritten = re.sub(
+            rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])\s+or\b",
+            f"{name} > 0 or",
+            rewritten,
+        )
+        rewritten = re.sub(
+            rf"\bor\s+{escaped}(?![A-Za-z0-9_])",
+            f"or {name} > 0",
+            rewritten,
+        )
+    return rewritten
+
+
+def _collapse_additive_versioned_derived_formulas(
+    rules_file: Path,
+    test_file: Path | None = None,
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    rewritten_rules: list[object] = []
+    selector_repairs: list[tuple[str, list[dict[str, str]]]] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            rewritten_rules.append(rule)
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            rewritten_rules.append(rule)
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            rewritten_rules.append(rule)
+            continue
+        formula_versions = [
+            (index, version, str(version.get("formula") or "").strip())
+            for index, version in enumerate(versions)
+            if isinstance(version, dict)
+            and isinstance(version.get("formula"), str)
+            and str(version.get("formula") or "").strip()
+        ]
+        if len(formula_versions) <= 1:
+            rewritten_rules.append(rule)
+            continue
+        collapsed_formula = None
+        collapsed_selectors: list[dict[str, str]] = []
+        collapsed = _collapse_additive_formula_versions(rule, formula_versions)
+        if collapsed is not None:
+            collapsed_formula, collapsed_selectors = collapsed
+        factored_rate_rule: dict[str, object] | None = None
+        selector_predicates: list[dict[str, str]] = []
+        if collapsed_formula is None:
+            factored = _factor_conditional_rate_formula_versions(rule, formula_versions)
+            if factored is None:
+                selector = _collapse_selector_formula_versions(rule, formula_versions)
+                if selector is None:
+                    rewritten_rules.append(rule)
+                    continue
+                collapsed_formula, selector_predicates = selector
+            else:
+                factored_rate_rule, collapsed_formula, selector_predicates = factored
+        elif collapsed_selectors:
+            selector_predicates = collapsed_selectors
+
+        first_index, first_version, _ = formula_versions[0]
+        collapsed_version = dict(first_version)
+        collapsed_version["formula"] = collapsed_formula
+        rule["versions"] = [collapsed_version]
+        _retarget_formula_proof_atoms_to_first_version(rule)
+        if factored_rate_rule is not None:
+            rewritten_rules.append(factored_rate_rule)
+            repaired.append(str(factored_rate_rule.get("name") or "factored_rate"))
+        if selector_predicates:
+            selector_repairs.append(
+                (
+                    str(rule.get("name") or "selector_rule"),
+                    selector_predicates,
+                )
+            )
+        rewritten_rules.append(rule)
+        repaired.append(str(rule.get("name") or f"rules[{first_index}]"))
+
+    if repaired:
+        payload["rules"] = rewritten_rules
+        rules_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
+        if test_file is not None and selector_repairs:
+            _add_selector_version_test_inputs(test_file, selector_repairs)
+    return repaired
+
+
+def _collapse_additive_formula_versions(
+    rule: dict[str, object],
+    formula_versions: list[tuple[int, dict[str, object], str]],
+) -> tuple[str, list[dict[str, str]]] | None:
+    """Join formula versions that only add or omit top-level terms.
+
+    This deliberately handles only the simple, source-preserving shape generated
+    for dated base-rate-plus-adjustment rules. More complex temporal branches
+    should be regenerated by the model instead of silently rewritten.
+    """
+    if len(formula_versions) <= 1:
+        return None
+    split_versions: list[list[str]] = []
+    for _, _, formula in formula_versions:
+        stripped = formula.strip()
+        if not stripped or "\n" in stripped or stripped.startswith("if "):
+            return None
+        terms = _split_top_level_addition_terms(stripped)
+        if not terms:
+            return None
+        split_versions.append(terms)
+
+    base_terms = split_versions[0]
+    guarded_terms: list[str] = []
+    selectors: list[dict[str, str]] = []
+    for ordinal, ((_, version, _), terms) in enumerate(
+        zip(formula_versions[1:], split_versions[1:], strict=True),
+        start=2,
+    ):
+        if any(base_term not in terms for base_term in base_terms):
+            return None
+        effective_from = str(version.get("effective_from") or "").strip()
+        if not effective_from:
+            return None
+        predicate = _version_selector_predicate_name(rule, ordinal)
+        selectors.append(
+            {
+                "effective_from": effective_from,
+                "predicate": predicate,
+                "formula": "",
+            }
+        )
+        for term in terms:
+            if term in base_terms:
+                continue
+            guarded = f"(if {predicate}: {term} else: 0)"
+            if guarded not in guarded_terms:
+                guarded_terms.append(guarded)
+    if not guarded_terms:
+        return None
+    return " + ".join([*base_terms, *guarded_terms]), selectors
+
+
+def _factor_conditional_rate_formula_versions(
+    rule: dict[str, object],
+    formula_versions: list[tuple[int, dict[str, object], str]],
+) -> tuple[dict[str, object], str, list[dict[str, str]]] | None:
+    parsed_versions: list[tuple[dict[str, object], str, str, str, list[str]]] = []
+    for _, version, formula in formula_versions:
+        parsed = _parse_conditional_rate_formula(formula)
+        if parsed is None:
+            return None
+        condition, base_amount, base_rate, adjustments = parsed
+        parsed_versions.append(
+            (version, condition, base_amount, base_rate, adjustments)
+        )
+
+    conditions = {condition for _, condition, _, _, _ in parsed_versions}
+    base_amounts = {base_amount for _, _, base_amount, _, _ in parsed_versions}
+    if len(conditions) != 1 or len(base_amounts) != 1:
+        return None
+
+    parameter_name = f"{rule.get('name')}_base_percentage"
+    rate_parameter: dict[str, object] = {
+        "name": parameter_name,
+        "kind": "parameter",
+        "dtype": "Number",
+        "source": rule.get("source"),
+        "versions": [
+            {
+                "effective_from": version.get("effective_from"),
+                "formula": base_rate,
+            }
+            for version, _, _, base_rate, _ in parsed_versions
+        ],
+    }
+    metadata = copy.deepcopy(rule.get("metadata"))
+    if isinstance(metadata, dict):
+        rate_parameter["metadata"] = metadata
+
+    adjustment_terms: list[str] = []
+    selectors: list[dict[str, str]] = []
+    for ordinal, (version, _, _, _, adjustments) in enumerate(
+        parsed_versions,
+        start=1,
+    ):
+        if not adjustments:
+            continue
+        effective_from = str(version.get("effective_from") or "").strip()
+        if not effective_from:
+            return None
+        predicate = _version_selector_predicate_name(rule, ordinal)
+        selectors.append(
+            {
+                "effective_from": effective_from,
+                "predicate": predicate,
+                "formula": "",
+            }
+        )
+        guarded_expression = " + ".join(adjustments)
+        if len(adjustments) > 1:
+            guarded_expression = f"({guarded_expression})"
+        guarded_adjustment = f"(if {predicate}: {guarded_expression} else: 0)"
+        if guarded_adjustment not in adjustment_terms:
+            adjustment_terms.append(guarded_adjustment)
+
+    for _, _, _, _, adjustments in parsed_versions:
+        for adjustment in adjustments:
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", adjustment):
+                return None
+
+    rate_terms = [parameter_name, *adjustment_terms]
+    rate_expression = " + ".join(rate_terms)
+    if len(rate_terms) > 1:
+        rate_expression = f"({rate_expression})"
+
+    condition = next(iter(conditions))
+    base_amount = next(iter(base_amounts))
+    formula = f"if {condition}: {base_amount} * {rate_expression} else: 0"
+    return rate_parameter, formula, selectors
+
+
+def _collapse_selector_formula_versions(
+    rule: dict[str, object],
+    formula_versions: list[tuple[int, dict[str, object], str]],
+) -> tuple[str, list[dict[str, str]]] | None:
+    selector_versions: list[dict[str, str]] = []
+    for ordinal, (_, version, formula) in enumerate(formula_versions, start=1):
+        expression = formula.strip()
+        if expression == "0":
+            continue
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expression):
+            return None
+        effective_from = str(version.get("effective_from") or "").strip()
+        if not effective_from:
+            return None
+        selector_versions.append(
+            {
+                "effective_from": effective_from,
+                "predicate": _version_selector_predicate_name(rule, ordinal),
+                "formula": expression,
+            }
+        )
+    if not selector_versions:
+        return None
+
+    formula = "0"
+    for selector in selector_versions:
+        formula = f"if {selector['predicate']}: {selector['formula']} else: {formula}"
+    return formula, selector_versions
+
+
+def _version_selector_predicate_name(
+    rule: dict[str, object],
+    ordinal: int,
+) -> str:
+    rule_name = str(rule.get("name") or "rule").strip() or "rule"
+    return f"taxable_year_uses_{rule_name}_version_{ordinal}"
+
+
+def _add_selector_version_test_inputs(
+    test_file: Path,
+    selector_repairs: list[tuple[str, list[dict[str, str]]]],
+) -> None:
+    if not test_file.exists():
+        return
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(payload, list):
+        return
+
+    changed = False
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        start = _test_case_start_date(case)
+        target_prefix = _test_case_rulespec_prefix(case)
+        if start is None or not target_prefix:
+            continue
+        inputs = case.get("input")
+        if not isinstance(inputs, dict):
+            inputs = {}
+            case["input"] = inputs
+        for _, selectors in selector_repairs:
+            active = _active_selector_predicate_for_period(selectors, start)
+            for selector in selectors:
+                key = f"{target_prefix}#input.{selector['predicate']}"
+                value = selector["predicate"] == active
+                if inputs.get(key) == value:
+                    continue
+                inputs[key] = value
+                changed = True
+
+    if changed:
+        test_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
+
+
+def _test_case_start_date(case: dict[str, object]) -> date | None:
+    return _test_period_start_date(case.get("period"))
+
+
+def _test_case_rulespec_prefix(case: dict[str, object]) -> str | None:
+    for section_name in ("input", "output"):
+        section = case.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for key in section:
+            text = str(key)
+            if "#" in text:
+                return text.rsplit("#", 1)[0]
+    return None
+
+
+def _active_selector_predicate_for_period(
+    selectors: list[dict[str, str]],
+    start: date,
+) -> str | None:
+    active: tuple[date, str] | None = None
+    for selector in selectors:
+        effective_from = _parse_iso_date(selector.get("effective_from"))
+        if effective_from is None or effective_from > start:
+            continue
+        if active is None or effective_from >= active[0]:
+            active = (effective_from, selector["predicate"])
+    return active[1] if active is not None else None
+
+
+_CONDITIONAL_RATE_FORMULA_RE = re.compile(
+    r"^if (?P<condition>.+): (?P<base_amount>.+?) \* (?P<rate>.+) else: 0$",
+    flags=re.DOTALL,
+)
+
+
+def _parse_conditional_rate_formula(
+    formula: str,
+) -> tuple[str, str, str, list[str]] | None:
+    normalized = re.sub(r"\s+", " ", formula.strip())
+    match = _CONDITIONAL_RATE_FORMULA_RE.match(normalized)
+    if match is None:
+        return None
+    condition = match.group("condition").strip()
+    base_amount = match.group("base_amount").strip()
+    rate = _strip_balanced_outer_parentheses(match.group("rate").strip())
+    terms = _split_top_level_addition_terms(rate)
+    if not terms:
+        return None
+    base_rate = terms[0]
+    if not re.fullmatch(r"\d+(?:\.\d+)?", base_rate):
+        return None
+    adjustments = terms[1:]
+    if not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", term) for term in adjustments):
+        return None
+    return condition, base_amount, base_rate, adjustments
+
+
+def _strip_balanced_outer_parentheses(value: str) -> str:
+    stripped = value.strip()
+    if not (stripped.startswith("(") and stripped.endswith(")")):
+        return stripped
+    depth = 0
+    for index, char in enumerate(stripped):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0 and index != len(stripped) - 1:
+                return stripped
+    return stripped[1:-1].strip()
+
+
+def _split_top_level_addition_terms(formula: str) -> list[str]:
+    terms: list[str] = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(formula):
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth > 0:
+            depth -= 1
+        elif char == "+" and depth == 0:
+            term = formula[start:index].strip()
+            if not term:
+                return []
+            terms.append(term)
+            start = index + 1
+    term = formula[start:].strip()
+    if not term:
+        return []
+    terms.append(term)
+    return terms
+
+
+def _retarget_formula_proof_atoms_to_first_version(rule: dict[str, object]) -> None:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        path = atom.get("path")
+        if isinstance(path, str) and re.fullmatch(
+            r"(?:versions|values)\[\d+\]\.(?:formula|value)",
+            path,
+        ):
+            atom["path"] = "versions[0].formula"
+
+
+def _promote_boolean_comparison_predicates_to_judgment(
+    rules_file: Path,
+    test_file: Path | None = None,
+    *,
+    names: set[str] | None = None,
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    repaired: list[str] = []
+    requested = set(names or ())
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if requested and name not in requested:
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip() != "Boolean":
+            continue
+        if not _rule_has_comparison_formula(rule):
+            continue
+        rule["dtype"] = "Judgment"
+        repaired.append(name or "judgment_rule")
+
+    if not repaired:
+        return []
+
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    if test_file is not None:
+        _rewrite_boolean_test_values_as_judgments(test_file, set(repaired))
+    return repaired
+
+
+def _rule_has_comparison_formula(rule: dict[str, object]) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    return any(
+        isinstance(version, dict)
+        and isinstance(version.get("formula"), str)
+        and re.search(r"(?:<=|>=|==|!=|<|>)", version["formula"])
+        for version in versions
+    )
+
+
+def _rule_has_top_level_comparison_formula(rule: dict[str, object]) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    return any(
+        isinstance(version, dict)
+        and isinstance(version.get("formula"), str)
+        and _formula_has_top_level_comparison(version["formula"])
+        for version in versions
+    )
+
+
+def _formula_has_top_level_comparison(formula: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(formula).strip())
+    if normalized.startswith("if ") or " else:" in normalized:
+        return False
+    depth = 0
+    index = 0
+    while index < len(normalized):
+        char = normalized[index]
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth > 0:
+            depth -= 1
+        elif depth == 0:
+            pair = normalized[index : index + 2]
+            if pair in {"<=", ">=", "==", "!="}:
+                return True
+            if char in {"<", ">"}:
+                return True
+        index += 1
+    return False
+
+
+def _rewrite_boolean_test_values_as_judgments(
+    test_file: Path,
+    rule_names: set[str],
+) -> None:
+    if not test_file.exists():
+        return
+    try:
+        payload = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(payload, list):
+        return
+
+    changed = False
+    for case in payload:
+        if not isinstance(case, dict):
+            continue
+        for section_name in ("input", "output"):
+            section = case.get(section_name)
+            if not isinstance(section, dict):
+                continue
+            for key, value in list(section.items()):
+                rule_name = str(key).rsplit("#", 1)[-1]
+                if rule_name not in rule_names or not isinstance(value, bool):
+                    continue
+                section[key] = "holds" if value else "not_holds"
+                changed = True
+
+    if changed:
+        test_file.write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+        )
 
 
 def _try_repair_generated_module_layout_for_apply(
@@ -16882,6 +17859,153 @@ def _try_repair_generated_missing_deferred_outputs_for_apply(
     payload["rules"] = []
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return [output]
+
+
+def _try_repair_generated_nonoperative_source_coverage_for_apply(
+    result,
+    *,
+    output_root: Path,
+    policy_repo_path: Path,
+    issues: list[str],
+) -> list[str]:
+    """Defer non-operative findings/intent clauses omitted from source coverage."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result,
+            output_root=output_root,
+        )
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    deferred_outputs = module.get("deferred_outputs")
+    if deferred_outputs is None:
+        deferred_outputs = []
+        module["deferred_outputs"] = deferred_outputs
+    if not isinstance(deferred_outputs, list):
+        return []
+
+    base_anchor = _relative_output_to_anchor(
+        relative_output,
+        policy_repo_path=policy_repo_path,
+    )
+    existing_outputs = {
+        str(record.get("output") or "").strip()
+        for record in deferred_outputs
+        if isinstance(record, dict)
+    }
+    repaired: list[str] = []
+    for issue in issues:
+        source_gap = _parse_source_coverage_gap_issue(str(issue))
+        if source_gap is None:
+            continue
+        citation, excerpt = source_gap
+        if not _is_nonoperative_source_coverage_excerpt(excerpt):
+            continue
+        symbol = _nonoperative_source_coverage_symbol(excerpt)
+        output_path = _source_coverage_output_path(
+            base_anchor,
+            citation=citation,
+        )
+        output = f"{output_path}#{symbol}"
+        if output in existing_outputs:
+            continue
+        deferred_outputs.append(
+            {
+                "output": output,
+                "reason": (
+                    "Source subparagraph states legislative findings, intent, "
+                    "or purpose and does not define an executable RuleSpec "
+                    "calculation, eligibility condition, or parameter."
+                ),
+            }
+        )
+        existing_outputs.add(output)
+        repaired.append(output)
+
+    if not repaired:
+        if not deferred_outputs:
+            module.pop("deferred_outputs", None)
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _parse_source_coverage_gap_issue(issue: str) -> tuple[str, str] | None:
+    match = re.search(
+        r"Source sub-paragraph coverage missing:\s*"
+        r"(?P<citation>.+?)"
+        r"(?:\s+\((?P<quote>['\"])(?P<excerpt>.*?)(?P=quote)\))?"
+        r"\s+has no rule",
+        issue,
+    )
+    if match is None:
+        return None
+    citation = str(match.group("citation") or "").strip()
+    excerpt = str(match.group("excerpt") or "").strip()
+    if not citation or not excerpt:
+        return None
+    return citation, excerpt
+
+
+def _is_nonoperative_source_coverage_excerpt(excerpt: str) -> bool:
+    normalized = " ".join(str(excerpt or "").lower().split())
+    if not normalized:
+        return False
+    return bool(
+        re.search(
+            r"\b("
+            r"whereas|"
+            r"now,\s*therefore|"
+            r"intent of (?:the )?(?:general assembly|legislature|congress)|"
+            r"(?:general assembly|legislature|congress) (?:finds|declares)|"
+            r"finds and declares|"
+            r"purpose of (?:this|the)"
+            r")\b",
+            normalized,
+        )
+    )
+
+
+def _nonoperative_source_coverage_symbol(excerpt: str) -> str:
+    normalized = " ".join(str(excerpt or "").lower().split())
+    if "intent" in normalized:
+        return "legislative_intent"
+    if "finds" in normalized or "declares" in normalized:
+        return "legislative_findings"
+    if "purpose" in normalized:
+        return "legislative_purpose"
+    return "nonoperative_source"
+
+
+def _source_coverage_output_path(base_anchor: str, *, citation: str) -> str:
+    segments = [
+        segment.strip()
+        for segment in re.findall(r"\(([A-Za-z0-9.]+)\)", str(citation or ""))
+        if segment.strip()
+    ]
+    if not segments:
+        return base_anchor
+    anchor_path = base_anchor.rsplit(":", 1)[-1].strip("/")
+    anchor_segments = anchor_path.split("/") if anchor_path else []
+    if (
+        len(anchor_segments) >= len(segments)
+        and anchor_segments[-len(segments) :] == segments
+    ):
+        return base_anchor
+    return f"{base_anchor}/{'/'.join(segments)}"
 
 
 def _infer_deferred_output_symbol_from_summary(summary: str) -> tuple[str, str]:
@@ -18001,6 +19125,311 @@ def _try_repair_generated_source_table_band_scalars_for_apply(
 
     rules_file.write_text(repaired_content)
     return repaired_rules
+
+
+def _try_repair_generated_indexed_parameter_values_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Convert generated indexed parameter value tables into derived formulas."""
+    if not any("has no formula version" in str(issue) for issue in issues):
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    return _convert_indexed_parameter_values_to_derived_formulas(rules_file, test_file)
+
+
+def _try_repair_generated_indexed_parameter_lookups_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Rewrite bare generated references to indexed parameter tables."""
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    return _repair_bare_indexed_parameter_references(rules_file)
+
+
+def _repair_bare_indexed_parameter_references(rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    indexed_parameters: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        index_name = _single_parameter_index_name(rule)
+        if not name or not index_name:
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list) or not any(
+            isinstance(version, dict) and isinstance(version.get("values"), dict)
+            for version in versions
+        ):
+            continue
+        indexed_parameters[name] = index_name
+    if not indexed_parameters:
+        return []
+
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        repaired_rule = False
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            updated = formula
+            for parameter_name, index_name in indexed_parameters.items():
+                updated = _rewrite_bare_indexed_parameter_reference(
+                    updated,
+                    parameter_name=parameter_name,
+                    index_name=index_name,
+                )
+            if updated != formula:
+                version["formula"] = updated
+                repaired_rule = True
+        if repaired_rule:
+            repaired.append(rule_name or "<unnamed>")
+
+    if repaired:
+        rules_file.write_text(yaml.safe_dump(payload, sort_keys=False))
+    return repaired
+
+
+def _rewrite_bare_indexed_parameter_reference(
+    formula: str,
+    *,
+    parameter_name: str,
+    index_name: str,
+) -> str:
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9_#.\]])\b{re.escape(parameter_name)}\b"
+        rf"(?!\s*\[)(?![A-Za-z0-9_])"
+    )
+    return pattern.sub(f"{parameter_name}[{index_name}]", formula)
+
+
+def _convert_indexed_parameter_values_to_derived_formulas(
+    rules_file: Path,
+    test_file: Path | None = None,
+) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    rule_by_name = {
+        str(rule.get("name") or ""): rule
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("name")
+    }
+    repaired: list[str] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if rule.get("kind") != "parameter" or "versions" in rule:
+            continue
+        indexed_by = str(rule.get("indexed_by") or "").strip()
+        values = rule.get("values")
+        if not indexed_by or not isinstance(values, list):
+            continue
+        index_rule = rule_by_name.get(indexed_by)
+        if not isinstance(index_rule, dict):
+            continue
+        entity = index_rule.get("entity")
+        period = index_rule.get("period")
+        if not entity or not period:
+            continue
+        converted = _formula_from_indexed_value_records(
+            rule=rule,
+            indexed_by=indexed_by,
+            values=values,
+        )
+        if converted is None:
+            continue
+        effective_from, formula, selectors = converted
+
+        rule["kind"] = "derived"
+        rule["entity"] = entity
+        rule["period"] = period
+        rule.pop("indexed_by", None)
+        rule.pop("values", None)
+        rule["versions"] = [
+            {
+                "effective_from": effective_from,
+                "formula": formula,
+            }
+        ]
+        _retarget_formula_proof_atoms_to_first_version(rule)
+        repaired.append(str(rule.get("name") or ""))
+        if test_file is not None and selectors:
+            _add_selector_version_test_inputs(
+                test_file,
+                [(str(rule.get("name") or "indexed_values_rule"), selectors)],
+            )
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _formula_from_indexed_value_records(
+    *,
+    rule: dict[str, object],
+    indexed_by: str,
+    values: list[Any],
+) -> tuple[str, str, list[dict[str, str]]] | None:
+    records: list[tuple[int, date, str, str]] = []
+    for ordinal, record in enumerate(values, start=1):
+        if not isinstance(record, dict):
+            continue
+        value_map = record.get("value")
+        if not isinstance(value_map, dict):
+            continue
+        effective_from = str(record.get("effective_from") or "").strip()
+        effective_date = _parse_iso_date(effective_from)
+        if effective_date is None:
+            return None
+        record_formula = _formula_from_indexed_value_map(
+            indexed_by=indexed_by,
+            value_map=value_map,
+        )
+        if record_formula is None:
+            return None
+        records.append(
+            (
+                ordinal,
+                effective_date,
+                effective_from,
+                record_formula,
+            )
+        )
+    if not records:
+        return None
+
+    records.sort(key=lambda item: (item[1], item[0]))
+    _first_ordinal, _first_date, first_effective_from, formula = records[0]
+    selectors: list[dict[str, str]] = []
+    for ordinal, _effective_date, effective_from, record_formula in records[1:]:
+        predicate = _version_selector_predicate_name(rule, ordinal)
+        selectors.append(
+            {
+                "effective_from": effective_from,
+                "predicate": predicate,
+                "formula": "",
+            }
+        )
+        formula = f"if {predicate}: ({record_formula}) else: {formula}"
+
+    return first_effective_from, formula, selectors
+
+
+def _formula_from_indexed_value_map(
+    *,
+    indexed_by: str,
+    value_map: dict[Any, Any],
+) -> str | None:
+    selected_mapping = value_map
+
+    default = selected_mapping.get(0, selected_mapping.get("0", 0))
+    default_literal = _formula_scalar_literal(default)
+    default_numeric = _numeric_value_from_yaml(default)
+    if default_literal is None or math.isnan(default_numeric):
+        return None
+    branches: list[tuple[float, str, str]] = []
+    for raw_key, raw_value in selected_mapping.items():
+        numeric_key = _numeric_value_from_yaml(raw_key)
+        numeric_value = _numeric_value_from_yaml(raw_value)
+        key_literal = _formula_scalar_literal(raw_key)
+        value_literal = _formula_scalar_literal(raw_value)
+        if (
+            key_literal is None
+            or value_literal is None
+            or math.isnan(numeric_key)
+            or math.isnan(numeric_value)
+        ):
+            return None
+        if numeric_key == 0:
+            continue
+        if numeric_value == default_numeric:
+            continue
+        branches.append((numeric_key, key_literal, value_literal))
+    if not branches:
+        return default_literal
+
+    formula = default_literal
+    for _numeric_key, key_literal, value_literal in sorted(
+        branches,
+        key=lambda item: item[0],
+    ):
+        formula = f"if {indexed_by} == {key_literal}: {value_literal} else: {formula}"
+    return formula
+
+
+def _numeric_value_from_yaml(value: Any) -> float:
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def _formula_scalar_literal(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        return f"{value:g}"
+    text = str(value).strip()
+    if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", text):
+        return text[1:] if text.startswith("+") else text
+    return None
 
 
 def _try_repair_generated_shared_statutory_rate_names_for_apply(
