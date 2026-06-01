@@ -147,6 +147,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
         "The out-of-table sentinel is not itself a source table row" in ENCODER_PROMPT
     )
     assert "do not clamp sentinel cases\n  to the final table row" in ENCODER_PROMPT
+    assert "Use a negative sentinel such as `-1`" in ENCODER_PROMPT
+    assert "do not use the\n  next positive band id such as `6`" in ENCODER_PROMPT
     assert "Do not hard-code the final real band id" in ENCODER_PROMPT
     assert (
         "let the indexed interpolation formula produce that constant" in ENCODER_PROMPT
@@ -214,6 +216,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Include a companion test above the final bounded" in prompt
     assert "The out-of-table sentinel is not itself a source table row" in prompt
     assert "do not clamp sentinel cases\n  to the final table row" in prompt
+    assert "Use a negative sentinel such as `-1`" in prompt
+    assert "do not use the\n  next positive band id such as `6`" in prompt
     assert "Do not hard-code the final real band id" in prompt
     assert "let the indexed interpolation formula produce that constant" in prompt
     assert "source text `133%` should be\n  represented as `1.33`" in prompt
