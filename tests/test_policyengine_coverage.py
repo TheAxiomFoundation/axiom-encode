@@ -135,6 +135,51 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_alabama_snap_manual_prefix(tmp_path):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-al"
+        / "policies/dhr/poe/chapter-07-work-requirements/710.yaml",
+        """format: rulespec/v1
+rules:
+  - name: person_subject_to_abawd_provision
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: person_age >= 18
+""",
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-al"
+        / "policies/dhr/poe/chapter-09-income-and-deductions/900.yaml",
+        """format: rulespec/v1
+rules:
+  - name: household_meets_snap_income_eligibility_standards
+    kind: derived
+    versions:
+      - effective_from: '2025-10-01'
+        formula: household_income <= income_limit
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="snap")
+
+    assert report["total_outputs"] == 2
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    manual_output = items_by_id[
+        "us-al:policies/dhr/poe/chapter-07-work-requirements/710#person_subject_to_abawd_provision"
+    ]
+    exact_output = items_by_id[
+        "us-al:policies/dhr/poe/chapter-09-income-and-deductions/900#household_meets_snap_income_eligibility_standards"
+    ]
+    assert manual_output["mapping_type"] == "not_comparable"
+    assert "Alabama DHR POE SNAP manual sections" in str(manual_output["rationale"])
+    assert exact_output["mapping_type"] == "not_comparable"
+    assert "state income bridge" in str(exact_output["rationale"])
+
+
 def test_policyengine_coverage_ignores_nested_axiom_dependency_checkout(tmp_path):
     content = """format: rulespec/v1
 rules:
