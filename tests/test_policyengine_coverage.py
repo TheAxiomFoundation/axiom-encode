@@ -248,6 +248,107 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_aca_ptc_percentage_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "policies/irs/rev-proc-2025-25/aca-ptc.yaml",
+        """format: rulespec/v1
+rules:
+  - name: applicable_percentage_band
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: applicable_initial_percentage_table
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+  - name: applicable_final_percentage_table
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+  - name: applicable_initial_percentage
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: applicable_initial_percentage_table[applicable_percentage_band]
+  - name: applicable_final_percentage
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: applicable_final_percentage_table[applicable_percentage_band]
+  - name: required_contribution_percentage
+    kind: parameter
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.0996
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "policies/irs/rev-proc-2025-25/aca-ptc.test.yaml",
+        """- name: required_contribution_percentage_for_2026_plan_year
+  output:
+    us:policies/irs/rev-proc-2025-25/aca-ptc#required_contribution_percentage: 0.0996
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/36B/b/3/A.yaml",
+        """format: rulespec/v1
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0
+  - name: initial_premium_percentage_by_income_tier
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          0: 0.02
+  - name: final_premium_percentage_by_income_tier
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          0: 0.02
+  - name: applicable_percentage
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.02
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="aca_ptc")
+
+    assert report["total_outputs"] == 10
+    assert report["status_counts"] == {
+        "comparable": 1,
+        "known_not_comparable": 9,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    required = items_by_id[
+        "us:policies/irs/rev-proc-2025-25/aca-ptc#required_contribution_percentage"
+    ]
+    assert required["status"] == "comparable"
+    assert (
+        required["policyengine_parameter"]
+        == "gov.aca.required_contribution_percentage.final"
+    )
+    assert required["tested"] is True
+    statute_applicable = items_by_id["us:statutes/26/36B/b/3/A#applicable_percentage"]
+    assert statute_applicable["status"] == "known_not_comparable"
+    assert (
+        statute_applicable["policyengine_variable"]
+        == "aca_required_contribution_percentage"
+    )
+
+
 def test_policyengine_coverage_classifies_alabama_snap_manual_prefix(tmp_path):
     _write_rulespec_file(
         tmp_path
