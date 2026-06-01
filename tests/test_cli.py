@@ -6106,7 +6106,10 @@ rules:
         assert "  - name: snap_total_allowable_shelter_expenses\n" in repaired
         assert "  - name: snap_member_eligible\n" in repaired
         assert "  - name: snap_household_member_eligible\n" in repaired
+        assert "  - name: calfresh_income_and_resource_eligible\n" in repaired
+        assert "snap_categorically_eligible_for_resource_exemption" in repaired
         assert "and snap_household_member_eligible" in repaired
+        assert "and calfresh_income_and_resource_eligible" in repaired
 
     def test_repair_california_snap_program_tests_uses_sua_shelter_input(
         self, tmp_path
