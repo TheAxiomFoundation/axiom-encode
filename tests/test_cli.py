@@ -115,6 +115,7 @@ from axiom_encode.cli import (
     cmd_eval_suite_report,
     cmd_eval_suite_revalidate,
     cmd_guard_generated,
+    cmd_interval_table_audit,
     cmd_inventory,
     cmd_log,
     cmd_log_event,
@@ -327,6 +328,12 @@ class TestMain:
     def test_inventory_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "inventory"]):
             with patch("axiom_encode.cli.cmd_inventory") as mock_cmd:
+                main()
+                mock_cmd.assert_called_once()
+
+    def test_interval_table_audit_command_dispatches(self):
+        with patch("sys.argv", ["axiom_encode", "interval-table-audit"]):
+            with patch("axiom_encode.cli.cmd_interval_table_audit") as mock_cmd:
                 main()
                 mock_cmd.assert_called_once()
 
@@ -2938,6 +2945,261 @@ rules:
         assert "Files: 1 total; 1 source/provision; 0 composition" in output
         assert "Kinds: parameter=1" in output
         assert "rulespec-us: files=1" in output
+
+
+class TestCmdIntervalTableAudit:
+    def test_interval_table_audit_reports_reencoding_candidates(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        rulespec_file = (
+            tmp_path / "rulespec-us" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+        )
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """
+format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage table | Household income percent of poverty line | Initial | Final
+    | Up to 133 | 0.021 | 0.021 |
+    | 133 to 150 | 0.03 | 0.04 |
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= 133:
+              0
+          else:
+              1
+  - name: initial_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.03
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          initial_applicable_percentage_by_tier[applicable_percentage_income_tier]
+          + (household_income_as_percent_of_poverty_line - 133) / 17
+"""
+        )
+        args = SimpleNamespace(
+            root=tmp_path,
+            include_selector_bounds=False,
+            json=True,
+            limit=50,
+            fail_on_issues=False,
+        )
+
+        cmd_interval_table_audit(args)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["files_scanned"] == 1
+        assert output["issue_count"] == 1
+        assert output["blocking_issue_count"] == 1
+        assert output["issues"][0]["repo"] == "rulespec-us"
+        assert output["issues"][0]["path"] == "statutes/26/36B/b/3/A.yaml"
+        assert output["issues"][0]["kind"] == "non_selector_interval_bound_literal"
+        assert output["issues"][0]["literal"] == "133"
+
+    def test_interval_table_audit_exits_nonzero_on_failure(self, tmp_path):
+        rulespec_file = (
+            tmp_path / "rulespec-us" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+        )
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """
+format: rulespec/v1
+module:
+  summary: |-
+    Table | Income | Rate
+    | Up to 133 | 0.021 |
+    | Over 133 | 0.03 |
+rules:
+  - name: income_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'if income <= 133: 0 else: 1'
+  - name: rate_by_income_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: income_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.03
+  - name: adjusted_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'rate_by_income_band[income_band] + (income - 133) * 0'
+"""
+        )
+        args = SimpleNamespace(
+            root=tmp_path,
+            include_selector_bounds=False,
+            json=False,
+            limit=50,
+            fail_on_issues=True,
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_interval_table_audit(args)
+
+        assert exc_info.value.code == 1
+
+    def test_interval_table_audit_fail_on_issues_ignores_selector_inventory(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        rulespec_file = (
+            tmp_path / "rulespec-us" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+        )
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """
+format: rulespec/v1
+module:
+  summary: |-
+    Table | Income | Rate
+    | Up to 133 | 0.021 |
+    | Over 133 | 0.03 |
+rules:
+  - name: income_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'if income <= 133: 0 else: 1'
+  - name: rate_by_income_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: income_band
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.03
+"""
+        )
+        args = SimpleNamespace(
+            root=tmp_path,
+            include_selector_bounds=True,
+            json=True,
+            limit=50,
+            fail_on_issues=True,
+        )
+
+        cmd_interval_table_audit(args)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["issue_count"] == 1
+        assert output["blocking_issue_count"] == 0
+        assert output["issues"][0]["kind"] == "selector_inline_interval_bound"
+
+    def test_interval_table_audit_reports_branch_formula_scales(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        rulespec_file = tmp_path / "rulespec-us" / "policies" / "example" / "scale.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """
+format: rulespec/v1
+rules:
+  - name: amount_by_income_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          match income_band:
+            0 => 100
+            1 => 200
+"""
+        )
+        args = SimpleNamespace(
+            root=tmp_path,
+            include_selector_bounds=False,
+            json=True,
+            limit=50,
+            fail_on_issues=False,
+        )
+
+        cmd_interval_table_audit(args)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["issue_count"] == 1
+        assert output["blocking_issue_count"] == 1
+        assert output["issues"][0]["kind"] == "branch_formula_scale"
+        assert output["issues"][0]["rule"] == "amount_by_income_band"
+
+    def test_interval_table_audit_reports_malformed_parameter_tables(
+        self,
+        capsys,
+        tmp_path,
+    ):
+        rulespec_file = tmp_path / "rulespec-us" / "policies" / "example" / "scale.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """
+format: rulespec/v1
+rules:
+  - name: amount_by_income_band
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 100
+          1: 200
+"""
+        )
+        args = SimpleNamespace(
+            root=tmp_path,
+            include_selector_bounds=False,
+            json=True,
+            limit=50,
+            fail_on_issues=False,
+        )
+
+        cmd_interval_table_audit(args)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["issue_count"] == 1
+        assert output["blocking_issue_count"] == 1
+        assert output["issues"][0]["kind"] == "malformed_parameter_table"
+        assert output["issues"][0]["rule"] == "amount_by_income_band"
 
 
 # =========================================================================

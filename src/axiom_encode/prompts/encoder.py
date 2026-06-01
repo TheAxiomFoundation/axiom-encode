@@ -164,13 +164,22 @@ Hard requirements:
   use the table parameter bare as a scalar. Indexed table keys must be integer
   band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like
   `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys.
-  Use structural row bounds inline in the band selector, and have the selector
-  return integer band ids; do not promote those row labels to public parameter
-  outputs. Preserve source row identity: open lower or upper interval cells are
+  Use structural row bounds inline only in the band selector, and have the
+  selector return integer band ids; do not promote those row labels to public
+  scalar outputs. If a downstream formula needs the active row's lower or upper
+  bound for interpolation or clamping before native interval-table support
+  exists, store those bounds as private indexed parameter columns such as
+  `applicable_percentage_band_lower_bound[band_selector]` and
+  `applicable_percentage_band_upper_bound[band_selector]`, then reference those
+  names in the derived formula. Do not repeat the bound literals in non-selector
+  formulas. Preserve source row identity: open lower or upper interval cells are
   real rows, not defaults and not dropped rows. Omit the open side of the
   predicate; for example an open-lower row ending at `2.5` is
   `if x < 2.5: 0`, and an open-upper row starting at `9.0` is the final integer
-  row key for `x >= 9.0`.
+  row key for `x >= 9.0`. For source tables with both interval and categorical
+  dimensions, keep the interval selector separate from the categorical key and
+  use indexed parameter columns over the combined selectors instead of flattening
+  legal categories into formula literals.
 - For source-stated rate or percentage tables whose column header names a legal
   application such as "applicable percentage for section 3201(b)" or
   "applicable percentage for sections 3211(b) and 3221(b)", name the exported

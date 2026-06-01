@@ -49,6 +49,8 @@ from axiom_encode.harness.validator_pipeline import (
     find_helper_only_definition_issues,
     find_import_shape_issues,
     find_imported_deferred_branch_composition_issues,
+    find_interval_table_reencoding_candidates,
+    find_interval_table_reencoding_issues,
     find_judgment_conditional_formula_issues,
     find_judgment_positive_companion_output_issues,
     find_missing_child_exception_import_issues,
@@ -4167,6 +4169,358 @@ rules:
     )
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_interval_table_audit_allows_selector_bounds_but_can_inventory_them():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage table | Household income percent of poverty line | Initial | Final
+    | Up to 133 | 0.021 | 0.021 |
+    | 133 to 150 | 0.03 | 0.04 |
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= 133:
+              0
+          else:
+              1
+  - name: initial_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.03
+"""
+
+    assert find_interval_table_reencoding_issues(content) == []
+    candidates = find_interval_table_reencoding_candidates(
+        content,
+        include_selector_bounds=True,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].kind == "selector_inline_interval_bound"
+    assert candidates[0].literal == "133"
+
+
+def test_interval_table_audit_flags_reused_selector_bounds_in_formula_arithmetic():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage table | Household income percent of poverty line | Initial | Final
+    | Up to 133 | 0.021 | 0.021 |
+    | 133 to 150 | 0.03 | 0.04 |
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= 133:
+              0
+          else:
+              1
+  - name: initial_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.03
+  - name: final_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.04
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          initial_applicable_percentage_by_tier[
+            applicable_percentage_income_tier
+          ] + (
+            household_income_as_percent_of_poverty_line - 133
+          ) / (150 - 133) * (
+            final_applicable_percentage_by_tier[applicable_percentage_income_tier]
+            - initial_applicable_percentage_by_tier[applicable_percentage_income_tier]
+          )
+"""
+
+    issues = find_interval_table_reencoding_issues(content)
+
+    assert len(issues) == 1
+    assert "applicable_percentage" in issues[0]
+    assert "`133`" in issues[0]
+    assert "outside structural selector arithmetic" in issues[0]
+
+
+def test_interval_table_audit_flags_small_decimal_interval_bounds():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage table | FPL fraction | Initial | Final
+    | 1.50 to 2.00 | 0.04 | 0.06 |
+    | 2.00 to 2.50 | 0.06 | 0.08 |
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_fraction_of_poverty_line <= 2.00:
+              0
+          else:
+              1
+  - name: initial_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.04
+          1: 0.06
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          initial_applicable_percentage_by_tier[
+            applicable_percentage_income_tier
+          ] + (household_income_as_fraction_of_poverty_line - 2.00) * 0
+"""
+
+    issues = find_interval_table_reencoding_issues(content)
+
+    assert len(issues) == 1
+    assert "`2.00`" in issues[0]
+
+
+def test_interval_table_audit_matches_percent_and_fraction_bounds_symmetrically():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage table | FPL fraction | Initial | Final
+    | Up to 1.33 | 0.021 | 0.021 |
+    | 1.33 to 1.50 | 0.03 | 0.04 |
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_fraction_of_poverty_line <= 1.33:
+              0
+          else:
+              1
+  - name: initial_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.03
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          initial_applicable_percentage_by_tier[
+            applicable_percentage_income_tier
+          ] + (household_income_as_percent_of_poverty_line - 133) * 0
+"""
+
+    issues = find_interval_table_reencoding_issues(content)
+
+    assert len(issues) == 1
+    assert "`133`" in issues[0]
+
+
+def test_interval_table_audit_does_not_x100_match_without_percent_fraction_context():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Table | Income | Rate
+    | Up to 400 | 0.10 |
+    | Over 400 | 0.20 |
+rules:
+  - name: income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if income <= 400:
+              0
+          else:
+              1
+  - name: rate_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.10
+          1: 0.20
+  - name: adjusted_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: rate_by_tier[income_tier] + 4.0 * adjustment_rate
+"""
+
+    assert find_interval_table_reencoding_issues(content) == []
+
+
+def test_interval_table_audit_does_not_confuse_selector_key_with_percent_bound():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage table | Household income percent of poverty line | Initial | Final
+    | Up to 300 | 0.08 | 0.095 |
+    | 300 to 400 | 0.095 | 0.095 |
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= 300:
+              3
+          else:
+              4
+  - name: initial_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          3: 0.08
+          4: 0.095
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if applicable_percentage_income_tier == 4:
+              initial_applicable_percentage_by_tier[4]
+          else:
+              initial_applicable_percentage_by_tier[applicable_percentage_income_tier]
+"""
+
+    assert find_interval_table_reencoding_issues(content) == []
+
+
+def test_rulespec_ci_runs_interval_table_reencoding_check(monkeypatch, tmp_path):
+    rulespec_file = (
+        tmp_path / "rulespec-us" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+    )
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage table | Household income percent of poverty line | Initial | Final
+    | Up to 133 | 0.021 | 0.021 |
+    | 133 to 150 | 0.03 | 0.04 |
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'if household_income_as_percent_of_poverty_line <= 133: 0 else: 1'
+  - name: initial_applicable_percentage_by_tier
+    kind: parameter
+    dtype: Rate
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          0: 0.021
+          1: 0.03
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 'initial_applicable_percentage_by_tier[applicable_percentage_income_tier] + (income - 133) * 0'
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    def fake_compile(rules_file, output_path):
+        return (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        )
+
+    monkeypatch.setattr(pipeline, "_compile_rulespec_to_artifact", fake_compile)
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    assert not result.passed
+    assert any(
+        "Interval table re-encoding required" in issue for issue in result.issues
+    )
 
 
 def test_rulespec_grounding_rejects_ungrounded_index_like_integer_outputs():
