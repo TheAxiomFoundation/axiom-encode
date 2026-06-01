@@ -14268,12 +14268,22 @@ def _fetch_local_corpus_source_text(citation_path: str) -> str | None:
             )
             if source_text is not None:
                 return source_text
+            source_text = _read_local_corpus_descendant_text(
+                provision_file,
+                normalized_path,
+            )
+            if source_text is not None:
+                return source_text
     return None
 
 
 def _local_corpus_provisions_roots() -> tuple[Path, ...]:
     roots: list[Path] = []
-    for env_name in ("AXIOM_CORPUS_ARTIFACT_ROOT", "AXIOM_CORPUS_REPO"):
+    for env_name in (
+        "AXIOM_CORPUS_ARTIFACT_ROOT",
+        "AXIOM_CORPUS_LOCAL_ROOT",
+        "AXIOM_CORPUS_REPO",
+    ):
         raw_root = os.environ.get(env_name)
         if raw_root:
             roots.append(Path(raw_root).expanduser())
@@ -14363,6 +14373,53 @@ def _read_local_corpus_provision_file(
         body = record.get("body")
         return str(body) if body is not None else None
     return None
+
+
+def _read_local_corpus_descendant_text(
+    provision_file: Path,
+    citation_path: str,
+) -> str | None:
+    """Read body-bearing child provisions for a metadata-only source document."""
+    try:
+        lines = provision_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    descendants: list[tuple[int, int, str | None, str]] = []
+    child_prefix = f"{citation_path}/"
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        record_path = str(record.get("citation_path") or "")
+        if not record_path.startswith(child_prefix):
+            continue
+        body = record.get("body")
+        if body is None:
+            continue
+        descendants.append(
+            (
+                int(record.get("level") or 0),
+                int(record.get("ordinal") or 0),
+                str(record.get("heading") or "") or None,
+                str(body),
+            )
+        )
+
+    if not descendants:
+        return None
+    chunks: list[str] = []
+    for _, _, heading, body in sorted(descendants):
+        if heading:
+            chunks.append(f"{heading}\n\n{body}")
+        else:
+            chunks.append(body)
+    return "\n\n".join(chunks)
 
 
 @functools.lru_cache(maxsize=512)

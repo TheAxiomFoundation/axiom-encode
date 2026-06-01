@@ -10932,6 +10932,67 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+def test_source_verification_reads_local_corpus_child_blocks(
+    tmp_path,
+    monkeypatch,
+):
+    provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "us" / "form"
+    provisions_dir.mkdir(parents=True)
+    citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    (provisions_dir / "test-source.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "citation_path": citation,
+                        "body": None,
+                        "heading": "Medicaid, CHIP, and BHP Eligibility Levels",
+                        "level": 1,
+                        "ordinal": 1,
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "citation_path": f"{citation}/block-1",
+                        "body": (
+                            "Colorado Medicaid children 142% and CHIP 260% "
+                            "income eligibility standards."
+                        ),
+                        "heading": "State Medicaid, CHIP and BHP Income Eligibility Standards",
+                        "level": 2,
+                        "ordinal": 1,
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_LOCAL_ROOT", str(tmp_path))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+    values:
+      colorado_chip_limit: 260
+rules:
+  - name: colorado_chip_limit
+    kind: parameter
+    dtype: Decimal
+    unit: percent
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '260'
+"""
+
+    assert find_source_verification_issues(content) == []
+
+
 def test_source_verification_accepts_values_in_corpus_source_text():
     content = """format: rulespec/v1
 module:
