@@ -126,6 +126,27 @@ def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     ) == Path("regulations/7-cfr/273/10.yaml")
 
 
+def test_source_identifier_maps_federal_form_to_forms_repo_path():
+    assert _source_identifier_to_relative_rulespec_path(
+        "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    ) == Path("forms/cms/medicaid-chip-bhp-eligibility-levels.yaml")
+
+
+def test_resolve_corpus_source_unit_accepts_form_citation_path(tmp_path):
+    citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    corpus_path = _write_test_corpus_provision(
+        tmp_path,
+        citation_path=citation,
+        body="CMS Medicaid, CHIP, and BHP eligibility levels table",
+    )
+
+    source_unit = resolve_corpus_source_unit(citation, corpus_path)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert source_unit.body == "CMS Medicaid, CHIP, and BHP eligibility levels table"
+
+
 def test_canonical_target_ref_prefix_handles_canonical_source_id():
     assert (
         _canonical_target_ref_prefix(

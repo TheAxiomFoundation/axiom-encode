@@ -120,6 +120,8 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statutes", "regulation"}
 _RULESPEC_SOURCE_ROOT_TOKENS = {
+    "form",
+    "forms",
     "guidance",
     "manual",
     "manuals",
@@ -1971,6 +1973,8 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
     if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
         return True
     return len(parts) >= 3 and parts[1] in {
+        "form",
+        "forms",
         "guidance",
         "manual",
         "manuals",
@@ -3259,6 +3263,8 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
             return Path(parts[0]) / _dotted_leaf_to_nested_yaml_path(tail)
     if len(parts) >= 3:
         document_roots = {
+            "form": "forms",
+            "forms": "forms",
             "guidance": "guidance",
             "manual": "policies",
             "manuals": "policies",
