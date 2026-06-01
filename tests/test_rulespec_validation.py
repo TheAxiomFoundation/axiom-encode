@@ -3441,6 +3441,31 @@ def test_policyengine_health_child_variable_adds_child_with_adult_relation_rows(
     assert "result_index = 1" in script
 
 
+def test_policyengine_health_child_variable_applies_top_level_age_to_child(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "is_chip_eligible_child",
+        {
+            "period": "2026",
+            "household_size": 2,
+            "state_code_str": "CO",
+            "age": 19,
+        },
+        "2026",
+    )
+
+    assert "'adult': {'age': {'2026': 30}" in script
+    assert "'child0': {'age': {'2026': 19}" in script
+    assert "result_index = 1" in script
+
+
 def test_policyengine_tax_scenario_builds_capital_gains_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,

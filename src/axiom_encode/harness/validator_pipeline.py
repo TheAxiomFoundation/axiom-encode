@@ -21839,16 +21839,18 @@ print(f'RESULT:{{float(value)}}')
         if targets_child_person and num_children == 0:
             num_children = 1
 
+        target_child_extra_attrs: list[str] = []
+        target_person_attrs = target_child_extra_attrs if targets_child_person else None
         adult_age = 65 if aged_flags[:1] == [True] else 30
         if relation_filer_rows:
             adult_age = self._us_tax_relation_member_age(
                 relation_filer_rows[0],
                 adult_age,
             )
-        explicit_adult_age = self._rulespec_test_input_value(inputs, "age")
+        explicit_person_age = self._rulespec_test_input_value(inputs, "age")
         with contextlib.suppress(TypeError, ValueError):
-            if explicit_adult_age is not None:
-                adult_age = int(explicit_adult_age)
+            if explicit_person_age is not None and not targets_child_person:
+                adult_age = int(explicit_person_age)
         adult_attrs = [f"'age': {{'{year}': {adult_age}}}"]
         members = ["'adult'"]
 
@@ -21857,12 +21859,18 @@ print(f'RESULT:{{float(value)}}')
             "employment_income", inputs.get("earned_income", inputs.get("wages", 0))
         )
         if earned:
-            adult_attrs.append(f"'employment_income': {{'{year}': {earned}}}")
+            attrs = (
+                target_person_attrs if target_person_attrs is not None else adult_attrs
+            )
+            attrs.append(f"'employment_income': {{'{year}': {earned}}}")
         for rule_key, pe_key in self._PE_US_PERSON_OVERRIDE_INPUTS.items():
             value = self._rulespec_test_input_value(inputs, rule_key)
             if value is None:
                 continue
-            adult_attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
+            attrs = (
+                target_person_attrs if target_person_attrs is not None else adult_attrs
+            )
+            attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
         if relation_filer_rows:
             adult_attrs.extend(
                 self._us_tax_person_attrs_from_relation_row(
@@ -21878,15 +21886,28 @@ print(f'RESULT:{{float(value)}}')
                     continue
                 with contextlib.suppress(TypeError, ValueError):
                     annual_value = float(value) * 12
-                    adult_attrs.append(f"'{pe_attr}': {{'{year}': {annual_value}}}")
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
+                    )
+                    attrs.append(f"'{pe_attr}': {{'{year}': {annual_value}}}")
             for rule_key, pe_attr in adapter.boolean_person_inputs:
                 if rule_key in inputs:
-                    adult_attrs.append(
-                        f"'{pe_attr}': {{'{year}': {bool(inputs[rule_key])}}}"
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
                     )
+                    attrs.append(f"'{pe_attr}': {{'{year}': {bool(inputs[rule_key])}}}")
             for rule_key, pe_attr in adapter.monthly_boolean_person_inputs:
                 if rule_key in inputs:
-                    adult_attrs.append(
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
+                    )
+                    attrs.append(
                         f"'{pe_attr}': {{'{period}': {bool(inputs[rule_key])}}}"
                     )
 
@@ -21965,6 +21986,10 @@ print(f'RESULT:{{float(value)}}')
         # Add children based on explicit qualifying-child counts, relation rows, or household size.
         for i, row in enumerate(child_rows):
             age = self._us_tax_relation_member_age(row, 8)
+            if targets_child_person and i == 0:
+                with contextlib.suppress(TypeError, ValueError):
+                    if explicit_person_age is not None:
+                        age = int(explicit_person_age)
             child_attrs = [
                 f"'age': {{'{year}': {age}}}",
                 f"'is_tax_unit_dependent': {{'{year}': True}}",
@@ -21983,6 +22008,8 @@ print(f'RESULT:{{float(value)}}')
                     year,
                 )
             )
+            if targets_child_person and i == 0:
+                child_attrs.extend(target_child_extra_attrs)
             people_parts.append(f"'child{i}': {{{', '.join(child_attrs)}}}")
             members.append(f"'child{i}'")
         for i, row in enumerate(adult_dependent_rows):
