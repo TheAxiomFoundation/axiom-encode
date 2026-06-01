@@ -181,6 +181,7 @@ def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp
         derived_by_key={"us:statutes/1/1#benefit": {"entity": "Household"}},
         require_legal_input_keys=False,
         legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
         module_target=None,
     )
 
@@ -620,6 +621,7 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
         derived_by_key={"excluded_from_wages": {"entity": "Payment"}},
         require_legal_input_keys=False,
         legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
         module_target=None,
     )
 
