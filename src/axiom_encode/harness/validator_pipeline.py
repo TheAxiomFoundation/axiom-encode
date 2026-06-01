@@ -1528,18 +1528,28 @@ def _extract_formula_grounding_values(
     values: list[tuple[int, str, float]] = []
     for match in GROUNDING_FORMULA_NUMBER_PATTERN.finditer(cleaned):
         raw = match.group(1).replace(",", "")
+        start, end = match.span(1)
         if raw == "0.5" and _is_half_up_rounding_expression(cleaned):
             continue
-        if _is_structural_table_key_literal(cleaned, raw):
+        if _is_structural_table_key_literal(cleaned, raw, span=(start, end)):
             continue
-        if _is_structural_schedule_index_literal(cleaned, raw):
+        if _is_structural_table_index_clamp_literal(
+            cleaned,
+            raw,
+            span=(start, end),
+        ):
             continue
-        if _is_structural_enum_index_literal(cleaned, raw):
+        if _is_structural_mapping_key_literal(cleaned, raw, span=(start, end)):
+            continue
+        if _is_structural_schedule_index_literal(cleaned, raw, span=(start, end)):
+            continue
+        if _is_structural_enum_index_literal(cleaned, raw, span=(start, end)):
             continue
         if _is_structural_selector_result_literal(
             cleaned,
             raw,
             structural_selector_keys,
+            span=(start, end),
         ):
             continue
         with contextlib.suppress(ValueError):
@@ -1620,7 +1630,12 @@ def _is_half_up_rounding_helper_scalar(symbol_name: str, value: float) -> bool:
     )
 
 
-def _is_structural_table_key_literal(expression: str, literal: str) -> bool:
+def _is_structural_table_key_literal(
+    expression: str,
+    literal: str,
+    *,
+    span: tuple[int, int] | None = None,
+) -> bool:
     """Return true when a small integer only selects a parameter-table row."""
     if literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
         return False
@@ -1630,6 +1645,11 @@ def _is_structural_table_key_literal(expression: str, literal: str) -> bool:
         numeric_value = float(literal)
         if not numeric_value.is_integer() or not (0 <= int(numeric_value) <= 20):
             return False
+    if span is not None:
+        start, end = span
+        left = expression[:start].rstrip(" \t")
+        right = expression[end:].lstrip(" \t")
+        return bool(left.endswith("[") and right.startswith("]"))
     return bool(
         re.search(
             rf"\[[ \t]*{re.escape(literal)}[ \t]*\]",
@@ -1638,10 +1658,117 @@ def _is_structural_table_key_literal(expression: str, literal: str) -> bool:
     )
 
 
+def _is_structural_table_index_clamp_literal(
+    expression: str,
+    literal: str,
+    *,
+    span: tuple[int, int] | None = None,
+) -> bool:
+    """Return true when a small integer only clamps an indexed table lookup."""
+    if not _is_small_structural_integer_literal(literal):
+        return False
+    if span is None:
+        return bool(
+            re.search(
+                rf"\[[^\]]*\b(?:min|max)\s*\([^\]]*\b{re.escape(literal)}\b[^\]]*\)",
+                expression,
+            )
+        )
+
+    bracket_span = _enclosing_square_bracket_span(expression, span)
+    if bracket_span is None:
+        return False
+    bracket_start, bracket_end = bracket_span
+    call_name = _enclosing_function_call_name(
+        expression,
+        span,
+        search_start=bracket_start + 1,
+    )
+    if call_name not in {"min", "max"}:
+        return False
+    start, end = span
+    inner_before = expression[bracket_start + 1 : start].lower()
+    inner_after = expression[end:bracket_end].lower()
+
+    before = inner_before.rstrip()
+    after = inner_after.lstrip()
+    starts_argument = before.endswith((",", "("))
+    ends_argument = after.startswith((",", ")"))
+    return starts_argument and ends_argument
+
+
+def _is_structural_mapping_key_literal(
+    expression: str,
+    literal: str,
+    *,
+    span: tuple[int, int] | None = None,
+) -> bool:
+    """Return true when a small integer is only a match/map arm key."""
+    if not _is_small_structural_integer_literal(literal):
+        return False
+    if span is not None:
+        _start, end = span
+        return expression[end:].lstrip().startswith("=>")
+    return bool(re.search(rf"\b{re.escape(literal)}\s*=>", expression))
+
+
+def _is_small_structural_integer_literal(literal: str) -> bool:
+    if literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
+        return False
+    if not re.fullmatch(r"\d+(?:\.0+)?", literal):
+        return False
+    with contextlib.suppress(ValueError):
+        numeric_value = float(literal)
+        return numeric_value.is_integer() and 0 <= int(numeric_value) <= 20
+    return False
+
+
+def _enclosing_square_bracket_span(
+    expression: str,
+    span: tuple[int, int],
+) -> tuple[int, int] | None:
+    start, end = span
+    bracket_start = expression.rfind("[", 0, start)
+    bracket_end = expression.find("]", end)
+    if bracket_start == -1 or bracket_end == -1:
+        return None
+    if expression.rfind("]", 0, start) > bracket_start:
+        return None
+    if expression.find("[", end, bracket_end) != -1:
+        return None
+    return bracket_start, bracket_end
+
+
+def _enclosing_function_call_name(
+    expression: str,
+    span: tuple[int, int],
+    *,
+    search_start: int = 0,
+) -> str | None:
+    start, _end = span
+    stack: list[int] = []
+    for index in range(search_start, start):
+        char = expression[index]
+        if char == "(":
+            stack.append(index)
+        elif char == ")" and stack:
+            stack.pop()
+    if not stack:
+        return None
+    call_start = stack[-1]
+    prefix = expression[search_start:call_start]
+    match = re.search(r"([A-Za-z_]\w*)\s*$", prefix)
+    if match is None:
+        return None
+    return match.group(1).lower()
+
+
 def _is_structural_selector_result_literal(
     expression: str,
     literal: str,
     selector_keys: set[str] | None,
+    *,
+    span: tuple[int, int] | None = None,
 ) -> bool:
     """Return true when an integer is only a generated table selector key."""
     if not selector_keys or literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
@@ -1654,6 +1781,14 @@ def _is_structural_selector_result_literal(
             return False
         if str(int(numeric_value)) not in selector_keys:
             return False
+    if span is not None:
+        start, end = span
+        before = expression[:start].rstrip()
+        after = expression[end:].lstrip()
+        return bool(
+            before.endswith(":")
+            and (not after or re.match(r"else\b", after) is not None)
+        )
     normalized = re.sub(r"\s+", " ", expression)
     return bool(
         re.search(rf":\s*{re.escape(literal)}\s+(?:else\b|$)", normalized)
@@ -1661,7 +1796,12 @@ def _is_structural_selector_result_literal(
     )
 
 
-def _is_structural_schedule_index_literal(expression: str, literal: str) -> bool:
+def _is_structural_schedule_index_literal(
+    expression: str,
+    literal: str,
+    *,
+    span: tuple[int, int] | None = None,
+) -> bool:
     """Return True when a small integer only serves as a schedule index."""
     if literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
         return False
@@ -1673,6 +1813,32 @@ def _is_structural_schedule_index_literal(expression: str, literal: str) -> bool
             return False
     if not re.search(rf"\b{_SCHEDULE_INDEX_NAME_PATTERN}\b", expression):
         return False
+
+    if span is not None:
+        start, end = span
+        before = expression[:start]
+        after = expression[end:]
+        return bool(
+            re.search(
+                rf"\b{_SCHEDULE_INDEX_NAME_PATTERN}\s*(?:==|>=|>|<=|<)\s*$",
+                before,
+            )
+            or re.match(
+                rf"\s*(?:==|>=|>|<=|<)\s*{_SCHEDULE_INDEX_NAME_PATTERN}\b",
+                after,
+            )
+            or re.search(
+                rf"(?:\(\s*)?{_SCHEDULE_INDEX_NAME_PATTERN}\s*-\s*$",
+                before,
+            )
+            or (
+                re.search(
+                    rf"\bmatch\s+{_SCHEDULE_INDEX_NAME_PATTERN}\s*:",
+                    expression,
+                )
+                and re.match(r"\s*=>", after)
+            )
+        )
 
     normalized = re.sub(r"\s+", " ", expression)
     comparison_pattern = re.compile(
@@ -1695,7 +1861,12 @@ def _is_structural_schedule_index_literal(expression: str, literal: str) -> bool
     )
 
 
-def _is_structural_enum_index_literal(expression: str, literal: str) -> bool:
+def _is_structural_enum_index_literal(
+    expression: str,
+    literal: str,
+    *,
+    span: tuple[int, int] | None = None,
+) -> bool:
     """Return True when a small integer only serves as an internal enum code."""
     if literal in _EMBEDDED_SCALAR_ALLOWED_VALUES:
         return False
@@ -1707,6 +1878,28 @@ def _is_structural_enum_index_literal(expression: str, literal: str) -> bool:
             return False
     if not re.search(rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b", expression):
         return False
+
+    if span is not None:
+        start, end = span
+        before = expression[:start]
+        after = expression[end:]
+        return bool(
+            re.search(
+                rf"\b{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*(?:==|!=|>=|>|<=|<)\s*$",
+                before,
+            )
+            or re.match(
+                rf"\s*(?:==|!=|>=|>|<=|<)\s*{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\b",
+                after,
+            )
+            or (
+                re.search(
+                    rf"\bmatch\s+{_STRUCTURAL_ENUM_INDEX_NAME_PATTERN}\s*:",
+                    expression,
+                )
+                and re.match(r"\s*=>", after)
+            )
+        )
 
     normalized = re.sub(r"\s+", " ", expression)
     comparison_pattern = re.compile(
@@ -2876,14 +3069,15 @@ def _interval_table_selector_bound_literals(
 ) -> list[tuple[str, float]]:
     literals: list[tuple[str, float]] = []
     cleaned = _formula_without_comments_and_dates(formula)
-    for raw, value in _formula_numeric_literals(cleaned):
-        if not _formula_literal_is_comparison_bound(cleaned, raw):
+    for raw, value, start, end in _formula_numeric_literal_occurrences(cleaned):
+        if not _formula_literal_is_comparison_bound(cleaned, raw, span=(start, end)):
             continue
         if _interval_table_literal_is_structural(
             cleaned,
             raw,
             value,
             selector_keys,
+            span=(start, end),
             ignore_small_literals=True,
         ):
             continue
@@ -2898,7 +3092,7 @@ def _interval_table_formula_literals(
 ) -> list[tuple[str, float]]:
     literals: list[tuple[str, float]] = []
     cleaned = _formula_without_comments_and_dates(formula)
-    for raw, value in _formula_numeric_literals(cleaned):
+    for raw, value, start, end in _formula_numeric_literal_occurrences(cleaned):
         if _is_structural_selector_key_literal(cleaned, raw, selector_table_keys):
             continue
         if _interval_table_literal_is_structural(
@@ -2906,6 +3100,7 @@ def _interval_table_formula_literals(
             raw,
             value,
             selector_keys=None,
+            span=(start, end),
             ignore_small_literals=False,
         ):
             continue
@@ -2919,11 +3114,21 @@ def _formula_without_comments_and_dates(formula: str) -> str:
 
 
 def _formula_numeric_literals(expression: str) -> list[tuple[str, float]]:
-    literals: list[tuple[str, float]] = []
+    return [
+        (raw, value)
+        for raw, value, _start, _end in _formula_numeric_literal_occurrences(expression)
+    ]
+
+
+def _formula_numeric_literal_occurrences(
+    expression: str,
+) -> list[tuple[str, float, int, int]]:
+    literals: list[tuple[str, float, int, int]] = []
     for match in GROUNDING_FORMULA_NUMBER_PATTERN.finditer(expression):
         raw = match.group(1).replace(",", "")
         with contextlib.suppress(ValueError):
-            literals.append((raw, float(raw)))
+            start, end = match.span(1)
+            literals.append((raw, float(raw), start, end))
     return literals
 
 
@@ -2933,6 +3138,7 @@ def _interval_table_literal_is_structural(
     value: float,
     selector_keys: set[str] | None,
     *,
+    span: tuple[int, int] | None = None,
     ignore_small_literals: bool,
 ) -> bool:
     if ignore_small_literals and value in GROUNDING_ALLOWED_VALUES and "." not in raw:
@@ -2940,10 +3146,17 @@ def _interval_table_literal_is_structural(
     if raw == "0.5" and _is_half_up_rounding_expression(expression):
         return True
     return (
-        _is_structural_table_key_literal(expression, raw)
-        or _is_structural_schedule_index_literal(expression, raw)
-        or _is_structural_enum_index_literal(expression, raw)
-        or _is_structural_selector_result_literal(expression, raw, selector_keys)
+        _is_structural_table_key_literal(expression, raw, span=span)
+        or _is_structural_table_index_clamp_literal(expression, raw, span=span)
+        or _is_structural_mapping_key_literal(expression, raw, span=span)
+        or _is_structural_schedule_index_literal(expression, raw, span=span)
+        or _is_structural_enum_index_literal(expression, raw, span=span)
+        or _is_structural_selector_result_literal(
+            expression,
+            raw,
+            selector_keys,
+            span=span,
+        )
     )
 
 
@@ -2975,7 +3188,19 @@ def _is_structural_selector_key_literal(
     return False
 
 
-def _formula_literal_is_comparison_bound(expression: str, raw: str) -> bool:
+def _formula_literal_is_comparison_bound(
+    expression: str,
+    raw: str,
+    *,
+    span: tuple[int, int] | None = None,
+) -> bool:
+    if span is not None:
+        start, end = span
+        before = expression[:start].rstrip()
+        after = expression[end:].lstrip()
+        return bool(
+            re.search(r"(?:<=|>=|<|>)\s*$", before) or re.match(r"(?:<=|>=|<|>)", after)
+        )
     escaped = re.escape(raw)
     return bool(
         re.search(rf"(?:<=|>=|<|>)\s*{escaped}(?![\d.])", expression)
@@ -3142,9 +3367,10 @@ def find_source_table_row_scalar_parameter_issues(content: str) -> list[str]:
         "parameters. "
         "Use one `kind: parameter` rule with `indexed_by` and versioned "
         "`values` for each substantive source table column, plus a derived "
-        "band/key selector when the table uses interval rows. Keep structural "
-        "bounds inline in the selector instead of exporting them as public "
-        "parameters."
+        "band/key selector when the table uses interval rows. Store structural "
+        "bounds as private named numeric concepts or indexed bound columns "
+        "referenced by the selector instead of exporting one public scalar per "
+        "row."
     ]
 
 
@@ -3156,12 +3382,22 @@ def _is_source_table_structural_scalar_name(name: str) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class _SourceTableScalarBound:
+    name: str
+    rule: dict[str, Any]
+    side: str
+    row_key: int
+    value: int | float | None
+    alias: str | None
+
+
 def repair_source_table_band_scalar_parameters(
     content: str,
     *,
     source_text: str | None = None,
 ) -> tuple[str, list[str]]:
-    """Inline generated structural table band bounds and remove public scalars."""
+    """Normalize generated source-table bound scalars into named concepts."""
     payload = _rulespec_payload(content)
     table_source_text = source_text or extract_embedded_source_text(content)
     if (
@@ -3175,8 +3411,8 @@ def repair_source_table_band_scalar_parameters(
     if not isinstance(rules, list):
         return content, []
 
-    direct_bound_values: dict[str, str] = {}
-    bound_aliases: dict[str, str] = {}
+    bound_names: set[str] = set()
+    scalar_bounds: dict[str, _SourceTableScalarBound] = {}
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -3187,28 +3423,48 @@ def repair_source_table_band_scalar_parameters(
         name = str(rule.get("name") or "").strip()
         if not _is_source_table_structural_bound_parameter_name(name):
             continue
-        value = _single_version_numeric_formula(rule)
-        if value is not None:
-            direct_bound_values[name] = value
-            continue
-        alias = _single_version_identifier_formula(rule)
-        if alias is not None:
-            bound_aliases[name] = alias
+        bound_names.add(name)
+        bound = _source_table_scalar_bound(rule)
+        if bound is not None:
+            scalar_bounds[name] = bound
 
-    bound_values: dict[str, str] = {}
-    bound_names = set(direct_bound_values) | set(bound_aliases)
-    for name in bound_names:
-        value = _resolve_bound_parameter_value(
-            name,
-            direct_values=direct_bound_values,
-            aliases=bound_aliases,
-            bound_names=bound_names,
-        )
-        if value is not None:
-            bound_values[name] = value
-
-    if not bound_values:
+    if not bound_names:
         return content, []
+
+    resolved_scalar_bounds = {
+        name: value
+        for name in scalar_bounds
+        if (
+            value := _resolve_source_table_scalar_bound_value(
+                name,
+                scalar_bounds,
+            )
+        )
+        is not None
+    }
+    migratable_bound_names = set(resolved_scalar_bounds)
+    selector_rule = (
+        _source_table_bound_scalar_selector_rule(rules, migratable_bound_names)
+        if len(migratable_bound_names) >= 3
+        else None
+    )
+    selector_name = (
+        str(selector_rule.get("name") or "").strip()
+        if isinstance(selector_rule, dict)
+        else ""
+    )
+    bound_table_names = {
+        "lower": f"{selector_name}_lower_bound",
+        "upper": f"{selector_name}_upper_bound",
+    }
+    migrated_replacements = (
+        {
+            name: f"{bound_table_names[scalar_bounds[name].side]}[{scalar_bounds[name].row_key}]"
+            for name in migratable_bound_names
+        }
+        if selector_name
+        else {}
+    )
 
     referenced_bounds: set[str] = set()
     changed_rules: set[str] = set()
@@ -3227,20 +3483,21 @@ def repair_source_table_band_scalar_parameters(
                 continue
             formula_bounds = {
                 name
-                for name in bound_values
+                for name in bound_names
                 if _formula_references_identifier(formula, name)
             }
             if not formula_bounds:
                 continue
-            repaired = _inline_formula_identifiers(
-                formula,
-                {
-                    name: value
-                    for name, value in bound_values.items()
-                    if name in formula_bounds
-                },
-            )
-            repaired = _repair_else_if_formula(repaired)
+            repaired = _repair_else_if_formula(formula)
+            if migrated_replacements:
+                repaired = _replace_formula_identifiers(
+                    repaired,
+                    {
+                        name: replacement
+                        for name, replacement in migrated_replacements.items()
+                        if name in formula_bounds
+                    },
+                )
             if _formula_has_unsupported_chained_conditional(repaired):
                 continue
             referenced_bounds.update(formula_bounds)
@@ -3251,18 +3508,295 @@ def repair_source_table_band_scalar_parameters(
     if not referenced_bounds:
         return content, []
 
-    removed_bounds = set(bound_values)
-    payload["rules"] = [
-        rule
-        for rule in rules
-        if not (
-            isinstance(rule, dict)
-            and str(rule.get("name") or "").strip() in removed_bounds
-        )
-    ]
+    if migrated_replacements and isinstance(selector_rule, dict):
+        for side in ("lower", "upper"):
+            side_values = {
+                scalar_bounds[name].row_key: resolved_scalar_bounds[name]
+                for name in migratable_bound_names
+                if scalar_bounds[name].side == side
+            }
+            if not side_values:
+                continue
+            _upsert_source_table_bound_values_rule(
+                rules,
+                selector_rule=selector_rule,
+                table_name=bound_table_names[side],
+                selector_name=selector_name,
+                side=side,
+                values=side_values,
+                source_rules=[
+                    scalar_bounds[name].rule
+                    for name in migratable_bound_names
+                    if scalar_bounds[name].side == side
+                ],
+            )
+            changed_rules.add(bound_table_names[side])
+
+        payload["rules"] = [
+            rule
+            for rule in rules
+            if not (
+                isinstance(rule, dict)
+                and str(rule.get("name") or "").strip() in migratable_bound_names
+            )
+        ]
+        changed_rules.update(migratable_bound_names)
 
     repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
-    return repaired_content, sorted(changed_rules | removed_bounds)
+    return repaired_content, sorted(changed_rules)
+
+
+def _source_table_scalar_bound(
+    rule: dict[str, Any],
+) -> _SourceTableScalarBound | None:
+    name = str(rule.get("name") or "").strip()
+    parsed = _parse_source_table_scalar_bound_name(name)
+    if parsed is None:
+        return None
+    side, row_key = parsed
+    value = _single_version_scalar_numeric_value(rule)
+    alias = None if value is not None else _single_version_identifier_value(rule)
+    return _SourceTableScalarBound(
+        name=name,
+        rule=rule,
+        side=side,
+        row_key=row_key,
+        value=value,
+        alias=alias,
+    )
+
+
+def _unreferenced_source_table_scalar_bound_names(rules: list[Any]) -> set[str]:
+    candidates: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        if rule.get("indexed_by") is not None:
+            continue
+        name = str(rule.get("name") or "").strip()
+        if _is_source_table_structural_bound_parameter_name(name):
+            candidates.add(name)
+    if not candidates:
+        return set()
+
+    referenced: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        if rule_name in candidates:
+            continue
+        for formula in _rulespec_rule_formula_strings(rule):
+            referenced.update(
+                name
+                for name in candidates
+                if _formula_references_identifier(formula, name)
+            )
+    return candidates - referenced
+
+
+def _parse_source_table_scalar_bound_name(name: str) -> tuple[str, int] | None:
+    normalized = name.strip().lower()
+    patterns = (
+        r"(?:^|_)(?P<side>lower|upper)_bound_"
+        r"(?P<kind>row|band|bracket)_(?P<row>\d+)(?:_|$)",
+        r"(?:^|_)(?P<side>lower|upper|min|max|minimum|maximum)_"
+        r"(?P<kind>row|band|bracket)_(?P<row>\d+)(?:_|$)",
+        r"(?:^|_)(?P<kind>row|band|bracket)_(?P<row>\d+)_"
+        r"(?P<side>lower|upper|min|max|minimum|maximum)(?:_|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if match is None:
+            continue
+        side = _normalize_source_table_bound_side(match.group("side"))
+        if side is None:
+            continue
+        return side, int(match.group("row"))
+    return None
+
+
+def _normalize_source_table_bound_side(raw_side: str) -> str | None:
+    normalized = raw_side.strip().lower()
+    if normalized in {"lower", "min", "minimum"}:
+        return "lower"
+    if normalized in {"upper", "max", "maximum"}:
+        return "upper"
+    return None
+
+
+def _single_version_scalar_numeric_value(rule: dict[str, Any]) -> int | float | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict):
+        return None
+    formula = version.get("formula")
+    numeric = _numeric_rule_value(formula)
+    if numeric is None:
+        return None
+    raw, value = numeric
+    if "." not in raw and value.is_integer():
+        return int(value)
+    return value
+
+
+def _single_version_identifier_value(rule: dict[str, Any]) -> str | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict):
+        return None
+    formula = version.get("formula")
+    if not isinstance(formula, str):
+        return None
+    stripped = formula.strip()
+    return stripped if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", stripped) else None
+
+
+def _resolve_source_table_scalar_bound_value(
+    name: str,
+    scalar_bounds: dict[str, _SourceTableScalarBound],
+) -> int | float | None:
+    seen: set[str] = set()
+    current = name
+    while current not in seen:
+        seen.add(current)
+        bound = scalar_bounds.get(current)
+        if bound is None:
+            return None
+        if bound.value is not None:
+            return bound.value
+        if bound.alias is None:
+            return None
+        current = bound.alias
+    return None
+
+
+def _source_table_bound_scalar_selector_rule(
+    rules: list[Any],
+    bound_names: set[str],
+) -> dict[str, Any] | None:
+    if not bound_names:
+        return None
+    for rule in rules:
+        if not isinstance(rule, dict) or not _is_structural_selector_rule(rule):
+            continue
+        for formula in _rulespec_rule_formula_strings(rule):
+            if any(
+                _formula_references_identifier(formula, bound_name)
+                for bound_name in bound_names
+            ):
+                return rule
+    return None
+
+
+def _replace_formula_identifiers(
+    formula: str,
+    replacements: dict[str, str],
+) -> str:
+    repaired = formula
+    for name in sorted(replacements, key=len, reverse=True):
+        repaired = re.sub(
+            rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])",
+            replacements[name],
+            repaired,
+        )
+    return repaired
+
+
+def _upsert_source_table_bound_values_rule(
+    rules: list[Any],
+    *,
+    selector_rule: dict[str, Any],
+    table_name: str,
+    selector_name: str,
+    side: str,
+    values: dict[int, int | float],
+    source_rules: list[dict[str, Any]],
+) -> None:
+    sorted_values = {key: values[key] for key in sorted(values)}
+    existing_rule = next(
+        (
+            rule
+            for rule in rules
+            if isinstance(rule, dict)
+            and str(rule.get("name") or "").strip() == table_name
+        ),
+        None,
+    )
+    sample_rule = source_rules[0] if source_rules else selector_rule
+    target_rule: dict[str, Any]
+    if existing_rule is None:
+        target_rule = {
+            "name": table_name,
+            "kind": "parameter",
+            "dtype": sample_rule.get("dtype") or "Decimal",
+            "indexed_by": selector_name,
+            "versions": [
+                {
+                    "effective_from": _single_version_effective_from(sample_rule)
+                    or _single_version_effective_from(selector_rule)
+                    or "1900-01-01",
+                    "values": sorted_values,
+                }
+            ],
+        }
+        if sample_rule.get("source") is not None:
+            target_rule["source"] = sample_rule["source"]
+        with contextlib.suppress(ValueError):
+            rules.insert(rules.index(selector_rule), target_rule)
+            return
+        rules.append(target_rule)
+        return
+
+    target_rule = existing_rule
+    target_rule["kind"] = "parameter"
+    target_rule.setdefault("dtype", sample_rule.get("dtype") or "Decimal")
+    target_rule["indexed_by"] = selector_name
+    target_rule.setdefault("source", sample_rule.get("source"))
+    versions = target_rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        target_rule["versions"] = [
+            {
+                "effective_from": _single_version_effective_from(sample_rule)
+                or _single_version_effective_from(selector_rule)
+                or "1900-01-01",
+                "values": sorted_values,
+            }
+        ]
+        return
+    first_version = versions[0]
+    if not isinstance(first_version, dict):
+        versions[0] = {
+            "effective_from": _single_version_effective_from(sample_rule)
+            or _single_version_effective_from(selector_rule)
+            or "1900-01-01",
+            "values": sorted_values,
+        }
+        return
+    first_version.setdefault(
+        "effective_from",
+        _single_version_effective_from(sample_rule)
+        or _single_version_effective_from(selector_rule)
+        or "1900-01-01",
+    )
+    first_version["values"] = sorted_values
+
+
+def _single_version_effective_from(rule: dict[str, Any]) -> str | None:
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict):
+        return None
+    effective_from = version.get("effective_from")
+    return str(effective_from) if effective_from is not None else None
 
 
 def repair_unsupported_chained_conditionals(content: str) -> tuple[str, list[str]]:
@@ -3384,7 +3918,10 @@ class _IntervalAlignmentSpec:
     selector_name: str
     input_name: str
     rows: tuple[_IntervalSourceRow, ...]
-    bound_parameter_names: frozenset[str]
+    lower_bound_parameter_name: str | None
+    upper_bound_parameter_name: str | None
+    lower_bound_parameter_rule: dict[str, Any] | None
+    upper_bound_parameter_rule: dict[str, Any] | None
     output_parameter_names: tuple[str, ...]
     output_parameter_rules: tuple[dict[str, Any], ...]
 
@@ -3408,7 +3945,6 @@ def repair_source_table_interval_row_alignment(
         return content, []
 
     changed_rules: set[str] = set()
-    removed_bound_names: set[str] = set()
     selector_by_name = {
         str(rule.get("name") or "").strip(): rule
         for rule in rules
@@ -3425,9 +3961,30 @@ def repair_source_table_interval_row_alignment(
         if not isinstance(first_version, dict):
             continue
 
+        lower_bound_name, lower_bound_changed = _ensure_interval_bound_parameter_rule(
+            rules,
+            spec=spec,
+            selector_rule=selector_rule,
+            selector_version=first_version,
+            side="lower",
+        )
+        if lower_bound_changed and lower_bound_name:
+            changed_rules.add(lower_bound_name)
+        upper_bound_name, upper_bound_changed = _ensure_interval_bound_parameter_rule(
+            rules,
+            spec=spec,
+            selector_rule=selector_rule,
+            selector_version=first_version,
+            side="upper",
+        )
+        if upper_bound_changed and upper_bound_name:
+            changed_rules.add(upper_bound_name)
+
         repaired_formula = _build_interval_selector_formula(
             input_name=spec.input_name,
             rows=spec.rows,
+            lower_bound_name=lower_bound_name,
+            upper_bound_name=upper_bound_name,
         )
         if not repaired_formula:
             continue
@@ -3454,21 +4011,20 @@ def repair_source_table_interval_row_alignment(
                 parameter_version["values"] = repaired_values
                 changed_rules.add(parameter_name or "<unknown>")
 
-        removed_bound_names.update(spec.bound_parameter_names)
-
-    if not changed_rules and not removed_bound_names:
-        return content, []
-
-    if removed_bound_names:
+    removable_bound_names = _unreferenced_source_table_scalar_bound_names(rules)
+    if removable_bound_names:
         payload["rules"] = [
             rule
             for rule in rules
             if not (
                 isinstance(rule, dict)
-                and str(rule.get("name") or "").strip() in removed_bound_names
+                and str(rule.get("name") or "").strip() in removable_bound_names
             )
         ]
-        changed_rules.update(removed_bound_names)
+        changed_rules.update(removable_bound_names)
+
+    if not changed_rules:
+        return content, []
 
     repaired_content = yaml.safe_dump(payload, sort_keys=False).strip() + "\n"
     return repaired_content, sorted(changed_rules)
@@ -3699,11 +4255,18 @@ def _source_table_interval_alignment_specs(
             for rule in bound_rules
             if str(rule.get("name") or "").strip()
         )
-        if bound_names and not any(
-            name and _formula_references_identifier(selector_formula, name)
-            for name in bound_names
-        ):
-            continue
+        lower_bound_rule = _interval_bound_parameter_rule(bound_rules, side="lower")
+        upper_bound_rule = _interval_bound_parameter_rule(bound_rules, side="upper")
+        lower_bound_name = _interval_bound_parameter_rule_name(
+            lower_bound_rule,
+            selector_name=selector_name,
+            side="lower",
+        )
+        upper_bound_name = _interval_bound_parameter_rule_name(
+            upper_bound_rule,
+            selector_name=selector_name,
+            side="upper",
+        )
 
         output_rules = [
             rule
@@ -3732,7 +4295,10 @@ def _source_table_interval_alignment_specs(
                 selector_name=selector_name,
                 input_name=input_name,
                 rows=source_table.rows,
-                bound_parameter_names=bound_names,
+                lower_bound_parameter_name=lower_bound_name,
+                upper_bound_parameter_name=upper_bound_name,
+                lower_bound_parameter_rule=lower_bound_rule,
+                upper_bound_parameter_rule=upper_bound_rule,
                 output_parameter_names=tuple(
                     str(rule.get("name") or "").strip() for rule in output_rules
                 ),
@@ -3927,6 +4493,33 @@ def _looks_like_interval_bound_parameter(rule: dict[str, Any]) -> bool:
     ) or _looks_like_open_ended_upper_bound_parameter(rule)
 
 
+def _interval_bound_parameter_rule(
+    bound_rules: list[dict[str, Any]],
+    *,
+    side: str,
+) -> dict[str, Any] | None:
+    predicate = (
+        _looks_like_interval_lower_bound_parameter
+        if side == "lower"
+        else _looks_like_open_ended_upper_bound_parameter
+    )
+    matches = [rule for rule in bound_rules if predicate(rule)]
+    return matches[0] if matches else None
+
+
+def _interval_bound_parameter_rule_name(
+    rule: dict[str, Any] | None,
+    *,
+    selector_name: str,
+    side: str,
+) -> str | None:
+    if rule is not None:
+        name = str(rule.get("name") or "").strip()
+        if name:
+            return name
+    return f"{selector_name}_{side}_bound"
+
+
 def _looks_like_interval_lower_bound_parameter(rule: dict[str, Any]) -> bool:
     name = str(rule.get("name") or "").strip().lower()
     text = _interval_parameter_text(rule)
@@ -4028,6 +4621,8 @@ def _build_interval_selector_formula(
     *,
     input_name: str,
     rows: tuple[_IntervalSourceRow, ...],
+    lower_bound_name: str | None = None,
+    upper_bound_name: str | None = None,
 ) -> str | None:
     if not rows:
         return None
@@ -4037,7 +4632,13 @@ def _build_interval_selector_formula(
         tail = str(len(rows))
         rows_to_chain = rows_to_chain[:-1]
     for row_index, row in reversed(rows_to_chain):
-        condition = _interval_row_condition(input_name, row)
+        condition = _interval_row_condition(
+            input_name,
+            row,
+            row_index=row_index,
+            lower_bound_name=lower_bound_name,
+            upper_bound_name=upper_bound_name,
+        )
         if not condition:
             tail = str(row_index)
             continue
@@ -4061,13 +4662,137 @@ def _interval_rows_are_contiguous(rows: tuple[_IntervalSourceRow, ...]) -> bool:
     return True
 
 
-def _interval_row_condition(input_name: str, row: _IntervalSourceRow) -> str | None:
+def _interval_row_condition(
+    input_name: str,
+    row: _IntervalSourceRow,
+    *,
+    row_index: int | None = None,
+    lower_bound_name: str | None = None,
+    upper_bound_name: str | None = None,
+) -> str | None:
     parts: list[str] = []
     if row.lower is not None:
-        parts.append(f"{input_name} >= {row.lower}")
+        lower_bound = (
+            f"{lower_bound_name}[{row_index}]"
+            if lower_bound_name is not None and row_index is not None
+            else row.lower
+        )
+        parts.append(f"{input_name} >= {lower_bound}")
     if row.upper is not None:
-        parts.append(f"{input_name} < {row.upper}")
+        upper_bound = (
+            f"{upper_bound_name}[{row_index}]"
+            if upper_bound_name is not None and row_index is not None
+            else row.upper
+        )
+        parts.append(f"{input_name} < {upper_bound}")
     return " and ".join(parts) if parts else None
+
+
+def _ensure_interval_bound_parameter_rule(
+    rules: list[Any],
+    *,
+    spec: _IntervalAlignmentSpec,
+    selector_rule: dict[str, Any],
+    selector_version: dict[str, Any],
+    side: str,
+) -> tuple[str | None, bool]:
+    values = _interval_bound_values(spec.rows, side=side)
+    if not values:
+        return None, False
+    existing_rule = (
+        spec.lower_bound_parameter_rule
+        if side == "lower"
+        else spec.upper_bound_parameter_rule
+    )
+    name = (
+        spec.lower_bound_parameter_name
+        if side == "lower"
+        else spec.upper_bound_parameter_name
+    )
+    if not name:
+        name = f"{spec.selector_name}_{side}_bound"
+
+    if existing_rule is None:
+        new_rule: dict[str, Any] = {
+            "name": name,
+            "kind": "parameter",
+            "dtype": "Decimal",
+            "indexed_by": spec.selector_name,
+            "versions": [
+                {
+                    "effective_from": selector_version.get(
+                        "effective_from", "1900-01-01"
+                    ),
+                    "values": values,
+                }
+            ],
+        }
+        if selector_rule.get("source") is not None:
+            new_rule["source"] = selector_rule.get("source")
+        with contextlib.suppress(ValueError):
+            selector_index = rules.index(selector_rule)
+            rules.insert(selector_index, new_rule)
+            return name, True
+        rules.append(new_rule)
+        return name, True
+
+    changed = False
+    if str(existing_rule.get("kind") or "").strip().lower() != "parameter":
+        existing_rule["kind"] = "parameter"
+        changed = True
+    if existing_rule.get("indexed_by") != spec.selector_name:
+        existing_rule["indexed_by"] = spec.selector_name
+        changed = True
+    versions = existing_rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        existing_rule["versions"] = [
+            {
+                "effective_from": selector_version.get("effective_from", "1900-01-01"),
+                "values": values,
+            }
+        ]
+        return name, True
+    first_version = versions[0]
+    if not isinstance(first_version, dict):
+        versions[0] = {
+            "effective_from": selector_version.get("effective_from", "1900-01-01"),
+            "values": values,
+        }
+        return name, True
+    if "effective_from" not in first_version and "effective_from" in selector_version:
+        first_version["effective_from"] = selector_version["effective_from"]
+        changed = True
+    if first_version.get("values") != values:
+        first_version["values"] = values
+        changed = True
+    return name, changed
+
+
+def _interval_bound_values(
+    rows: tuple[_IntervalSourceRow, ...],
+    *,
+    side: str,
+) -> dict[int, int | float]:
+    values: dict[int, int | float] = {}
+    for row_index, row in enumerate(rows, start=1):
+        raw_value = row.lower if side == "lower" else row.upper
+        if raw_value is None:
+            continue
+        coerced = _coerce_interval_source_bound_value(raw_value)
+        if coerced is not None:
+            values[row_index] = coerced
+    return values
+
+
+def _coerce_interval_source_bound_value(raw_value: str) -> int | float | None:
+    normalized = raw_value.strip().replace(",", "")
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?", normalized):
+        return None
+    with contextlib.suppress(ValueError):
+        if "." not in normalized:
+            return int(normalized)
+        return float(normalized)
+    return None
 
 
 def _coerce_interval_source_output_value(
@@ -4302,75 +5027,6 @@ def _is_source_table_structural_bound_parameter_name(name: str) -> bool:
         )
         or has_named_band_bound
     )
-
-
-def _single_version_numeric_formula(rule: dict[str, Any]) -> str | None:
-    versions = rule.get("versions")
-    if not isinstance(versions, list) or len(versions) != 1:
-        return None
-    version = versions[0]
-    if not isinstance(version, dict):
-        return None
-    formula = version.get("formula")
-    if isinstance(formula, bool):
-        return None
-    if isinstance(formula, int):
-        return str(formula)
-    if isinstance(formula, float):
-        return str(formula)
-    if isinstance(formula, str) and re.fullmatch(r"-?\d+(?:\.\d+)?", formula.strip()):
-        return formula.strip()
-    return None
-
-
-def _single_version_identifier_formula(rule: dict[str, Any]) -> str | None:
-    versions = rule.get("versions")
-    if not isinstance(versions, list) or len(versions) != 1:
-        return None
-    version = versions[0]
-    if not isinstance(version, dict):
-        return None
-    formula = version.get("formula")
-    if not isinstance(formula, str):
-        return None
-    stripped = formula.strip()
-    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", stripped):
-        return stripped
-    return None
-
-
-def _resolve_bound_parameter_value(
-    name: str,
-    *,
-    direct_values: dict[str, str],
-    aliases: dict[str, str],
-    bound_names: set[str],
-) -> str | None:
-    seen: set[str] = set()
-    current = name
-    while current not in seen:
-        seen.add(current)
-        if current in direct_values:
-            return direct_values[current]
-        alias = aliases.get(current)
-        if alias is None or alias not in bound_names:
-            return None
-        current = alias
-    return None
-
-
-def _inline_formula_identifiers(
-    formula: str,
-    replacements: dict[str, str],
-) -> str:
-    repaired = formula
-    for name in sorted(replacements, key=len, reverse=True):
-        repaired = re.sub(
-            rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])",
-            replacements[name],
-            repaired,
-        )
-    return repaired
 
 
 def _formula_references_identifier(formula: str, identifier: str) -> bool:
@@ -17200,6 +17856,7 @@ class ValidatorPipeline:
 
         issues.extend(find_source_table_row_scalar_parameter_issues(content))
         issues.extend(find_interval_table_reencoding_issues(content))
+        issues.extend(self._check_embedded_scalar_literals(rules_file))
 
         tmpdir_cm = tempfile.TemporaryDirectory()
         tmpdir = Path(tmpdir_cm.name)
@@ -18953,7 +19610,7 @@ class ValidatorPipeline:
             issues.append(
                 "Embedded scalar literal: "
                 f"{name} line {line_number} embeds {literal} in `{expression}`; "
-                "extract the scalar to its own named variable"
+                "extract the value to its own named numeric concept or indexed table/grid value"
             )
         return issues
 
@@ -19207,6 +19864,7 @@ class ValidatorPipeline:
             return []
         if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
             return []
+        selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
 
         for rule_index, rule in enumerate(payload["rules"], start=1):
             if not isinstance(rule, dict):
@@ -19223,13 +19881,22 @@ class ValidatorPipeline:
                     continue
                 if not isinstance(formula, str):
                     continue
+                if self._is_direct_scalar_expression(formula.strip()):
+                    continue
                 for line in formula.splitlines() or [formula]:
                     stripped = line.strip()
-                    if not stripped or self._is_direct_scalar_expression(stripped):
+                    if not stripped:
                         continue
                     issues.extend(
                         (rule_index, name, literal, stripped)
-                        for literal in self._extract_embedded_scalar_literals(stripped)
+                        for literal in self._extract_embedded_scalar_literals(
+                            stripped,
+                            structural_selector_keys=(
+                                selector_table_keys.get(name)
+                                if _is_structural_selector_rule(rule)
+                                else None
+                            ),
+                        )
                     )
         return issues
 
@@ -19237,7 +19904,12 @@ class ValidatorPipeline:
         normalized = expression.replace(",", "")
         return bool(_EMBEDDED_SCALAR_DIRECT_VALUE.fullmatch(normalized))
 
-    def _extract_embedded_scalar_literals(self, expression: str) -> list[str]:
+    def _extract_embedded_scalar_literals(
+        self,
+        expression: str,
+        *,
+        structural_selector_keys: set[str] | None = None,
+    ) -> list[str]:
         literals: list[str] = []
         scrubbed_expression = _QUOTED_STRING_PATTERN.sub(" ", expression)
         half_up_rounding_expression = _is_half_up_rounding_expression(
@@ -19256,9 +19928,42 @@ class ValidatorPipeline:
                 continue
             if literal == "0.5" and half_up_rounding_expression:
                 continue
-            if _is_structural_schedule_index_literal(scrubbed_expression, literal):
+            if _is_structural_table_key_literal(
+                scrubbed_expression,
+                literal,
+                span=(start, end),
+            ):
                 continue
-            if _is_structural_enum_index_literal(scrubbed_expression, literal):
+            if _is_structural_table_index_clamp_literal(
+                scrubbed_expression,
+                literal,
+                span=(start, end),
+            ):
+                continue
+            if _is_structural_mapping_key_literal(
+                scrubbed_expression,
+                literal,
+                span=(start, end),
+            ):
+                continue
+            if _is_structural_schedule_index_literal(
+                scrubbed_expression,
+                literal,
+                span=(start, end),
+            ):
+                continue
+            if _is_structural_enum_index_literal(
+                scrubbed_expression,
+                literal,
+                span=(start, end),
+            ):
+                continue
+            if _is_structural_selector_result_literal(
+                scrubbed_expression,
+                literal,
+                structural_selector_keys,
+                span=(start, end),
+            ):
                 continue
             literals.append(literal)
         return sorted(set(literals))

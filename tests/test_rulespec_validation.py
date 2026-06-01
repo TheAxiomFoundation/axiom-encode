@@ -10774,10 +10774,10 @@ rules:
     assert len(issues) == 1
     assert "Source table row/band scalar parameters" in issues[0]
     assert "average_account_benefits_ratio_lower_bound_band_0" in issues[0]
-    assert "structural bounds inline" in issues[0]
+    assert "indexed bound columns" in issues[0]
 
 
-def test_repair_source_table_band_bound_scalars_inlines_selector_bounds():
+def test_repair_source_table_band_bound_scalars_preserves_named_bounds():
     content = """format: rulespec/v1
 module:
   summary: |-
@@ -10829,16 +10829,22 @@ rules:
 
     repaired, repaired_rules = repair_source_table_band_scalar_parameters(content)
 
-    assert "average_account_benefits_ratio_lower_bound_band_0" not in repaired
-    assert "average_account_benefits_ratio_upper_bound_band_0" not in repaired
-    assert "average_account_benefits_ratio < 2.5" in repaired
-    assert "< 3.0" in repaired
+    assert "average_account_benefits_ratio_lower_bound_band_0" in repaired
+    assert "average_account_benefits_ratio_upper_bound_band_0" in repaired
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_lower_bound_band_0"
+    ) in repaired
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_upper_bound_band_0"
+    ) in repaired
     assert "else if" not in repaired
     assert "average_account_benefits_ratio_band" in repaired_rules
     assert find_source_table_row_scalar_parameter_issues(repaired) == []
 
 
-def test_repair_source_table_named_band_thresholds_inlines_selector_bounds():
+def test_repair_source_table_named_band_thresholds_preserves_named_bounds():
     content = """format: rulespec/v1
 module:
   summary: |-
@@ -10888,11 +10894,17 @@ rules:
 
     repaired, repaired_rules = repair_source_table_band_scalar_parameters(content)
 
-    assert "average_account_benefits_ratio_band_threshold_2_5" not in repaired
-    assert "average_account_benefits_ratio_band_threshold_3_0" not in repaired
-    assert "average_account_benefits_ratio < 2.5" in repaired
-    assert "average_account_benefits_ratio < 3.0" in repaired
-    assert "average_account_benefits_ratio_band" in repaired_rules
+    assert "average_account_benefits_ratio_band_threshold_2_5" in repaired
+    assert "average_account_benefits_ratio_band_threshold_3_0" in repaired
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_threshold_2_5"
+    ) in repaired
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_threshold_3_0"
+    ) in repaired
+    assert repaired_rules == []
     assert find_source_table_row_scalar_parameter_issues(repaired) == []
 
 
@@ -10968,13 +10980,33 @@ rules:
         for rule in payload["rules"]
         if rule["name"] == "average_account_benefits_ratio_band"
     )
+    lower_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band_lower_bound"
+    )
+    upper_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band_upper_bound"
+    )
+    assert lower_bound["indexed_by"] == "average_account_benefits_ratio_band"
+    assert upper_bound["indexed_by"] == "average_account_benefits_ratio_band"
+    assert lower_bound["versions"][0]["values"][2] == 2.5
+    assert lower_bound["versions"][0]["values"][12] == 9.0
+    assert upper_bound["versions"][0]["values"][1] == 2.5
+    assert upper_bound["versions"][0]["values"][11] == 9.0
     assert selector["versions"][0]["formula"].startswith(
-        "if average_account_benefits_ratio < 2.5: 1 else: "
-        "if average_account_benefits_ratio >= 2.5"
+        "if average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_upper_bound[1]: 1 else: "
+        "if average_account_benefits_ratio >= "
+        "average_account_benefits_ratio_band_lower_bound[2]"
     )
     assert selector["versions"][0]["formula"].endswith(
-        "if average_account_benefits_ratio >= 8.5 and "
-        "average_account_benefits_ratio < 9.0: 11 else: 12"
+        "if average_account_benefits_ratio >= "
+        "average_account_benefits_ratio_band_lower_bound[11] and "
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_upper_bound[11]: 11 else: 12"
     )
     sections_3211_3221 = next(
         rule
@@ -10992,6 +11024,153 @@ rules:
     assert section_3201["versions"][0]["values"][5] == 0.049
     assert section_3201["versions"][0]["values"][11] == 0.009
     assert section_3201["versions"][0]["values"][12] == 0.0
+
+
+def test_repair_source_table_interval_alignment_removes_dead_public_bound_scalars():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+    | 3.0 | .............. | 0 |
+rules:
+  - name: average_account_benefits_ratio_band_1_max
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_band_2_min
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_band_2_max
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band_3_min
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < 2.5: 1 else: if average_account_benefits_ratio >= 2.5 and average_account_benefits_ratio < 3.0: 2 else: 3
+  - name: applicable_percentage_3201_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+          3: 0
+"""
+
+    normalized, normalized_rules = repair_source_table_band_scalar_parameters(content)
+    repaired, repaired_rules = repair_source_table_interval_row_alignment(normalized)
+
+    assert normalized_rules == []
+    assert "average_account_benefits_ratio_band_1_max" in normalized
+    payload = yaml.safe_load(repaired)
+    rule_names = {rule["name"] for rule in payload["rules"]}
+    assert "average_account_benefits_ratio_band_1_max" not in rule_names
+    assert "average_account_benefits_ratio_band_2_min" not in rule_names
+    assert "average_account_benefits_ratio_band_2_max" not in rule_names
+    assert "average_account_benefits_ratio_band_3_min" not in rule_names
+    assert "average_account_benefits_ratio_band_lower_bound" in rule_names
+    assert "average_account_benefits_ratio_band_upper_bound" in rule_names
+    assert "average_account_benefits_ratio_band_1_max" in repaired_rules
+    assert find_source_table_row_scalar_parameter_issues(repaired) == []
+
+
+def test_repair_source_table_interval_alignment_removes_dead_band_threshold_scalars():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Tax rate schedule | Average account benefits ratio | Applicable percentage
+    | At least | But less than | Section 3201(b) |
+    | .............. | 2.5 | 4.9 |
+    | 2.5 | 3.0 | 4.9 |
+    | 3.0 | 3.5 | 4.9 |
+    | 3.5 | .............. | 0 |
+rules:
+  - name: average_account_benefits_ratio_band_threshold_2_5
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 2.5
+  - name: average_account_benefits_ratio_band_threshold_3_0
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.0
+  - name: average_account_benefits_ratio_band_threshold_3_5
+    kind: parameter
+    dtype: Decimal
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 3.5
+  - name: average_account_benefits_ratio_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if average_account_benefits_ratio < 2.5: 1 else: if average_account_benefits_ratio >= 2.5 and average_account_benefits_ratio < 3.0: 2 else: if average_account_benefits_ratio >= 3.0 and average_account_benefits_ratio < 3.5: 3 else: 4
+  - name: applicable_percentage_3201_by_average_account_benefits_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    source: 26 USC 3241(b)
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+          3: 0.049
+          4: 0
+"""
+
+    repaired, repaired_rules = repair_source_table_interval_row_alignment(content)
+
+    payload = yaml.safe_load(repaired)
+    rule_names = {rule["name"] for rule in payload["rules"]}
+    assert "average_account_benefits_ratio_band_threshold_2_5" not in rule_names
+    assert "average_account_benefits_ratio_band_threshold_3_0" not in rule_names
+    assert "average_account_benefits_ratio_band_threshold_3_5" not in rule_names
+    assert "average_account_benefits_ratio_band_lower_bound" in rule_names
+    assert "average_account_benefits_ratio_band_upper_bound" in rule_names
+    assert "average_account_benefits_ratio_band_threshold_2_5" in repaired_rules
+    assert find_source_table_row_scalar_parameter_issues(repaired) == []
 
 
 def test_repair_source_table_interval_tests_updates_guarded_lookup_outputs():
@@ -11079,7 +11258,7 @@ rules:
     )
 
 
-def test_repair_source_table_band_bound_scalars_inlines_adjacent_min_max():
+def test_repair_source_table_band_bound_scalars_preserves_adjacent_min_max():
     content = """format: rulespec/v1
 module:
   summary: |-
@@ -11135,18 +11314,44 @@ rules:
 
     repaired, repaired_rules = repair_source_table_band_scalar_parameters(content)
 
-    assert "average_account_benefits_ratio_band_1_max" not in repaired
-    assert "average_account_benefits_ratio_band_2_min" not in repaired
-    assert "average_account_benefits_ratio_band_2_max" not in repaired
-    assert "average_account_benefits_ratio_band_3_min" not in repaired
-    assert "average_account_benefits_ratio < 2.5" in repaired
-    assert "< 3.0" in repaired
-    assert ">= 2.5" in repaired
+    payload = yaml.safe_load(repaired)
+    rule_names = {rule["name"] for rule in payload["rules"]}
+    assert "average_account_benefits_ratio_band_1_max" not in rule_names
+    assert "average_account_benefits_ratio_band_2_min" not in rule_names
+    assert "average_account_benefits_ratio_band_2_max" not in rule_names
+    assert "average_account_benefits_ratio_band_3_min" not in rule_names
+    lower_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band_lower_bound"
+    )
+    upper_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band_upper_bound"
+    )
+    assert lower_bound["versions"][0]["values"] == {2: 2.5, 3: 3.0}
+    assert upper_bound["versions"][0]["values"] == {1: 2.5, 2: 3.0}
+    selector = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band"
+    )
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_upper_bound[1]"
+        in selector["versions"][0]["formula"]
+    )
+    assert (
+        "average_account_benefits_ratio >= "
+        "average_account_benefits_ratio_band_lower_bound[2]"
+        in selector["versions"][0]["formula"]
+    )
     assert "average_account_benefits_ratio_band" in repaired_rules
     assert find_source_table_row_scalar_parameter_issues(repaired) == []
 
 
-def test_repair_source_table_band_bound_scalars_inlines_adjacent_upper_aliases():
+def test_repair_source_table_band_bound_scalars_preserves_adjacent_upper_aliases():
     content = """format: rulespec/v1
 module:
   summary: |-
@@ -11192,12 +11397,43 @@ rules:
 
     repaired, repaired_rules = repair_source_table_band_scalar_parameters(content)
 
-    assert "average_account_benefits_ratio_band_1_upper" not in repaired
-    assert "average_account_benefits_ratio_band_2_lower" not in repaired
-    assert "average_account_benefits_ratio_band_2_upper" not in repaired
-    assert "average_account_benefits_ratio < 2.5" in repaired
-    assert ">= 2.5" in repaired
-    assert "average_account_benefits_ratio < 3.0" in repaired
+    payload = yaml.safe_load(repaired)
+    rule_names = {rule["name"] for rule in payload["rules"]}
+    assert "average_account_benefits_ratio_band_1_upper" not in rule_names
+    assert "average_account_benefits_ratio_band_2_lower" not in rule_names
+    assert "average_account_benefits_ratio_band_2_upper" not in rule_names
+    lower_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band_lower_bound"
+    )
+    upper_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band_upper_bound"
+    )
+    assert lower_bound["versions"][0]["values"] == {2: 2.5}
+    assert upper_bound["versions"][0]["values"] == {1: 2.5, 2: 3.0}
+    selector = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "average_account_benefits_ratio_band"
+    )
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_upper_bound[1]"
+        in selector["versions"][0]["formula"]
+    )
+    assert (
+        "average_account_benefits_ratio >= "
+        "average_account_benefits_ratio_band_lower_bound[2]"
+        in selector["versions"][0]["formula"]
+    )
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_upper_bound[2]"
+        in selector["versions"][0]["formula"]
+    )
     assert "average_account_benefits_ratio_band" in repaired_rules
     assert find_source_table_row_scalar_parameter_issues(repaired) == []
 
@@ -11240,8 +11476,8 @@ rules:
         source_text="Tax rate schedule | Average account benefits ratio | 2.5 | 3.0",
     )
 
-    assert "ratio_lower_bound_band_0" not in repaired
-    assert "ratio < 2.5" in repaired
+    assert "ratio_lower_bound_band_0" in repaired
+    assert "ratio < ratio_lower_bound_band_0" in repaired
     assert "elif" not in repaired
 
 
@@ -17522,6 +17758,374 @@ rules:
         "Ungrounded generated numeric literal" in issue and "452" in issue
         for issue in result.issues
     )
+
+
+def test_rulespec_ci_rejects_embedded_formula_numeric_concepts(tmp_path, monkeypatch):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: The income limit is $15,000.
+  source_verification:
+    corpus_citation_path: us/statute/example/income-limit
+rules:
+  - name: income_limit_met
+    kind: derived
+    entity: Household
+    dtype: Boolean
+    period: Year
+    source: Example statute
+    versions:
+      - effective_from: '2024-01-01'
+        formula: household_income <= 15000
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    def fake_compile(rules_file, output_path):
+        return (
+            subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+            {"program": {"parameters": [], "derived": [], "relations": []}},
+        )
+
+    monkeypatch.setattr(pipeline, "_compile_rulespec_to_artifact", fake_compile)
+
+    result = pipeline._run_rulespec_ci(rules_file)
+
+    assert result.passed is False
+    assert any(
+        "Embedded scalar literal" in issue
+        and "15000" in issue
+        and "named numeric concept or indexed table/grid value" in issue
+        for issue in result.issues
+    )
+
+
+def test_embedded_formula_numeric_guard_allows_named_scalars_and_table_keys(
+    tmp_path,
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: income_limit
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2024-01-01'
+        formula: 15000
+  - name: limit_by_band
+    kind: parameter
+    dtype: Money
+    indexed_by: income_band
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          1: 15000
+          2: 20000
+          4: 30000
+  - name: income_band
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_income < income_limit: 1 else: if household_income < limit_by_band[2]: 2 else: 4
+  - name: selected_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: limit_by_band[2]
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_embedded_scalar_literals(rules_file) == []
+
+
+def test_embedded_formula_numeric_guard_allows_map_arm_keys(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: joint_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2024-01-01'
+        formula: 15000
+  - name: separate_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2024-01-01'
+        formula: 7500
+  - name: amount_by_filing_status
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          match filing_status:
+              1 => joint_amount
+              4 => joint_amount
+              2 => separate_amount
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_embedded_scalar_literals(rules_file) == []
+
+
+def test_embedded_formula_numeric_guard_allows_table_index_clamps(tmp_path):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: maximum_allotment_table
+    kind: parameter
+    dtype: Money
+    indexed_by: household_size
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          1: 298
+          2: 546
+          8: 1789
+  - name: maximum_allotment
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2024-01-01'
+        formula: maximum_allotment_table[max(min(household_size, 8), 1)]
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_embedded_scalar_literals(rules_file) == []
+
+
+def test_embedded_formula_numeric_guard_rejects_table_index_arithmetic_literal(
+    tmp_path,
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: benefit_table
+    kind: parameter
+    dtype: Money
+    indexed_by: household_size
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          1: 100
+          8: 800
+  - name: benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2024-01-01'
+        formula: benefit_table[max(household_size * 4, 1)]
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_embedded_scalar_literals(rules_file)
+
+    assert len(issues) == 1
+    assert "benefit_amount" in issues[0]
+    assert "embeds 4" in issues[0]
+
+
+def test_embedded_formula_numeric_guard_rejects_mixed_table_index_call_literal(
+    tmp_path,
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: benefit_table
+    kind: parameter
+    dtype: Money
+    indexed_by: household_size
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          1: 100
+          8: 800
+  - name: benefit_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2024-01-01'
+        formula: benefit_table[min(household_size, 8) + other_func(4)]
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_embedded_scalar_literals(rules_file)
+
+    assert len(issues) == 1
+    assert "benefit_amount" in issues[0]
+    assert "embeds 4" in issues[0]
+    assert "embeds 8" not in issues[0]
+
+
+def test_embedded_formula_numeric_guard_is_occurrence_aware(
+    tmp_path,
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: limit_by_band
+    kind: parameter
+    dtype: Money
+    indexed_by: income_band
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          4: 0
+          5: 1
+  - name: income_band
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_income < 4: 4 else: 5
+  - name: selected_limit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_income < 4: limit_by_band[4] else: limit_by_band[5]
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_embedded_scalar_literals(rules_file)
+
+    assert len(issues) == 2
+    assert any("income_band" in issue and "embeds 4" in issue for issue in issues)
+    assert any("selected_limit" in issue and "embeds 4" in issue for issue in issues)
+    assert not any("embeds 5" in issue for issue in issues)
+
+
+def test_embedded_formula_numeric_guard_rejects_multiline_branch_literal(
+    tmp_path,
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: income_limit
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2024-01-01'
+        formula: '15000'
+  - name: capped_income_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_income > 0:
+            15000
+          else:
+            0
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_embedded_scalar_literals(rules_file)
+
+    assert len(issues) == 1
+    assert "capped_income_amount" in issues[0]
+    assert "embeds 15000" in issues[0]
+    assert "income_limit" not in issues[0]
+
+
+def test_grounding_numeric_extraction_is_occurrence_aware_for_selector_keys():
+    content = """format: rulespec/v1
+rules:
+  - name: limit_by_band
+    kind: parameter
+    dtype: Money
+    indexed_by: income_band
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          4: 0
+          5: 1
+  - name: income_band
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_income < 4: 4 else: 5
+"""
+
+    values = extract_grounding_values(content)
+
+    assert values == [(1, "4", 4.0)]
 
 
 def test_ungrounded_numeric_accepts_source_unicode_fraction():

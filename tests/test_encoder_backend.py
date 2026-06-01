@@ -159,7 +159,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
         "Structural interval bounds that are only used by the selector"
         in ENCODER_PROMPT
     )
-    assert "`tier_0_upper_bound`" in ENCODER_PROMPT
+    assert "`applicable_percentage_band_upper_bound[band_selector]`" in ENCODER_PROMPT
     assert "for sibling clause\n  exception phrases" in ENCODER_PROMPT
     assert "kind: derived_relation" in ENCODER_PROMPT
     assert "derived_relation:" in ENCODER_PROMPT
@@ -223,7 +223,7 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "source text `133%` should be\n  represented as `1.33`" in prompt
     assert "old percent-point test inputs" in prompt
     assert "Structural interval bounds that are only used by the selector" in prompt
-    assert "`tier_0_upper_bound`" in prompt
+    assert "`applicable_percentage_band_upper_bound[band_selector]`" in prompt
     assert "for sibling clause\n  exception phrases" in prompt
     assert "kind: derived_relation" in prompt
     assert "derived_relation:" in prompt

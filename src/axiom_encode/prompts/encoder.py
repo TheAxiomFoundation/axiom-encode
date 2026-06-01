@@ -144,7 +144,11 @@ Hard requirements:
   field with the legal citation/span that directly supports that rule. Keep
   `source:` short and local to the rule; use `module.source_verification` for
   the corpus locator.
-- Use `kind: parameter` for source-stated amounts, rates, thresholds, caps, and limits.
+- Encode every source-stated amount, rate, threshold, cap, and limit as a named
+  numeric concept. Use `kind: parameter` for source-stated scalar concepts when
+  it fits the local schema, but the invariant is the named concept: consuming
+  formulas reference that name, so the concept can later change from a direct
+  scalar to a computed formula without rewriting every consumer.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated
   numeric tables/scales keyed by household size, family size, income band,
   age band, or another row key. Do not encode those cells as `match` arms or
@@ -164,22 +168,24 @@ Hard requirements:
   use the table parameter bare as a scalar. Indexed table keys must be integer
   band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like
   `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys.
-  Use structural row bounds inline only in the band selector, and have the
-  selector return integer band ids; do not promote those row labels to public
-  scalar outputs. If a downstream formula needs the active row's lower or upper
-  bound for interpolation or clamping before native interval-table support
-  exists, store those bounds as private indexed parameter columns such as
+  Store source-stated row bounds as private named bound concepts or private
+  indexed table/grid bound columns, and have the selector reference those names
+  while returning integer band ids. Do not expose row labels as public outputs.
+  If a downstream formula needs the active row's lower or upper bound for
+  interpolation or clamping before native interval-table support exists, store
+  those bounds as private indexed parameter columns such as
   `applicable_percentage_band_lower_bound[band_selector]` and
   `applicable_percentage_band_upper_bound[band_selector]`, then reference those
-  names in the derived formula. Do not repeat the bound literals in non-selector
-  formulas. Preserve source row identity: open lower or upper interval cells are
-  real rows, not defaults and not dropped rows. Omit the open side of the
-  predicate; for example an open-lower row ending at `2.5` is
-  `if x < 2.5: 0`, and an open-upper row starting at `9.0` is the final integer
-  row key for `x >= 9.0`. For source tables with both interval and categorical
-  dimensions, keep the interval selector separate from the categorical key and
-  use indexed parameter columns over the combined selectors instead of flattening
-  legal categories into formula literals.
+  names in the derived formula. Do not repeat bound, rate, or threshold literals
+  in consuming formulas. Structural table/grid key literals such as `[1]` are
+  acceptable when they only select a named table/grid value. Preserve source row
+  identity: open lower or upper interval cells are real rows, not defaults and
+  not dropped rows. Omit the open side of the predicate; for example an
+  open-lower row can test `x < upper_bound_by_band[1]`, and an open-upper row
+  can test `x >= lower_bound_by_band[final_band_key]`. For source tables with
+  both interval and categorical dimensions, keep the interval selector separate
+  from the categorical key and use indexed parameter columns over the combined
+  selectors instead of flattening legal categories into formula literals.
 - Do not treat the final interval row as open-ended unless the source row is
   actually open-ended. If the last source row has an upper bound, the selector
   must return an out-of-table sentinel above that bound and the principal output
@@ -209,10 +215,10 @@ Hard requirements:
   makes those projections legal outputs in their own right. Reference indexed
   table columns directly from the principal formula when they are only helpers
   for interpolation.
-- Structural interval bounds that are only used by the selector should stay
-  inline inside the selector. Do not create one scalar parameter per selector
-  bound, such as `tier_0_upper_bound`; use indexed bound columns only when a
-  non-selector formula needs the active row bounds.
+- Structural interval bounds that are only used by the selector should still be
+  private implementation concepts, not public outputs. Prefer indexed bound
+  columns or narrowly named private bound concepts over embedded selector
+  literals; table/grid key indexes may remain as structural literals.
 - For source-stated rate or percentage tables whose column header names a legal
   application such as "applicable percentage for section 3201(b)" or
   "applicable percentage for sections 3211(b) and 3221(b)", name the exported
@@ -1024,9 +1030,11 @@ Hard requirements:
   Do not solve this by deleting the affected numeric output while leaving the
   modifier parameter stranded.
 - Every substantive numeric occurrence in `./source.txt` must be represented by
-  a named scalar definition when it is a legal amount, rate, threshold, cap, or
-  limit, except structural interval-table row labels that are used only inside
-  the source-backed band selector predicate.
+  a named numeric concept when it is a legal amount, rate, threshold, cap, or
+  limit, including structural interval-table row labels used by a source-backed
+  band selector predicate. Consumers should reference the named concept or an
+  indexed table/grid value; only structural keys, sentinels, and algebraic
+  identities should remain as formula literals.
 - If the same numeric value appears in separate numbered exceptions,
   subparagraphs, or otherwise materially different legal roles, give those roles
   distinct named scalars; reuse a named scalar only for the same legal role.
@@ -1035,10 +1043,11 @@ Hard requirements:
   semantic scalars for those occurrences and use them in the branch conditions.
 - Before finalizing, do this self-check:
   1. Numeric inventory: every source-stated legal amount, rate, threshold, cap,
-     or limit has a named local `parameter` or an exact imported parameter from
-     context, and derived formulas reference that local or imported name rather
-     than an inline literal, except structural interval-table row labels used
-     only by the band selector. If an exact same-path child scalar is available
+     or limit has a named local numeric concept or an exact imported concept
+     from context, and derived formulas reference that local or imported name
+     rather than an inline literal. For tables and grids, bounds and cells are
+     indexed numeric concepts; formulas may use structural integer keys only to
+     select from those concepts. If an exact same-path child scalar is available
      in context, import it instead of duplicating it locally.
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding

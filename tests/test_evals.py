@@ -907,10 +907,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "trailing commas in calls" in prompt
     assert "do not assume one upstream raw input equals that imported output" in prompt
     assert "For IRC section 151 repairs" not in prompt
-    assert (
-        "Do not create named `parameter` rules for structural table row labels"
-        in prompt
-    )
+    assert "named numeric concept" in prompt
     assert "if the source is a multi-state or\n  multi-jurisdiction table" in prompt
     assert "Do not invent a fake `State` entity" in prompt
     assert "do not create one scalar parameter per row, bound, or cell" in prompt
@@ -933,12 +930,13 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "source text `133%` should be represented as `1.33`" in prompt
     assert "old percent-point test inputs" in prompt
     assert "Structural interval bounds that are only used by the selector" in prompt
-    assert "`tier_0_upper_bound`" in prompt
+    assert "private bound concepts" in prompt
     assert "do not preserve, rename, or recreate the local" in prompt
     assert "for sibling clause\n  exception phrases" in prompt
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
-    assert "exact imported parameter from\n     context" in prompt
+    assert "exact imported concept\n     from context" in prompt
+    assert "indexed numeric concepts" in prompt
     assert "import it instead of duplicating it locally" in prompt
     assert "An imported `dtype: Judgment` is a predicate, not a scalar" in prompt
     assert "Never multiply, add, subtract, divide, `min`, or `max`" in prompt
@@ -1506,12 +1504,15 @@ rules:
 
     assert wrote is True
     content = output_file.read_text()
-    assert "average_account_benefits_ratio_lower_bound_band_0" not in content
-    assert "average_account_benefits_ratio < 2.5" in content
+    assert "average_account_benefits_ratio_lower_bound_band_0" in content
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_lower_bound_band_0"
+    ) in content
     assert "elif" not in content
     assert "else if" not in content
     test_content = output_file.with_name("b.test.yaml").read_text()
-    assert "average_account_benefits_ratio_lower_bound_band_0" not in test_content
+    assert "average_account_benefits_ratio_lower_bound_band_0" in test_content
     assert (
         "applicable_percentage_3201_by_average_account_benefits_ratio_band"
         not in test_content
@@ -1584,12 +1585,18 @@ rules:
 
     assert wrote is True
     content = output_file.read_text()
-    assert "average_account_benefits_ratio_band_threshold_2_5" not in content
-    assert "average_account_benefits_ratio_band_threshold_3_0" not in content
-    assert "average_account_benefits_ratio < 2.5" in content
-    assert "average_account_benefits_ratio < 3.0" in content
+    assert "average_account_benefits_ratio_band_threshold_2_5" in content
+    assert "average_account_benefits_ratio_band_threshold_3_0" in content
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_threshold_2_5"
+    ) in content
+    assert (
+        "average_account_benefits_ratio < "
+        "average_account_benefits_ratio_band_threshold_3_0"
+    ) in content
     test_content = output_file.with_name("b.test.yaml").read_text()
-    assert "average_account_benefits_ratio_band_threshold_2_5" not in test_content
+    assert "average_account_benefits_ratio_band_threshold_2_5" in test_content
     assert (
         "applicable_percentage_3201_by_average_account_benefits_ratio_band"
         not in test_content
@@ -2010,22 +2017,41 @@ rules:
     payload = yaml.safe_load(output_file.read_text())
     rule_names = {rule["name"] for rule in payload["rules"]}
     assert (
-        "section_3241b_average_account_benefits_ratio_bracket_lower_bound"
-        not in rule_names
+        "section_3241b_average_account_benefits_ratio_bracket_lower_bound" in rule_names
     )
     assert (
-        "section_3241b_average_account_benefits_ratio_bracket_upper_bound"
-        not in rule_names
+        "section_3241b_average_account_benefits_ratio_bracket_upper_bound" in rule_names
     )
+    lower_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"]
+        == "section_3241b_average_account_benefits_ratio_bracket_lower_bound"
+    )
+    upper_bound = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"]
+        == "section_3241b_average_account_benefits_ratio_bracket_upper_bound"
+    )
+    assert lower_bound["versions"][0]["values"] == {2: 2.5, 3: 6.1, 4: 9.0}
+    assert upper_bound["versions"][0]["values"] == {1: 2.5, 2: 6.1, 3: 9.0}
     selector = next(
         rule
         for rule in payload["rules"]
         if rule["name"] == "average_account_benefits_ratio_bracket"
     )
     assert selector["versions"][0]["formula"] == (
-        "if average_account_benefits_ratio < 2.5: 1 else: "
-        "if average_account_benefits_ratio >= 2.5 and average_account_benefits_ratio < 6.1: 2 else: "
-        "if average_account_benefits_ratio >= 6.1 and average_account_benefits_ratio < 9.0: 3 else: 4"
+        "if average_account_benefits_ratio < "
+        "section_3241b_average_account_benefits_ratio_bracket_upper_bound[1]: 1 else: "
+        "if average_account_benefits_ratio >= "
+        "section_3241b_average_account_benefits_ratio_bracket_lower_bound[2] and "
+        "average_account_benefits_ratio < "
+        "section_3241b_average_account_benefits_ratio_bracket_upper_bound[2]: 2 else: "
+        "if average_account_benefits_ratio >= "
+        "section_3241b_average_account_benefits_ratio_bracket_lower_bound[3] and "
+        "average_account_benefits_ratio < "
+        "section_3241b_average_account_benefits_ratio_bracket_upper_bound[3]: 3 else: 4"
     )
     rates = next(
         rule
