@@ -913,8 +913,7 @@ def project_deduction_inputs(
                 "household_entitled_to_excess_medical_deduction"
             ): medical_deduction > 0,
             (
-                "us:regulations/7-cfr/273/10#input."
-                "snap_total_medical_expenses"
+                "us:regulations/7-cfr/273/10#input.snap_total_medical_expenses"
             ): medical_expenses_for_deduction(medical_deduction),
             (
                 "us:regulations/7-cfr/273/10#input."
