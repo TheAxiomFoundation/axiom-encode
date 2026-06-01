@@ -4759,6 +4759,58 @@ rules:
             == 1
         )
 
+    def test_repair_float_keyed_indexed_parameter_values_with_whole_number_float_keys(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "whole_float.yaml"
+        test_file = tmp_path / "whole_float.test.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: income_band
+  kind: derived
+  entity: TaxUnit
+  dtype: Decimal
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if income < 100: 1.0 else: 2.0'
+- name: rate_by_income_band
+  kind: parameter
+  dtype: Rate
+  indexed_by: income_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      1.0: 0.05
+      2.0: 0.10
+"""
+        )
+        test_file.write_text(
+            """- name: lower_band
+  period: '2026'
+  input:
+    us:policies/example#input.income: 50
+  output:
+    us:policies/example#income_band: 1.0
+    us:policies/example#rate_by_income_band: 0.05
+"""
+        )
+
+        repaired = _repair_float_keyed_indexed_parameter_values(
+            rules_file,
+            test_file,
+        )
+
+        assert repaired == ["rate_by_income_band", "income_band"]
+        payload = yaml.safe_load(rules_file.read_text())
+        selector = payload["rules"][0]
+        assert selector["dtype"] == "Integer"
+        assert selector["versions"][0]["formula"] == "if income < 100: 0 else: 1"
+        assert payload["rules"][1]["versions"][0]["values"] == {0: 0.05, 1: 0.10}
+        tests = yaml.safe_load(test_file.read_text())
+        assert tests[0]["output"]["us:policies/example#income_band"] == 0
+
     def test_repair_bare_indexed_parameter_references(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"
         rules_file.write_text(

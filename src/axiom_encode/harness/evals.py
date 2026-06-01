@@ -132,6 +132,19 @@ _RULESPEC_SOURCE_ROOT_TOKENS = {
     "statute",
     "statutes",
 }
+_RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
+    "form": "policies",
+    "forms": "policies",
+    "guidance": "policies",
+    "manual": "policies",
+    "manuals": "policies",
+    "policies": "policies",
+    "policy": "policies",
+    "regulation": "regulations",
+    "regulations": "regulations",
+    "statute": "statutes",
+    "statutes": "statutes",
+}
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
 _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
 _CODEX_LONG_SOURCE_CHAR_THRESHOLD = 40_000
@@ -3313,22 +3326,10 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
         tail = parts[1:]
         if tail:
-            return Path(parts[0]) / _dotted_leaf_to_nested_yaml_path(tail)
+            root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[0], parts[0])
+            return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     if len(parts) >= 3:
-        document_roots = {
-            "form": "forms",
-            "forms": "forms",
-            "guidance": "guidance",
-            "manual": "policies",
-            "manuals": "policies",
-            "policies": "policies",
-            "policy": "policies",
-            "regulation": "regulations",
-            "regulations": "regulations",
-            "statute": "statutes",
-            "statutes": "statutes",
-        }
-        root = document_roots.get(parts[1])
+        root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:
             tail = parts[2:]
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:

@@ -3387,6 +3387,28 @@ def test_policyengine_tax_scenario_builds_net_investment_income_inputs(tmp_path)
     assert "'loss_limited_net_capital_gains': {'2026': 4000}" in script
 
 
+def test_policyengine_health_child_variable_targets_child_result_index(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "is_chip_eligible_child",
+        {
+            "period": "2026",
+            "household_size": 2,
+            "state_code_str": "CO",
+        },
+        "2026",
+    )
+
+    assert "'child0': {'age': {'2026': 8}" in script
+    assert "result_index = 1" in script
+    assert "result[result_index]" in script
+
+
 def test_policyengine_tax_scenario_builds_capital_gains_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,

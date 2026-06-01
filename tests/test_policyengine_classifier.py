@@ -303,6 +303,75 @@ def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) 
     assert [c.legal_id.split("#")[1] for c in aca_only] == ["aca_ptc"]
 
 
+def test_classify_splits_combined_medicaid_chip_sources_by_rule_name(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "rulespec-us-co"
+    rules_dir = repo / "policies" / "cms"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "medicaid-chip-bhp-eligibility-levels.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "children_separate_chip_income_standard",
+                        "kind": "parameter",
+                        "dtype": "Rate",
+                        "source": "Colorado CHIP income standard.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "2.60"}
+                        ],
+                    },
+                    {
+                        "name": "adult_expansion_medicaid_income_standard",
+                        "kind": "parameter",
+                        "dtype": "Rate",
+                        "source": "Colorado Medicaid income standard.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "1.33"}
+                        ],
+                    },
+                    {
+                        "name": "magi_fpl_disregard_equivalent",
+                        "kind": "parameter",
+                        "dtype": "Rate",
+                        "source": "MAGI disregard.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "0.05"}
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+
+    chip = classify_rulespec_repo(repo_root=repo, jurisdiction="us-co", program="chip")
+    medicaid = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="medicaid",
+    )
+    health = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="health",
+    )
+
+    assert [c.legal_id.split("#")[1] for c in chip] == [
+        "children_separate_chip_income_standard"
+    ]
+    assert [c.legal_id.split("#")[1] for c in medicaid] == [
+        "adult_expansion_medicaid_income_standard"
+    ]
+    assert {c.legal_id.split("#")[1] for c in health} == {
+        "children_separate_chip_income_standard",
+        "adult_expansion_medicaid_income_standard",
+        "magi_fpl_disregard_equivalent",
+    }
+
+
 def test_iter_rules_skips_non_executable_kinds(tmp_path: Path) -> None:
     """`source_relation` and missing-kind rules are not executable outputs."""
     path = tmp_path / "block-1.yaml"

@@ -18,6 +18,7 @@ _PROGRAM_TOKEN_RE = {
     token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
     for token in ("medicaid", "chip", "aca")
 }
+_HEALTH_PROGRAMS = frozenset({"medicaid", "chip", "aca_ptc"})
 
 
 @dataclass(frozen=True)
@@ -109,7 +110,8 @@ def build_policyengine_coverage_report(
         key=lambda item: item.legal_id,
     )
     if program:
-        items = [item for item in items if item.program == program]
+        programs = _program_filter_values(program)
+        items = [item for item in items if item.program in programs]
 
     status_counts = Counter(item.status for item in items)
     untested_comparable = [
@@ -501,15 +503,19 @@ def _coverage_item_from_mapping(
 ) -> PolicyEngineCoverageItem:
     if mapping is None:
         status = "unmapped"
-        program = _infer_program_from_legal_id(legal_id)
+        program = _infer_program_from_legal_id(legal_id, rule_name=rule_name)
         mapping_type = None
     elif mapping.comparable:
         status = "comparable"
-        program = mapping.program or _infer_program_from_legal_id(legal_id)
+        program = mapping.program or _infer_program_from_legal_id(
+            legal_id, rule_name=rule_name
+        )
         mapping_type = mapping.mapping_type
     else:
         status = "known_not_comparable"
-        program = mapping.program or _infer_program_from_legal_id(legal_id)
+        program = mapping.program or _infer_program_from_legal_id(
+            legal_id, rule_name=rule_name
+        )
         mapping_type = mapping.mapping_type
 
     return PolicyEngineCoverageItem(
@@ -530,8 +536,15 @@ def _coverage_item_from_mapping(
     )
 
 
-def _infer_program_from_legal_id(legal_id: str) -> str:
+def _program_filter_values(program: str) -> frozenset[str]:
+    if program == "health":
+        return _HEALTH_PROGRAMS | {"health"}
+    return frozenset({program})
+
+
+def _infer_program_from_legal_id(legal_id: str, *, rule_name: str = "") -> str:
     lowered = legal_id.lower()
+    rule = rule_name.lower()
     if lowered.startswith(
         (
             "uk:statutes/ukpga/2007/3/23",
@@ -545,6 +558,8 @@ def _infer_program_from_legal_id(legal_id: str) -> str:
         return "pension_credit"
     if lowered.startswith("uk:regulations/uksi/2013/376/36"):
         return "universal_credit"
+    if _is_combined_health_source(lowered):
+        return _infer_health_program_from_rule_name(rule)
     if _PROGRAM_TOKEN_RE["medicaid"].search(lowered):
         return "medicaid"
     if _PROGRAM_TOKEN_RE["chip"].search(lowered):
@@ -563,3 +578,25 @@ def _infer_program_from_legal_id(legal_id: str) -> str:
     ):
         return "tax"
     return "unknown"
+
+
+def _is_combined_health_source(lowered_legal_id: str) -> bool:
+    return bool(
+        "medicaid-chip" in lowered_legal_id
+        or "medicaid_chip" in lowered_legal_id
+        or (
+            _PROGRAM_TOKEN_RE["medicaid"].search(lowered_legal_id)
+            and _PROGRAM_TOKEN_RE["chip"].search(lowered_legal_id)
+            and ("bhp" in lowered_legal_id or "eligibility" in lowered_legal_id)
+        )
+    )
+
+
+def _infer_health_program_from_rule_name(rule_name: str) -> str:
+    if _PROGRAM_TOKEN_RE["chip"].search(rule_name):
+        return "chip"
+    if _PROGRAM_TOKEN_RE["medicaid"].search(rule_name):
+        return "medicaid"
+    if _PROGRAM_TOKEN_RE["aca"].search(rule_name) or "premium_tax_credit" in rule_name:
+        return "aca_ptc"
+    return "health"

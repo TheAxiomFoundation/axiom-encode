@@ -210,7 +210,7 @@ def iter_rules_in_rulespec_file(
         yield (name, source_text, rule.get("dtype"))
 
 
-def _infer_program_from_legal_id(legal_id: str) -> str:
+def _infer_program_from_legal_id(legal_id: str, *, rule_name: str = "") -> str:
     """Infer the program namespace for classifier filtering.
 
     This intentionally stays lightweight: it prevents a program-specific
@@ -219,6 +219,9 @@ def _infer_program_from_legal_id(legal_id: str) -> str:
     program analysis.
     """
     lowered = legal_id.lower()
+    rule = rule_name.lower()
+    if _is_combined_health_source(lowered):
+        return _infer_health_program_from_rule_name(rule)
     if _PROGRAM_TOKEN_RE["medicaid"].search(lowered):
         return "medicaid"
     if _PROGRAM_TOKEN_RE["chip"].search(lowered):
@@ -240,6 +243,28 @@ def _infer_program_from_legal_id(legal_id: str) -> str:
     return "unknown"
 
 
+def _is_combined_health_source(lowered_legal_id: str) -> bool:
+    return bool(
+        "medicaid-chip" in lowered_legal_id
+        or "medicaid_chip" in lowered_legal_id
+        or (
+            _PROGRAM_TOKEN_RE["medicaid"].search(lowered_legal_id)
+            and _PROGRAM_TOKEN_RE["chip"].search(lowered_legal_id)
+            and ("bhp" in lowered_legal_id or "eligibility" in lowered_legal_id)
+        )
+    )
+
+
+def _infer_health_program_from_rule_name(rule_name: str) -> str:
+    if _PROGRAM_TOKEN_RE["chip"].search(rule_name):
+        return "chip"
+    if _PROGRAM_TOKEN_RE["medicaid"].search(rule_name):
+        return "medicaid"
+    if _PROGRAM_TOKEN_RE["aca"].search(rule_name) or "premium_tax_credit" in rule_name:
+        return "aca_ptc"
+    return "health"
+
+
 def _program_matches_classify_run(
     *,
     requested_program: str,
@@ -253,7 +278,7 @@ def _program_matches_classify_run(
         # and tests. New multi-program catalogs are filtered below.
         return True
 
-    inferred = _infer_program_from_legal_id(legal_id)
+    inferred = _infer_program_from_legal_id(legal_id, rule_name=rule_name)
     if requested_program == "health":
         return inferred in _HEALTH_PROGRAMS | {"health"} or rule_name in rule_index
     if inferred == requested_program:

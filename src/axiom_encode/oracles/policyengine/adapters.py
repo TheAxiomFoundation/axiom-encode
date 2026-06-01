@@ -30,6 +30,7 @@ class PolicyEngineUSVarAdapter:
     state_code_from_boolean_input: tuple[str, str, str] | None = None
     parameter_path: str | None = None
     parameter_value_mode: str = "bool"
+    target_person_role: str | None = None
 
 
 def normalize_state_code_from_utility_region(region: str) -> str:
@@ -503,6 +504,7 @@ PE_US_CHIP_VAR_ADAPTERS = (
         entity="person",
         period="year",
         comparison="decision",
+        target_person_role="child",
     ),
     PolicyEngineUSVarAdapter(
         rule_names=("is_chip_eligible_pregnant",),

@@ -126,10 +126,10 @@ def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     ) == Path("regulations/7-cfr/273/10.yaml")
 
 
-def test_source_identifier_maps_federal_form_to_forms_repo_path():
+def test_source_identifier_maps_federal_form_to_allowed_policy_repo_path():
     assert _source_identifier_to_relative_rulespec_path(
         "us/form/cms/medicaid-chip-bhp-eligibility-levels"
-    ) == Path("forms/cms/medicaid-chip-bhp-eligibility-levels.yaml")
+    ) == Path("policies/cms/medicaid-chip-bhp-eligibility-levels.yaml")
 
 
 def test_resolve_corpus_source_unit_accepts_form_citation_path(tmp_path):

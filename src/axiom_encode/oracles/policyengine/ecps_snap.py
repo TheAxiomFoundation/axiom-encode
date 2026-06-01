@@ -110,10 +110,11 @@ JURISDICTION_CONFIGS = {
             "snap_one_utility_allowance",
             "snap_individual_utility_allowance",
         ),
-        relation_id=AXIOM_RELATION_ID_BY_LABEL["member_of_household"],
-        member_entity_type="Member",
+        relation_id="member_of_household",
+        member_entity_type="Person",
         temp_prefix="co-snap-pe-ecps-",
         display_name="Colorado SNAP",
+        additional_relation_ids=(AXIOM_RELATION_ID_BY_LABEL["member_of_household"],),
     ),
     "us-ca": JurisdictionConfig(
         jurisdiction="us-ca",
