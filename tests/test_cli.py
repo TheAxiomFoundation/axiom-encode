@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
+from axiom_encode.oracles.policyengine.ecps_snap import JURISDICTION_CONFIGS
 from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
@@ -190,6 +191,13 @@ def test_current_encoder_affecting_changes_are_behind_version_bump():
     provenance = _require_axiom_encode_version_provenance(repo)
 
     assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_colorado_snap_ecps_projects_bare_member_relation_alias():
+    config = JURISDICTION_CONFIGS["us-co"]
+
+    assert config.relation_id == "us:statutes/7/2012/j#relation.member_of_household"
+    assert "member_of_household" in config.additional_relation_ids
 
 
 def _signed_manifest_payload(payload: dict) -> dict:
