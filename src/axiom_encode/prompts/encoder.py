@@ -149,6 +149,11 @@ Hard requirements:
   numeric tables/scales keyed by household size, family size, income band,
   age band, or another row key. Do not encode those cells as `match` arms or
   numeric literals inside a derived formula.
+- In a state-specific RuleSpec repository, if the source is a multi-state or
+  multi-jurisdiction table, encode only the row(s) for the target repository's
+  jurisdiction. Do not invent a fake `State` entity, row-index input, or
+  all-state table surface just to preserve every row. Defer any broader
+  all-state table output that cannot be represented faithfully.
 - For source tables with interval/range row labels such as "at least / but less
   than" bands, do not create one scalar parameter per row, bound, or cell with
   names like `*_row_0_upper_*`, `*_row_3_rate`, or

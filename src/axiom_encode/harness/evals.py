@@ -4375,6 +4375,11 @@ RuleSpec requirements:
 - Do not invent `dtype: String` variables just to restate the effective date.
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
 - Do not create named `parameter` rules for structural table row labels, household-size row indexes, or branch numbers unless the source actually sets that value as a legal amount, rate, threshold, cap, or limit; use those structural comparisons inline instead.
+- In a state-specific RuleSpec repository, if the source is a multi-state or
+  multi-jurisdiction table, encode only the row(s) for the target repository's
+  jurisdiction. Do not invent a fake `State` entity, row-index input, or
+  all-state table surface just to preserve every row. Defer any broader
+  all-state table output that cannot be represented faithfully.
 - If the source cannot be represented faithfully with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
 - Never emit `rules: []` without an explicit non-executable `module.status`. If the source has operative text, encode at least one source-backed rule instead of silently returning an empty module.
 - For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty. Do not create tests for deferred outputs or assertions against deferred symbols.

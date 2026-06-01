@@ -911,6 +911,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         "Do not create named `parameter` rules for structural table row labels"
         in prompt
     )
+    assert "if the source is a multi-state or\n  multi-jurisdiction table" in prompt
+    assert "Do not invent a fake `State` entity" in prompt
     assert "do not create one scalar parameter per row, bound, or cell" in prompt
     assert "`*_lower_bound_band_9`" in prompt
     assert "`indexed_by: <band_selector>`" in prompt
