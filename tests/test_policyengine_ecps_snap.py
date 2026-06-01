@@ -132,6 +132,7 @@ def test_california_projectors_use_california_snap_input_surface():
         "dependent_care_deduction": 12,
         "child_support_deduction": 34,
         "medical_deduction": 200,
+        "household_entitled_to_excess_medical_deduction": True,
         "snap_allowable_monthly_dependent_care_expenses": 12,
         "snap_allowable_monthly_child_support_payments": 34,
         "snap_total_medical_expenses": 235,
@@ -145,6 +146,7 @@ def test_california_projectors_use_california_snap_input_surface():
     assert project_utility_allowance_type(config, "LUA", "") == {
         "household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage": False
     }
+    assert ecps_snap.medical_expenses_for_deduction(150) == 185
 
 
 def test_run_axiom_cases_uses_configured_california_member_entity(

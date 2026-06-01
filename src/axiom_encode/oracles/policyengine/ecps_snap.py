@@ -138,6 +138,24 @@ JURISDICTION_CONFIGS = {
             "snap_standard_utility_allowance": (
                 "us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance"
             ),
+            "snap_net_income_before_shelter": (
+                "us:regulations/7-cfr/273/10#snap_net_income_before_shelter"
+            ),
+            "snap_standard_deduction": (
+                "us:policies/usda/snap/fy-2026-cola/deductions#snap_standard_deduction"
+            ),
+            "snap_earned_income_deduction_for_net_income": (
+                "us:regulations/7-cfr/273/10#snap_earned_income_deduction_for_net_income"
+            ),
+            "snap_excess_medical_deduction_for_net_income": (
+                "us:regulations/7-cfr/273/10#snap_excess_medical_deduction_for_net_income"
+            ),
+            "snap_excess_shelter_cost": (
+                "us:regulations/7-cfr/273/10#snap_excess_shelter_cost"
+            ),
+            "snap_full_excess_shelter_deduction_applies": (
+                "us:regulations/7-cfr/273/9#snap_full_excess_shelter_deduction_applies"
+            ),
         },
         utility_allowance_labels=("snap_standard_utility_allowance",),
         relation_id=(
@@ -877,6 +895,7 @@ def project_deduction_inputs(
             "dependent_care_deduction": dependent_care_deduction,
             "child_support_deduction": child_support_deduction,
             "medical_deduction": medical_deduction,
+            "household_entitled_to_excess_medical_deduction": medical_deduction > 0,
             "snap_allowable_monthly_dependent_care_expenses": (
                 dependent_care_deduction
             ),
@@ -890,6 +909,22 @@ def project_deduction_inputs(
             "dependent_care_deduction": dependent_care_deduction,
             "child_support_deduction": child_support_deduction,
             "medical_deduction": medical_deduction,
+            (
+                "us:regulations/7-cfr/273/10#input."
+                "household_entitled_to_excess_medical_deduction"
+            ): medical_deduction > 0,
+            (
+                "us:regulations/7-cfr/273/10#input."
+                "snap_total_medical_expenses"
+            ): medical_expenses_for_deduction(medical_deduction),
+            (
+                "us:regulations/7-cfr/273/10#input."
+                "snap_allowable_monthly_dependent_care_expenses"
+            ): dependent_care_deduction,
+            (
+                "us:regulations/7-cfr/273/10#input."
+                "snap_allowable_monthly_child_support_payments"
+            ): child_support_deduction,
         }
     return {
         "dependent_care_expense_necessary_for_work_or_training": (
@@ -1180,6 +1215,11 @@ def load_policyengine_cases(
             0,
             required=False,
         )
+        if config.jurisdiction == "us-ny":
+            inputs[
+                "us:regulations/7-cfr/273/10#input."
+                "snap_claimed_homeless_shelter_deduction"
+            ] = 0
         member_inputs = project_student_member_inputs(
             bool(student_ok_by_spm.get(spm_id, False))
         )
@@ -1387,8 +1427,6 @@ def new_york_utility_region_inputs(utility_region: str) -> dict[str, bool]:
 def medical_expenses_for_deduction(deduction: float) -> float:
     if deduction <= 0:
         return 0
-    if deduction <= 165:
-        return 36
     return deduction + 35
 
 
@@ -1605,12 +1643,47 @@ def compare(
             "axiom_gross_income": outputs["snap_gross_monthly_income"],
             "pe_net_income": case.pe_outputs["snap_net_income"],
             "axiom_net_income": outputs["snap_net_income"],
+            "pe_net_income_before_shelter": (
+                float(case.pe_outputs["snap_net_income"])
+                + float(case.pe_outputs["snap_excess_shelter_expense_deduction"])
+            ),
+            "pe_standard_deduction": case.pe_outputs["snap_standard_deduction"],
+            "pe_earned_income_deduction": case.pe_outputs[
+                "snap_earned_income_deduction"
+            ],
+            "pe_dependent_care_deduction": case.pe_outputs[
+                "snap_dependent_care_deduction"
+            ],
+            "pe_child_support_deduction": projected_child_support_payment(
+                {
+                    "snap_child_support_deduction": [
+                        case.pe_outputs["snap_child_support_deduction"]
+                    ],
+                    "snap_child_support_gross_income_deduction": [
+                        case.pe_outputs["snap_child_support_gross_income_deduction"]
+                    ],
+                },
+                0,
+            ),
+            "pe_medical_deduction": case.pe_outputs[
+                "snap_excess_medical_expense_deduction"
+            ],
             "pe_max_allotment": case.pe_outputs["snap_max_allotment"],
             "axiom_max_allotment": outputs["snap_maximum_allotment"],
             "pe_utility_allowance": case.pe_outputs["snap_utility_allowance"],
             "axiom_utility_allowance": sum(
                 float(outputs[name]) for name in utility_allowance_labels
             ),
+            "pe_housing_cost": case.pe_outputs["housing_cost"],
+            "pe_has_usda_elderly_disabled": case.pe_outputs[
+                "has_usda_elderly_disabled"
+            ],
+            "pe_meets_snap_categorical_eligibility": case.pe_outputs[
+                "meets_snap_categorical_eligibility"
+            ],
+            "pe_snap_utility_allowance_type": case.pe_outputs[
+                "snap_utility_allowance_type"
+            ],
             "pe_shelter_deduction": case.pe_outputs[
                 "snap_excess_shelter_expense_deduction"
             ],
