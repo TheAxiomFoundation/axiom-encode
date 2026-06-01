@@ -3980,19 +3980,12 @@ def _repair_california_snap_program_tests(path: Path) -> None:
             base_shelter_input + base_sua_input,
             1,
         )
-    if (
-        "us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household:"
-        not in content
-    ):
-        content = content.replace(
-            base_shelter_input + base_sua_input,
-            base_shelter_input
-            + base_sua_input
-            + "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298\n",
-            1,
-        )
     content = content.replace(
         "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298\n",
+        "",
+    )
+    content = content.replace(
+        "    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298\n",
         "",
     )
     content = content.replace(
