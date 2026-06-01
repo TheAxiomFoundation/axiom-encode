@@ -3744,7 +3744,6 @@ Test file rules:
 - Do not collapse a list of cited exceptions or cross-reference carve-outs into one aggregate fact such as `sections_..._do_not_preclude...`. Encode or import each cited exception separately, then combine them in a helper if useful.
 - If context files import this target file or reference this target file's outputs, use that as a signal to repair the dependency graph, not as a requirement to preserve old names. Keep an old output only when it remains the cleanest source-faithful RuleSpec surface.
 - Do not preserve existing factual input slots referenced by copied formulas or companion tests when a cleaner source-faithful encoding removes them. For names listed under invalid copied local inputs, do not preserve, rename, or recreate them.
-- For cross-reference boundary facts that remain local because the cited source is not present in context at all, keep the legal pointer in the identifier. If context for the cited source is present but unsupported, deferred, empty, or missing the exact displacement or exception export, encode a source-grounded local boundary predicate for whether that cited source displaces or blocks the requested source's formula; do not defer the requested formula merely because the copied cited file exports only its own separate amount.
 - When this source text itself names the operative factual disqualification,
   exception, or eligibility condition, encode that named condition as a local
   factual input even if the sentence cites another section for definitions or
@@ -3849,6 +3848,12 @@ RuleSpec requirements:
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys. Use structural row bounds inline only in the band selector and have it return integer band ids; do not promote those row labels to public scalar outputs. If interpolation or clamping needs the active row bounds before native interval-table support exists, store lower/upper bounds as private indexed parameter columns and reference those names in derived formulas; do not repeat bound literals outside the selector. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
+- Do not treat the final interval row as open-ended unless the source row is actually open-ended. If the last source row has an upper bound, the selector must return an out-of-table sentinel above that bound and the principal output must handle that sentinel. Include a companion test above the final bounded row so the generated artifact cannot silently extend the table.
+- The out-of-table sentinel is not itself a source table row. Do not add sentinel entries to indexed parameter tables and do not clamp sentinel cases to the final table row's values. Handle the sentinel before table lookups, using the existing target's source-grounded out-of-range branch when repairing an existing artifact.
+- Do not hard-code the final real band id in non-selector formulas merely to make the final row constant. If the final row's initial and final table values are the same, let the indexed interpolation formula produce that constant value; branch only on the out-of-table sentinel and on genuinely distinct source-stated first-row behavior.
+- For percentage interval row labels, bounds, rates, and ratio inputs, encode percent values as decimal ratios. For example, source text `133%` should be represented as `1.33`, and `60%` as `0.60`, not as percent-point values like `133` or `60`. When repairing an existing artifact, update companion tests to the same ratio scale instead of preserving old percent-point test inputs.
+- For interval-table repair of an existing target, keep the executable surface narrow: add indexed bound columns and update the existing source-faithful principal formula, but do not add extra exported derived rules that merely project table columns such as `initial_*` or `final_*` unless the source text makes those projections legal outputs in their own right. Reference indexed table columns directly from the principal formula when they are only helpers for interpolation.
+- Structural interval bounds that are only used by the selector should stay inline inside the selector. Do not create one scalar parameter per selector bound, such as `tier_0_upper_bound`; use indexed bound columns only when a non-selector formula needs the active row bounds.
 - For source-stated rate or percentage tables whose column header names a legal
   application such as "applicable percentage for section 3201(b)" or
   "applicable percentage for sections 3211(b) and 3221(b)", name the exported
@@ -4142,18 +4147,27 @@ RuleSpec requirements:
   subtype, carve-out, or branch, defer only that branch or expose a
   source-named boundary input for that branch. Do not defer an unrelated
   source-stated cap/base computation that can be executed from the source text.
+- For cross-reference boundary facts that remain local because the cited source
+  is not present in context at all, keep the legal pointer in the identifier.
+  If context for the cited source is present but unsupported, deferred, empty,
+  or missing the needed export, do not preserve, rename, or recreate the local
+  cross-reference fact; import a real export, defer the affected executable
+  surface, or encode a source-grounded overriding branch that avoids it.
 - When the requested source states its own amount, cap, threshold, or formula
   but begins with an exception such as `except as otherwise provided in section
-  X` or `except as otherwise provided in subsection X`, do not defer the
-  requested formula merely because section X has unresolved effective versions,
-  ballot triggers, repeal facts, or program conditions. Encode the requested
-  source's own formula and represent the cross-reference boundary with a
-  source-named predicate such as
-  `subsection_x_does_not_displace_this_subsection` unless an import supplies the
-  exact displacement predicate. A cited provision's separate amount, addition,
-  deduction, or benefit output is not itself a displacement predicate and is not
-  a reason to defer the requested source's own formula. Include a companion case
-  where the cross-reference boundary blocks the local output.
+  X` or `except as otherwise provided in subsection X` and the cited external
+  or parent source is not present in copied context at all, do not defer the
+  requested formula merely because section X may have unresolved effective
+  versions, ballot triggers, repeal facts, or program conditions. Encode the
+  requested source's own formula and represent the absent cross-reference
+  boundary with a source-named predicate such as
+  `subsection_x_does_not_displace_this_subsection`. Include a companion case
+  where the cross-reference boundary blocks the local output. If copied context
+  for the cited source is present but lacks the exact displacement predicate,
+  follow the copied-context rule above instead. This applies to cited external
+  or parent sources, not to uncopied sibling clauses; for sibling clause
+  exception phrases, follow the sibling-clause rule below and do not invent
+  local `clause_*` booleans.
 - When that output also composes an imported child or sibling result, check
   that the imported file does not defer another branch, period, or purpose that
   can affect the same final amount. Do not treat a missing deferred child branch
@@ -4394,6 +4408,12 @@ RuleSpec requirements:
   those cited sources. Import the cited RuleSpec source when it exists; if the
   target source is needed but unavailable, stop with an explicit
   missing-upstream/dependency request instead of encoding an opaque placeholder.
+- For opening scope phrases such as `except as provided in clause (ii)` that
+  point to a sibling clause outside the requested target and no copied context
+  supplies that sibling's executable output, do not invent a local boolean like
+  `clause_ii_provides_otherwise`. Keep the current target scoped to the
+  source-stated positive calculation, or defer only the final affected surface
+  if the sibling exception is essential to the requested output.
 - A pure `notwithstanding subsection ...` override does not require importing
   the overridden subsection unless the formula actually needs that cited
   subsection's computed output.

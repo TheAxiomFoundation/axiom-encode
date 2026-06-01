@@ -180,6 +180,37 @@ Hard requirements:
   dimensions, keep the interval selector separate from the categorical key and
   use indexed parameter columns over the combined selectors instead of flattening
   legal categories into formula literals.
+- Do not treat the final interval row as open-ended unless the source row is
+  actually open-ended. If the last source row has an upper bound, the selector
+  must return an out-of-table sentinel above that bound and the principal output
+  must handle that sentinel. Include a companion test above the final bounded
+  row so the generated artifact cannot silently extend the table.
+- The out-of-table sentinel is not itself a source table row. Do not add
+  sentinel entries to indexed parameter tables and do not clamp sentinel cases
+  to the final table row's values. Handle the sentinel before table lookups,
+  using the existing target's source-grounded out-of-range branch when repairing
+  an existing artifact.
+- Do not hard-code the final real band id in non-selector formulas merely to
+  make the final row constant. If the final row's initial and final table values
+  are the same, let the indexed interpolation formula produce that constant
+  value; branch only on the out-of-table sentinel and on genuinely distinct
+  source-stated first-row behavior.
+- For percentage interval row labels, bounds, rates, and ratio inputs, encode
+  percent values as decimal ratios. For example, source text `133%` should be
+  represented as `1.33`, and `60%` as `0.60`, not as percent-point values like
+  `133` or `60`. When repairing an existing artifact, update companion tests to
+  the same ratio scale instead of preserving old percent-point test inputs.
+- For interval-table repair of an existing target, keep the executable surface
+  narrow: add indexed bound columns and update the existing source-faithful
+  principal formula, but do not add extra exported derived rules that merely
+  project table columns such as `initial_*` or `final_*` unless the source text
+  makes those projections legal outputs in their own right. Reference indexed
+  table columns directly from the principal formula when they are only helpers
+  for interpolation.
+- Structural interval bounds that are only used by the selector should stay
+  inline inside the selector. Do not create one scalar parameter per selector
+  bound, such as `tier_0_upper_bound`; use indexed bound columns only when a
+  non-selector formula needs the active row bounds.
 - For source-stated rate or percentage tables whose column header names a legal
   application such as "applicable percentage for section 3201(b)" or
   "applicable percentage for sections 3211(b) and 3221(b)", name the exported
@@ -775,6 +806,12 @@ Hard requirements:
   Import the cited RuleSpec source when it exists; if that upstream source is
   required but unavailable, stop with a missing-upstream/dependency request
   rather than encoding an opaque local fact.
+- For opening scope phrases such as `except as provided in clause (ii)` that
+  point to a sibling clause outside the requested target and no copied context
+  supplies that sibling's executable output, do not invent a local boolean like
+  `clause_ii_provides_otherwise`. Keep the current target scoped to the
+  source-stated positive calculation, or defer only the final affected surface
+  if the sibling exception is essential to the requested output.
 - A pure `notwithstanding subsection ...` override does not require importing
   the overridden subsection unless the formula actually needs that cited
   subsection's computed output.
@@ -804,6 +841,12 @@ Hard requirements:
   or missing the needed export, do not preserve, rename, or recreate the local
   cross-reference fact; import a real export, defer the affected executable
   surface, or encode a source-grounded overriding branch that avoids it.
+- When the requested source states its own amount, cap, threshold, or formula
+  but begins with a cross-reference exception such as `except as otherwise
+  provided in section X` or `except as otherwise provided in subsection X`,
+  this local-boundary escape hatch applies only to cited external or parent
+  sources. It does not apply to uncopied sibling clauses; for sibling clause
+  exception phrases, do not invent local `clause_*` booleans.
 - Do not emit Python code, markdown fences, prose, or file-write confirmations.
 - Do not invent values or ontology beyond the source text.
 - When source text uses amendment markup like `[old] new`, treat the bracketed
