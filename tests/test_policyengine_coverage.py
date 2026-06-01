@@ -248,6 +248,100 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_colorado_medicaid_chip_thresholds(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-co"
+        / "policies/cms/colorado-medicaid-chip-bhp-eligibility-levels.yaml",
+        """format: rulespec/v1
+rules:
+  - name: magi_fpl_disregard_rate
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 0.05
+  - name: colorado_children_medicaid_ages_0_to_1_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 1.42
+  - name: colorado_children_medicaid_ages_1_to_5_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 1.42
+  - name: colorado_children_medicaid_ages_6_to_18_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 1.42
+  - name: colorado_children_separate_chip_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 2.60
+  - name: colorado_pregnant_women_medicaid_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 1.95
+  - name: colorado_pregnant_women_chip_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 2.60
+  - name: colorado_parent_caretaker_adults_medicaid_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 0.68
+  - name: colorado_adult_medicaid_expansion_fpl_limit
+    kind: parameter
+    versions:
+      - effective_from: '2023-12-01'
+        formula: 1.33
+""",
+    )
+
+    medicaid = build_policyengine_coverage_report(tmp_path, program="medicaid")
+    chip = build_policyengine_coverage_report(tmp_path, program="chip")
+    health = build_policyengine_coverage_report(tmp_path, program="health")
+
+    assert medicaid["total_outputs"] == 6
+    assert chip["total_outputs"] == 2
+    assert health["total_outputs"] == 9
+    assert health["status_counts"] == {"known_not_comparable": 9}
+    assert health["untested_comparable"] == 0
+    assert {item["mapping_type"] for item in health["items"]} == {"not_comparable"}
+    assert {item["candidate_priority"] for item in health["items"]} == {"P4"}
+
+    items_by_name = {item["rule_name"]: item for item in health["items"]}
+    assert items_by_name["magi_fpl_disregard_rate"]["program"] == "health"
+    assert (
+        items_by_name["colorado_adult_medicaid_expansion_fpl_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.hhs.medicaid.eligibility.categories.adult.income_limit"
+    )
+    assert (
+        items_by_name["colorado_children_medicaid_ages_0_to_1_fpl_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.hhs.medicaid.eligibility.categories.infant.income_limit"
+    )
+    assert (
+        items_by_name["colorado_children_separate_chip_fpl_limit"][
+            "policyengine_parameter"
+        ]
+        == "gov.hhs.chip.child.income_limit"
+    )
+    assert all(
+        "5% MAGI FPL disregard" in str(item["rationale"]) for item in health["items"]
+    )
+
+
 def test_policyengine_coverage_classifies_aca_ptc_percentage_outputs(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "policies/irs/rev-proc-2025-25/aca-ptc.yaml",
