@@ -12366,6 +12366,15 @@ rules:
       - effective_from: '2025-10-01'
         formula: |-
           if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))
+  - name: snap_minimum_benefit
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          floor((snap_maximum_allotment_for_one_person_household * snap_minimum_benefit_rate) + 0.5)
 """
         )
         test_file = policy_repo / "regulations/7-cfr/273/10.test.yaml"
@@ -12374,6 +12383,7 @@ rules:
   period: 2026-01
   input:
     us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298
+    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298
   output:
     us:regulations/7-cfr/273/10#snap_minimum_benefit: 24
 """
@@ -12408,12 +12418,18 @@ rules:
         content = target.read_text()
         assert "us:policies/usda/snap/fy-2026-cola/maximum-allotments" in content
         assert "snap_maximum_allotment_for_household_size" not in content
+        assert "snap_maximum_allotment_for_one_person_household" not in content
         assert "snap_maximum_allotment - ceil(" in content
+        assert (
+            "snap_one_person_thrifty_food_plan_cost * snap_minimum_benefit_rate"
+            in content
+        )
         test_content = test_file.read_text()
         assert (
             "us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1"
             in test_content
         )
+        assert "snap_maximum_allotment_for_one_person_household" not in test_content
         manifest = (
             policy_repo / ".axiom/encoding-manifests/regulations/7-cfr/273/10.json"
         )
