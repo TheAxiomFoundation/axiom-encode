@@ -14007,6 +14007,34 @@ def _producer_rule_names(rules_file: Path) -> set[str]:
     return names
 
 
+def _deferred_output_names(rules_file: Path) -> set[str]:
+    """Return output fragments declared under `module.deferred_outputs`."""
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return set()
+    deferred_outputs = module.get("deferred_outputs")
+    if not isinstance(deferred_outputs, list):
+        return set()
+
+    names: set[str] = set()
+    for record in deferred_outputs:
+        if not isinstance(record, dict):
+            continue
+        output = str(record.get("output") or "").strip()
+        if "#" not in output:
+            continue
+        fragment = output.rsplit("#", 1)[1].strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", fragment):
+            names.add(fragment)
+    return names
+
+
 def _input_ref_is_import_output_placeholder(
     input_ref: str,
     *,
@@ -14202,6 +14230,7 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return set()
+    factual_inputs: set[str] = set()
 
     defined_symbols = {
         str(rule.get("name") or "").strip()
@@ -14229,7 +14258,6 @@ def _local_factual_input_names_from_rules_content(rules_content: str) -> set[str
         "sum_where",
         "true",
     }
-    factual_inputs: set[str] = set()
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -24587,10 +24615,23 @@ def _collect_imported_input_refs_by_name(
     except (OSError, ValueError, yaml.YAMLError):
         return {}
     imports = payload.get("imports") if isinstance(payload, dict) else None
-    if not isinstance(imports, list):
-        return {}
-
     refs_by_name: dict[str, list[str]] = {}
+    current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
+    if isinstance(payload, dict) and current_base:
+        for input_name in sorted(
+            _direct_imported_deferred_output_names(
+                payload,
+                repo_path=repo_path,
+            )
+        ):
+            _append_unique_input_ref(
+                refs_by_name,
+                input_name,
+                f"{current_base}#input.{input_name}",
+            )
+    if not isinstance(imports, list):
+        return refs_by_name
+
     for raw_import in imports:
         if not isinstance(raw_import, str):
             continue
@@ -24626,6 +24667,47 @@ def _collect_imported_input_refs_by_name(
                     input_ref,
                 )
     return refs_by_name
+
+
+def _rulespec_base_for_file(rules_file: Path, *, repo_path: Path) -> str:
+    try:
+        relative = rules_file.relative_to(repo_path)
+    except ValueError:
+        return ""
+    return (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative)}"
+    )
+
+
+def _direct_imported_deferred_output_names(
+    payload: dict[str, object],
+    *,
+    repo_path: Path,
+) -> set[str]:
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return set()
+
+    names: set[str] = set()
+    for raw_import in imports:
+        if not isinstance(raw_import, str) or "#" not in raw_import:
+            continue
+        fragment = raw_import.rsplit("#", 1)[1].strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", fragment):
+            continue
+        resolved_import = _same_repo_import_base_and_file(
+            raw_import,
+            repo_path=repo_path,
+        )
+        if resolved_import is None:
+            continue
+        _, import_file = resolved_import
+        if import_file is None or not import_file.exists():
+            continue
+        if fragment in _deferred_output_names(import_file):
+            names.add(fragment)
+    return names
 
 
 def _same_repo_import_base_and_file(

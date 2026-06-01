@@ -11822,6 +11822,72 @@ rules: []
             updated.count("us:statutes/26/1/h#input.investment_income_amount: 0") == 2
         )
 
+    def test_complete_missing_imported_test_inputs_adds_deferred_import_defaults(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/1402/a.yaml"
+        dependent = policy_repo / "statutes/26/1402/b.yaml"
+        dependent_test = policy_repo / "statutes/26/1402/b.test.yaml"
+        imported.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+  deferred_outputs:
+    - output: us:statutes/26/1402/a#net_earnings_from_self_employment
+      reason: Requires unresolved upstream exclusions.
+rules: []
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/a#net_earnings_from_self_employment
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: net_earnings_from_self_employment
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:statutes/26/1402/b#input.individual_is_nonresident_alien: false
+  output:
+    us:statutes/26/1402/b#self_employment_income: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: "
+                        "missing input `net_earnings_from_self_employment`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        assert (
+            "us:statutes/26/1402/b#input.net_earnings_from_self_employment: 0"
+            in dependent_test.read_text()
+        )
+
     def test_complete_missing_imported_test_inputs_adds_transitive_import_defaults(
         self, tmp_path
     ):
@@ -11901,6 +11967,98 @@ rules: []
         assert (
             "us:statutes/26/1402/b#input.individual_is_nonresident_alien: false"
             in updated
+        )
+
+    def test_complete_missing_imported_test_inputs_adds_transitive_deferred_defaults(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        deferred = policy_repo / "statutes/26/1402/a.yaml"
+        middle = policy_repo / "statutes/26/1402/b.yaml"
+        imported = policy_repo / "statutes/26/1401/a.yaml"
+        dependent = policy_repo / "statutes/26/164/f.yaml"
+        dependent_test = policy_repo / "statutes/26/164/f.test.yaml"
+        deferred.parent.mkdir(parents=True)
+        middle.parent.mkdir(parents=True, exist_ok=True)
+        imported.parent.mkdir(parents=True, exist_ok=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        deferred.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+  deferred_outputs:
+    - output: us:statutes/26/1402/a#net_earnings_from_self_employment
+      reason: Requires unresolved upstream exclusions.
+rules: []
+"""
+        )
+        middle.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/a#net_earnings_from_self_employment
+rules:
+  - name: self_employment_income_for_section_1401_a
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: net_earnings_from_self_employment
+"""
+        )
+        imported.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/b#self_employment_income_for_section_1401_a
+rules:
+  - name: old_age_survivors_and_disability_insurance_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_income_for_section_1401_a * 0.124
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax
+rules: []
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input:
+    us:statutes/26/164/f#input.taxpayer_is_individual: true
+  output:
+    us:statutes/26/164/f#self_employment_tax_deduction: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: "
+                        "missing input `net_earnings_from_self_employment`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        assert (
+            "us:statutes/26/1402/b#input.net_earnings_from_self_employment: 0"
+            in dependent_test.read_text()
         )
 
     def test_complete_missing_imported_test_inputs_adds_table_entity_defaults(
