@@ -1,16 +1,15 @@
 """Pattern-driven PolicyEngine oracle classifier for RuleSpec encodings.
 
 The classifier walks a `rulespec-us-<state>` repository, looks up each
-output's name in `PE_US_VAR_ADAPTERS` (the canonical comparison-time
-adapter list in `adapters.py`), and emits a `us.yaml` mapping entry per
-output.
+output's name in the requested program's adapter catalog in `adapters.py`,
+and emits a `us.yaml` mapping entry per output.
 
-Single source of truth: the pattern catalog is `PE_US_VAR_ADAPTERS` —
-the same list used by ECPS comparison at test time. Anything that adapter
-list maps to a PolicyEngine variable, the classifier promotes to a
-`direct_variable` entry. Anything else gets a per-rule `not_comparable`
-entry whose rationale references the rule's RuleSpec `source:` field
-rather than a chapter-level fig leaf.
+Single source of truth: each program's pattern catalog is the adapter list
+used by its oracle/replay lane. Anything that adapter list maps to a
+PolicyEngine variable, the classifier promotes to a `direct_variable` entry.
+Anything else gets a per-rule `not_comparable` entry whose rationale
+references the rule's RuleSpec `source:` field rather than a chapter-level
+fig leaf.
 
 Strict matching: a rule's name must equal one of the adapter's
 `rule_names` (case-sensitive, no fragment match). A dtype guard prevents
@@ -20,6 +19,7 @@ even when names collide.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -27,6 +27,7 @@ from typing import Iterable
 import yaml
 
 from axiom_encode.oracles.policyengine.adapters import (
+    PE_US_PROGRAM_VAR_ADAPTERS,
     PE_US_VAR_ADAPTERS,
     PolicyEngineUSVarAdapter,
 )
@@ -35,6 +36,8 @@ from axiom_encode.oracles.policyengine.adapters import (
 _MONEY_DTYPES = frozenset({"Money", "USD", "Integer", "Decimal", "Number"})
 # RuleSpec dtypes that align with boolean-decision PolicyEngine variables.
 _DECISION_DTYPES = frozenset({"Judgment", "Bool", "Boolean", "Decision"})
+# RuleSpec dtypes that align with rate/ratio PolicyEngine variables.
+_RATE_DTYPES = frozenset({"Rate", "Decimal", "Number", "Float"})
 
 # Heuristic: PolicyEngine variable names ending in these tokens are typically
 # monetary. Used only when the adapter does not record an explicit comparison.
@@ -47,6 +50,13 @@ _MONEY_VAR_SUFFIXES = (
     "_income",
     "_income_pre_shelter",
 )
+
+_HEALTH_PROGRAMS = frozenset({"medicaid", "chip", "aca_ptc"})
+
+_PROGRAM_TOKEN_RE = {
+    token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
+    for token in ("medicaid", "chip", "aca")
+}
 
 
 @dataclass(frozen=True)
@@ -88,10 +98,23 @@ def _adapter_unit_comparison(
     ending in money-like suffixes are treated as `comparison: money` with
     `unit: USD`; everything else is `comparison: decision`.
     """
+    if adapter.unit is not None or adapter.comparison is not None:
+        return (adapter.unit, adapter.comparison or "decision")
     pe_var = adapter.pe_var
     if pe_var.endswith(_MONEY_VAR_SUFFIXES):
         return ("USD", "money")
     return (None, "decision")
+
+
+def _adapter_entity_period(
+    adapter: PolicyEngineUSVarAdapter,
+) -> tuple[str, str | None]:
+    """Infer RuleSpec entity and period metadata for a PE adapter."""
+    if adapter.entity:
+        return (adapter.entity, adapter.period)
+    entity = "spm_unit" if adapter.spm else "household"
+    period = "month" if adapter.monthly else None
+    return (entity, period)
 
 
 def _classify_one(
@@ -113,11 +136,12 @@ def _classify_one(
     if dtype:
         if comparison == "money" and dtype not in _MONEY_DTYPES:
             return _not_comparable(legal_id, rule_name, source_text)
-        if comparison == "decision" and dtype not in _DECISION_DTYPES:
+        if comparison in {"decision", "boolean"} and dtype not in _DECISION_DTYPES:
+            return _not_comparable(legal_id, rule_name, source_text)
+        if comparison == "rate" and dtype not in _RATE_DTYPES:
             return _not_comparable(legal_id, rule_name, source_text)
 
-    entity = "spm_unit" if adapter.spm else "household"
-    period = "month" if adapter.monthly else None
+    entity, period = _adapter_entity_period(adapter)
 
     return Classification(
         legal_id=legal_id,
@@ -128,8 +152,8 @@ def _classify_one(
         unit=unit,
         comparison=comparison,
         rationale=(
-            f"State SNAP output `{rule_name}` matches the PolicyEngine variable "
-            f"`{adapter.pe_var}` via the ECPS adapter catalog (rule_names "
+            f"State program output `{rule_name}` matches the PolicyEngine variable "
+            f"`{adapter.pe_var}` via the PolicyEngine adapter catalog (rule_names "
             f"includes `{rule_name}`)."
         ),
         matched_adapter=rule_name,
@@ -152,8 +176,8 @@ def _not_comparable(
         comparison=None,
         rationale=(
             f"Source-specific intermediate output (rule `{rule_name}`,{excerpt}). "
-            "Not present in the PolicyEngine ECPS adapter catalog "
-            "(`PE_US_VAR_ADAPTERS`). Promote to `direct_variable` by adding an "
+            "Not present in the requested PolicyEngine adapter catalog. "
+            "Promote to `direct_variable` by adding an "
             "adapter entry once a one-to-one PE target is identified."
         ),
         matched_adapter=None,
@@ -186,6 +210,57 @@ def iter_rules_in_rulespec_file(
         yield (name, source_text, rule.get("dtype"))
 
 
+def _infer_program_from_legal_id(legal_id: str) -> str:
+    """Infer the program namespace for classifier filtering.
+
+    This intentionally stays lightweight: it prevents a program-specific
+    classify run from emitting not_comparable entries for unrelated outputs in
+    a mixed RuleSpec repo. The coverage reporter has the fuller registry-aware
+    program analysis.
+    """
+    lowered = legal_id.lower()
+    if _PROGRAM_TOKEN_RE["medicaid"].search(lowered):
+        return "medicaid"
+    if _PROGRAM_TOKEN_RE["chip"].search(lowered):
+        return "chip"
+    if (
+        _PROGRAM_TOKEN_RE["aca"].search(lowered)
+        or "premium_tax_credit" in lowered
+        or lowered.startswith("us:statutes/26/36b")
+    ):
+        return "aca_ptc"
+    if "hcpf" in lowered or "health" in lowered:
+        return "health"
+    if "snap" in lowered:
+        return "snap"
+    if lowered.startswith("us:statutes/26/") or lowered.startswith(
+        "us-co:statutes/39/"
+    ):
+        return "tax"
+    return "unknown"
+
+
+def _program_matches_classify_run(
+    *,
+    requested_program: str,
+    legal_id: str,
+    rule_name: str,
+    rule_index: dict[str, PolicyEngineUSVarAdapter],
+) -> bool:
+    """Return whether a RuleSpec output belongs in this program classify run."""
+    if requested_program == "snap":
+        # Preserve the historical SNAP classifier behavior for existing users
+        # and tests. New multi-program catalogs are filtered below.
+        return True
+
+    inferred = _infer_program_from_legal_id(legal_id)
+    if requested_program == "health":
+        return inferred in _HEALTH_PROGRAMS | {"health"} or rule_name in rule_index
+    if inferred == requested_program:
+        return True
+    return inferred == "health" and rule_name in rule_index
+
+
 def classify_rulespec_repo(
     *,
     repo_root: Path,
@@ -194,17 +269,21 @@ def classify_rulespec_repo(
     adapters: Iterable[PolicyEngineUSVarAdapter] | None = None,
 ) -> list[Classification]:
     """Walk a `rulespec-us-<state>` repo and classify every executable output."""
-    if program != "snap":
-        # PE_US_VAR_ADAPTERS today is SNAP-shaped; other programs will need
-        # their own adapter catalogs before this command can serve them.
-        raise NotImplementedError(
-            f"Program {program!r} has no adapter catalog yet; only `snap` is supported."
-        )
     # Resolve the adapter catalog at call time (not at function-def time) so
     # callers and tests can inject alternatives via either the explicit
     # argument or by patching `PE_US_VAR_ADAPTERS` on this module.
     if adapters is None:
-        adapters = PE_US_VAR_ADAPTERS
+        if program == "snap":
+            adapters = PE_US_VAR_ADAPTERS
+        else:
+            try:
+                adapters = PE_US_PROGRAM_VAR_ADAPTERS[program]
+            except KeyError as exc:
+                supported = ", ".join(sorted(PE_US_PROGRAM_VAR_ADAPTERS))
+                raise NotImplementedError(
+                    f"Program {program!r} has no adapter catalog. "
+                    f"Supported programs: {supported}."
+                ) from exc
     rule_index = _build_rule_name_index(adapters)
 
     classifications: list[Classification] = []
@@ -216,6 +295,13 @@ def classify_rulespec_repo(
         file_legal_prefix = f"{jurisdiction}:{rel_no_ext}"
         for rule_name, source_text, dtype in iter_rules_in_rulespec_file(path):
             legal_id = f"{file_legal_prefix}#{rule_name}"
+            if not _program_matches_classify_run(
+                requested_program=program,
+                legal_id=legal_id,
+                rule_name=rule_name,
+                rule_index=rule_index,
+            ):
+                continue
             classifications.append(
                 _classify_one(
                     rule_name=rule_name,

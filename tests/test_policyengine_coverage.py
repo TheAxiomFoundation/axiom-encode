@@ -135,6 +135,69 @@ rules:
     )
 
 
+def test_policyengine_coverage_infers_health_programs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "regulations/hcpf/health-coverage.yaml",
+        """format: rulespec/v1
+rules:
+  - name: is_medicaid_eligible
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: true
+  - name: is_chip_eligible
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: true
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/36B.yaml",
+        """format: rulespec/v1
+rules:
+  - name: aca_ptc
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 1
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "policies/cdhs/snap/vacation.yaml",
+        """format: rulespec/v1
+rules:
+  - name: snap_sick_vacation_bonus_earned_income
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 1
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-co" / "statutes/39/39-22-104/4/n/5.yaml",
+        """format: rulespec/v1
+rules:
+  - name: activity_secondarily_treated_woody_fuels_by_lopping_scattering_piling_chipping_removing_from_site
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: true
+""",
+    )
+
+    medicaid = build_policyengine_coverage_report(tmp_path, program="medicaid")
+    chip = build_policyengine_coverage_report(tmp_path, program="chip")
+    aca = build_policyengine_coverage_report(tmp_path, program="aca_ptc")
+
+    assert medicaid["total_outputs"] == 1
+    assert medicaid["items"][0]["rule_name"] == "is_medicaid_eligible"
+    assert chip["total_outputs"] == 1
+    assert chip["items"][0]["rule_name"] == "is_chip_eligible"
+    assert aca["total_outputs"] == 1
+    assert aca["items"][0]["rule_name"] == "aca_ptc"
+
+
 def test_policyengine_coverage_classifies_alabama_snap_manual_prefix(tmp_path):
     _write_rulespec_file(
         tmp_path

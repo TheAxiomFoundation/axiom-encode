@@ -24,6 +24,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
+    _append_generated_zero_branch_tests_if_missing,
     _apply_generated_encoding_result,
     _california_snap_repair_guard_manifest_groups,
     _collapse_additive_versioned_derived_formulas,
@@ -5146,6 +5147,16 @@ rules:
 
         assert _person_scoped_definition_issue_names(issues) == ["earned_income"]
 
+    def test_person_scoped_definition_issue_names_ignores_unit_entity_mismatch(self):
+        issues = [
+            "Source scope mismatch: `applicable_percentage_income_tier` is "
+            "declared on `TaxUnit`, but the embedded source states a "
+            "`Household` unit-scoped test. Encode the rule at the source-stated "
+            "unit scope or cite source text that states the declared unit scope."
+        ]
+
+        assert _person_scoped_definition_issue_names(issues) == []
+
     def test_remove_cross_module_dependent_test_outputs_drops_imported_output(
         self, tmp_path
     ):
@@ -7009,6 +7020,71 @@ rules:
             "us:statutes/26/213#lodging_medical_care_secondary_amount: 0"
             in test_content
         )
+
+    def test_zero_branch_repair_uses_upper_bound_input_for_band_selector(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = tmp_path / "out" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+        test_file = rules_file.with_name("A.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= 133:
+              0
+          else:
+              if household_income_as_percent_of_poverty_line <= 400:
+                  1
+              else:
+                  -1
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if applicable_percentage_income_tier == 0:
+              0.02
+          else:
+              if applicable_percentage_income_tier == 1:
+                  0.095
+              else:
+                  0
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_zero_branch_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo,
+            relative_output=Path("statutes/26/36B/b/3/A.yaml"),
+            issues=[
+                "Zero branch test coverage missing: `applicable_percentage` "
+                "has a formula branch that returns 0."
+            ],
+        )
+
+        assert repaired == ["auto_zero_applicable_percentage"]
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"] == {
+            "us:statutes/26/36B/b/3/A#input.household_income_as_percent_of_poverty_line": 401
+        }
+        assert cases[0]["output"] == {
+            "us:statutes/26/36B/b/3/A#applicable_percentage": 0
+        }
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path

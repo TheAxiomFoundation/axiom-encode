@@ -4019,6 +4019,43 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+def test_rulespec_grounding_accepts_percent_of_poverty_line_table_points():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/36B/b/3/A
+rules:
+  - name: poverty_line_percent_133
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '133'
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= poverty_line_percent_133:
+              1
+          else:
+              2
+"""
+
+    source_text = (
+        "In the case of household income (expressed as a percent of poverty "
+        "line) within the following income tier: Up to 133%."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_numbers = extract_numbers_from_text(source_text)
+    assert 133.0 in source_numbers
+    assert 1.33 in source_numbers
+
+
 def test_rulespec_grounding_allows_generated_band_selector_keys():
     content = """format: rulespec/v1
 module:
@@ -11371,6 +11408,109 @@ rules:
         "unit-scoped test. Encode the rule at the source-stated unit scope or "
         "cite source text that states the declared unit scope."
     ]
+
+
+def test_source_scope_consistency_accepts_federal_tax_taxpayer_as_taxunit_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    An applicable taxpayer means a taxpayer whose household income for the
+    taxable year equals or exceeds 100 percent of the poverty line. If the
+    taxpayer is married, the taxpayer and spouse must file a joint return.
+rules:
+  - name: taxpayer_is_applicable_taxpayer
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    source: 26 USC 36B(c)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_income_as_fraction_of_poverty_line >= 1
+          and (not taxpayer_is_married or taxpayer_and_spouse_file_joint_return)
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_accepts_federal_tax_household_income_table_as_taxunit_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage is determined by household income expressed as a
+    percent of the poverty line, increasing on a sliding scale from the initial
+    premium percentage to the final premium percentage specified for the income
+    tier.
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: 26 USC 36B(b)(3)(A)(i)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_percent_of_poverty_line <= 133:
+            1
+          else:
+            2
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_federal_tax_taxpayer_as_person_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    An applicable taxpayer means a taxpayer whose household income for the
+    taxable year equals or exceeds 100 percent of the poverty line. If the
+    taxpayer is married, the taxpayer and spouse must file a joint return.
+rules:
+  - name: taxpayer_is_applicable_taxpayer
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 36B(c)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_income_as_fraction_of_poverty_line >= 1
+          and (not taxpayer_is_married or taxpayer_and_spouse_file_joint_return)
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `taxpayer_is_applicable_taxpayer` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_does_not_treat_taxpayer_alone_as_person_scope():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Any taxpayer who fails to attach the required statement is ineligible for
+    the credit.
+rules:
+  - name: taxpayer_statement_requirement_satisfied
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    source: tax manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: required_statement_attached
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
 
 
 def test_source_scope_consistency_accepts_matching_snapunit_source():

@@ -1997,11 +1997,18 @@ def _extract_percentage_context_values(text: str) -> set[float]:
         raw = match.group(1).replace(",", "")
         with contextlib.suppress(ValueError):
             value = float(raw)
-            if not (1 < value <= 100):
+            if value <= 1:
                 continue
-            context = text[max(0, match.start() - 250) : match.end() + 80].lower()
+            context = text[max(0, match.start() - 500) : match.end() + 80].lower()
             if re.search(r"\bpercent(?:age|ages)?\b", context):
                 values.add(value / 100)
+                if value >= 100 and re.search(
+                    r"\b(?:percent\s+of\s+(?:the\s+)?poverty\s+line|"
+                    r"percent\s+of\s+(?:the\s+)?federal\s+poverty\s+"
+                    r"(?:line|level)|fpl|income\s+tier)\b",
+                    context,
+                ):
+                    values.add(value)
     return values
 
 
@@ -5633,9 +5640,21 @@ _UNIT_ENTITY_EQUIVALENCE_SETS = (frozenset({"household", "snapunit"}),)
 _FILTERED_ENTITY_DECLARATION_IMPORTS = {
     "SnapUnit": frozenset({"snap_unit"}),
 }
+_TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
+    r"\b(?:applicable\s+taxpayer|taxpayers?)\b[\s\S]{0,240}\b"
+    r"(?:household\s+income|family\s+size|joint\s+return|fil(?:e|es|ing)\s+"
+    r"(?:a\s+)?joint\s+return|spouse|dependents?|premium\s+assistance\s+"
+    r"credit|credit\s+allowed|taxable\s+year)\b"
+    r"|"
+    r"\b(?:household\s+income|family\s+size|joint\s+return|fil(?:e|es|ing)\s+"
+    r"(?:a\s+)?joint\s+return|spouse|dependents?|premium\s+assistance\s+"
+    r"credit|credit\s+allowed|taxable\s+year)\b[\s\S]{0,240}\b"
+    r"(?:applicable\s+taxpayer|taxpayers?)\b",
+    flags=re.IGNORECASE,
+)
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
     r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
-    r"(?:individual|person|(?:household\s+|family\s+)?member|taxpayer|claimant|child|"
+    r"(?:individual|person|(?:household\s+|family\s+)?member|claimant|child|"
     r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
     r"participant|client|case\s+member)\b"
     r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat)",
@@ -5659,6 +5678,16 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
     ("taxunit", re.compile(r"\b(?:tax|filing)\s+unit\b", flags=re.IGNORECASE)),
     ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
     ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
+)
+_FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN = re.compile(
+    r"\bhousehold\s+income\b[\s\S]{0,240}\b"
+    r"(?:poverty\s+line|premium\s+percentage|applicable\s+percentage|"
+    r"premium\s+assistance\s+credit|credit|taxable\s+year)\b"
+    r"|"
+    r"\b(?:poverty\s+line|premium\s+percentage|applicable\s+percentage|"
+    r"premium\s+assistance\s+credit|credit|taxable\s+year)\b"
+    r"[\s\S]{0,240}\bhousehold\s+income\b",
+    flags=re.IGNORECASE,
 )
 _EMPLOYER_SCOPED_ENTITY_NAMES = {"business", "corporation", "taxunit"}
 _EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
@@ -5779,7 +5808,10 @@ def find_empty_rules_module_issues(content: str) -> list[str]:
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(text) is not None
-    unit_scoped = _UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
+    unit_scoped = (
+        _UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
+        or _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(text) is not None
+    )
     if _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN.search(text):
         return None
     if person_scoped == unit_scoped:
@@ -5789,6 +5821,8 @@ def _classify_source_scope(text: str) -> str | None:
 
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
+    if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(text):
+        return "taxunit"
     matches = {
         entity
         for entity, pattern in _UNIT_SOURCE_ENTITY_PATTERNS
@@ -5804,6 +5838,32 @@ def _unit_entities_are_equivalent(left: str, right: str) -> bool:
         return True
     return any(
         {left, right} <= entity_set for entity_set in _UNIT_ENTITY_EQUIVALENCE_SETS
+    )
+
+
+def _unit_entities_are_equivalent_for_source_rule(
+    left: str,
+    right: str,
+    *,
+    rule: dict[str, Any],
+    fallback_source_text: str,
+) -> bool:
+    if _unit_entities_are_equivalent(left, right):
+        return True
+    if {left, right} != {"taxunit", "household"}:
+        return False
+    rule_source = str(rule.get("source") or "")
+    if not re.search(r"\b26\s+USC\b", rule_source, flags=re.IGNORECASE):
+        return False
+    source_context = "\n".join(
+        [
+            fallback_source_text,
+            *_rule_proof_source_excerpts(rule),
+            rule_source,
+        ]
+    )
+    return bool(
+        _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN.search(source_context)
     )
 
 
@@ -5913,7 +5973,12 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
             source_scope == _SOURCE_SCOPE_UNIT
             and source_unit_entity is not None
             and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
-            and not _unit_entities_are_equivalent(normalized_entity, source_unit_entity)
+            and not _unit_entities_are_equivalent_for_source_rule(
+                normalized_entity,
+                source_unit_entity,
+                rule=rule,
+                fallback_source_text=source_text,
+            )
         ):
             issues.append(
                 "Source scope mismatch: "

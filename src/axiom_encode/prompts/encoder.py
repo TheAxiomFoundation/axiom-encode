@@ -2,13 +2,22 @@
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
-  supplied source text. If the source states an individual, member, taxpayer,
-  claimant, or child disqualification, encode that person-scoped rule as such;
-  do not promote it to a household, unit, or top-level eligibility boolean.
+  supplied source text. If the source states an individual, member, claimant,
+  child, or other person-level disqualification, encode that person-scoped
+  rule as such; do not promote it to a household, unit, or top-level
+  eligibility boolean.
 - If the source states a household, unit, filing-unit, or tax-unit test, encode
   that scope directly. If the same source also states member/person predicates
   that feed that test, encode those predicates only as support for the
   source-stated unit-level output.
+- In federal income tax provisions, "taxpayer" usually denotes the filing
+  taxpayer or tax unit when the current rule computes or limits a tax, credit,
+  deduction, household-income test, family-size test, joint-return condition,
+  spouse/dependent condition, or annual taxable-year amount. Keep those rules
+  at the filing-unit/tax-unit scope unless the source specifically makes an
+  individual, person, employee, child, dependent, or spouse the operative
+  lower-entity subject. Do not move an income-tax credit/deduction rule to
+  `Person` merely because the source uses the word "taxpayer".
 - When the source applies a cap, threshold, ceiling, reduction, "not exceed",
   "lesser/greater of", or coordination rule to the amount of an individual,
   person, member, taxpayer, employee, claimant, child, dependent, or spouse,

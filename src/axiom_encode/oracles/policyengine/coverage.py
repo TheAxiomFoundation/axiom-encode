@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,10 @@ from .registry import PolicyEngineMapping, load_policyengine_registry
 
 EXECUTABLE_RULE_KINDS = {"parameter", "derived", "derived_relation"}
 ORACLE_COVERAGE_STATUSES = {"comparable", "known_not_comparable", "unmapped"}
+_PROGRAM_TOKEN_RE = {
+    token: re.compile(rf"(^|[^a-z0-9]){token}([^a-z0-9]|$)")
+    for token in ("medicaid", "chip", "aca")
+}
 
 
 @dataclass(frozen=True)
@@ -540,6 +545,14 @@ def _infer_program_from_legal_id(legal_id: str) -> str:
         return "pension_credit"
     if lowered.startswith("uk:regulations/uksi/2013/376/36"):
         return "universal_credit"
+    if _PROGRAM_TOKEN_RE["medicaid"].search(lowered):
+        return "medicaid"
+    if _PROGRAM_TOKEN_RE["chip"].search(lowered):
+        return "chip"
+    if _PROGRAM_TOKEN_RE["aca"].search(lowered) or "premium_tax_credit" in lowered:
+        return "aca_ptc"
+    if lowered.startswith("us:statutes/26/36b"):
+        return "aca_ptc"
     if "snap" in lowered:
         return "snap"
     if (

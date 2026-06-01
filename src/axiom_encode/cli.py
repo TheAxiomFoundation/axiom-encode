@@ -531,8 +531,8 @@ def main():
         "classify",
         help=(
             "Emit PolicyEngine oracle mapping entries (us.yaml) for a rulespec-us-<state> "
-            "repository, using the canonical adapter catalog (PE_US_VAR_ADAPTERS) as the "
-            "single source of truth for rule-name → PE-variable matches."
+            "repository, using the requested program's adapter catalog as the "
+            "single source of truth for rule-name to PE-variable matches."
         ),
     )
     classify_parser.add_argument(
@@ -543,7 +543,10 @@ def main():
     classify_parser.add_argument(
         "--program",
         default="snap",
-        help="Program label. Only 'snap' is supported today.",
+        help=(
+            "Program label. Supported adapter catalogs include snap, medicaid, "
+            "chip, aca_ptc, and health."
+        ),
     )
     classify_parser.add_argument(
         "--repo",
@@ -12608,6 +12611,15 @@ def _append_generic_zero_branch_tests_if_missing(
         case_name = f"auto_zero_{_safe_test_name(output_name)}"
         if case_name in existing_case_names:
             continue
+        case_inputs = dict(input_defaults)
+        case_inputs.update(
+            _zero_branch_numeric_upper_bound_input_overrides(
+                output_name=output_name,
+                rules_payload=rules_payload,
+                factual_inputs=factual_inputs,
+                target_base=target_base,
+            )
+        )
         test_payload.append(
             {
                 "name": case_name,
@@ -12616,7 +12628,7 @@ def _append_generic_zero_branch_tests_if_missing(
                     "start": "2026-01-01",
                     "end": "2026-12-31",
                 },
-                "input": dict(input_defaults),
+                "input": case_inputs,
                 "output": {target: 0},
             }
         )
@@ -12629,6 +12641,118 @@ def _append_generic_zero_branch_tests_if_missing(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
     )
     return repaired
+
+
+def _zero_branch_numeric_upper_bound_input_overrides(
+    *,
+    output_name: str,
+    rules_payload: dict[str, object],
+    factual_inputs: set[str],
+    target_base: str,
+) -> dict[str, int | float]:
+    formulas = _reachable_local_formulas_for_rule(
+        output_name=output_name,
+        rules_payload=rules_payload,
+    )
+    if not formulas:
+        return {}
+    scalar_values = _local_scalar_formula_values_by_name(rules_payload)
+    overrides: dict[str, int | float] = {}
+    for input_name in sorted(factual_inputs):
+        thresholds = _numeric_upper_bounds_for_input(
+            input_name,
+            formulas=formulas,
+            scalar_values=scalar_values,
+        )
+        if not thresholds:
+            continue
+        threshold = max(thresholds)
+        overrides[f"{target_base}#input.{input_name}"] = _above_upper_bound_value(
+            threshold
+        )
+    return overrides
+
+
+def _reachable_local_formulas_for_rule(
+    *,
+    output_name: str,
+    rules_payload: dict[str, object],
+) -> list[str]:
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    rules_by_name = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    formulas: list[str] = []
+    seen: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in seen:
+            return
+        seen.add(name)
+        rule = rules_by_name.get(name)
+        if not isinstance(rule, dict):
+            return
+        formula = _first_rule_formula(rule)
+        if not formula:
+            return
+        formulas.append(formula)
+        for identifier in sorted(_formula_identifiers(formula)):
+            if identifier in rules_by_name:
+                visit(identifier)
+
+    visit(output_name)
+    return formulas
+
+
+def _local_scalar_formula_values_by_name(
+    rules_payload: dict[str, object],
+) -> dict[str, float]:
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return {}
+    values: dict[str, float] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name:
+            continue
+        formula = _first_rule_formula(rule).strip()
+        if not re.fullmatch(r"-?\d+(?:\.\d+)?", formula):
+            continue
+        with contextlib.suppress(ValueError):
+            values[name] = float(formula)
+    return values
+
+
+def _numeric_upper_bounds_for_input(
+    input_name: str,
+    *,
+    formulas: list[str],
+    scalar_values: dict[str, float],
+) -> list[float]:
+    rhs_pattern = r"(?P<rhs>-?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*)"
+    pattern = re.compile(rf"\b{re.escape(input_name)}\b\s*<=?\s*{rhs_pattern}")
+    thresholds: list[float] = []
+    for formula in formulas:
+        for match in pattern.finditer(formula):
+            rhs = match["rhs"]
+            if re.fullmatch(r"-?\d+(?:\.\d+)?", rhs):
+                with contextlib.suppress(ValueError):
+                    thresholds.append(float(rhs))
+            elif rhs in scalar_values:
+                thresholds.append(scalar_values[rhs])
+    return thresholds
+
+
+def _above_upper_bound_value(threshold: float) -> int | float:
+    if threshold.is_integer():
+        return int(threshold) + 1
+    return threshold + max(1.0, abs(threshold) * 0.01)
 
 
 def _append_generated_derived_output_tests_if_missing(
@@ -18784,7 +18908,9 @@ _PERSON_SCOPE_DEFINITION_ISSUE_PATTERN = re.compile(
     r"Person-scoped definition at unit scope: `([^`]+)`"
 )
 _SOURCE_SCOPE_PERSON_MISMATCH_ISSUE_PATTERN = re.compile(
-    r"Source scope mismatch: `([^`]+)` is declared on `(?:Household|SnapUnit|TaxUnit|Family|SPMUnit)`"
+    r"Source scope mismatch: `([^`]+)` is declared on "
+    r"`(?:Household|SnapUnit|TaxUnit|Family|SPMUnit)`, but the embedded "
+    r"source states an individual/person/member-scoped"
 )
 _EMPLOYER_SCOPE_ISSUE_PATTERN = re.compile(
     r"Employer-scoped rule at non-employer scope: `([^`]+)`"
