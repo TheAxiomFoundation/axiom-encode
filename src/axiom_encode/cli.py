@@ -24845,6 +24845,7 @@ def _insert_input_default_in_test_cases(
 ) -> str:
     """Insert an input default into every concrete test input block that needs it."""
     lines = content.splitlines(keepends=True)
+    lines = _expand_empty_inline_yaml_input_blocks(lines)
     blocks = _find_yaml_input_blocks(lines)
     if not blocks:
         return content
@@ -24875,6 +24876,22 @@ def _insert_input_default_in_test_cases(
         lines.insert(start + 1, f"{indent}{input_ref}: {rendered}{newline}")
     lines = _insert_input_default_in_relation_rows(lines, input_ref, rendered)
     return "".join(lines)
+
+
+def _expand_empty_inline_yaml_input_blocks(lines: list[str]) -> list[str]:
+    expanded = list(lines)
+    for index, line in enumerate(expanded):
+        match = re.match(
+            r"^(?P<indent>\s*)input:(?P<anchor>\s*&\S+)?\s*\{\}\s*(?P<comment>#.*)?(?P<newline>\r?\n?)$",
+            line,
+        )
+        if not match:
+            continue
+        anchor = match.group("anchor") or ""
+        comment = f" {match.group('comment')}" if match.group("comment") else ""
+        newline = match.group("newline")
+        expanded[index] = f"{match.group('indent')}input:{anchor}{comment}{newline}"
+    return expanded
 
 
 def _insert_input_default_in_table_entity_rows(

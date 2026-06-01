@@ -14872,12 +14872,14 @@ def _named_act_references_for_section(section: str, source_text: str) -> list[st
         r"(?:the\s+)?(?!title\s+\d+\b)"
         r"(?P<act>[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+Act)\b",
         source_text,
+        flags=re.IGNORECASE,
     ):
         names.append(match.group("act"))
     for match in re.finditer(
         r"\b(?P<act>[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+Act)"
         rf"\s+section\s+{re.escape(section)}(?:\([^)]+\))*\b",
         source_text,
+        flags=re.IGNORECASE,
     ):
         names.append(match.group("act"))
     return names
@@ -14888,8 +14890,12 @@ def _identifier_mentions_named_act(identifier: str, named_act: str) -> bool:
     act_tokens = [
         token
         for token in re.findall(r"[a-z0-9]+", named_act.lower())
-        if token not in {"a", "act", "an", "the", "of"}
+        if token not in {"a", "act", "an", "by", "of", "the", "to"}
     ]
+    for start in range(len(act_tokens)):
+        suffix = act_tokens[start:]
+        if len(suffix) >= 2 and all(token in identifier_tokens for token in suffix):
+            return True
     return bool(act_tokens) and all(token in identifier_tokens for token in act_tokens)
 
 
