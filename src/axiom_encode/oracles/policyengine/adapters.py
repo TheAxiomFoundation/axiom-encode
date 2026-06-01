@@ -10,6 +10,10 @@ class PolicyEngineUSVarAdapter:
 
     rule_names: tuple[str, ...]
     pe_var: str
+    entity: str | None = None
+    period: str | None = None
+    unit: str | None = None
+    comparison: str | None = None
     monthly: bool = False
     spm: bool = False
     annualized_person_inputs: tuple[tuple[str, str], ...] = ()
@@ -26,6 +30,7 @@ class PolicyEngineUSVarAdapter:
     state_code_from_boolean_input: tuple[str, str, str] | None = None
     parameter_path: str | None = None
     parameter_value_mode: str = "bool"
+    target_person_role: str | None = None
 
 
 def normalize_state_code_from_utility_region(region: str) -> str:
@@ -459,22 +464,181 @@ PE_US_VAR_ADAPTERS = (
     ),
 )
 
+PE_US_MEDICAID_VAR_ADAPTERS = (
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_medicaid_eligible",),
+        pe_var="is_medicaid_eligible",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("medicaid_income_level",),
+        pe_var="medicaid_income_level",
+        entity="person",
+        period="year",
+        unit="/1",
+        comparison="rate",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("medicaid",),
+        pe_var="medicaid",
+        entity="person",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+)
+
+PE_US_CHIP_VAR_ADAPTERS = (
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_chip_eligible",),
+        pe_var="is_chip_eligible",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_chip_eligible_child",),
+        pe_var="is_chip_eligible_child",
+        entity="person",
+        period="year",
+        comparison="decision",
+        target_person_role="child",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_chip_eligible_pregnant",),
+        pe_var="is_chip_eligible_pregnant",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("chip",),
+        pe_var="chip",
+        entity="person",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+)
+
+PE_US_ACA_PTC_VAR_ADAPTERS = (
+    PolicyEngineUSVarAdapter(
+        rule_names=("is_aca_ptc_eligible",),
+        pe_var="is_aca_ptc_eligible",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("pays_aca_premium",),
+        pe_var="pays_aca_premium",
+        entity="person",
+        period="year",
+        comparison="decision",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("aca_ptc",),
+        pe_var="aca_ptc",
+        entity="tax_unit",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("premium_tax_credit",),
+        pe_var="premium_tax_credit",
+        entity="tax_unit",
+        period="month",
+        unit="USD",
+        comparison="money",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("assigned_aca_ptc",),
+        pe_var="assigned_aca_ptc",
+        entity="tax_unit",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("used_aca_ptc",),
+        pe_var="used_aca_ptc",
+        entity="tax_unit",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("marketplace_net_premium",),
+        pe_var="marketplace_net_premium",
+        entity="tax_unit",
+        period="year",
+        unit="USD",
+        comparison="money",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("aca_required_contribution_percentage",),
+        pe_var="aca_required_contribution_percentage",
+        entity="tax_unit",
+        period="year",
+        unit="/1",
+        comparison="rate",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("aca_magi_fraction",),
+        pe_var="aca_magi_fraction",
+        entity="tax_unit",
+        period="year",
+        unit="/1",
+        comparison="rate",
+    ),
+    PolicyEngineUSVarAdapter(
+        rule_names=("slcsp",),
+        pe_var="slcsp",
+        entity="tax_unit",
+        period="month",
+        unit="USD",
+        comparison="money",
+    ),
+)
+
+PE_US_HEALTH_VAR_ADAPTERS = (
+    *PE_US_MEDICAID_VAR_ADAPTERS,
+    *PE_US_CHIP_VAR_ADAPTERS,
+    *PE_US_ACA_PTC_VAR_ADAPTERS,
+)
+
+PE_US_PROGRAM_VAR_ADAPTERS = {
+    "snap": PE_US_VAR_ADAPTERS,
+    "medicaid": PE_US_MEDICAID_VAR_ADAPTERS,
+    "chip": PE_US_CHIP_VAR_ADAPTERS,
+    "aca_ptc": PE_US_ACA_PTC_VAR_ADAPTERS,
+    "health": PE_US_HEALTH_VAR_ADAPTERS,
+}
+
+PE_US_ALL_VAR_ADAPTERS = (
+    *PE_US_VAR_ADAPTERS,
+    *PE_US_HEALTH_VAR_ADAPTERS,
+)
+
 PE_US_VAR_ADAPTERS_BY_NAME = {
     name: adapter
-    for adapter in PE_US_VAR_ADAPTERS
+    for adapter in PE_US_ALL_VAR_ADAPTERS
     for name in (adapter.pe_var, *adapter.rule_names)
 }
 
 PE_US_MONTHLY_VAR_NAMES = {
     name
-    for adapter in PE_US_VAR_ADAPTERS
-    if adapter.monthly
+    for adapter in PE_US_ALL_VAR_ADAPTERS
+    if adapter.monthly or adapter.period == "month"
     for name in (adapter.pe_var, *adapter.rule_names)
 }
 
 PE_US_SPM_VAR_NAMES = {
     name
-    for adapter in PE_US_VAR_ADAPTERS
+    for adapter in PE_US_ALL_VAR_ADAPTERS
     if adapter.spm
     for name in (adapter.pe_var, *adapter.rule_names)
 }

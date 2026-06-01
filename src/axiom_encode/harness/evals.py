@@ -120,6 +120,8 @@ _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
 )
 _LOCAL_IMPORT_ROOT_TOKENS = {"legislation", "statutes", "regulation"}
 _RULESPEC_SOURCE_ROOT_TOKENS = {
+    "form",
+    "forms",
     "guidance",
     "manual",
     "manuals",
@@ -129,6 +131,19 @@ _RULESPEC_SOURCE_ROOT_TOKENS = {
     "regulations",
     "statute",
     "statutes",
+}
+_RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
+    "form": "policies",
+    "forms": "policies",
+    "guidance": "policies",
+    "manual": "policies",
+    "manuals": "policies",
+    "policies": "policies",
+    "policy": "policies",
+    "regulation": "regulations",
+    "regulations": "regulations",
+    "statute": "statutes",
+    "statutes": "statutes",
 }
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
 _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
@@ -1971,6 +1986,8 @@ def _looks_like_corpus_citation_path(identifier: str) -> bool:
     if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
         return True
     return len(parts) >= 3 and parts[1] in {
+        "form",
+        "forms",
         "guidance",
         "manual",
         "manuals",
@@ -2003,7 +2020,60 @@ def _fetch_local_corpus_source_text_from_repo(
         )
         if source_text is not None:
             return source_text
+        source_text = _read_local_corpus_descendant_text(
+            provision_file,
+            normalized_path,
+        )
+        if source_text is not None:
+            return source_text
     return None
+
+
+def _read_local_corpus_descendant_text(
+    provision_file: Path,
+    citation_path: str,
+) -> str | None:
+    """Read body-bearing child provisions for a metadata-only source document."""
+    try:
+        lines = provision_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    descendants: list[tuple[int, int, str | None, str]] = []
+    child_prefix = f"{citation_path}/"
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        record_path = str(record.get("citation_path") or "")
+        if not record_path.startswith(child_prefix):
+            continue
+        body = record.get("body")
+        if body is None:
+            continue
+        descendants.append(
+            (
+                int(record.get("level") or 0),
+                int(record.get("ordinal") or 0),
+                str(record.get("heading") or "") or None,
+                str(body),
+            )
+        )
+
+    if not descendants:
+        return None
+    chunks: list[str] = []
+    for _, _, heading, body in sorted(descendants):
+        if heading:
+            chunks.append(f"{heading}\n\n{body}")
+        else:
+            chunks.append(body)
+    return "\n\n".join(chunks)
 
 
 def _corpus_provisions_root(corpus_path: Path) -> Path | None:
@@ -3256,20 +3326,10 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
     if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
         tail = parts[1:]
         if tail:
-            return Path(parts[0]) / _dotted_leaf_to_nested_yaml_path(tail)
+            root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[0], parts[0])
+            return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     if len(parts) >= 3:
-        document_roots = {
-            "guidance": "guidance",
-            "manual": "policies",
-            "manuals": "policies",
-            "policies": "policies",
-            "policy": "policies",
-            "regulation": "regulations",
-            "regulations": "regulations",
-            "statute": "statutes",
-            "statutes": "statutes",
-        }
-        root = document_roots.get(parts[1])
+        root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
         if root is not None:
             tail = parts[2:]
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
@@ -3633,6 +3693,9 @@ Test file rules:
 - Emit 1-4 cases unless a source-driven coverage rule below requires more. If
   `module.status` is `deferred` or `entity_not_supported`, the test file may be
   empty.
+- Never emit a concrete test case with `output: {{}}` or an empty `output` map.
+  If no executable output can be asserted, leave the test file empty instead of
+  adding placeholder cases.
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
@@ -3785,7 +3848,7 @@ RuleSpec requirements:
 - Use `rules:` as a list of rule objects. The filepath is the ID; do not add an `id:` field.
 - Do not invent schema keys like `namespace:`, `parameter`, `variable`, or `rule:`.
 - Rule kinds are `parameter`, `derived`, `derived_relation`, `data_relation`, or `source_relation`. Use `parameter` for named source scalars, `derived` for entity-scoped outputs, `derived_relation` when source text defines a filtered legal membership relation, `data_relation` for runtime predicates, and `source_relation` for non-executable legal/provenance edges.
-- Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer or numeric keys supported by the RuleSpec engine, not strings such as `2_5_to_less_than_3_0`. Use structural row bounds inline in the band selector; do not promote those row labels to public parameter outputs. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
+- Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated numeric tables/scales keyed by household size, family size, income band, age band, or another row key. Do not encode those cells as `match` arms or numeric literals inside a derived formula. For source tables with interval/range row labels such as "at least / but less than" bands, do not create one scalar parameter per row, bound, or cell with names like `*_row_0_upper_*`, `*_row_3_rate`, or `*_lower_bound_band_9`. Define a source-backed band selector as a `derived` rule, store each substantive output column as a `kind: parameter` with `indexed_by: <band_selector>` and versioned `values`, and have the exported outputs look up the indexed table. Indexed table keys must be integer band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys. Use structural row bounds inline in the band selector and have it return integer band ids; do not promote those row labels to public parameter outputs. Preserve source row identity: open lower or upper interval cells are real rows, not defaults and not dropped rows; omit only the open side of the predicate.
 - For source-stated rate or percentage tables whose column header names a legal
   application such as "applicable percentage for section 3201(b)" or
   "applicable percentage for sections 3211(b) and 3221(b)", name the exported
@@ -4313,6 +4376,11 @@ RuleSpec requirements:
 - Do not invent `dtype: String` variables just to restate the effective date.
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
 - Do not create named `parameter` rules for structural table row labels, household-size row indexes, or branch numbers unless the source actually sets that value as a legal amount, rate, threshold, cap, or limit; use those structural comparisons inline instead.
+- In a state-specific RuleSpec repository, if the source is a multi-state or
+  multi-jurisdiction table, encode only the row(s) for the target repository's
+  jurisdiction. Do not invent a fake `State` entity, row-index input, or
+  all-state table surface just to preserve every row. Defer any broader
+  all-state table output that cannot be represented faithfully.
 - If the source cannot be represented faithfully with the supported schema, emit `module.status: deferred` or `module.status: entity_not_supported` with `rules: []`; do not invent unsupported ontology.
 - Never emit `rules: []` without an explicit non-executable `module.status`. If the source has operative text, encode at least one source-backed rule instead of silently returning an empty module.
 - For deferred or entity-not-supported artifacts, leave the companion `.test.yaml` empty. Do not create tests for deferred outputs or assertions against deferred symbols.

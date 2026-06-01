@@ -1997,11 +1997,18 @@ def _extract_percentage_context_values(text: str) -> set[float]:
         raw = match.group(1).replace(",", "")
         with contextlib.suppress(ValueError):
             value = float(raw)
-            if not (1 < value <= 100):
+            if value <= 1:
                 continue
-            context = text[max(0, match.start() - 250) : match.end() + 80].lower()
+            context = text[max(0, match.start() - 500) : match.end() + 80].lower()
             if re.search(r"\bpercent(?:age|ages)?\b", context):
                 values.add(value / 100)
+                if value >= 100 and re.search(
+                    r"\b(?:percent\s+of\s+(?:the\s+)?poverty\s+line|"
+                    r"percent\s+of\s+(?:the\s+)?federal\s+poverty\s+"
+                    r"(?:line|level)|fpl|income\s+tier)\b",
+                    context,
+                ):
+                    values.add(value)
     return values
 
 
@@ -5633,9 +5640,21 @@ _UNIT_ENTITY_EQUIVALENCE_SETS = (frozenset({"household", "snapunit"}),)
 _FILTERED_ENTITY_DECLARATION_IMPORTS = {
     "SnapUnit": frozenset({"snap_unit"}),
 }
+_TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
+    r"\b(?:applicable\s+taxpayer|taxpayers?)\b[\s\S]{0,240}\b"
+    r"(?:household\s+income|family\s+size|joint\s+return|fil(?:e|es|ing)\s+"
+    r"(?:a\s+)?joint\s+return|spouse|dependents?|premium\s+assistance\s+"
+    r"credit|credit\s+allowed|taxable\s+year)\b"
+    r"|"
+    r"\b(?:household\s+income|family\s+size|joint\s+return|fil(?:e|es|ing)\s+"
+    r"(?:a\s+)?joint\s+return|spouse|dependents?|premium\s+assistance\s+"
+    r"credit|credit\s+allowed|taxable\s+year)\b[\s\S]{0,240}\b"
+    r"(?:applicable\s+taxpayer|taxpayers?)\b",
+    flags=re.IGNORECASE,
+)
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
     r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
-    r"(?:individual|person|(?:household\s+|family\s+)?member|taxpayer|claimant|child|"
+    r"(?:individual|person|(?:household\s+|family\s+)?member|claimant|child|"
     r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
     r"participant|client|case\s+member)\b"
     r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat)",
@@ -5659,6 +5678,24 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
     ("taxunit", re.compile(r"\b(?:tax|filing)\s+unit\b", flags=re.IGNORECASE)),
     ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
     ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
+)
+_FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN = re.compile(
+    r"\bhousehold\s+income\b[\s\S]{0,240}\b"
+    r"(?:poverty\s+line|premium\s+percentage|applicable\s+percentage|"
+    r"premium\s+assistance\s+credit|credit|taxable\s+year)\b"
+    r"|"
+    r"\b(?:poverty\s+line|premium\s+percentage|applicable\s+percentage|"
+    r"premium\s+assistance\s+credit|credit|taxable\s+year)\b"
+    r"[\s\S]{0,240}\bhousehold\s+income\b",
+    flags=re.IGNORECASE,
+)
+_FEDERAL_TAX_SOURCE_CONTEXT_PATTERN = re.compile(
+    r"\b26\s+USC\b"
+    r"|"
+    r"\b(?:I\.?\s*R\.?\s*C\.?|Internal\s+Revenue\s+Code)\b"
+    r"|"
+    r"§\s*(?:\d+[A-Z]?|1\.\d+[A-Z]?)(?:\b|\()",
+    flags=re.IGNORECASE,
 )
 _EMPLOYER_SCOPED_ENTITY_NAMES = {"business", "corporation", "taxunit"}
 _EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
@@ -5779,7 +5816,10 @@ def find_empty_rules_module_issues(content: str) -> list[str]:
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(text) is not None
-    unit_scoped = _UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
+    unit_scoped = (
+        _UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
+        or _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(text) is not None
+    )
     if _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN.search(text):
         return None
     if person_scoped == unit_scoped:
@@ -5789,6 +5829,8 @@ def _classify_source_scope(text: str) -> str | None:
 
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
+    if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(text):
+        return "taxunit"
     matches = {
         entity
         for entity, pattern in _UNIT_SOURCE_ENTITY_PATTERNS
@@ -5804,6 +5846,32 @@ def _unit_entities_are_equivalent(left: str, right: str) -> bool:
         return True
     return any(
         {left, right} <= entity_set for entity_set in _UNIT_ENTITY_EQUIVALENCE_SETS
+    )
+
+
+def _unit_entities_are_equivalent_for_source_rule(
+    left: str,
+    right: str,
+    *,
+    rule: dict[str, Any],
+    fallback_source_text: str,
+) -> bool:
+    if _unit_entities_are_equivalent(left, right):
+        return True
+    if {left, right} != {"taxunit", "household"}:
+        return False
+    rule_source = str(rule.get("source") or "")
+    source_context = "\n".join(
+        [
+            fallback_source_text,
+            *_rule_proof_source_excerpts(rule),
+            rule_source,
+        ]
+    )
+    if not _FEDERAL_TAX_SOURCE_CONTEXT_PATTERN.search(source_context):
+        return False
+    return bool(
+        _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN.search(source_context)
     )
 
 
@@ -5913,7 +5981,12 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
             source_scope == _SOURCE_SCOPE_UNIT
             and source_unit_entity is not None
             and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
-            and not _unit_entities_are_equivalent(normalized_entity, source_unit_entity)
+            and not _unit_entities_are_equivalent_for_source_rule(
+                normalized_entity,
+                source_unit_entity,
+                rule=rule,
+                fallback_source_text=source_text,
+            )
         ):
             issues.append(
                 "Source scope mismatch: "
@@ -14203,12 +14276,22 @@ def _fetch_local_corpus_source_text(citation_path: str) -> str | None:
             )
             if source_text is not None:
                 return source_text
+            source_text = _read_local_corpus_descendant_text(
+                provision_file,
+                normalized_path,
+            )
+            if source_text is not None:
+                return source_text
     return None
 
 
 def _local_corpus_provisions_roots() -> tuple[Path, ...]:
     roots: list[Path] = []
-    for env_name in ("AXIOM_CORPUS_ARTIFACT_ROOT", "AXIOM_CORPUS_REPO"):
+    for env_name in (
+        "AXIOM_CORPUS_ARTIFACT_ROOT",
+        "AXIOM_CORPUS_LOCAL_ROOT",
+        "AXIOM_CORPUS_REPO",
+    ):
         raw_root = os.environ.get(env_name)
         if raw_root:
             roots.append(Path(raw_root).expanduser())
@@ -14298,6 +14381,53 @@ def _read_local_corpus_provision_file(
         body = record.get("body")
         return str(body) if body is not None else None
     return None
+
+
+def _read_local_corpus_descendant_text(
+    provision_file: Path,
+    citation_path: str,
+) -> str | None:
+    """Read body-bearing child provisions for a metadata-only source document."""
+    try:
+        lines = provision_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    descendants: list[tuple[int, int, str | None, str]] = []
+    child_prefix = f"{citation_path}/"
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict):
+            continue
+        record_path = str(record.get("citation_path") or "")
+        if not record_path.startswith(child_prefix):
+            continue
+        body = record.get("body")
+        if body is None:
+            continue
+        descendants.append(
+            (
+                int(record.get("level") or 0),
+                int(record.get("ordinal") or 0),
+                str(record.get("heading") or "") or None,
+                str(body),
+            )
+        )
+
+    if not descendants:
+        return None
+    chunks: list[str] = []
+    for _, _, heading, body in sorted(descendants):
+        if heading:
+            chunks.append(f"{heading}\n\n{body}")
+        else:
+            chunks.append(body)
+    return "\n\n".join(chunks)
 
 
 @functools.lru_cache(maxsize=512)
@@ -15311,9 +15441,7 @@ def _rulespec_engine_request_name_for_test_key(
 
 def _rulespec_declared_relation_names(compiled_payload: dict[str, Any]) -> set[str]:
     program = (
-        compiled_payload.get("program")
-        if isinstance(compiled_payload, dict)
-        else {}
+        compiled_payload.get("program") if isinstance(compiled_payload, dict) else {}
     )
     if not isinstance(program, dict):
         return set()
@@ -21705,17 +21833,24 @@ print(f'RESULT:{{float(value)}}')
             calc_period = f"int('{year}')"
 
         adapter = self._get_pe_us_var_adapter(pe_var)
+        targets_child_person = (
+            adapter is not None and adapter.target_person_role == "child"
+        )
+        if targets_child_person and num_children == 0:
+            num_children = 1
 
+        target_child_extra_attrs: list[str] = []
+        target_person_attrs = target_child_extra_attrs if targets_child_person else None
         adult_age = 65 if aged_flags[:1] == [True] else 30
         if relation_filer_rows:
             adult_age = self._us_tax_relation_member_age(
                 relation_filer_rows[0],
                 adult_age,
             )
-        explicit_adult_age = self._rulespec_test_input_value(inputs, "age")
+        explicit_person_age = self._rulespec_test_input_value(inputs, "age")
         with contextlib.suppress(TypeError, ValueError):
-            if explicit_adult_age is not None:
-                adult_age = int(explicit_adult_age)
+            if explicit_person_age is not None and not targets_child_person:
+                adult_age = int(explicit_person_age)
         adult_attrs = [f"'age': {{'{year}': {adult_age}}}"]
         members = ["'adult'"]
 
@@ -21724,12 +21859,18 @@ print(f'RESULT:{{float(value)}}')
             "employment_income", inputs.get("earned_income", inputs.get("wages", 0))
         )
         if earned:
-            adult_attrs.append(f"'employment_income': {{'{year}': {earned}}}")
+            attrs = (
+                target_person_attrs if target_person_attrs is not None else adult_attrs
+            )
+            attrs.append(f"'employment_income': {{'{year}': {earned}}}")
         for rule_key, pe_key in self._PE_US_PERSON_OVERRIDE_INPUTS.items():
             value = self._rulespec_test_input_value(inputs, rule_key)
             if value is None:
                 continue
-            adult_attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
+            attrs = (
+                target_person_attrs if target_person_attrs is not None else adult_attrs
+            )
+            attrs.append(f"'{pe_key}': {{'{year}': {pe_literal(value)}}}")
         if relation_filer_rows:
             adult_attrs.extend(
                 self._us_tax_person_attrs_from_relation_row(
@@ -21745,15 +21886,28 @@ print(f'RESULT:{{float(value)}}')
                     continue
                 with contextlib.suppress(TypeError, ValueError):
                     annual_value = float(value) * 12
-                    adult_attrs.append(f"'{pe_attr}': {{'{year}': {annual_value}}}")
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
+                    )
+                    attrs.append(f"'{pe_attr}': {{'{year}': {annual_value}}}")
             for rule_key, pe_attr in adapter.boolean_person_inputs:
                 if rule_key in inputs:
-                    adult_attrs.append(
-                        f"'{pe_attr}': {{'{year}': {bool(inputs[rule_key])}}}"
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
                     )
+                    attrs.append(f"'{pe_attr}': {{'{year}': {bool(inputs[rule_key])}}}")
             for rule_key, pe_attr in adapter.monthly_boolean_person_inputs:
                 if rule_key in inputs:
-                    adult_attrs.append(
+                    attrs = (
+                        target_person_attrs
+                        if target_person_attrs is not None
+                        else adult_attrs
+                    )
+                    attrs.append(
                         f"'{pe_attr}': {{'{period}': {bool(inputs[rule_key])}}}"
                     )
 
@@ -21822,6 +21976,8 @@ print(f'RESULT:{{float(value)}}')
 
         if explicit_child_count is None and relation_child_rows is not None:
             child_rows = relation_child_rows
+            if targets_child_person and not child_rows:
+                child_rows = [{}]
             adult_dependent_rows = relation_adult_dependent_rows
         else:
             child_rows = [{} for _ in range(num_children)]
@@ -21830,6 +21986,10 @@ print(f'RESULT:{{float(value)}}')
         # Add children based on explicit qualifying-child counts, relation rows, or household size.
         for i, row in enumerate(child_rows):
             age = self._us_tax_relation_member_age(row, 8)
+            if targets_child_person and i == 0:
+                with contextlib.suppress(TypeError, ValueError):
+                    if explicit_person_age is not None:
+                        age = int(explicit_person_age)
             child_attrs = [
                 f"'age': {{'{year}': {age}}}",
                 f"'is_tax_unit_dependent': {{'{year}': True}}",
@@ -21848,6 +22008,8 @@ print(f'RESULT:{{float(value)}}')
                     year,
                 )
             )
+            if targets_child_person and i == 0:
+                child_attrs.extend(target_child_extra_attrs)
             people_parts.append(f"'child{i}': {{{', '.join(child_attrs)}}}")
             members.append(f"'child{i}'")
         for i, row in enumerate(adult_dependent_rows):
@@ -22037,6 +22199,12 @@ val = 1.0 if bool({value_expr}) else 0.0
 print(f'RESULT:{{val}}')
 """
 
+        result_index = 0
+        if targets_child_person:
+            child_member = "'child0'"
+            if child_member in members:
+                result_index = members.index(child_member)
+
         script = f"""
 from policyengine_us import Simulation
 
@@ -22051,7 +22219,8 @@ situation = {{
 
 sim = Simulation(situation=situation)
 result = sim.calculate('{pe_var}', {calc_period})
-val = float(result[0]) if hasattr(result, '__len__') and len(result) > 0 else float(result)
+result_index = {result_index}
+val = float(result[result_index]) if hasattr(result, '__len__') and len(result) > result_index else float(result)
 print(f'RESULT:{{val}}')
 """
         return script
