@@ -6144,6 +6144,7 @@ rules:
             "standard-utility-allowance#input.household_has_heating_and_cooling_costs_separate_from_rent_or_mortgage"
             in repaired
         )
+        assert "snap_maximum_allotment_for_one_person_household" not in repaired
         assert (
             "us-ca:policies/cdss/snap/standard-utility-allowance#snap_standard_utility_allowance: 663"
             in repaired
