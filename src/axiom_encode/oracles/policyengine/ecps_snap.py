@@ -146,6 +146,7 @@ JURISDICTION_CONFIGS = {
         member_entity_type="Person",
         temp_prefix="ca-snap-pe-ecps-",
         display_name="California SNAP",
+        additional_relation_ids=(AXIOM_RELATION_ID_BY_LABEL["member_of_household"],),
     ),
     "us-ny": JurisdictionConfig(
         jurisdiction="us-ny",
@@ -173,6 +174,42 @@ JURISDICTION_CONFIGS = {
             ),
             "snap_individual_utility_allowance": (
                 "us-ny:regulations/18-nycrr/387/12/f/3/v/c#snap_individual_utility_allowance"
+            ),
+            "snap_total_gross_income": (
+                "us:regulations/7-cfr/273/10#snap_total_gross_income"
+            ),
+            "snap_standard_income_eligible": (
+                "us:regulations/7-cfr/273/9#snap_standard_income_eligible"
+            ),
+            "snap_resource_eligible": (
+                "us:regulations/7-cfr/273/8#snap_resource_eligible"
+            ),
+            "ny_snap_categorically_eligible": (
+                "us-ny:regulations/18-nycrr/387/14/a/5#ny_snap_categorically_eligible"
+            ),
+            "snap_income_limit_exemption_for_categorically_eligible_household": (
+                "us-ny:regulations/18-nycrr/387/14/a/5"
+                "#snap_income_limit_exemption_for_categorically_eligible_household"
+            ),
+            "ny_snap_all_members_public_assistance_categorical_path_satisfied": (
+                "us-ny:regulations/18-nycrr/387/14/a/5"
+                "#ny_snap_all_members_public_assistance_categorical_path_satisfied"
+            ),
+            "ny_snap_elderly_disabled_200_percent_categorical_path_satisfied": (
+                "us-ny:regulations/18-nycrr/387/14/a/5"
+                "#ny_snap_elderly_disabled_200_percent_categorical_path_satisfied"
+            ),
+            "ny_snap_dependent_care_200_percent_categorical_path_satisfied": (
+                "us-ny:regulations/18-nycrr/387/14/a/5"
+                "#ny_snap_dependent_care_200_percent_categorical_path_satisfied"
+            ),
+            "ny_snap_earned_income_150_percent_categorical_path_satisfied": (
+                "us-ny:regulations/18-nycrr/387/14/a/5"
+                "#ny_snap_earned_income_150_percent_categorical_path_satisfied"
+            ),
+            "ny_snap_residual_130_percent_categorical_path_satisfied": (
+                "us-ny:regulations/18-nycrr/387/14/a/5"
+                "#ny_snap_residual_130_percent_categorical_path_satisfied"
             ),
         },
         utility_allowance_labels=(
@@ -803,6 +840,9 @@ def project_income_resource_inputs(
         return {
             "snap_countable_earned_income": earned_income,
             "snap_countable_unearned_income": unearned_income,
+            "snap_gross_monthly_earned_income": earned_income,
+            "snap_total_monthly_unearned_income": unearned_income,
+            "snap_income_exclusions": 0,
             "snap_countable_financial_resources": assets,
         }
     if config.jurisdiction == "us-ca":
@@ -903,6 +943,18 @@ def any_by_id(ids: np.ndarray, values: np.ndarray) -> dict[int, bool]:
     for raw_id, value in zip(ids, values, strict=False):
         key = int(raw_id)
         result[key] = bool(result.get(key, False) or bool(value))
+    return result
+
+
+def all_by_id(ids: np.ndarray, values: np.ndarray) -> dict[int, bool]:
+    result: dict[int, bool] = {}
+    seen: set[int] = set()
+    for raw_id, value in zip(ids, values, strict=False):
+        key = int(raw_id)
+        if key not in seen:
+            result[key] = True
+            seen.add(key)
+        result[key] = bool(result[key] and bool(value))
     return result
 
 
@@ -1016,6 +1068,10 @@ def load_policyengine_cases(
         calculate(sim, "is_snap_immigration_status_eligible", period_label).astype(
             bool
         ),
+    )
+    all_members_receive_ssi_by_spm = all_by_id(
+        person_spm,
+        calculate(sim, "ssi", period_label) > 0,
     )
 
     values = {
@@ -1139,11 +1195,19 @@ def load_policyengine_cases(
             )
         )
         member_inputs.update(project_jurisdiction_member_inputs(config))
+        if config.jurisdiction == "us-ny":
+            member_inputs[
+                "us-ny:regulations/18-nycrr/387/14/a/5#input."
+                "member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits"
+            ] = bool(all_members_receive_ssi_by_spm.get(spm_id, False))
         member_inputs["snap_member_is_elderly_or_disabled"] = bool(
             values["has_usda_elderly_disabled"][idx]
         )
         pe_outputs = {name: native(values[name][idx]) for name in values}
         pe_outputs["snap_utility_region_str"] = utility_region
+        pe_outputs["all_members_receive_ssi"] = bool(
+            all_members_receive_ssi_by_spm.get(spm_id, False)
+        )
         cases.append(
             ProjectedCase(
                 spm_unit_id=spm_id,
@@ -1527,33 +1591,36 @@ def compare(
         axiom_snap = float(outputs[COMPARED_AXIOM_OUTPUT])
         pe_snap = float(case.pe_outputs[PE_COMPARED_OUTPUT])
         diff = axiom_snap - pe_snap
-        rows.append(
-            {
-                "spm_unit_id": case.spm_unit_id,
-                "household_id": case.household_id,
-                "pe_snap": pe_snap,
-                "axiom_snap_allotment": axiom_snap,
-                "difference": diff,
-                "absolute_difference": abs(diff),
-                "match": abs(diff) <= tolerance,
-                "pe_snap_eligible": bool(case.pe_outputs["is_snap_eligible"]),
-                "axiom_snap_eligible": outputs["snap_eligible"],
-                "pe_gross_income": case.pe_outputs["snap_gross_income"],
-                "axiom_gross_income": outputs["snap_gross_monthly_income"],
-                "pe_net_income": case.pe_outputs["snap_net_income"],
-                "axiom_net_income": outputs["snap_net_income"],
-                "pe_max_allotment": case.pe_outputs["snap_max_allotment"],
-                "axiom_max_allotment": outputs["snap_maximum_allotment"],
-                "pe_utility_allowance": case.pe_outputs["snap_utility_allowance"],
-                "axiom_utility_allowance": sum(
-                    float(outputs[name]) for name in utility_allowance_labels
-                ),
-                "pe_shelter_deduction": case.pe_outputs[
-                    "snap_excess_shelter_expense_deduction"
-                ],
-                "axiom_shelter_deduction": outputs["snap_excess_shelter_deduction"],
-            }
-        )
+        row = {
+            "spm_unit_id": case.spm_unit_id,
+            "household_id": case.household_id,
+            "pe_snap": pe_snap,
+            "axiom_snap_allotment": axiom_snap,
+            "difference": diff,
+            "absolute_difference": abs(diff),
+            "match": abs(diff) <= tolerance,
+            "pe_snap_eligible": bool(case.pe_outputs["is_snap_eligible"]),
+            "axiom_snap_eligible": outputs["snap_eligible"],
+            "pe_gross_income": case.pe_outputs["snap_gross_income"],
+            "axiom_gross_income": outputs["snap_gross_monthly_income"],
+            "pe_net_income": case.pe_outputs["snap_net_income"],
+            "axiom_net_income": outputs["snap_net_income"],
+            "pe_max_allotment": case.pe_outputs["snap_max_allotment"],
+            "axiom_max_allotment": outputs["snap_maximum_allotment"],
+            "pe_utility_allowance": case.pe_outputs["snap_utility_allowance"],
+            "axiom_utility_allowance": sum(
+                float(outputs[name]) for name in utility_allowance_labels
+            ),
+            "pe_shelter_deduction": case.pe_outputs[
+                "snap_excess_shelter_expense_deduction"
+            ],
+            "axiom_shelter_deduction": outputs["snap_excess_shelter_deduction"],
+        }
+        for label, value in outputs.items():
+            key = f"axiom_{label}"
+            if key not in row:
+                row[key] = value
+        rows.append(row)
     return rows
 
 

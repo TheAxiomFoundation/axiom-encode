@@ -11,6 +11,7 @@ from axiom_encode.oracles.policyengine.ecps_snap import (
     Period,
     ProjectedCase,
     add_snapscreener_results,
+    all_by_id,
     project_deduction_inputs,
     project_income_resource_inputs,
     project_jurisdiction_household_inputs,
@@ -58,6 +59,15 @@ def test_set_input_value_can_skip_optional_unknown_inputs():
     )
 
 
+def test_all_by_id_requires_every_member_to_hold():
+    result = all_by_id(
+        [1, 1, 2, 2, 3],
+        [True, True, True, False, True],
+    )
+
+    assert result == {1: True, 2: False, 3: True}
+
+
 def test_new_york_projector_uses_federal_income_and_resource_inputs():
     values = {
         "snap_earned_income": [123.45],
@@ -70,6 +80,9 @@ def test_new_york_projector_uses_federal_income_and_resource_inputs():
     assert projected == {
         "snap_countable_earned_income": 123.45,
         "snap_countable_unearned_income": 67.89,
+        "snap_gross_monthly_earned_income": 123.45,
+        "snap_total_monthly_unearned_income": 67.89,
+        "snap_income_exclusions": 0,
         "snap_countable_financial_resources": 999,
     }
 
@@ -186,7 +199,12 @@ def test_run_axiom_cases_uses_configured_california_member_entity(
             "name": config.relation_id,
             "tuple": ["spm-42-member-1", "spm-42"],
             "interval": {"start": "2026-01-01", "end": "2026-01-31"},
-        }
+        },
+        {
+            "name": "us:statutes/7/2012/j#relation.member_of_household",
+            "tuple": ["spm-42-member-1", "spm-42"],
+            "interval": {"start": "2026-01-01", "end": "2026-01-31"},
+        },
     ]
     inputs_by_name = {
         input_item["name"]: input_item for input_item in request["dataset"]["inputs"]

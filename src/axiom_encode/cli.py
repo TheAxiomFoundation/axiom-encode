@@ -3815,12 +3815,22 @@ def _repair_california_snap_policy_composition(path: Path) -> None:
                 source="California CalFresh SNAP eligibility composition bridge",
             ),
             _derived_judgment_bridge_rule(
+                "calfresh_income_and_resource_eligible",
+                (
+                    "snap_categorically_eligible_for_resource_exemption\n"
+                    "or (\n"
+                    "  snap_resource_eligible\n"
+                    "  and snap_standard_income_eligible\n"
+                    ")"
+                ),
+                source="California CalFresh categorical eligibility composition bridge",
+            ),
+            _derived_judgment_bridge_rule(
                 "snap_eligible",
                 (
                     "snap_residency_eligible\n"
                     "and snap_household_member_eligible\n"
-                    "and snap_resource_eligible\n"
-                    "and snap_standard_income_eligible"
+                    "and calfresh_income_and_resource_eligible"
                 ),
                 source="California CalFresh SNAP eligibility composition bridge",
             ),
