@@ -189,7 +189,9 @@ Hard requirements:
   sentinel entries to indexed parameter tables and do not clamp sentinel cases
   to the final table row's values. Handle the sentinel before table lookups,
   using the existing target's source-grounded out-of-range branch when repairing
-  an existing artifact.
+  an existing artifact. Use a negative sentinel such as `-1`; do not use the
+  next positive band id such as `6` merely because there are six legal rows,
+  because that positive id is not source-stated and will fail numeric grounding.
 - Do not hard-code the final real band id in non-selector formulas merely to
   make the final row constant. If the final row's initial and final table values
   are the same, let the indexed interpolation formula produce that constant

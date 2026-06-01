@@ -926,6 +926,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Include a companion test above the final bounded row" in prompt
     assert "The out-of-table sentinel is not itself a source table row" in prompt
     assert "do not clamp sentinel cases" in prompt
+    assert "Use a negative sentinel such as `-1`" in prompt
+    assert "do not use the next positive band id such as `6`" in prompt
     assert "Do not hard-code the final real band id" in prompt
     assert "let the indexed interpolation formula produce that constant" in prompt
     assert "source text `133%` should be represented as `1.33`" in prompt
