@@ -2199,6 +2199,11 @@ def _execute_rulespec_test_file(
         ):
             derived_by_id[key] = derived
     derived_ids = set(derived_by_id)
+    declared_relation_names = {
+        str(relation.get("name"))
+        for relation in artifact.get("program", {}).get("relations", [])
+        if isinstance(relation, dict) and relation.get("name")
+    }
 
     for index, case in enumerate(cases):
         case_name = str(case.get("name") or f"case_{index}")
@@ -2215,6 +2220,7 @@ def _execute_rulespec_test_file(
                     parameter_by_id=parameter_by_id,
                     derived_ids=derived_ids,
                     derived_by_id=derived_by_id,
+                    declared_relation_names=declared_relation_names,
                     policy_repo_path=item_policy_repo_path,
                 )
             )
@@ -2252,6 +2258,7 @@ def _execute_rulespec_test_case(
     parameter_by_id: dict[str, dict],
     derived_ids: set[str],
     derived_by_id: dict[str, dict],
+    declared_relation_names: set[str],
     policy_repo_path: Path,
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
@@ -2270,17 +2277,27 @@ def _execute_rulespec_test_case(
                 key,
                 policy_repo_path=policy_repo_path,
             )
+            relation_names = [relation_name]
+            if "#relation." in relation_name:
+                unqualified_name = relation_name.rsplit("#relation.", 1)[1]
+                if (
+                    unqualified_name
+                    and unqualified_name in declared_relation_names
+                    and unqualified_name not in relation_names
+                ):
+                    relation_names.append(unqualified_name)
             for row_index, row in enumerate(value):
                 related_id = f"related_{row_index}"
                 # The current relation slot convention is related entity first,
                 # enclosing entity second.
-                relations.append(
-                    {
-                        "name": relation_name,
-                        "tuple": [related_id, root_entity_id],
-                        "interval": interval,
-                    }
-                )
+                for current_relation_name in relation_names:
+                    relations.append(
+                        {
+                            "name": current_relation_name,
+                            "tuple": [related_id, root_entity_id],
+                            "interval": interval,
+                        }
+                    )
                 if not isinstance(row, dict):
                     failures.append(
                         {
@@ -4061,6 +4078,11 @@ def _california_snap_member_test_case() -> str:
 
 def _repair_colorado_snap_policy_composition(path: Path) -> None:
     content = path.read_text()
+    content = _ensure_yaml_import_text(
+        content,
+        "us:regulations/7-cfr/273/5",
+        before_import="us:regulations/7-cfr/273/6",
+    )
     content = _ensure_yaml_import_text(
         content,
         "us-co:regulations/10-ccr-2506-1/4.407.6",
