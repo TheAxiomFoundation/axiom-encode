@@ -11522,6 +11522,40 @@ rules:
     assert find_source_scope_consistency_issues(content) == []
 
 
+def test_source_scope_consistency_accepts_irs_guidance_household_income_table_as_taxunit_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For taxable years beginning in calendar year 2026, the Applicable
+    Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) uses
+    household income percentage of the Federal poverty line.
+rules:
+  - name: household_income_fpl_percentage_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: Rev. Proc. 2025-25, section 3.01
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: predicate
+            source:
+              corpus_citation_path: us/guidance/irs/rev-proc-2025-25
+              excerpt: Household income percentage of Federal poverty line
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_percentage_of_federal_poverty_line < 1.33:
+            0
+          else:
+            1
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
 def test_source_scope_consistency_rejects_federal_tax_taxpayer_as_person_rule():
     content = """format: rulespec/v1
 module:

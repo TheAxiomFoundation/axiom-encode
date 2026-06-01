@@ -5689,6 +5689,14 @@ _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN = re.compile(
     r"[\s\S]{0,240}\bhousehold\s+income\b",
     flags=re.IGNORECASE,
 )
+_FEDERAL_TAX_SOURCE_CONTEXT_PATTERN = re.compile(
+    r"\b26\s+USC\b"
+    r"|"
+    r"\b(?:I\.?\s*R\.?\s*C\.?|Internal\s+Revenue\s+Code)\b"
+    r"|"
+    r"§\s*(?:\d+[A-Z]?|1\.\d+[A-Z]?)(?:\b|\()",
+    flags=re.IGNORECASE,
+)
 _EMPLOYER_SCOPED_ENTITY_NAMES = {"business", "corporation", "taxunit"}
 _EMPLOYER_SCOPED_SOURCE_PATTERN = re.compile(
     r"\b(?:each|every|any|an?)\s+employer\b"
@@ -5853,8 +5861,6 @@ def _unit_entities_are_equivalent_for_source_rule(
     if {left, right} != {"taxunit", "household"}:
         return False
     rule_source = str(rule.get("source") or "")
-    if not re.search(r"\b26\s+USC\b", rule_source, flags=re.IGNORECASE):
-        return False
     source_context = "\n".join(
         [
             fallback_source_text,
@@ -5862,6 +5868,8 @@ def _unit_entities_are_equivalent_for_source_rule(
             rule_source,
         ]
     )
+    if not _FEDERAL_TAX_SOURCE_CONTEXT_PATTERN.search(source_context):
+        return False
     return bool(
         _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN.search(source_context)
     )
