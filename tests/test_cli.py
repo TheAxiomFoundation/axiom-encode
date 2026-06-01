@@ -7207,7 +7207,7 @@ rules:
             "us:statutes/26/3241/b#applicable_percentage_for_sections_3211_b_and_3221_b": 0.181
         }
 
-    def test_apply_repair_source_table_band_scalars_inlines_bounds(self, tmp_path):
+    def test_apply_repair_source_table_band_scalars_migrates_bounds(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "runner" / "statutes" / "26" / "3241" / "b.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -7269,8 +7269,16 @@ rules:
         content = rules_file.read_text()
         assert "average_account_benefits_ratio_band_1_upper" not in content
         assert "average_account_benefits_ratio_band_2_upper" not in content
-        assert "average_account_benefits_ratio < 2.5" in content
-        assert "average_account_benefits_ratio < 3.0" in content
+        assert (
+            "average_account_benefits_ratio < "
+            "average_account_benefits_ratio_band_upper_bound[1]"
+        ) in content
+        assert (
+            "average_account_benefits_ratio < "
+            "average_account_benefits_ratio_band_upper_bound[2]"
+        ) in content
+        assert "average_account_benefits_ratio_band_lower_bound" in content
+        assert "average_account_benefits_ratio_band_upper_bound" in content
         assert "average_account_benefits_ratio_band" in repaired
 
     def test_repair_input_field_accesses_in_formulas(self, tmp_path):

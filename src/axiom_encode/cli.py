@@ -19693,7 +19693,7 @@ def _try_repair_generated_source_table_band_scalars_for_apply(
     output_root: Path,
     issues: list[str],
 ) -> list[str]:
-    """Inline generated structural table bounds and remove public scalars."""
+    """Normalize generated structural table bounds and remove public scalars."""
     if not any(
         "Source table row/band scalar parameters" in str(issue) for issue in issues
     ):
