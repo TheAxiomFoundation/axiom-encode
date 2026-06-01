@@ -21833,11 +21833,10 @@ print(f'RESULT:{{float(value)}}')
             calc_period = f"int('{year}')"
 
         adapter = self._get_pe_us_var_adapter(pe_var)
-        if (
-            adapter is not None
-            and adapter.target_person_role == "child"
-            and num_children == 0
-        ):
+        targets_child_person = (
+            adapter is not None and adapter.target_person_role == "child"
+        )
+        if targets_child_person and num_children == 0:
             num_children = 1
 
         adult_age = 65 if aged_flags[:1] == [True] else 30
@@ -21956,6 +21955,8 @@ print(f'RESULT:{{float(value)}}')
 
         if explicit_child_count is None and relation_child_rows is not None:
             child_rows = relation_child_rows
+            if targets_child_person and not child_rows:
+                child_rows = [{}]
             adult_dependent_rows = relation_adult_dependent_rows
         else:
             child_rows = [{} for _ in range(num_children)]
@@ -22172,7 +22173,7 @@ print(f'RESULT:{{val}}')
 """
 
         result_index = 0
-        if adapter is not None and adapter.target_person_role == "child":
+        if targets_child_person:
             child_member = "'child0'"
             if child_member in members:
                 result_index = members.index(child_member)
