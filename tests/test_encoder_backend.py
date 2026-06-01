@@ -138,6 +138,27 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Never drop the jurisdiction prefix" in ENCODER_PROMPT
     assert "listed under invalid copied local inputs" in ENCODER_PROMPT
     assert "do not preserve, rename, or recreate" in ENCODER_PROMPT
+    assert "For interval-table repair of an existing target" in ENCODER_PROMPT
+    assert "do not add extra exported derived rules" in ENCODER_PROMPT
+    assert "`clause_ii_provides_otherwise`" in ENCODER_PROMPT
+    assert "Do not treat the final interval row as open-ended" in ENCODER_PROMPT
+    assert "Include a companion test above the final bounded" in ENCODER_PROMPT
+    assert (
+        "The out-of-table sentinel is not itself a source table row" in ENCODER_PROMPT
+    )
+    assert "do not clamp sentinel cases\n  to the final table row" in ENCODER_PROMPT
+    assert "Do not hard-code the final real band id" in ENCODER_PROMPT
+    assert (
+        "let the indexed interpolation formula produce that constant" in ENCODER_PROMPT
+    )
+    assert "source text `133%` should be\n  represented as `1.33`" in ENCODER_PROMPT
+    assert "old percent-point test inputs" in ENCODER_PROMPT
+    assert (
+        "Structural interval bounds that are only used by the selector"
+        in ENCODER_PROMPT
+    )
+    assert "`tier_0_upper_bound`" in ENCODER_PROMPT
+    assert "for sibling clause\n  exception phrases" in ENCODER_PROMPT
     assert "kind: derived_relation" in ENCODER_PROMPT
     assert "derived_relation:" in ENCODER_PROMPT
     assert "arity: 2" in ENCODER_PROMPT
@@ -186,6 +207,20 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Never drop the jurisdiction prefix" in prompt
     assert "listed under invalid copied local inputs" in prompt
     assert "do not preserve, rename, or recreate" in prompt
+    assert "For interval-table repair of an existing target" in prompt
+    assert "do not add extra exported derived rules" in prompt
+    assert "`clause_ii_provides_otherwise`" in prompt
+    assert "Do not treat the final interval row as open-ended" in prompt
+    assert "Include a companion test above the final bounded" in prompt
+    assert "The out-of-table sentinel is not itself a source table row" in prompt
+    assert "do not clamp sentinel cases\n  to the final table row" in prompt
+    assert "Do not hard-code the final real band id" in prompt
+    assert "let the indexed interpolation formula produce that constant" in prompt
+    assert "source text `133%` should be\n  represented as `1.33`" in prompt
+    assert "old percent-point test inputs" in prompt
+    assert "Structural interval bounds that are only used by the selector" in prompt
+    assert "`tier_0_upper_bound`" in prompt
+    assert "for sibling clause\n  exception phrases" in prompt
     assert "kind: derived_relation" in prompt
     assert "derived_relation:" in prompt
     assert "arity: 2" in prompt

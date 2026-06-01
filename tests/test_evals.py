@@ -919,6 +919,21 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "integer band ids such as `0`, `1`, and `2`" in prompt
     assert "do not use decimal row thresholds like `1.33`, `2.5`" in prompt
     assert "or strings such as `2_5_to_less_than_3_0`" in prompt
+    assert "For interval-table repair of an existing target" in prompt
+    assert "do not add extra exported derived rules" in prompt
+    assert "`clause_ii_provides_otherwise`" in prompt
+    assert "Do not treat the final interval row as open-ended" in prompt
+    assert "Include a companion test above the final bounded row" in prompt
+    assert "The out-of-table sentinel is not itself a source table row" in prompt
+    assert "do not clamp sentinel cases" in prompt
+    assert "Do not hard-code the final real band id" in prompt
+    assert "let the indexed interpolation formula produce that constant" in prompt
+    assert "source text `133%` should be represented as `1.33`" in prompt
+    assert "old percent-point test inputs" in prompt
+    assert "Structural interval bounds that are only used by the selector" in prompt
+    assert "`tier_0_upper_bound`" in prompt
+    assert "do not preserve, rename, or recreate the local" in prompt
+    assert "for sibling clause\n  exception phrases" in prompt
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "exact imported parameter from\n     context" in prompt
@@ -6284,8 +6299,58 @@ rules:
 
         assert "Target-specific schema limit" not in prompt
         assert "except as otherwise provided in section" in prompt
-        assert "cited provision's separate amount" in prompt
-        assert "subsection_x_does_not_displace_this_subsection" in prompt
+        assert "If copied context\n  for the cited source is present" in prompt
+        assert "do not preserve, rename, or recreate the local" in prompt
+        assert "follow the copied-context rule above instead" in prompt
+
+    def test_build_eval_prompt_no_tests_includes_copied_context_boundary_rule(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us-co"
+        child_file = (
+            policy_repo_root / "statutes" / "39" / "39-22-104" / "3" / "p" / "5.yaml"
+        )
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: initial_window_addition_to_federal_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2023-01-01'
+        formula: federal_deduction_addition
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="us-co/statute/39/39-22-104/3/p",
+            runner=parse_runner_spec("openai:gpt-5.5"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "(p) Except as otherwise provided in subsection (3)(p.5), "
+                "for taxpayers who claim itemized deductions, the amount by "
+                "which itemized deductions exceed thirty thousand dollars."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "us-co/statute/39/39-22-104/3/p",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="p.yaml",
+            target_ref_prefix="us-co:statutes/39/39-22-104/3/p",
+            runner_backend="openai",
+        )
+
+        assert "Test file rules:" not in prompt
+        assert "do not preserve, rename, or recreate the local" in prompt
+        assert "follow the copied-context rule above instead" in prompt
 
     def test_build_eval_prompt_scopes_partial_extent_to_numeric_target_paragraph(
         self, tmp_path
