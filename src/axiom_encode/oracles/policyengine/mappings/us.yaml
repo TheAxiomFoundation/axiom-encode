@@ -2129,6 +2129,85 @@ mappings:
     comparison: rate
     rationale: Same 2026 ACA required contribution percentage, represented in PolicyEngine as the top final percentage in the current-law ACA required-contribution percentage table.
 
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#magi_fpl_disregard_rate
+    country: us
+    program: health
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the CMS table's separate 5% MAGI FPL disregard. PolicyEngine-US bakes that disregard into Medicaid and CHIP income-limit parameters rather than exposing it as a separate parameter.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_medicaid_ages_0_to_1_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.infant.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective infant Medicaid income limit including that disregard.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_medicaid_ages_1_to_5_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.young_child.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective young-child Medicaid income limit including that disregard.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_medicaid_ages_6_to_18_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.older_child.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective older-child Medicaid income limit including that disregard.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_children_separate_chip_fpl_limit
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.chip.child.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective child CHIP income limit including that disregard.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_pregnant_women_medicaid_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.pregnant.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective pregnant-person Medicaid income limit including that disregard.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_pregnant_women_chip_fpl_limit
+    country: us
+    program: chip
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.chip.pregnant.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective pregnant-person CHIP income limit including that disregard.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_parent_caretaker_adults_medicaid_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.parent.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective parent and caretaker Medicaid income limit including that disregard.
+
+  - legal_id: us-co:policies/cms/colorado-medicaid-chip-bhp-eligibility-levels#colorado_adult_medicaid_expansion_fpl_limit
+    country: us
+    program: medicaid
+    mapping_type: not_comparable
+    policyengine_parameter: gov.hhs.medicaid.eligibility.categories.adult.income_limit
+    parameter_key: CO
+    candidate_priority: P4
+    rationale: Axiom exposes the raw Colorado CMS table value before the 5% MAGI FPL disregard. PolicyEngine-US stores the effective adult Medicaid expansion income limit including that disregard.
+
   - legal_id: us:statutes/26/3201#tier_2_employee_tax
     country: us
     program: tax
