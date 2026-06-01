@@ -14846,7 +14846,7 @@ def _section_reference_to_named_act_without_title(
     source_text: str,
 ) -> bool:
     """Return whether source cites `section X of the Some Act` without USC title."""
-    return (
+    return bool(
         re.search(
             rf"\bsection\s+{re.escape(section)}(?:\([^)]+\))*\s+of\s+"
             r"(?:the\s+)?(?!title\s+\d+\b)"
@@ -14854,7 +14854,12 @@ def _section_reference_to_named_act_without_title(
             source_text,
             flags=re.IGNORECASE,
         )
-        is not None
+        or re.search(
+            r"\b[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+"
+            rf"Act\s+section\s+{re.escape(section)}(?:\([^)]+\))*\b",
+            source_text,
+            flags=re.IGNORECASE,
+        )
     )
 
 

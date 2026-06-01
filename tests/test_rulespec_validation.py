@@ -6561,6 +6561,42 @@ rules:
     assert issues == []
 
 
+def test_cross_reference_placeholder_allows_named_act_before_section(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1402" / "b.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    The term self-employment income excludes nonresident alien individuals
+    except as provided by a Social Security Act section 233 agreement.
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if (
+            individual_is_nonresident_alien
+            and not social_security_agreement_under_section_233_applies_to_nonresident_alien
+          ): 0 else: net_earnings_from_self_employment
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert issues == []
+
+
 def test_cross_reference_placeholder_allows_current_section_helpers(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "22.yaml"
