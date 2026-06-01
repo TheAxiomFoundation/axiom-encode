@@ -225,7 +225,8 @@ def test_common_snap_outputs_track_current_federal_rulespec_surface():
 
 
 def test_colorado_snap_outputs_use_composed_allotment_and_cfr_net_income():
-    outputs = JURISDICTION_CONFIGS["us-co"].output_id_by_label
+    config = JURISDICTION_CONFIGS["us-co"]
+    outputs = config.output_id_by_label
 
     assert outputs["snap_regular_month_allotment"] == (
         "us-co:regulations/10-ccr-2506-1/4.207.2#snap_allotment"
@@ -233,6 +234,8 @@ def test_colorado_snap_outputs_use_composed_allotment_and_cfr_net_income():
     assert outputs["snap_net_income"] == (
         "us:regulations/7-cfr/273/10#snap_net_monthly_income"
     )
+    assert config.relation_id == "us:statutes/7/2012/j#relation.member_of_household"
+    assert config.additional_relation_ids == ()
 
 
 def test_projected_child_support_includes_gross_income_deduction():

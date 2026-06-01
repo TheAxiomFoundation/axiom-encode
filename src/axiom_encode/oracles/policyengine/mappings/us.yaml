@@ -2046,6 +2046,89 @@ mappings:
     comparison: money
     rationale: Same statutory other-case additional Medicare wage threshold, stored in PE as parameter data.
 
+  - legal_id: us:statutes/26/36B/b/3/A#applicable_percentage_income_tier
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Section 36B(b)(3)(A) income-tier selection is a statutory helper for the original applicable-percentage table. PolicyEngine stores current-law ACA threshold parameters and the interpolated required contribution percentage, not this source-level tier index as a one-to-one output.
+
+  - legal_id: us:statutes/26/36B/b/3/A#initial_premium_percentage_by_income_tier
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.initial
+    candidate_priority: P4
+    rationale: Section 36B(b)(3)(A) initial premium percentages are source-level statutory table entries that are indexed and updated for current law before PolicyEngine uses them. PolicyEngine exposes current-law ACA initial-rate parameters, not this original statutory indexed table as a scalar oracle output.
+
+  - legal_id: us:statutes/26/36B/b/3/A#final_premium_percentage_by_income_tier
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.final
+    candidate_priority: P4
+    rationale: Section 36B(b)(3)(A) final premium percentages are source-level statutory table entries that are indexed and updated for current law before PolicyEngine uses them. PolicyEngine exposes current-law ACA final-rate parameters, not this original statutory indexed table as a scalar oracle output.
+
+  - legal_id: us:statutes/26/36B/b/3/A#applicable_percentage
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_variable: aca_required_contribution_percentage
+    candidate_priority: P4
+    rationale: PolicyEngine's aca_required_contribution_percentage computes the current-law indexed ACA applicable figure for a tax unit. This RuleSpec output is the unindexed section 36B(b)(3)(A) statutory formula, so 2026 oracle cases differ from PolicyEngine after Revenue Procedure indexing.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.threshold
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 band selection is an Axiom helper for choosing a row from the 2026 ACA percentage table. PolicyEngine stores the corresponding thresholds and final interpolated percentage, but not this integer band as a one-to-one output.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_initial_percentage_table
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.initial
+    candidate_priority: P4
+    rationale: PolicyEngine stores the same 2026 ACA initial percentages as a current-law list parameter, while this RuleSpec output is a generated indexed table object. The current oracle compares scalar outputs, not whole indexed tables.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_final_percentage_table
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.final
+    candidate_priority: P4
+    rationale: PolicyEngine stores the same 2026 ACA final percentages as a current-law list parameter, while this RuleSpec output is a generated indexed table object. The current oracle compares scalar outputs, not whole indexed tables.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_initial_percentage
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.initial
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 applicable_initial_percentage selects the lower endpoint of the household-income band. PolicyEngine exposes the table parameter and the final interpolated required contribution percentage, not the selected endpoint as a separate variable.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_final_percentage
+    country: us
+    program: aca_ptc
+    mapping_type: not_comparable
+    policyengine_parameter: gov.aca.required_contribution_percentage.final
+    candidate_priority: P4
+    rationale: Revenue Procedure 2025-25 applicable_final_percentage selects the upper endpoint of the household-income band. PolicyEngine exposes the table parameter and the final interpolated required contribution percentage, not the selected endpoint as a separate variable.
+
+  - legal_id: us:policies/irs/rev-proc-2025-25/aca-ptc#required_contribution_percentage
+    country: us
+    program: aca_ptc
+    mapping_type: parameter_value
+    policyengine_parameter: gov.aca.required_contribution_percentage.final
+    parameter_key_path:
+      - 5
+    period: year
+    comparison: rate
+    rationale: Same 2026 ACA required contribution percentage, represented in PolicyEngine as the top final percentage in the current-law ACA required-contribution percentage table.
+
   - legal_id: us:statutes/26/3201#tier_2_employee_tax
     country: us
     program: tax
