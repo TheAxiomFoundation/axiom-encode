@@ -88,7 +88,9 @@ from .harness.validator_pipeline import (
     _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
     extract_embedded_source_text,
+    find_interval_table_reencoding_candidates,
     find_proof_import_reference_issues,
+    find_structured_scale_parameter_issue_records,
     find_tax_filing_status_local_input_issues,
     find_tax_status_component_local_input_issues,
     find_unused_import_issues,
@@ -395,6 +397,78 @@ def build_rulespec_inventory(root: Path | None = None) -> dict:
     }
 
 
+def _rulespec_repos_under(root: Path) -> list[Path]:
+    if root.name.startswith("rulespec-") and root.is_dir():
+        return [root]
+    return [repo for repo in sorted(root.glob("rulespec-*")) if repo.is_dir()]
+
+
+def build_interval_table_audit(
+    root: Path | None = None,
+    *,
+    include_selector_bounds: bool = False,
+) -> dict:
+    """Build an inventory of RuleSpecs needing native interval-table re-encoding."""
+    audit_root = (root or _default_rulespec_inventory_root()).resolve()
+    issues: list[dict[str, Any]] = []
+    files_scanned = 0
+    kind_counts: Counter[str] = Counter()
+
+    for repo in _rulespec_repos_under(audit_root):
+        for rulespec_file in sorted(repo.rglob("*.y*ml")):
+            if not _is_rulespec_yaml(rulespec_file):
+                continue
+            files_scanned += 1
+            with contextlib.suppress(OSError):
+                content = rulespec_file.read_text()
+                for issue in find_interval_table_reencoding_candidates(
+                    content,
+                    include_selector_bounds=include_selector_bounds,
+                ):
+                    issue_payload = asdict(issue)
+                    kind_counts[issue.kind] += 1
+                    issue_payload.update(
+                        {
+                            "repo": repo.name,
+                            "path": str(rulespec_file.relative_to(repo)),
+                        }
+                    )
+                    issues.append(issue_payload)
+                for issue in find_structured_scale_parameter_issue_records(content):
+                    kind_counts[issue.kind] += 1
+                    issues.append(
+                        {
+                            "kind": issue.kind,
+                            "rule": issue.rule,
+                            "literal": "",
+                            "value": None,
+                            "message": issue.message,
+                            "repo": repo.name,
+                            "path": str(rulespec_file.relative_to(repo)),
+                        }
+                    )
+
+    blocking_issue_count = sum(
+        1
+        for issue in issues
+        if issue["kind"]
+        in {
+            "non_selector_interval_bound_literal",
+            "branch_formula_scale",
+            "malformed_parameter_table",
+        }
+    )
+
+    return {
+        "root": str(audit_root),
+        "files_scanned": files_scanned,
+        "issue_count": len(issues),
+        "blocking_issue_count": blocking_issue_count,
+        "kind_counts": dict(sorted(kind_counts.items())),
+        "issues": issues,
+    }
+
+
 def _format_counter(counter: dict[str, int]) -> str:
     if not counter:
         return "none"
@@ -483,6 +557,44 @@ def main():
         help="Workspace root containing rulespec-* repos",
     )
     inventory_parser.add_argument("--json", action="store_true", help="Output as JSON")
+
+    interval_table_audit_parser = subparsers.add_parser(
+        "interval-table-audit",
+        help="Report RuleSpecs that should be re-encoded with native interval tables",
+    )
+    interval_table_audit_parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Workspace root containing rulespec-* repos, or one rulespec-* repo",
+    )
+    interval_table_audit_parser.add_argument(
+        "--include-selector-bounds",
+        action="store_true",
+        help=(
+            "Also report currently allowed inline selector bounds as future "
+            "re-encoding inventory"
+        ),
+    )
+    interval_table_audit_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum issues to print in text mode",
+    )
+    interval_table_audit_parser.add_argument(
+        "--fail-on-issues",
+        action="store_true",
+        help=(
+            "Exit non-zero when any blocking interval-table re-encoding issue "
+            "is found; selector inventory remains non-blocking"
+        ),
+    )
+    interval_table_audit_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON",
+    )
 
     # oracle-coverage command
     oracle_coverage_parser = subparsers.add_parser(
@@ -1664,6 +1776,8 @@ def main():
         cmd_stats(args)
     elif args.command == "inventory":
         cmd_inventory(args)
+    elif args.command == "interval-table-audit":
+        cmd_interval_table_audit(args)
     elif args.command == "oracle-coverage":
         cmd_oracle_coverage(args)
     elif args.command == "oracle-candidates":
@@ -2980,6 +3094,44 @@ def cmd_inventory(args):
             f"rules={repo['rules']} "
             f"roots={_format_counter(repo['roots'])}"
         )
+
+
+def cmd_interval_table_audit(args):
+    """Show RuleSpecs that should be re-encoded with native interval tables."""
+    report = build_interval_table_audit(
+        args.root,
+        include_selector_bounds=args.include_selector_bounds,
+    )
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print("Interval table re-encoding audit")
+        print(f"Root: {report['root']}")
+        print(f"Files scanned: {report['files_scanned']}")
+        print(
+            f"Issues: {report['issue_count']} "
+            f"({report['blocking_issue_count']} blocking)"
+        )
+        print(f"Kinds: {_format_counter(report['kind_counts'])}")
+        print()
+        if not report["issues"]:
+            print("No interval-table re-encoding candidates found.")
+        else:
+            limit = max(0, int(args.limit))
+            for issue in report["issues"][:limit]:
+                literal = f" for `{issue['literal']}`" if issue.get("literal") else ""
+                print(
+                    f"{issue['repo']}/{issue['path']}: "
+                    f"{issue['kind']} in `{issue['rule']}`{literal}"
+                )
+                print(f"  {issue['message']}")
+            remaining = len(report["issues"]) - limit
+            if remaining > 0:
+                print(f"... {remaining} more issue(s) omitted")
+
+    if args.fail_on_issues and report["blocking_issue_count"]:
+        sys.exit(1)
 
 
 def cmd_oracle_coverage(args):

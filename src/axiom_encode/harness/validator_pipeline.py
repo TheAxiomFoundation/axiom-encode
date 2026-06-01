@@ -989,6 +989,34 @@ class NamedScalarOccurrence:
     value: float
 
 
+@dataclass(frozen=True)
+class IntervalTableAuditIssue:
+    """A generated formula that should move to native interval-table encoding."""
+
+    kind: str
+    rule: str
+    literal: str
+    value: float
+    message: str
+
+
+@dataclass(frozen=True)
+class StructuredScaleParameterIssue:
+    """A generated scale/table formula that should be a structured parameter."""
+
+    kind: str
+    rule: str
+    message: str
+
+
+@dataclass(frozen=True)
+class _IntervalSelectorBound:
+    raw: str
+    value: float
+    selector_rule: str
+    formula: str
+
+
 _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"ParameterNotFoundError"),
     re.compile(r"VariableNotFoundError"),
@@ -2692,8 +2720,25 @@ def _local_corpus_claims_roots() -> tuple[Path, ...]:
     return tuple(claims_roots)
 
 
-def find_structured_scale_parameter_issues(content: str) -> list[str]:
-    """Flag source-stated numeric scales encoded as branch formulas."""
+_INTERVAL_TABLE_SELECTOR_BOUND_KIND = "selector_inline_interval_bound"
+_INTERVAL_TABLE_NON_SELECTOR_BOUND_KIND = "non_selector_interval_bound_literal"
+_STRUCTURED_SCALE_BRANCH_FORMULA_KIND = "branch_formula_scale"
+_STRUCTURED_SCALE_MALFORMED_TABLE_KIND = "malformed_parameter_table"
+
+
+def find_interval_table_reencoding_candidates(
+    content: str,
+    *,
+    include_selector_bounds: bool = False,
+) -> list[IntervalTableAuditIssue]:
+    """Find generated interval-table formulas that should be re-encoded.
+
+    Today's encoder represents source tables with interval row labels as a
+    derived band selector plus indexed parameter columns. Selector predicates
+    are still allowed to contain the structural row bounds. Reusing those same
+    bounds in other formula arithmetic is not allowed because it bakes
+    parameter-table structure into formulas and prevents clean reparameterizing.
+    """
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -2704,7 +2749,301 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
     if not isinstance(rules, list):
         return []
 
-    issues: list[str] = []
+    selector_table_keys = _rulespec_index_selector_keys(rules)
+    source_text = extract_embedded_source_text(content)
+    source_looks_like_table = _source_text_looks_like_table(source_text)
+    if not selector_table_keys and not source_looks_like_table:
+        return []
+
+    selector_bounds: list[_IntervalSelectorBound] = []
+    selector_issues: list[IntervalTableAuditIssue] = []
+    seen_selector_bounds: set[tuple[str, str, float]] = set()
+
+    for rule in rules:
+        if not isinstance(rule, dict) or not _is_structural_selector_rule(rule):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip()
+        if not source_looks_like_table and rule_name not in selector_table_keys:
+            continue
+        selector_keys = selector_table_keys.get(rule_name)
+        for formula in _rulespec_rule_formula_strings(rule):
+            for raw, value in _interval_table_selector_bound_literals(
+                formula,
+                selector_keys=selector_keys,
+            ):
+                selector_bounds.append(
+                    _IntervalSelectorBound(
+                        raw=raw,
+                        value=value,
+                        selector_rule=rule_name,
+                        formula=formula,
+                    )
+                )
+                seen_key = (rule_name, raw, value)
+                if seen_key in seen_selector_bounds:
+                    continue
+                seen_selector_bounds.add(seen_key)
+                if include_selector_bounds:
+                    selector_issues.append(
+                        IntervalTableAuditIssue(
+                            kind=_INTERVAL_TABLE_SELECTOR_BOUND_KIND,
+                            rule=rule_name,
+                            literal=raw,
+                            value=value,
+                            message=(
+                                "Interval table selector inventory: "
+                                f"`{rule_name}` keeps source-table row bound "
+                                f"`{raw}` inline in selector arithmetic. This is "
+                                "currently allowed, but the file should be "
+                                "re-encoded after native interval-table support "
+                                "lands."
+                            ),
+                        )
+                    )
+
+    if not selector_bounds:
+        return selector_issues
+
+    issues: list[IntervalTableAuditIssue] = list(selector_issues)
+    seen_formula_bounds: set[tuple[str, str, float]] = set()
+    for rule in rules:
+        if not isinstance(rule, dict) or _is_structural_selector_rule(rule):
+            continue
+        rule_name = str(rule.get("name") or "<unknown>").strip()
+        for formula in _rulespec_rule_formula_strings(rule):
+            for raw, value in _interval_table_formula_literals(
+                formula,
+                selector_table_keys=selector_table_keys,
+            ):
+                if not _numeric_matches_interval_bound(
+                    raw,
+                    value,
+                    selector_bounds,
+                    formula=formula,
+                ):
+                    continue
+                seen_key = (rule_name, raw, value)
+                if seen_key in seen_formula_bounds:
+                    continue
+                seen_formula_bounds.add(seen_key)
+                issues.append(
+                    IntervalTableAuditIssue(
+                        kind=_INTERVAL_TABLE_NON_SELECTOR_BOUND_KIND,
+                        rule=rule_name,
+                        literal=raw,
+                        value=value,
+                        message=(
+                            "Interval table re-encoding required: "
+                            f"`{rule_name}` formula contains source-table row "
+                            f"bound literal `{raw}` outside structural selector "
+                            "arithmetic. Move the interval row bounds into a "
+                            "native interval table/scale representation instead "
+                            "of hard-coding them in derived formulas."
+                        ),
+                    )
+                )
+
+    return issues
+
+
+def find_interval_table_reencoding_issues(content: str) -> list[str]:
+    """Return CI-blocking interval-table re-encoding issues."""
+    return [
+        issue.message
+        for issue in find_interval_table_reencoding_candidates(content)
+        if issue.kind == _INTERVAL_TABLE_NON_SELECTOR_BOUND_KIND
+    ]
+
+
+def _rulespec_rule_formula_strings(rule: dict[str, Any]) -> list[str]:
+    formulas: list[str] = []
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return formulas
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, str):
+            formulas.append(formula)
+    return formulas
+
+
+def _interval_table_selector_bound_literals(
+    formula: str,
+    *,
+    selector_keys: set[str] | None,
+) -> list[tuple[str, float]]:
+    literals: list[tuple[str, float]] = []
+    cleaned = _formula_without_comments_and_dates(formula)
+    for raw, value in _formula_numeric_literals(cleaned):
+        if not _formula_literal_is_comparison_bound(cleaned, raw):
+            continue
+        if _interval_table_literal_is_structural(
+            cleaned,
+            raw,
+            value,
+            selector_keys,
+            ignore_small_literals=True,
+        ):
+            continue
+        literals.append((raw, value))
+    return literals
+
+
+def _interval_table_formula_literals(
+    formula: str,
+    *,
+    selector_table_keys: dict[str, set[str]],
+) -> list[tuple[str, float]]:
+    literals: list[tuple[str, float]] = []
+    cleaned = _formula_without_comments_and_dates(formula)
+    for raw, value in _formula_numeric_literals(cleaned):
+        if _is_structural_selector_key_literal(cleaned, raw, selector_table_keys):
+            continue
+        if _interval_table_literal_is_structural(
+            cleaned,
+            raw,
+            value,
+            selector_keys=None,
+            ignore_small_literals=False,
+        ):
+            continue
+        literals.append((raw, value))
+    return literals
+
+
+def _formula_without_comments_and_dates(formula: str) -> str:
+    lines = [line.split("#", 1)[0] for line in formula.splitlines()]
+    return GROUNDING_DATE_PATTERN.sub(" ", "\n".join(lines))
+
+
+def _formula_numeric_literals(expression: str) -> list[tuple[str, float]]:
+    literals: list[tuple[str, float]] = []
+    for match in GROUNDING_FORMULA_NUMBER_PATTERN.finditer(expression):
+        raw = match.group(1).replace(",", "")
+        with contextlib.suppress(ValueError):
+            literals.append((raw, float(raw)))
+    return literals
+
+
+def _interval_table_literal_is_structural(
+    expression: str,
+    raw: str,
+    value: float,
+    selector_keys: set[str] | None,
+    *,
+    ignore_small_literals: bool,
+) -> bool:
+    if ignore_small_literals and value in GROUNDING_ALLOWED_VALUES and "." not in raw:
+        return True
+    if raw == "0.5" and _is_half_up_rounding_expression(expression):
+        return True
+    return (
+        _is_structural_table_key_literal(expression, raw)
+        or _is_structural_schedule_index_literal(expression, raw)
+        or _is_structural_enum_index_literal(expression, raw)
+        or _is_structural_selector_result_literal(expression, raw, selector_keys)
+    )
+
+
+def _is_structural_selector_key_literal(
+    expression: str,
+    raw: str,
+    selector_table_keys: dict[str, set[str]],
+) -> bool:
+    if not selector_table_keys or not re.fullmatch(r"-?\d+(?:\.0+)?", raw):
+        return False
+    normalized_key = _structural_integer_key(raw)
+    if normalized_key is None:
+        return False
+    selector_names = [
+        name for name, keys in selector_table_keys.items() if normalized_key in keys
+    ]
+    if not selector_names:
+        return False
+    normalized = re.sub(r"\s+", " ", expression)
+    for selector_name in selector_names:
+        escaped_selector = re.escape(selector_name)
+        escaped_raw = re.escape(raw)
+        if re.search(
+            rf"\b{escaped_selector}\s*(?:==|!=)\s*{escaped_raw}\b"
+            rf"|\b{escaped_raw}\s*(?:==|!=)\s*{escaped_selector}\b",
+            normalized,
+        ):
+            return True
+    return False
+
+
+def _formula_literal_is_comparison_bound(expression: str, raw: str) -> bool:
+    escaped = re.escape(raw)
+    return bool(
+        re.search(rf"(?:<=|>=|<|>)\s*{escaped}(?![\d.])", expression)
+        or re.search(rf"(?<![\d.]){escaped}\s*(?:<=|>=|<|>)", expression)
+    )
+
+
+def _numeric_matches_interval_bound(
+    raw: str,
+    value: float,
+    bounds: list[_IntervalSelectorBound],
+    *,
+    formula: str = "",
+) -> bool:
+    for bound in bounds:
+        if math.isclose(value, bound.value, rel_tol=0.0, abs_tol=1e-9):
+            return True
+        if not _percent_fraction_context_supports_conversion(formula, bound, value):
+            continue
+        if math.isclose(value * 100, bound.value, rel_tol=0.0, abs_tol=1e-9):
+            return True
+        if math.isclose(value, bound.value * 100, rel_tol=0.0, abs_tol=1e-9):
+            return True
+    return False
+
+
+def _percent_fraction_context_supports_conversion(
+    formula: str,
+    bound: _IntervalSelectorBound,
+    formula_value: float,
+) -> bool:
+    context = f"{formula}\n{bound.formula}\n{bound.selector_rule}".lower()
+    if not any(
+        token in context for token in ("fpl", "poverty", "percent", "percentage")
+    ):
+        return False
+    if not any(token in context for token in ("fraction", "ratio", "share")):
+        return False
+    # Percent/FPL thresholds are conventionally 0-1000 percent or 0-10 as a
+    # fraction. This avoids amount-like collisions such as 400 vs 40_000.
+    percent_side = max(abs(bound.value), abs(formula_value))
+    fraction_side = min(abs(bound.value), abs(formula_value))
+    return percent_side <= 1000 and fraction_side <= 10
+
+
+def find_structured_scale_parameter_issues(content: str) -> list[str]:
+    """Flag source-stated numeric scales encoded as branch formulas."""
+    return [
+        issue.message
+        for issue in find_structured_scale_parameter_issue_records(content)
+    ]
+
+
+def find_structured_scale_parameter_issue_records(
+    content: str,
+) -> list[StructuredScaleParameterIssue]:
+    """Return structured records for malformed scale/table encodings."""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[StructuredScaleParameterIssue] = []
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -2718,8 +3057,15 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
             ):
                 name = str(rule.get("name") or "<unknown>")
                 issues.append(
-                    "Structured parameter table malformed: "
-                    f"{name} uses versioned `values` but does not declare `indexed_by`."
+                    StructuredScaleParameterIssue(
+                        kind=_STRUCTURED_SCALE_MALFORMED_TABLE_KIND,
+                        rule=name,
+                        message=(
+                            "Structured parameter table malformed: "
+                            f"{name} uses versioned `values` but does not "
+                            "declare `indexed_by`."
+                        ),
+                    )
                 )
             continue
         if kind != "derived":
@@ -2737,11 +3083,17 @@ def find_structured_scale_parameter_issues(content: str) -> list[str]:
             selector = _embedded_integer_scale_selector(formula)
             if selector is not None:
                 issues.append(
-                    "Structured parameter table required: "
-                    f"{name} encodes a numeric schedule keyed by {selector} "
-                    "inside a derived formula; move source-stated cells to a "
-                    "`kind: parameter` rule with `indexed_by` and versioned `values`, "
-                    "then reference it with table lookup syntax."
+                    StructuredScaleParameterIssue(
+                        kind=_STRUCTURED_SCALE_BRANCH_FORMULA_KIND,
+                        rule=name,
+                        message=(
+                            "Structured parameter table required: "
+                            f"{name} encodes a numeric schedule keyed by {selector} "
+                            "inside a derived formula; move source-stated cells to a "
+                            "`kind: parameter` rule with `indexed_by` and versioned "
+                            "`values`, then reference it with table lookup syntax."
+                        ),
+                    )
                 )
                 break
     return issues
@@ -16847,6 +17199,7 @@ class ValidatorPipeline:
         compiled_path: Path | None = None
 
         issues.extend(find_source_table_row_scalar_parameter_issues(content))
+        issues.extend(find_interval_table_reencoding_issues(content))
 
         tmpdir_cm = tempfile.TemporaryDirectory()
         tmpdir = Path(tmpdir_cm.name)
