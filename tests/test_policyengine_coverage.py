@@ -397,6 +397,20 @@ rules:
     versions:
       - effective_from: '1990-01-01'
         formula: 0
+  - name: applicable_percentage_tier_lower_bound
+    kind: parameter
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          1: 1.33
+  - name: applicable_percentage_tier_upper_bound
+    kind: parameter
+    indexed_by: applicable_percentage_income_tier
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          0: 1.33
   - name: initial_premium_percentage_by_income_tier
     kind: parameter
     versions:
@@ -419,10 +433,10 @@ rules:
 
     report = build_policyengine_coverage_report(tmp_path, program="aca_ptc")
 
-    assert report["total_outputs"] == 10
+    assert report["total_outputs"] == 12
     assert report["status_counts"] == {
         "comparable": 1,
-        "known_not_comparable": 9,
+        "known_not_comparable": 11,
     }
     assert report["untested_comparable"] == 0
     items_by_id = {item["legal_id"]: item for item in report["items"]}
@@ -441,6 +455,17 @@ rules:
         statute_applicable["policyengine_variable"]
         == "aca_required_contribution_percentage"
     )
+    lower_bound = items_by_id[
+        "us:statutes/26/36B/b/3/A#applicable_percentage_tier_lower_bound"
+    ]
+    upper_bound = items_by_id[
+        "us:statutes/26/36B/b/3/A#applicable_percentage_tier_upper_bound"
+    ]
+    assert lower_bound["status"] == "known_not_comparable"
+    assert upper_bound["status"] == "known_not_comparable"
+    assert lower_bound["mapping_type"] == "not_comparable"
+    assert upper_bound["mapping_type"] == "not_comparable"
+    assert "Indexed interval-bound helper" in str(lower_bound["rationale"])
 
 
 def test_policyengine_coverage_classifies_alabama_snap_manual_prefix(tmp_path):

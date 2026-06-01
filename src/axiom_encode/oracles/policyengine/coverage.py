@@ -19,6 +19,9 @@ _PROGRAM_TOKEN_RE = {
     for token in ("medicaid", "chip", "aca")
 }
 _HEALTH_PROGRAMS = frozenset({"medicaid", "chip", "aca_ptc"})
+_INTERVAL_BOUND_HELPER_RE = re.compile(
+    r"(^|_)(tier|band|bracket|interval|row)_(lower|upper)_bound$"
+)
 
 
 @dataclass(frozen=True)
@@ -236,6 +239,7 @@ def _iter_policyengine_coverage_items(
                         root=root,
                         rulespec_file=rulespec_file,
                         rule_name=rule_name,
+                        rule=rule,
                         kind=kind,
                         mapping=mapping,
                         test_output_count=test_output_count,
@@ -497,13 +501,34 @@ def _coverage_item_from_mapping(
     root: Path,
     rulespec_file: Path,
     rule_name: str,
+    rule: dict[str, Any],
     kind: str,
     mapping: PolicyEngineMapping | None,
     test_output_count: int,
 ) -> PolicyEngineCoverageItem:
     if mapping is None:
-        status = "unmapped"
         program = _infer_program_from_legal_id(legal_id, rule_name=rule_name)
+        if _is_interval_bound_helper_rule(rule_name, rule):
+            return PolicyEngineCoverageItem(
+                legal_id=legal_id,
+                repo=repo.name,
+                file=str(rulespec_file.resolve().relative_to(root)),
+                rule_name=rule_name,
+                kind=kind,
+                status="known_not_comparable",
+                program=program,
+                mapping_type="not_comparable",
+                rationale=(
+                    "Indexed interval-bound helper used to select or interpolate "
+                    "a source table row; PolicyEngine generally stores final "
+                    "parameter scales or computed outputs, not these generated "
+                    "RuleSpec row-bound helpers as one-to-one oracle targets."
+                ),
+                candidate_priority="P4",
+                tested=test_output_count > 0,
+                test_output_count=test_output_count,
+            )
+        status = "unmapped"
         mapping_type = None
     elif mapping.comparable:
         status = "comparable"
@@ -534,6 +559,15 @@ def _coverage_item_from_mapping(
         tested=test_output_count > 0,
         test_output_count=test_output_count,
     )
+
+
+def _is_interval_bound_helper_rule(rule_name: str, rule: dict[str, Any]) -> bool:
+    """Identify generated indexed table-bound helpers that are not PE outputs."""
+    if str(rule.get("kind") or "").strip() != "parameter":
+        return False
+    if not rule.get("indexed_by"):
+        return False
+    return bool(_INTERVAL_BOUND_HELPER_RE.search(rule_name))
 
 
 def _program_filter_values(program: str) -> frozenset[str]:
