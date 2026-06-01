@@ -24,6 +24,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_SIGNING_KEY_ENV,
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
+    _append_generated_zero_branch_tests_if_missing,
     _apply_generated_encoding_result,
     _california_snap_repair_guard_manifest_groups,
     _collapse_additive_versioned_derived_formulas,
@@ -60,6 +61,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_2072_tests,
     _repair_colorado_snap_program_tests,
     _repair_employer_scoped_entities,
+    _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
     _repair_generated_import_symbol_near_misses,
     _repair_generated_unused_imports_for_apply,
@@ -92,6 +94,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
+    _try_repair_generated_empty_test_outputs_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
@@ -4669,6 +4672,145 @@ rules:
         assert repaired == []
         assert rules_file.read_text() == original
 
+    def test_repair_float_keyed_indexed_parameter_values(self, tmp_path):
+        rules_file = tmp_path / "aca.yaml"
+        test_file = tmp_path / "aca.test.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: applicable_percentage_band
+  kind: derived
+  entity: TaxUnit
+  dtype: Decimal
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if magi_fraction < 1.33: 0 else: if magi_fraction < 1.50: 1.33 else: if magi_fraction < 2.00: 1.50 else: 2.00'
+- name: applicable_initial_percentage_table
+  kind: parameter
+  dtype: Rate
+  indexed_by: applicable_percentage_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      0: 0.021
+      1.33: 0.0314
+      1.50: 0.0419
+      2.00: 0.066
+- name: applicable_final_percentage_table
+  kind: parameter
+  dtype: Rate
+  indexed_by: applicable_percentage_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      0: 0.021
+      1.33: 0.0419
+      1.50: 0.066
+      2.00: 0.0844
+"""
+        )
+        test_file.write_text(
+            """- name: mid_bracket
+  period: '2026'
+  input:
+    us:policies/irs/rev-proc-2025-25/aca-ptc#input.magi_fraction: 1.4
+  output:
+    us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band: 1.33
+    us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_initial_percentage_table: 0.0314
+"""
+        )
+
+        repaired = _repair_float_keyed_indexed_parameter_values(
+            rules_file,
+            test_file,
+        )
+
+        assert repaired == [
+            "applicable_initial_percentage_table",
+            "applicable_final_percentage_table",
+            "applicable_percentage_band",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        selector = payload["rules"][0]
+        assert selector["dtype"] == "Integer"
+        assert selector["versions"][0]["formula"] == (
+            "if magi_fraction < 1.33: 0 else: "
+            "if magi_fraction < 1.50: 1 else: "
+            "if magi_fraction < 2.00: 2 else: 3"
+        )
+        assert payload["rules"][1]["versions"][0]["values"] == {
+            0: 0.021,
+            1: 0.0314,
+            2: 0.0419,
+            3: 0.066,
+        }
+        assert payload["rules"][2]["versions"][0]["values"] == {
+            0: 0.021,
+            1: 0.0419,
+            2: 0.066,
+            3: 0.0844,
+        }
+        tests = yaml.safe_load(test_file.read_text())
+        assert (
+            tests[0]["output"][
+                "us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band"
+            ]
+            == 1
+        )
+
+    def test_repair_float_keyed_indexed_parameter_values_with_whole_number_float_keys(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "whole_float.yaml"
+        test_file = tmp_path / "whole_float.test.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: income_band
+  kind: derived
+  entity: TaxUnit
+  dtype: Decimal
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if income < 100: 1.0 else: 2.0'
+- name: rate_by_income_band
+  kind: parameter
+  dtype: Rate
+  indexed_by: income_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      1.0: 0.05
+      2.0: 0.10
+"""
+        )
+        test_file.write_text(
+            """- name: lower_band
+  period: '2026'
+  input:
+    us:policies/example#input.income: 50
+  output:
+    us:policies/example#income_band: 1.0
+    us:policies/example#rate_by_income_band: 0.05
+"""
+        )
+
+        repaired = _repair_float_keyed_indexed_parameter_values(
+            rules_file,
+            test_file,
+        )
+
+        assert repaired == ["rate_by_income_band", "income_band"]
+        payload = yaml.safe_load(rules_file.read_text())
+        selector = payload["rules"][0]
+        assert selector["dtype"] == "Integer"
+        assert selector["versions"][0]["formula"] == "if income < 100: 0 else: 1"
+        assert payload["rules"][1]["versions"][0]["values"] == {0: 0.05, 1: 0.10}
+        tests = yaml.safe_load(test_file.read_text())
+        assert tests[0]["output"]["us:policies/example#income_band"] == 0
+
     def test_repair_bare_indexed_parameter_references(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"
         rules_file.write_text(
@@ -5145,6 +5287,16 @@ rules:
         ]
 
         assert _person_scoped_definition_issue_names(issues) == ["earned_income"]
+
+    def test_person_scoped_definition_issue_names_ignores_unit_entity_mismatch(self):
+        issues = [
+            "Source scope mismatch: `applicable_percentage_income_tier` is "
+            "declared on `TaxUnit`, but the embedded source states a "
+            "`Household` unit-scoped test. Encode the rule at the source-stated "
+            "unit scope or cite source text that states the declared unit scope."
+        ]
+
+        assert _person_scoped_definition_issue_names(issues) == []
 
     def test_remove_cross_module_dependent_test_outputs_drops_imported_output(
         self, tmp_path
@@ -7013,6 +7165,71 @@ rules:
             "us:statutes/26/213#lodging_medical_care_secondary_amount: 0"
             in test_content
         )
+
+    def test_zero_branch_repair_uses_upper_bound_input_for_band_selector(
+        self, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        rules_file = tmp_path / "out" / "statutes" / "26" / "36B" / "b" / "3" / "A.yaml"
+        test_file = rules_file.with_name("A.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        repo.mkdir()
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= 133:
+              0
+          else:
+              if household_income_as_percent_of_poverty_line <= 400:
+                  1
+              else:
+                  -1
+  - name: applicable_percentage
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if applicable_percentage_income_tier == 0:
+              0.02
+          else:
+              if applicable_percentage_income_tier == 1:
+                  0.095
+              else:
+                  0
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repaired = _append_generated_zero_branch_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=repo,
+            relative_output=Path("statutes/26/36B/b/3/A.yaml"),
+            issues=[
+                "Zero branch test coverage missing: `applicable_percentage` "
+                "has a formula branch that returns 0."
+            ],
+        )
+
+        assert repaired == ["auto_zero_applicable_percentage"]
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"] == {
+            "us:statutes/26/36B/b/3/A#input.household_income_as_percent_of_poverty_line": 401
+        }
+        assert cases[0]["output"] == {
+            "us:statutes/26/36B/b/3/A#applicable_percentage": 0
+        }
 
     def test_encode_apply_auto_repairs_exception_positive_companion(
         self, capsys, tmp_path
@@ -10518,6 +10735,58 @@ rules:
             {
                 "name": "tier_rates",
                 "output": {"us:statutes/26/3221#tier_1_applicable_percentage": 0.0765},
+            }
+        ]
+
+    def test_empty_output_test_repair_removes_placeholder_cases(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "openai-gpt-5.5"
+            / "forms/cms/medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        test_file = rules_file.with_name(
+            "medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: alabama_selected_magi_fpl_rates
+  output: {}
+- name: colorado_selected_magi_fpl_rates
+  output:
+    us:forms/cms/medicaid-chip-bhp-eligibility-levels#children_medicaid_ages_0_1_fpl_rate: 1.42
+- name: new_york_selected_magi_fpl_rates
+  output: {}
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        removed = _try_repair_generated_empty_test_outputs_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "forms/cms/medicaid-chip-bhp-eligibility-levels.yaml: ci: "
+                "Test case `alabama_selected_magi_fpl_rates` output must be a mapping.",
+                "forms/cms/medicaid-chip-bhp-eligibility-levels.yaml: ci: "
+                "Test case `new_york_selected_magi_fpl_rates` output must be a mapping.",
+            ],
+        )
+
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert removed == [
+            "alabama_selected_magi_fpl_rates",
+            "new_york_selected_magi_fpl_rates",
+        ]
+        assert test_cases == [
+            {
+                "name": "colorado_selected_magi_fpl_rates",
+                "output": {
+                    "us:forms/cms/medicaid-chip-bhp-eligibility-levels#children_medicaid_ages_0_1_fpl_rate": 1.42
+                },
             }
         ]
 

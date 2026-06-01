@@ -88,6 +88,32 @@ def test_decision_pattern_matches_with_judgment_dtype() -> None:
     assert result.unit is None
 
 
+def test_health_rate_pattern_matches_with_rate_dtype() -> None:
+    adapters = (
+        PolicyEngineUSVarAdapter(
+            rule_names=("medicaid_income_level",),
+            pe_var="medicaid_income_level",
+            entity="person",
+            period="year",
+            unit="/1",
+            comparison="rate",
+        ),
+    )
+    result = _classify_one(
+        rule_name="medicaid_income_level",
+        legal_id="us-co:regulations/hcpf#medicaid_income_level",
+        dtype="Rate",
+        source_text=None,
+        rule_index=_build_rule_name_index(adapters),
+    )
+    assert result.mapping_type == "direct_variable"
+    assert result.policyengine_variable == "medicaid_income_level"
+    assert result.entity == "person"
+    assert result.period == "year"
+    assert result.unit == "/1"
+    assert result.comparison == "rate"
+
+
 def test_unmatched_rule_name_falls_through_to_not_comparable() -> None:
     result = _classify_one(
         rule_name="some_state_specific_predicate",
@@ -146,6 +172,204 @@ def test_classify_rulespec_repo_walks_yaml_files(tmp_path: Path) -> None:
     assert by_name["monthly_allotment"].mapping_type == "direct_variable"
     assert by_name["monthly_allotment"].policyengine_variable == "snap_normal_allotment"
     assert by_name["some_predicate"].mapping_type == "not_comparable"
+
+
+def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) -> None:
+    repo = tmp_path / "rulespec-us-co"
+    rules_dir = repo / "regulations" / "hcpf" / "health-coverage"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "eligibility.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "is_medicaid_eligible",
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": "A person is eligible for Health First Colorado.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
+                    },
+                    {
+                        "name": "is_chip_eligible",
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": "A child is eligible for CHP+.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
+                    },
+                    {
+                        "name": "aca_ptc",
+                        "kind": "derived",
+                        "dtype": "Money",
+                        "source": "The premium tax credit is allowed.",
+                        "versions": [{"effective_from": "2025-01-01", "formula": "1"}],
+                    },
+                ],
+            }
+        )
+    )
+    snap_dir = repo / "policies" / "cdhs" / "snap"
+    snap_dir.mkdir(parents=True)
+    (snap_dir / "benefit.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "snap_sick_vacation_bonus_earned_income",
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": "A SNAP-only output must not appear in health classify.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+    tax_dir = repo / "statutes" / "39" / "39-22-104" / "4" / "n"
+    tax_dir.mkdir(parents=True)
+    (tax_dir / "5.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": (
+                            "activity_secondarily_treated_woody_fuels_by_lopping_"
+                            "scattering_piling_chipping_removing_from_site"
+                        ),
+                        "kind": "derived",
+                        "dtype": "Judgment",
+                        "source": "A tax forestry output must not be treated as CHIP.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "true"}
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+
+    classifications = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="health",
+    )
+
+    by_name = {c.legal_id.split("#")[1]: c for c in classifications}
+    assert by_name["is_medicaid_eligible"].mapping_type == "direct_variable"
+    assert (
+        by_name["is_medicaid_eligible"].policyengine_variable == "is_medicaid_eligible"
+    )
+    assert by_name["is_medicaid_eligible"].entity == "person"
+    assert by_name["is_chip_eligible"].policyengine_variable == "is_chip_eligible"
+    assert by_name["aca_ptc"].policyengine_variable == "aca_ptc"
+    assert by_name["aca_ptc"].entity == "tax_unit"
+    assert by_name["aca_ptc"].unit == "USD"
+    assert "snap_sick_vacation_bonus_earned_income" not in by_name
+    assert (
+        "activity_secondarily_treated_woody_fuels_by_lopping_scattering_piling_"
+        "chipping_removing_from_site" not in by_name
+    )
+
+    medicaid_only = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="medicaid",
+    )
+    assert [c.legal_id.split("#")[1] for c in medicaid_only] == ["is_medicaid_eligible"]
+
+    chip_only = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="chip",
+    )
+    assert [c.legal_id.split("#")[1] for c in chip_only] == ["is_chip_eligible"]
+
+    aca_only = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="aca_ptc",
+    )
+    assert [c.legal_id.split("#")[1] for c in aca_only] == ["aca_ptc"]
+
+
+def test_classify_splits_combined_medicaid_chip_sources_by_rule_name(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "rulespec-us-co"
+    rules_dir = repo / "policies" / "cms"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "medicaid-chip-bhp-eligibility-levels.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {},
+                "rules": [
+                    {
+                        "name": "children_separate_chip_income_standard",
+                        "kind": "parameter",
+                        "dtype": "Rate",
+                        "source": "Colorado CHIP income standard.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "2.60"}
+                        ],
+                    },
+                    {
+                        "name": "adult_expansion_medicaid_income_standard",
+                        "kind": "parameter",
+                        "dtype": "Rate",
+                        "source": "Colorado Medicaid income standard.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "1.33"}
+                        ],
+                    },
+                    {
+                        "name": "magi_fpl_disregard_equivalent",
+                        "kind": "parameter",
+                        "dtype": "Rate",
+                        "source": "MAGI disregard.",
+                        "versions": [
+                            {"effective_from": "2025-01-01", "formula": "0.05"}
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+
+    chip = classify_rulespec_repo(repo_root=repo, jurisdiction="us-co", program="chip")
+    medicaid = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="medicaid",
+    )
+    health = classify_rulespec_repo(
+        repo_root=repo,
+        jurisdiction="us-co",
+        program="health",
+    )
+
+    assert [c.legal_id.split("#")[1] for c in chip] == [
+        "children_separate_chip_income_standard"
+    ]
+    assert [c.legal_id.split("#")[1] for c in medicaid] == [
+        "adult_expansion_medicaid_income_standard"
+    ]
+    assert {c.legal_id.split("#")[1] for c in health} == {
+        "children_separate_chip_income_standard",
+        "adult_expansion_medicaid_income_standard",
+        "magi_fpl_disregard_equivalent",
+    }
 
 
 def test_iter_rules_skips_non_executable_kinds(tmp_path: Path) -> None:
@@ -223,6 +447,39 @@ def test_pe_us_var_adapters_is_consumable_by_classifier() -> None:
     )
     assert result.mapping_type == "direct_variable"
     assert result.policyengine_variable == "snap_standard_deduction"
+
+
+def test_pe_us_health_var_adapters_is_consumable_by_classifier() -> None:
+    from axiom_encode.oracles.policyengine.adapters import (
+        PE_US_HEALTH_VAR_ADAPTERS,
+        PE_US_PROGRAM_VAR_ADAPTERS,
+    )
+
+    index = _build_rule_name_index(PE_US_HEALTH_VAR_ADAPTERS)
+    assert "is_medicaid_eligible" in index
+    assert "is_chip_eligible" in index
+    assert "aca_ptc" in index
+
+    result = _classify_one(
+        rule_name="aca_ptc",
+        legal_id="us:statutes/26/36B#aca_ptc",
+        dtype="Money",
+        source_text=None,
+        rule_index=index,
+    )
+    assert result.mapping_type == "direct_variable"
+    assert result.policyengine_variable == "aca_ptc"
+    assert result.entity == "tax_unit"
+    assert result.period == "year"
+
+    medicaid_index = _build_rule_name_index(PE_US_PROGRAM_VAR_ADAPTERS["medicaid"])
+    chip_index = _build_rule_name_index(PE_US_PROGRAM_VAR_ADAPTERS["chip"])
+    aca_index = _build_rule_name_index(PE_US_PROGRAM_VAR_ADAPTERS["aca_ptc"])
+    assert "is_medicaid_eligible" in medicaid_index
+    assert "is_chip_eligible" not in medicaid_index
+    assert "is_chip_eligible" in chip_index
+    assert "aca_ptc" not in chip_index
+    assert "aca_ptc" in aca_index
 
 
 def test_cmd_classify_write_us_yaml_round_trip(tmp_path: Path) -> None:

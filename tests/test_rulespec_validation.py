@@ -181,6 +181,7 @@ def test_rulespec_validation_run_compiled_uses_current_repo_env(monkeypatch, tmp
         derived_by_key={"us:statutes/1/1#benefit": {"entity": "Household"}},
         require_legal_input_keys=False,
         legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
         module_target=None,
     )
 
@@ -620,6 +621,7 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
         derived_by_key={"excluded_from_wages": {"entity": "Payment"}},
         require_legal_input_keys=False,
         legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
         module_target=None,
     )
 
@@ -3387,6 +3389,83 @@ def test_policyengine_tax_scenario_builds_net_investment_income_inputs(tmp_path)
     assert "'loss_limited_net_capital_gains': {'2026': 4000}" in script
 
 
+def test_policyengine_health_child_variable_targets_child_result_index(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "is_chip_eligible_child",
+        {
+            "period": "2026",
+            "household_size": 2,
+            "state_code_str": "CO",
+        },
+        "2026",
+    )
+
+    assert "'child0': {'age': {'2026': 8}" in script
+    assert "result_index = 1" in script
+    assert "result[result_index]" in script
+
+
+def test_policyengine_health_child_variable_adds_child_with_adult_relation_rows(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "is_chip_eligible_child",
+        {
+            "period": "2026",
+            "state_code_str": "CO",
+            "us:statutes/26/24#relation.member_of_tax_unit": [
+                {
+                    "age": 30,
+                    "is_tax_unit_dependent": False,
+                },
+            ],
+        },
+        "2026",
+    )
+
+    assert "'adult': {'age': {'2026': 30}" in script
+    assert "'child0': {'age': {'2026': 8}" in script
+    assert "'members': ['adult', 'child0']" in script
+    assert "result_index = 1" in script
+
+
+def test_policyengine_health_child_variable_applies_top_level_age_to_child(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "is_chip_eligible_child",
+        {
+            "period": "2026",
+            "household_size": 2,
+            "state_code_str": "CO",
+            "age": 19,
+        },
+        "2026",
+    )
+
+    assert "'adult': {'age': {'2026': 30}" in script
+    assert "'child0': {'age': {'2026': 19}" in script
+    assert "result_index = 1" in script
+
+
 def test_policyengine_tax_scenario_builds_capital_gains_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=tmp_path,
@@ -4017,6 +4096,43 @@ rules:
     )
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_rulespec_grounding_accepts_percent_of_poverty_line_table_points():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/36B/b/3/A
+rules:
+  - name: poverty_line_percent_133
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '133'
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_as_percent_of_poverty_line <= poverty_line_percent_133:
+              1
+          else:
+              2
+"""
+
+    source_text = (
+        "In the case of household income (expressed as a percent of poverty "
+        "line) within the following income tier: Up to 133%."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_numbers = extract_numbers_from_text(source_text)
+    assert 133.0 in source_numbers
+    assert 1.33 in source_numbers
 
 
 def test_rulespec_grounding_allows_generated_band_selector_keys():
@@ -10895,6 +11011,67 @@ rules:
     assert find_ungrounded_numeric_issues(content) == []
 
 
+def test_source_verification_reads_local_corpus_child_blocks(
+    tmp_path,
+    monkeypatch,
+):
+    provisions_dir = tmp_path / "data" / "corpus" / "provisions" / "us" / "form"
+    provisions_dir.mkdir(parents=True)
+    citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    (provisions_dir / "test-source.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "citation_path": citation,
+                        "body": None,
+                        "heading": "Medicaid, CHIP, and BHP Eligibility Levels",
+                        "level": 1,
+                        "ordinal": 1,
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "citation_path": f"{citation}/block-1",
+                        "body": (
+                            "Colorado Medicaid children 142% and CHIP 260% "
+                            "income eligibility standards."
+                        ),
+                        "heading": "State Medicaid, CHIP and BHP Income Eligibility Standards",
+                        "level": 2,
+                        "ordinal": 1,
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AXIOM_CORPUS_LOCAL_ROOT", str(tmp_path))
+    validator_pipeline._fetch_corpus_source_text.cache_clear()
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+    values:
+      colorado_chip_limit: 260
+rules:
+  - name: colorado_chip_limit
+    kind: parameter
+    dtype: Decimal
+    unit: percent
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '260'
+"""
+
+    assert find_source_verification_issues(content) == []
+
+
 def test_source_verification_accepts_values_in_corpus_source_text():
     content = """format: rulespec/v1
 module:
@@ -11371,6 +11548,143 @@ rules:
         "unit-scoped test. Encode the rule at the source-stated unit scope or "
         "cite source text that states the declared unit scope."
     ]
+
+
+def test_source_scope_consistency_accepts_federal_tax_taxpayer_as_taxunit_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    An applicable taxpayer means a taxpayer whose household income for the
+    taxable year equals or exceeds 100 percent of the poverty line. If the
+    taxpayer is married, the taxpayer and spouse must file a joint return.
+rules:
+  - name: taxpayer_is_applicable_taxpayer
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    source: 26 USC 36B(c)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_income_as_fraction_of_poverty_line >= 1
+          and (not taxpayer_is_married or taxpayer_and_spouse_file_joint_return)
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_accepts_federal_tax_household_income_table_as_taxunit_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Applicable percentage is determined by household income expressed as a
+    percent of the poverty line, increasing on a sliding scale from the initial
+    premium percentage to the final premium percentage specified for the income
+    tier.
+rules:
+  - name: applicable_percentage_income_tier
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: 26 USC 36B(b)(3)(A)(i)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_percent_of_poverty_line <= 133:
+            1
+          else:
+            2
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_accepts_irs_guidance_household_income_table_as_taxunit_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    For taxable years beginning in calendar year 2026, the Applicable
+    Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) uses
+    household income percentage of the Federal poverty line.
+rules:
+  - name: household_income_fpl_percentage_band
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: Rev. Proc. 2025-25, section 3.01
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: predicate
+            source:
+              corpus_citation_path: us/guidance/irs/rev-proc-2025-25
+              excerpt: Household income percentage of Federal poverty line
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_income_percentage_of_federal_poverty_line < 1.33:
+            0
+          else:
+            1
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_federal_tax_taxpayer_as_person_rule():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    An applicable taxpayer means a taxpayer whose household income for the
+    taxable year equals or exceeds 100 percent of the poverty line. If the
+    taxpayer is married, the taxpayer and spouse must file a joint return.
+rules:
+  - name: taxpayer_is_applicable_taxpayer
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 36B(c)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          household_income_as_fraction_of_poverty_line >= 1
+          and (not taxpayer_is_married or taxpayer_and_spouse_file_joint_return)
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert issues == [
+        "Source scope mismatch: `taxpayer_is_applicable_taxpayer` is declared "
+        "on `Person`, but the embedded source states a household/unit-scoped "
+        "test. Encode the rule at the source-stated unit scope or cite source "
+        "text that states the person-level test."
+    ]
+
+
+def test_source_scope_consistency_does_not_treat_taxpayer_alone_as_person_scope():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Any taxpayer who fails to attach the required statement is ineligible for
+    the credit.
+rules:
+  - name: taxpayer_statement_requirement_satisfied
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    source: tax manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: required_statement_attached
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
 
 
 def test_source_scope_consistency_accepts_matching_snapunit_source():
@@ -16176,6 +16490,38 @@ rules:
     issues = find_ungrounded_numeric_issues(
         content,
         source_text="The tax is increased by 20-percent of the applicable amount.",
+    )
+
+    assert issues == []
+
+
+def test_numeric_grounding_accepts_fpl_percentage_table_rate_values():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+rules:
+  - name: colorado_child_medicaid_fpl_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '1.42'
+  - name: colorado_chip_fpl_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '2.60'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text=(
+            "All income standards are expressed as a percentage of the "
+            "federal poverty level (FPL). Colorado 142% 142% 142% 260% "
+            "195% 260% 68% 133%."
+        ),
     )
 
     assert issues == []

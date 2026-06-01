@@ -126,6 +126,69 @@ def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
     ) == Path("regulations/7-cfr/273/10.yaml")
 
 
+def test_source_identifier_maps_federal_form_to_allowed_policy_repo_path():
+    assert _source_identifier_to_relative_rulespec_path(
+        "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    ) == Path("policies/cms/medicaid-chip-bhp-eligibility-levels.yaml")
+
+
+def test_resolve_corpus_source_unit_accepts_form_citation_path(tmp_path):
+    citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    corpus_path = _write_test_corpus_provision(
+        tmp_path,
+        citation_path=citation,
+        body="CMS Medicaid, CHIP, and BHP eligibility levels table",
+    )
+
+    source_unit = resolve_corpus_source_unit(citation, corpus_path)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert source_unit.body == "CMS Medicaid, CHIP, and BHP eligibility levels table"
+
+
+def test_resolve_corpus_source_unit_uses_form_child_blocks(tmp_path):
+    citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = corpus_path / "data" / "corpus" / "provisions" / "us" / "form"
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "citation_path": citation,
+                        "body": None,
+                        "heading": "Medicaid, CHIP, and BHP Eligibility Levels",
+                        "level": 1,
+                        "ordinal": 1,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "citation_path": f"{citation}/block-1",
+                        "body": "Colorado 142% 142% 142% 260% 195% 260% 68% 133%",
+                        "heading": "State Medicaid, CHIP and BHP Income Eligibility Standards",
+                        "level": 2,
+                        "ordinal": 1,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    source_unit = resolve_corpus_source_unit(citation, corpus_path)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert (
+        "State Medicaid, CHIP and BHP Income Eligibility Standards" in source_unit.body
+    )
+    assert "Colorado 142% 142% 142% 260% 195% 260% 68% 133%" in source_unit.body
+
+
 def test_canonical_target_ref_prefix_handles_canonical_source_id():
     assert (
         _canonical_target_ref_prefix(
@@ -848,10 +911,14 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         "Do not create named `parameter` rules for structural table row labels"
         in prompt
     )
+    assert "if the source is a multi-state or\n  multi-jurisdiction table" in prompt
+    assert "Do not invent a fake `State` entity" in prompt
     assert "do not create one scalar parameter per row, bound, or cell" in prompt
     assert "`*_lower_bound_band_9`" in prompt
     assert "`indexed_by: <band_selector>`" in prompt
-    assert "not strings such as `2_5_to_less_than_3_0`" in prompt
+    assert "integer band ids such as `0`, `1`, and `2`" in prompt
+    assert "do not use decimal row thresholds like `1.33`, `2.5`" in prompt
+    assert "or strings such as `2_5_to_less_than_3_0`" in prompt
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "exact imported parameter from\n     context" in prompt
