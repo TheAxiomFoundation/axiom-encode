@@ -15309,6 +15309,21 @@ def _rulespec_engine_request_name_for_test_key(
     return test_key
 
 
+def _rulespec_declared_relation_names(compiled_payload: dict[str, Any]) -> set[str]:
+    program = (
+        compiled_payload.get("program")
+        if isinstance(compiled_payload, dict)
+        else {}
+    )
+    if not isinstance(program, dict):
+        return set()
+    return {
+        str(relation.get("name"))
+        for relation in program.get("relations", [])
+        if isinstance(relation, dict) and relation.get("name")
+    }
+
+
 class ValidatorPipeline:
     """Runs validators in 3 tiers with session event logging."""
 
@@ -15888,6 +15903,7 @@ class ValidatorPipeline:
         require_legal_input_keys: bool = False,
         legal_ids_by_friendly_name: dict[str, list[str]] | None = None,
         module_target: str | None = None,
+        declared_relation_names: set[str] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -15899,6 +15915,7 @@ class ValidatorPipeline:
         inputs: list[dict[str, Any]] = []
         relations: list[dict[str, Any]] = []
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
+        declared_relation_names = declared_relation_names or set()
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -15920,6 +15937,12 @@ class ValidatorPipeline:
                     require_legal_input_keys=require_legal_input_keys,
                     policy_repo_path=self.policy_repo_path,
                 )
+                relation_request_names = [relation_request_name]
+                if (
+                    relation_name in declared_relation_names
+                    and relation_name not in relation_request_names
+                ):
+                    relation_request_names.append(relation_name)
                 related_entity = self._related_entity_from_relation(relation_name)
                 for item_index, item in enumerate(value, 1):
                     if not isinstance(item, dict):
@@ -15931,13 +15954,14 @@ class ValidatorPipeline:
                         or item.get("entity_id")
                         or f"{query_entity_id}-{name}-{item_index}"
                     )
-                    relations.append(
-                        {
-                            "name": relation_request_name,
-                            "tuple": [related_id, query_entity_id],
-                            "interval": interval,
-                        }
-                    )
+                    for current_relation_name in relation_request_names:
+                        relations.append(
+                            {
+                                "name": current_relation_name,
+                                "tuple": [related_id, query_entity_id],
+                                "interval": interval,
+                            }
+                        )
                     for child_name, child_value in item.items():
                         if child_name in {"id", "entity_id"}:
                             continue
@@ -16312,6 +16336,7 @@ class ValidatorPipeline:
         require_legal_input_keys: bool,
         legal_ids_by_friendly_name: dict[str, list[str]],
         module_target: str | None,
+        declared_relation_names: set[str],
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
@@ -16328,6 +16353,7 @@ class ValidatorPipeline:
                 require_legal_input_keys=require_legal_input_keys,
                 legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                 module_target=module_target,
+                declared_relation_names=declared_relation_names,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -16482,6 +16508,7 @@ class ValidatorPipeline:
         )
         require_legal_input_keys = _rulespec_program_has_legal_ids(compiled_payload)
         module_target = _rulespec_module_target(compiled_payload)
+        declared_relation_names = _rulespec_declared_relation_names(compiled_payload)
 
         for index, case in enumerate(cases, 1):
             if not isinstance(case, dict):
@@ -16633,6 +16660,7 @@ class ValidatorPipeline:
                         require_legal_input_keys=require_legal_input_keys,
                         legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                         module_target=module_target,
+                        declared_relation_names=declared_relation_names,
                     )
                 )
                 issues.extend(execution_issues)
