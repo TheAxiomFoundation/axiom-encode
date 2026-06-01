@@ -13902,6 +13902,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Tennessee DHS SNAP manual pages encode state administrative procedures, verification rules, disqualification predicates, eligibility subtests, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
 
+  - legal_id_prefix: us-al:policies/dhr/poe/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Alabama DHR POE SNAP manual sections encode state administrative procedures, verification rules, disqualification predicates, eligibility subtests, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
+
   - legal_id_prefix: us-co:statutes/39/39-22-104/3/
     country: us
     program: tax
