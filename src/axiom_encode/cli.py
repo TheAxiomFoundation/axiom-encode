@@ -24691,10 +24691,7 @@ def _direct_imported_deferred_output_names(
 
     names: set[str] = set()
     for raw_import in imports:
-        if not isinstance(raw_import, str) or "#" not in raw_import:
-            continue
-        fragment = raw_import.rsplit("#", 1)[1].strip()
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", fragment):
+        if not isinstance(raw_import, str):
             continue
         resolved_import = _same_repo_import_base_and_file(
             raw_import,
@@ -24705,7 +24702,17 @@ def _direct_imported_deferred_output_names(
         _, import_file = resolved_import
         if import_file is None or not import_file.exists():
             continue
-        if fragment in _deferred_output_names(import_file):
+        deferred_names = _deferred_output_names(import_file)
+        if not deferred_names:
+            continue
+        if "#" not in raw_import:
+            names.update(deferred_names)
+            continue
+        fragment = raw_import.rsplit("#", 1)[1].strip()
+        if (
+            re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", fragment)
+            and fragment in deferred_names
+        ):
             names.add(fragment)
     return names
 

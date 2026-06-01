@@ -6597,6 +6597,82 @@ rules:
     assert issues == []
 
 
+def test_cross_reference_placeholder_mixed_named_act_keeps_title_qualified_import(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1402" / "b.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Except as provided under section 233 of title 26, the special rule applies.
+    A separate sentence refers to a Social Security Act section 233 agreement.
+rules:
+  - name: special_rule
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          baseline_condition
+          and not section_233_exception_applies
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert len(issues) == 1
+    assert "statutes/26/233" in issues[0]
+
+
+def test_cross_reference_placeholder_mixed_named_act_allows_act_identifier(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "1402" / "b.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Except as provided under section 233 of title 26, one unrelated rule applies.
+    The term self-employment income also excludes nonresident alien individuals
+    except as provided by a Social Security Act section 233 agreement.
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if (
+            individual_is_nonresident_alien
+            and not social_security_agreement_under_section_233_applies_to_nonresident_alien
+          ): 0 else: net_earnings_from_self_employment
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_exception_placeholders(rules_file)
+
+    assert issues == []
+
+
 def test_cross_reference_placeholder_allows_current_section_helpers(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "22.yaml"

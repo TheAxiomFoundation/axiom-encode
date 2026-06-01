@@ -11888,6 +11888,71 @@ rules:
             in dependent_test.read_text()
         )
 
+    def test_complete_missing_imported_test_inputs_adds_whole_module_deferred_import_defaults(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        imported = policy_repo / "statutes/26/1402/a.yaml"
+        dependent = policy_repo / "statutes/26/1402/b.yaml"
+        dependent_test = policy_repo / "statutes/26/1402/b.test.yaml"
+        imported.parent.mkdir(parents=True)
+        dependent.parent.mkdir(parents=True, exist_ok=True)
+        imported.write_text(
+            """format: rulespec/v1
+module:
+  status: deferred
+  deferred_outputs:
+    - output: us:statutes/26/1402/a#net_earnings_from_self_employment
+      reason: Requires unresolved upstream exclusions.
+rules: []
+"""
+        )
+        dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/a
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: net_earnings_from_self_employment
+"""
+        )
+        dependent_test.write_text(
+            """- name: case_one
+  input: {}
+  output:
+    us:statutes/26/1402/b#self_employment_income: 0
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `case_one` execution failed: "
+                        "missing input `net_earnings_from_self_employment`"
+                    )
+                )
+            }
+        )
+
+        changed = _complete_missing_imported_test_inputs(
+            rules_file=dependent,
+            test_file=dependent_test,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+
+        assert changed is True
+        assert (
+            "us:statutes/26/1402/b#input.net_earnings_from_self_employment: 0"
+            in dependent_test.read_text()
+        )
+
     def test_complete_missing_imported_test_inputs_adds_transitive_import_defaults(
         self, tmp_path
     ):

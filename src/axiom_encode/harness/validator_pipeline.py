@@ -14844,23 +14844,53 @@ def _title_qualified_reference_for_section(
 def _section_reference_to_named_act_without_title(
     section: str,
     source_text: str,
+    *,
+    identifier: str | None = None,
 ) -> bool:
     """Return whether source cites `section X of the Some Act` without USC title."""
-    return bool(
-        re.search(
-            rf"\bsection\s+{re.escape(section)}(?:\([^)]+\))*\s+of\s+"
-            r"(?:the\s+)?(?!title\s+\d+\b)"
-            r"[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+Act\b",
-            source_text,
-            flags=re.IGNORECASE,
+    named_acts = _named_act_references_for_section(section, source_text)
+    if not named_acts:
+        return False
+    if (
+        _title_qualified_reference_for_section(section, source_text)
+        and identifier is not None
+    ):
+        return any(
+            _identifier_mentions_named_act(identifier, named_act)
+            for named_act in named_acts
         )
-        or re.search(
-            r"\b[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+"
-            rf"Act\s+section\s+{re.escape(section)}(?:\([^)]+\))*\b",
-            source_text,
-            flags=re.IGNORECASE,
-        )
-    )
+    if _title_qualified_reference_for_section(section, source_text):
+        return False
+    return True
+
+
+def _named_act_references_for_section(section: str, source_text: str) -> list[str]:
+    """Return named acts cited with `section X` without a USC title."""
+    names: list[str] = []
+    for match in re.finditer(
+        rf"\bsection\s+{re.escape(section)}(?:\([^)]+\))*\s+of\s+"
+        r"(?:the\s+)?(?!title\s+\d+\b)"
+        r"(?P<act>[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+Act)\b",
+        source_text,
+    ):
+        names.append(match.group("act"))
+    for match in re.finditer(
+        r"\b(?P<act>[A-Z][A-Za-z0-9'&.-]*(?:\s+[A-Z][A-Za-z0-9'&.-]*){0,8}\s+Act)"
+        rf"\s+section\s+{re.escape(section)}(?:\([^)]+\))*\b",
+        source_text,
+    ):
+        names.append(match.group("act"))
+    return names
+
+
+def _identifier_mentions_named_act(identifier: str, named_act: str) -> bool:
+    identifier_tokens = set(re.findall(r"[a-z0-9]+", identifier.lower()))
+    act_tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+", named_act.lower())
+        if token not in {"a", "act", "an", "the", "of"}
+    ]
+    return bool(act_tokens) and all(token in identifier_tokens for token in act_tokens)
 
 
 def _is_exception_identifier(identifier: str) -> bool:
@@ -19141,7 +19171,9 @@ class ValidatorPipeline:
                     label = _normalize_identifier(match.group("label"))
                     section = match.group("section")
                     if _section_reference_to_named_act_without_title(
-                        section, source_text
+                        section,
+                        source_text,
+                        identifier=label,
                     ):
                         continue
                     target_title = (
@@ -19381,7 +19413,11 @@ class ValidatorPipeline:
                 continue
             break
         section = match.group("section")
-        if _section_reference_to_named_act_without_title(section, source_text):
+        if _section_reference_to_named_act_without_title(
+            section,
+            source_text,
+            identifier=identifier,
+        ):
             return None
         target_title = (
             _title_qualified_reference_for_section(section, source_text) or title
@@ -19445,7 +19481,11 @@ class ValidatorPipeline:
             and citation.lower() not in source_text.lower()
         ):
             return None
-        if _section_reference_to_named_act_without_title(section, source_text):
+        if _section_reference_to_named_act_without_title(
+            section,
+            source_text,
+            identifier=identifier,
+        ):
             return None
         target_title = (
             _title_qualified_reference_for_section(section, source_text) or title
