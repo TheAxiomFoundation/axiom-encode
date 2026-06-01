@@ -3692,6 +3692,9 @@ Test file rules:
 - Emit 1-4 cases unless a source-driven coverage rule below requires more. If
   `module.status` is `deferred` or `entity_not_supported`, the test file may be
   empty.
+- Never emit a concrete test case with `output: {{}}` or an empty `output` map.
+  If no executable output can be asserted, leave the test file empty instead of
+  adding placeholder cases.
 - The test file must contain YAML only; do not put prose or markdown fences in it.
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.

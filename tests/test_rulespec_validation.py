@@ -16382,6 +16382,38 @@ rules:
     assert issues == []
 
 
+def test_numeric_grounding_accepts_fpl_percentage_table_rate_values():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/form/cms/medicaid-chip-bhp-eligibility-levels
+rules:
+  - name: colorado_child_medicaid_fpl_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '1.42'
+  - name: colorado_chip_fpl_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2023-12-01'
+        formula: '2.60'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text=(
+            "All income standards are expressed as a percentage of the "
+            "federal poverty level (FPL). Colorado 142% 142% 142% 260% "
+            "195% 260% 68% 133%."
+        ),
+    )
+
+    assert issues == []
+
+
 def test_source_verification_accepts_transposed_table_values():
     content = """format: rulespec/v1
 module:

@@ -655,6 +655,9 @@ Hard requirements:
   at least once under an `output:` block in the companion `.test.yaml`; do not
   leave scalar parameters, helper parameters, or helper derived rules
   unasserted.
+- Never emit a concrete test case with `output: {}` or an empty `output` map.
+  If no executable output can be asserted, leave the test file empty instead of
+  adding placeholder cases.
 - Each `.test.yaml` case may assert derived outputs for only one entity type. If
   a module defines outputs on multiple entities, create separate cases for each
   entity pair, such as `Person`/`TaxUnit`, `Person`/`Employer`, or

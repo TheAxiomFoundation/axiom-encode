@@ -15266,6 +15266,34 @@ def cmd_encode(args):
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                removed_empty_output_cases = (
+                    _try_repair_generated_empty_test_outputs_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if removed_empty_output_cases:
+                    outcome["auto_repaired_empty_test_outputs"] = (
+                        removed_empty_output_cases
+                    )
+                    print(
+                        "  apply=auto_repaired_empty_test_outputs:"
+                        + ",".join(removed_empty_output_cases)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_input_field_accesses = (
                     _try_repair_generated_input_field_access_for_apply(
                         result,
@@ -18847,6 +18875,75 @@ def _try_repair_generated_unresolved_local_test_outputs_for_apply(
     )
 
 
+def _try_repair_generated_empty_test_outputs_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Remove placeholder generated test cases with empty output maps."""
+    case_names = _empty_test_output_case_names_from_issues(issues)
+    if not case_names:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    test_file = _rulespec_test_path(Path(str(getattr(result, "output_file", "") or "")))
+    return _remove_generated_empty_output_test_cases(
+        test_file=test_file,
+        case_names=case_names,
+    )
+
+
+def _empty_test_output_case_names_from_issues(issues: list[str]) -> set[str]:
+    names: set[str] = set()
+    for issue in issues:
+        match = _EMPTY_TEST_OUTPUT_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            names.add(match.group("case").strip())
+    return names
+
+
+def _remove_generated_empty_output_test_cases(
+    *,
+    test_file: Path,
+    case_names: set[str],
+) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(test_cases, list):
+        return []
+
+    removed: list[str] = []
+    repaired_cases: list[Any] = []
+    for index, case in enumerate(test_cases):
+        if not isinstance(case, dict):
+            repaired_cases.append(case)
+            continue
+        case_name = str(case.get("name") or f"case[{index}]")
+        if case_name not in case_names:
+            repaired_cases.append(case)
+            continue
+        outputs = case.get("output")
+        if isinstance(outputs, dict) and outputs:
+            repaired_cases.append(case)
+            continue
+        removed.append(case_name)
+
+    if not removed:
+        return []
+    test_file.write_text(
+        yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+    )
+    return removed
+
+
 def _unresolved_local_test_output_refs_from_issues(issues: list[str]) -> set[str]:
     refs: set[str] = set()
     for issue in issues:
@@ -18943,6 +19040,9 @@ _UNRELATED_SAME_SECTION_TERM_IMPORT_ISSUE_PATTERN = re.compile(
 )
 _UNRESOLVED_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
     r"Test case `[^`]+` output `([^`]+)` does not resolve"
+)
+_EMPTY_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
+    r"Test case `(?P<case>[^`]+)` output must be a mapping\."
 )
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
     r"Shared statutory rate name [^:]+: `([^`]+)`"

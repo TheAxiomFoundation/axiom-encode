@@ -93,6 +93,7 @@ from axiom_encode.cli import (
     _split_table_row_relation_test_cases,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _try_repair_generated_boolean_comparison_predicates_for_apply,
+    _try_repair_generated_empty_test_outputs_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
@@ -10590,6 +10591,58 @@ rules:
             {
                 "name": "tier_rates",
                 "output": {"us:statutes/26/3221#tier_1_applicable_percentage": 0.0765},
+            }
+        ]
+
+    def test_empty_output_test_repair_removes_placeholder_cases(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "openai-gpt-5.5"
+            / "forms/cms/medicaid-chip-bhp-eligibility-levels.yaml"
+        )
+        test_file = rules_file.with_name(
+            "medicaid-chip-bhp-eligibility-levels.test.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: alabama_selected_magi_fpl_rates
+  output: {}
+- name: colorado_selected_magi_fpl_rates
+  output:
+    us:forms/cms/medicaid-chip-bhp-eligibility-levels#children_medicaid_ages_0_1_fpl_rate: 1.42
+- name: new_york_selected_magi_fpl_rates
+  output: {}
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        removed = _try_repair_generated_empty_test_outputs_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "forms/cms/medicaid-chip-bhp-eligibility-levels.yaml: ci: "
+                "Test case `alabama_selected_magi_fpl_rates` output must be a mapping.",
+                "forms/cms/medicaid-chip-bhp-eligibility-levels.yaml: ci: "
+                "Test case `new_york_selected_magi_fpl_rates` output must be a mapping.",
+            ],
+        )
+
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert removed == [
+            "alabama_selected_magi_fpl_rates",
+            "new_york_selected_magi_fpl_rates",
+        ]
+        assert test_cases == [
+            {
+                "name": "colorado_selected_magi_fpl_rates",
+                "output": {
+                    "us:forms/cms/medicaid-chip-bhp-eligibility-levels#children_medicaid_ages_0_1_fpl_rate": 1.42
+                },
             }
         ]
 
