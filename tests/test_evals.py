@@ -147,6 +147,48 @@ def test_resolve_corpus_source_unit_accepts_form_citation_path(tmp_path):
     assert source_unit.body == "CMS Medicaid, CHIP, and BHP eligibility levels table"
 
 
+def test_resolve_corpus_source_unit_uses_form_child_blocks(tmp_path):
+    citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
+    corpus_path = tmp_path / "axiom-corpus"
+    provisions_dir = corpus_path / "data" / "corpus" / "provisions" / "us" / "form"
+    provisions_dir.mkdir(parents=True)
+    (provisions_dir / "test.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "citation_path": citation,
+                        "body": None,
+                        "heading": "Medicaid, CHIP, and BHP Eligibility Levels",
+                        "level": 1,
+                        "ordinal": 1,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "citation_path": f"{citation}/block-1",
+                        "body": "Colorado 142% 142% 142% 260% 195% 260% 68% 133%",
+                        "heading": "State Medicaid, CHIP and BHP Income Eligibility Standards",
+                        "level": 2,
+                        "ordinal": 1,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    source_unit = resolve_corpus_source_unit(citation, corpus_path)
+
+    assert source_unit.citation_path == citation
+    assert source_unit.source == "local"
+    assert (
+        "State Medicaid, CHIP and BHP Income Eligibility Standards" in source_unit.body
+    )
+    assert "Colorado 142% 142% 142% 260% 195% 260% 68% 133%" in source_unit.body
+
+
 def test_canonical_target_ref_prefix_handles_canonical_source_id():
     assert (
         _canonical_target_ref_prefix(
