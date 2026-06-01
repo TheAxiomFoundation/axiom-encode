@@ -61,6 +61,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_2072_tests,
     _repair_colorado_snap_program_tests,
     _repair_employer_scoped_entities,
+    _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
     _repair_generated_import_symbol_near_misses,
     _repair_generated_unused_imports_for_apply,
@@ -4670,6 +4671,93 @@ rules:
 
         assert repaired == []
         assert rules_file.read_text() == original
+
+    def test_repair_float_keyed_indexed_parameter_values(self, tmp_path):
+        rules_file = tmp_path / "aca.yaml"
+        test_file = tmp_path / "aca.test.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+- name: applicable_percentage_band
+  kind: derived
+  entity: TaxUnit
+  dtype: Decimal
+  period: Year
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if magi_fraction < 1.33: 0 else: if magi_fraction < 1.50: 1.33 else: if magi_fraction < 2.00: 1.50 else: 2.00'
+- name: applicable_initial_percentage_table
+  kind: parameter
+  dtype: Rate
+  indexed_by: applicable_percentage_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      0: 0.021
+      1.33: 0.0314
+      1.50: 0.0419
+      2.00: 0.066
+- name: applicable_final_percentage_table
+  kind: parameter
+  dtype: Rate
+  indexed_by: applicable_percentage_band
+  versions:
+  - effective_from: '2026-01-01'
+    values:
+      0: 0.021
+      1.33: 0.0419
+      1.50: 0.066
+      2.00: 0.0844
+"""
+        )
+        test_file.write_text(
+            """- name: mid_bracket
+  period: '2026'
+  input:
+    us:policies/irs/rev-proc-2025-25/aca-ptc#input.magi_fraction: 1.4
+  output:
+    us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band: 1.33
+    us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_initial_percentage_table: 0.0314
+"""
+        )
+
+        repaired = _repair_float_keyed_indexed_parameter_values(
+            rules_file,
+            test_file,
+        )
+
+        assert repaired == [
+            "applicable_initial_percentage_table",
+            "applicable_final_percentage_table",
+            "applicable_percentage_band",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        selector = payload["rules"][0]
+        assert selector["dtype"] == "Integer"
+        assert selector["versions"][0]["formula"] == (
+            "if magi_fraction < 1.33: 0 else: "
+            "if magi_fraction < 1.50: 1 else: "
+            "if magi_fraction < 2.00: 2 else: 3"
+        )
+        assert payload["rules"][1]["versions"][0]["values"] == {
+            0: 0.021,
+            1: 0.0314,
+            2: 0.0419,
+            3: 0.066,
+        }
+        assert payload["rules"][2]["versions"][0]["values"] == {
+            0: 0.021,
+            1: 0.0419,
+            2: 0.066,
+            3: 0.0844,
+        }
+        tests = yaml.safe_load(test_file.read_text())
+        assert (
+            tests[0]["output"][
+                "us:policies/irs/rev-proc-2025-25/aca-ptc#applicable_percentage_band"
+            ]
+            == 1
+        )
 
     def test_repair_bare_indexed_parameter_references(self, tmp_path):
         rules_file = tmp_path / "credit.yaml"

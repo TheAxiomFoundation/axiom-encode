@@ -19552,8 +19552,6 @@ def _try_repair_generated_indexed_parameter_values_for_apply(
     issues: list[str],
 ) -> list[str]:
     """Convert generated indexed parameter value tables into derived formulas."""
-    if not any("has no formula version" in str(issue) for issue in issues):
-        return []
     try:
         _relative_generated_output_path(result, output_root=output_root)
     except RuntimeError:
@@ -19561,6 +19559,19 @@ def _try_repair_generated_indexed_parameter_values_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
+    if any(
+        "floating point" in str(issue) and "expected i64" in str(issue)
+        for issue in issues
+    ):
+        repaired_float_keys = _repair_float_keyed_indexed_parameter_values(
+            rules_file,
+            test_file,
+        )
+        if repaired_float_keys:
+            return repaired_float_keys
+
+    if not any("has no formula version" in str(issue) for issue in issues):
+        return []
     return _convert_indexed_parameter_values_to_derived_formulas(rules_file, test_file)
 
 
@@ -19731,6 +19742,254 @@ def _convert_indexed_parameter_values_to_derived_formulas(
         return []
     rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
     return repaired
+
+
+def _repair_float_keyed_indexed_parameter_values(
+    rules_file: Path,
+    test_file: Path | None = None,
+) -> list[str]:
+    """Remap decimal indexed table keys to integer band ids.
+
+    RuleSpec indexed parameter maps are integer-keyed. LLM generations sometimes
+    reuse interval lower bounds (for example 1.33, 1.50, 2.00) as lookup keys.
+    Preserve the generated table shape by assigning stable integer row ids and
+    rewriting the selector output/tests to use those ids.
+    """
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    rule_by_name = {
+        str(rule.get("name") or ""): rule
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("name")
+    }
+    indexed_rules_by_selector: dict[str, list[dict[str, object]]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "parameter":
+            continue
+        indexed_by = str(rule.get("indexed_by") or "").strip()
+        if not indexed_by:
+            continue
+        if not _rule_has_non_integer_versioned_value_key(rule):
+            continue
+        indexed_rules_by_selector.setdefault(indexed_by, []).append(rule)
+
+    repaired: list[str] = []
+    selector_key_maps: dict[str, dict[float, int]] = {}
+    for indexed_by, parameter_rules in indexed_rules_by_selector.items():
+        key_map = _integer_band_ids_for_parameter_rules(parameter_rules)
+        if not key_map:
+            continue
+        index_rule = rule_by_name.get(indexed_by)
+        if not isinstance(index_rule, dict):
+            continue
+        changed = False
+        if index_rule.get("dtype") != "Integer":
+            index_rule["dtype"] = "Integer"
+            changed = True
+        if _rewrite_selector_rule_float_returns(index_rule, key_map):
+            changed = True
+        for parameter_rule in parameter_rules:
+            if _remap_versioned_values_to_integer_keys(parameter_rule, key_map):
+                changed = True
+                repaired.append(str(parameter_rule.get("name") or ""))
+        if changed:
+            repaired.append(indexed_by)
+            selector_key_maps[indexed_by] = key_map
+
+    repaired = list(dict.fromkeys(name for name in repaired if name))
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    if test_file is not None and selector_key_maps:
+        _repair_float_keyed_indexed_parameter_test_outputs(test_file, selector_key_maps)
+    return repaired
+
+
+def _rule_has_non_integer_versioned_value_key(rule: dict[str, object]) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        values = version.get("values")
+        if not isinstance(values, dict):
+            continue
+        for key in values:
+            numeric = _numeric_value_from_yaml(key)
+            if math.isfinite(numeric) and not numeric.is_integer():
+                return True
+    return False
+
+
+def _integer_band_ids_for_parameter_rules(
+    parameter_rules: list[dict[str, object]],
+) -> dict[float, int]:
+    numeric_keys: set[float] = set()
+    for rule in parameter_rules:
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            values = version.get("values")
+            if not isinstance(values, dict):
+                continue
+            for raw_key in values:
+                numeric = _numeric_value_from_yaml(raw_key)
+                if math.isfinite(numeric):
+                    numeric_keys.add(numeric)
+    if not numeric_keys or all(key.is_integer() for key in numeric_keys):
+        return {}
+    return {key: ordinal for ordinal, key in enumerate(sorted(numeric_keys))}
+
+
+def _remap_versioned_values_to_integer_keys(
+    rule: dict[str, object],
+    key_map: dict[float, int],
+) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    changed = False
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        values = version.get("values")
+        if not isinstance(values, dict):
+            continue
+        remapped: dict[object, object] = {}
+        version_changed = False
+        for raw_key, raw_value in values.items():
+            numeric = _numeric_value_from_yaml(raw_key)
+            replacement = key_map.get(numeric) if math.isfinite(numeric) else None
+            if replacement is None:
+                remapped[raw_key] = raw_value
+                continue
+            remapped[replacement] = raw_value
+            if replacement != raw_key:
+                version_changed = True
+        if version_changed:
+            version["values"] = remapped
+            changed = True
+    return changed
+
+
+def _rewrite_selector_rule_float_returns(
+    rule: dict[str, object],
+    key_map: dict[float, int],
+) -> bool:
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return False
+    changed = False
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if not isinstance(formula, str):
+            continue
+        updated = _replace_formula_return_literals_with_band_ids(formula, key_map)
+        if updated != formula:
+            version["formula"] = updated
+            changed = True
+    return changed
+
+
+def _replace_formula_return_literals_with_band_ids(
+    formula: str,
+    key_map: dict[float, int],
+) -> str:
+    literal_to_band: dict[str, int] = {}
+    for numeric_key, band_id in key_map.items():
+        for literal in _numeric_literal_variants(numeric_key):
+            literal_to_band[literal] = band_id
+    if not literal_to_band:
+        return formula
+    literal_pattern = "|".join(
+        re.escape(literal) for literal in sorted(literal_to_band, key=len, reverse=True)
+    )
+
+    def replace_inline(match: re.Match[str]) -> str:
+        value = match.group("value")
+        return (
+            match.group("prefix") + str(literal_to_band[value]) + match.group("suffix")
+        )
+
+    formula = re.sub(
+        rf"(?P<prefix>:\s*)(?P<value>{literal_pattern})(?P<suffix>\s+(?:else\b|$)|\s*$)",
+        replace_inline,
+        formula,
+        flags=re.MULTILINE,
+    )
+
+    def replace_standalone(match: re.Match[str]) -> str:
+        value = match.group("value")
+        return match.group("indent") + str(literal_to_band[value]) + match.group("tail")
+
+    return re.sub(
+        rf"(?P<indent>^[ \t]+)(?P<value>{literal_pattern})(?P<tail>[ \t]*(?:#.*)?$)",
+        replace_standalone,
+        formula,
+        flags=re.MULTILINE,
+    )
+
+
+def _numeric_literal_variants(value: float) -> set[str]:
+    variants = {f"{value:g}", f"{value:.1f}", f"{value:.2f}"}
+    if value.is_integer():
+        variants.add(str(int(value)))
+    return {variant for variant in variants if variant}
+
+
+def _repair_float_keyed_indexed_parameter_test_outputs(
+    test_file: Path,
+    selector_key_maps: dict[str, dict[float, int]],
+) -> bool:
+    if not test_file.exists():
+        return False
+    try:
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(cases, list):
+        return False
+    changed = False
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            continue
+        for output_ref, output_value in list(outputs.items()):
+            output_name = str(output_ref).rsplit("#", 1)[-1]
+            key_map = selector_key_maps.get(output_name)
+            if not key_map:
+                continue
+            numeric = _numeric_value_from_yaml(output_value)
+            if not math.isfinite(numeric):
+                continue
+            replacement = key_map.get(numeric)
+            if replacement is None or replacement == output_value:
+                continue
+            outputs[output_ref] = replacement
+            changed = True
+    if changed:
+        test_file.write_text(yaml.safe_dump(cases, sort_keys=False))
+    return changed
 
 
 def _formula_from_indexed_value_records(

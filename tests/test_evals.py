@@ -916,7 +916,9 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "do not create one scalar parameter per row, bound, or cell" in prompt
     assert "`*_lower_bound_band_9`" in prompt
     assert "`indexed_by: <band_selector>`" in prompt
-    assert "not strings such as `2_5_to_less_than_3_0`" in prompt
+    assert "integer band ids such as `0`, `1`, and `2`" in prompt
+    assert "do not use decimal row thresholds like `1.33`, `2.5`" in prompt
+    assert "or strings such as `2_5_to_less_than_3_0`" in prompt
     assert "Before finalizing, do this self-check:" in prompt
     assert "Numeric inventory: every source-stated legal amount" in prompt
     assert "exact imported parameter from\n     context" in prompt

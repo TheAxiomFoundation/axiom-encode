@@ -162,13 +162,15 @@ Hard requirements:
   `indexed_by: <band_selector>` and versioned `values`, and have the exported
   outputs look up the indexed table with `table_name[band_selector]`; do not
   use the table parameter bare as a scalar. Indexed table keys must be integer
-  or numeric keys supported by the RuleSpec engine, not strings such as
-  `2_5_to_less_than_3_0`. Use structural row bounds inline in the band selector;
-  do not promote those row labels to public parameter outputs. Preserve source
-  row identity: open lower or upper interval cells are real rows, not defaults
-  and not dropped rows. Omit the open side of the predicate; for example an
-  open-lower row ending at `2.5` is `if x < 2.5: <that row key>`, and an
-  open-upper row starting at `9.0` is the final row key for `x >= 9.0`.
+  band ids such as `0`, `1`, and `2`; do not use decimal row thresholds like
+  `1.33`, `2.5`, or strings such as `2_5_to_less_than_3_0` as lookup keys.
+  Use structural row bounds inline in the band selector, and have the selector
+  return integer band ids; do not promote those row labels to public parameter
+  outputs. Preserve source row identity: open lower or upper interval cells are
+  real rows, not defaults and not dropped rows. Omit the open side of the
+  predicate; for example an open-lower row ending at `2.5` is
+  `if x < 2.5: 0`, and an open-upper row starting at `9.0` is the final integer
+  row key for `x >= 9.0`.
 - For source-stated rate or percentage tables whose column header names a legal
   application such as "applicable percentage for section 3201(b)" or
   "applicable percentage for sections 3211(b) and 3221(b)", name the exported
