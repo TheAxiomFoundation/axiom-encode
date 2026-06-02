@@ -23368,6 +23368,55 @@ def _repair_upstream_placement_duplicate_imports(
     if not duplicate_targets_by_name:
         return []
 
+    target_base = (
+        f"{_repo_jurisdiction_prefix(repo_path)}:"
+        f"{_relative_rulespec_import_target(relative_output)}"
+    )
+    remaining_rules = [
+        rule for index, rule in enumerate(rules) if index not in duplicate_indexes
+    ]
+    if not any(_is_executable_rulespec_rule(rule) for rule in remaining_rules):
+        duplicate_sources_by_name = {
+            str(rule.get("name") or "").strip(): rule.get("source")
+            for index, rule in enumerate(rules)
+            if index in duplicate_indexes
+            and isinstance(rule, dict)
+            and str(rule.get("name") or "").strip()
+        }
+        existing_rule_names = {
+            str(rule.get("name") or "").strip()
+            for rule in remaining_rules
+            if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+        }
+        restatement_rules: list[dict[str, Any]] = []
+        for name, target in sorted(duplicate_targets_by_name.items()):
+            relation_name = f"{name}_restatement"
+            suffix = 2
+            while relation_name in existing_rule_names:
+                relation_name = f"{name}_restatement_{suffix}"
+                suffix += 1
+            existing_rule_names.add(relation_name)
+            restatement_rule: dict[str, Any] = {
+                "name": relation_name,
+                "kind": "source_relation",
+                "source_relation": {
+                    "type": "restates",
+                    "target": target,
+                },
+            }
+            source = duplicate_sources_by_name.get(name)
+            if isinstance(source, str) and source.strip():
+                restatement_rule["source"] = source.strip()
+            restatement_rules.append(restatement_rule)
+        rules_document["rules"] = [*remaining_rules, *restatement_rules]
+        rules_document.pop("imports", None)
+        rules_file.write_text(
+            yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+        )
+        if test_file.exists():
+            test_file.write_text("[]\n")
+        return sorted(duplicate_targets_by_name)
+
     imports = rules_document.get("imports")
     if not isinstance(imports, list):
         imports = []
@@ -23382,14 +23431,8 @@ def _repair_upstream_placement_duplicate_imports(
             imports.append(target)
             existing_imports.add(target)
 
-    rules_document["rules"] = [
-        rule for index, rule in enumerate(rules) if index not in duplicate_indexes
-    ]
+    rules_document["rules"] = remaining_rules
 
-    target_base = (
-        f"{_repo_jurisdiction_prefix(repo_path)}:"
-        f"{_relative_rulespec_import_target(relative_output)}"
-    )
     for rule in rules_document["rules"]:
         if not isinstance(rule, dict):
             continue
