@@ -1181,12 +1181,28 @@ def _source_citation_to_normalized_targets(
 
     targets: list[tuple[str, ...]] = []
     seen: set[tuple[str, ...]] = set()
+    previous_fragment_had_target = False
+    previous_raw_fragment: str | None = None
     for raw_fragment in _SOURCE_CITATION_SEPARATOR_RE.split(source):
         fragment_targets = _source_citation_fragment_to_normalized_targets(
             raw_fragment,
             default_title=current_title,
             default_section=current_section,
         )
+        if (
+            fragment_targets
+            and not previous_fragment_had_target
+            and targets
+            and _source_citation_fragment_is_bare_relative_table_label_tail(
+                raw_fragment,
+                previous_raw_fragment,
+            )
+        ):
+            previous_fragment_had_target = False
+            previous_raw_fragment = raw_fragment
+            continue
+        previous_fragment_had_target = bool(fragment_targets)
+        previous_raw_fragment = raw_fragment
         for target in fragment_targets:
             if len(target) >= 3:
                 current_title = target[1]
@@ -1196,6 +1212,32 @@ def _source_citation_to_normalized_targets(
             seen.add(target)
             targets.append(target)
     return tuple(targets)
+
+
+def _source_citation_fragment_is_bare_relative_table_label_tail(
+    fragment: str,
+    previous_fragment: str | None,
+) -> bool:
+    cleaned = _clean_source_citation_fragment(fragment)
+    if not cleaned:
+        return False
+    if _irc_source_fragment_to_usc_citation(cleaned) is not None:
+        return False
+    if re.match(r"^(?:§|section|subsection)\s+", cleaned, flags=re.IGNORECASE):
+        return False
+    if _looks_like_absolute_usc_source_fragment(cleaned):
+        return False
+    if previous_fragment is None:
+        return False
+    previous_cleaned = _clean_source_citation_fragment(previous_fragment)
+    return bool(
+        re.search(
+            r"^applicable\s+percentage\s+for\s+sections?\s+"
+            r"[0-9A-Za-z.-]+(?:\([^)]+\))*$",
+            previous_cleaned,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _source_citation_fragment_to_normalized_targets(

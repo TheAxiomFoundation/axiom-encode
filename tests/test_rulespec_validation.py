@@ -13825,6 +13825,32 @@ rules:
     ]
 
 
+def test_out_of_scope_rule_source_rejects_bare_sibling_requested_source():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: american_vessel_for_chapter
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 3306(m)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: vessel_documented
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 3306(k)",
+    )
+
+    assert len(issues) == 1
+    assert "`american_vessel_for_chapter` source `3306(m)`" in issues[0]
+
+
 def test_out_of_scope_rule_source_rejects_sibling_in_multicitation_source():
     content = """format: rulespec/v1
 rules:
@@ -13930,6 +13956,30 @@ rules:
 
     assert len(issues) == 1
     assert "`ctc_threshold` source `26 USC 24(b)(2), 24(h)(3)`" in issues[0]
+
+
+def test_out_of_scope_rule_source_rejects_bare_sibling_after_non_table_label():
+    content = """format: rulespec/v1
+rules:
+  - name: mixed_scope_rule
+    kind: parameter
+    dtype: Money
+    source: 26 USC 24(b), formula applies for section 3306(k) and 3306(m)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 400000
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 24(b)",
+    )
+
+    assert len(issues) == 1
+    assert (
+        "`mixed_scope_rule` source "
+        "`26 USC 24(b), formula applies for section 3306(k) and 3306(m)`"
+    ) in issues[0]
 
 
 def test_out_of_scope_rule_source_allows_parent_requested_multicitation_source():
@@ -14102,6 +14152,43 @@ rules:
         find_out_of_scope_rule_source_issues(
             content,
             requested_source="26 USC 3306(k)",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_allows_requested_table_header_references():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3241
+rules:
+  - name: applicable_percentage_for_sections_3211_b_and_3221_b_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    source: 26 USC 3241(b), tax rate schedule, Applicable percentage for sections 3211(b) and 3221(b)
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          1: 0.221
+          2: 0.181
+  - name: applicable_percentage_for_section_3201_b_by_ratio_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: average_account_benefits_ratio_band
+    source: 26 USC 3241(b), tax rate schedule, Applicable percentage for section 3201(b)
+    versions:
+      - effective_from: '1990-01-01'
+        values:
+          1: 0.049
+          2: 0.049
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="26 USC 3241(b)",
         )
         == []
     )
