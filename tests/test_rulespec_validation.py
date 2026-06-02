@@ -57,6 +57,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_missing_derived_companion_output_issues,
     find_missing_same_section_subsection_import_issues,
     find_nonnegative_amount_reduction_issues,
+    find_out_of_scope_rule_source_issues,
     find_partial_extent_zeroing_issues,
     find_person_scoped_definition_unit_issues,
     find_person_scoped_rate_base_unit_issues,
@@ -2338,6 +2339,16 @@ def test_policyengine_registry_is_legal_id_keyed():
     )
     assert research_payroll_credit_mapping.mapping_type == "not_comparable"
     assert research_payroll_credit_mapping.match_type == "prefix"
+    section_3306_k_mapping = registry.mapping_for_legal_id(
+        "us:statutes/26/3306/k#local_agricultural_labor",
+        country="us",
+    )
+    assert section_3306_k_mapping.mapping_type == "not_comparable"
+    assert section_3306_k_mapping.match_type == "prefix"
+    assert (
+        section_3306_k_mapping.policyengine_variable
+        == "taxable_earnings_for_federal_unemployment_tax"
+    )
     assert (
         registry.mapping_for_legal_id(
             "us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount",
@@ -13783,6 +13794,317 @@ rules: []
         "`us:statutes/us-ca/17000#general_assistance_eligibility` embeds a "
         "jurisdiction in the path; use the target jurisdiction prefix instead."
     ]
+
+
+def test_out_of_scope_rule_source_rejects_sibling_requested_source():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: american_vessel_for_chapter
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(m)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: vessel_documented
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 3306(k)",
+    )
+
+    assert issues == [
+        "`american_vessel_for_chapter` source `26 USC 3306(m)` is outside "
+        "requested source `26 USC 3306(k)`. Encode only the requested citation "
+        "subtree; defer or separately encode sibling provisions."
+    ]
+
+
+def test_out_of_scope_rule_source_rejects_sibling_in_multicitation_source():
+    content = """format: rulespec/v1
+rules:
+  - name: mixed_agricultural_and_vessel_rule
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(k), 26 USC 3306(m)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: farm_service or vessel_documented
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 3306(k)",
+    )
+
+    assert issues == [
+        "`mixed_agricultural_and_vessel_rule` source "
+        "`26 USC 3306(k), 26 USC 3306(m)` is outside requested source "
+        "`26 USC 3306(k)`. Encode only the requested citation subtree; "
+        "defer or separately encode sibling provisions."
+    ]
+
+
+def test_out_of_scope_rule_source_rejects_and_joined_sibling_source():
+    content = """format: rulespec/v1
+rules:
+  - name: mixed_agricultural_and_vessel_rule
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(k) and 26 USC 3306(m)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: farm_service or vessel_documented
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 3306(k)",
+    )
+
+    assert len(issues) == 1
+    assert (
+        "`mixed_agricultural_and_vessel_rule` source "
+        "`26 USC 3306(k) and 26 USC 3306(m)`"
+    ) in issues[0]
+
+
+@pytest.mark.parametrize(
+    "relative_fragment",
+    [
+        "§ 3306(m)",
+        "section 3306(m)",
+        "subsection (m)",
+    ],
+)
+def test_out_of_scope_rule_source_rejects_labeled_relative_sibling_source(
+    relative_fragment: str,
+):
+    content = f"""format: rulespec/v1
+rules:
+  - name: mixed_agricultural_and_vessel_rule
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 26 USC § 3306(k), {relative_fragment}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: farm_service or vessel_documented
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 3306(k)",
+    )
+
+    assert len(issues) == 1
+    assert "`mixed_agricultural_and_vessel_rule` source" in issues[0]
+
+
+def test_out_of_scope_rule_source_rejects_relative_multicitation_sibling():
+    content = """format: rulespec/v1
+rules:
+  - name: ctc_threshold
+    kind: parameter
+    dtype: Money
+    source: 26 USC 24(b)(2), 24(h)(3)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 400000
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 24(b)",
+    )
+
+    assert len(issues) == 1
+    assert "`ctc_threshold` source `26 USC 24(b)(2), 24(h)(3)`" in issues[0]
+
+
+def test_out_of_scope_rule_source_allows_parent_requested_multicitation_source():
+    content = """format: rulespec/v1
+rules:
+  - name: ctc_threshold
+    kind: parameter
+    dtype: Money
+    source: 26 USC 24(b)(2), 24(h)(3)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 400000
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="26 USC 24",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_allows_range_under_requested_source():
+    content = """format: rulespec/v1
+rules:
+  - name: additional_medicare_tax_rate
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3101(b)(2)(A)-(C)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.009
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="26 USC 3101(b)(2)",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_rejects_range_crossing_requested_source():
+    content = """format: rulespec/v1
+rules:
+  - name: agricultural_labor_range_rule
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(k)-(m)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: farm_service
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 3306(k)",
+    )
+
+    assert len(issues) == 1
+    assert "`agricultural_labor_range_rule` source `26 USC 3306(k)-(m)`" in issues[0]
+
+
+def test_out_of_scope_rule_source_rejects_irc_alias_sibling():
+    content = """format: rulespec/v1
+rules:
+  - name: gross_income_rule
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: IRC section 61
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income
+"""
+
+    issues = find_out_of_scope_rule_source_issues(
+        content,
+        requested_source="26 USC 63",
+    )
+
+    assert len(issues) == 1
+    assert "`gross_income_rule` source `IRC section 61`" in issues[0]
+
+
+def test_out_of_scope_rule_source_allows_irc_alias_requested_source():
+    content = """format: rulespec/v1
+rules:
+  - name: aged_additional_amount
+    kind: parameter
+    dtype: Money
+    source: IRC section 63(f)(3)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1950
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="IRC section 63(f)(3)",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_allows_internal_revenue_code_alias():
+    content = """format: rulespec/v1
+rules:
+  - name: aged_additional_amount
+    kind: parameter
+    dtype: Money
+    source: Internal Revenue Code section 63(f)(3)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 1950
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="26 USC 63(f)",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_ignores_non_executable_source_relation():
+    content = """format: rulespec/v1
+rules:
+  - name: vessel_source_relation
+    kind: source_relation
+    source: 26 USC 3306(m)
+    relation: defines
+    target: us:statutes/26/3306/m#american_vessel
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="26 USC 3306(k)",
+        )
+        == []
+    )
+
+
+def test_out_of_scope_rule_source_allows_requested_descendant():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: agricultural_labor_branch
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(k)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: farm_service
+"""
+
+    assert (
+        find_out_of_scope_rule_source_issues(
+            content,
+            requested_source="26 USC 3306(k)",
+        )
+        == []
+    )
 
 
 def test_source_subparagraph_coverage_rejects_high_signal_omission():

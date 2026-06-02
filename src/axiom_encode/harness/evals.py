@@ -1789,7 +1789,7 @@ def _slice_legal_text_by_parenthetical_fragment(
 ) -> str | None:
     escaped = re.escape(fragment)
     if top_level:
-        marker_pattern = re.compile(rf"(?:^|\n\s*)(\({escaped}\)\s+)")
+        marker_pattern = re.compile(rf"(?:^|\n\s*)(\[?\({escaped}\)\s+)")
     else:
         marker_pattern = re.compile(rf"(?<![A-Za-z0-9])(\({escaped}\)\s+)")
     marker_match = next(
@@ -1878,7 +1878,7 @@ def _sibling_parenthetical_marker_pattern(
     else:
         marker = r"\([A-Za-z0-9]+\)"
     if top_level:
-        return re.compile(rf"\n\s*({marker}\s+)")
+        return re.compile(rf"\n\s*(\[?{marker}\s+)")
     return re.compile(rf"(?<![A-Za-z0-9])({marker}\s+)")
 
 
