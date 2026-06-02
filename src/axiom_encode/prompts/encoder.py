@@ -94,6 +94,14 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   Add an aggregate rule only when the same source defines how those person
   amounts roll up to a tax unit, household, family, or other unit. Do not let
   the word "taxpayer" erase a source-stated individual/person subject.
+- In income, payroll, and benefit sources, wages, salaries, tips, employee
+  compensation, self-employment income, earned income, and similar earnings
+  components are normally person earnings unless the source expressly defines
+  them as a household, family, filing-unit, tax-unit, employer, or firm amount.
+  If a unit-level credit, deduction, tax, or benefit needs those earnings,
+  declare a role-scoped person-to-unit relation and aggregate the person
+  earnings through it; do not make the earnings component itself a unit input
+  merely because a downstream output is unit-scoped.
 - Phrases like "on the [base] of every individual/person/employee" identify
   the entity of the current amount, tax, credit, deduction, contribution, or
   limit. Encode the current result on the individual/person/employee first,

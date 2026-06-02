@@ -84,6 +84,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_tax_unit_person_contexts,
     remove_output_columns_already_in_raw,
     require_policyengine_versions,
+    section_32_c_2_filer_relation_for_rulespec,
     select_tax_unit_indices,
     taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
@@ -1255,6 +1256,137 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         ]
         is True
     )
+
+
+def test_build_eitc_request_can_omit_section_32_filer_relation():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "filing_status": "SINGLE",
+                    "adjusted_gross_income": 18_000,
+                    "short_term_capital_gains": 0,
+                    "long_term_capital_gains": 0,
+                    "non_sch_d_capital_gains": 0,
+                    "taxable_interest_income": 0,
+                    "tax_exempt_interest_income": 0,
+                    "ordinary_dividends": 0,
+                    "qualified_dividend_income": 0,
+                    "net_rental_income": 0,
+                    "royalty_income": 0,
+                    "estate_income": 0,
+                    "trust_income": 0,
+                    "farm_rent_income": 0,
+                    "partnership_s_corp_income": 0,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "person_tax_unit_id": 1,
+                    "age": 34,
+                    "ssn_card_type": "CITIZEN",
+                    "employment_income_before_lsr": 18_000,
+                    "self_employment_income_before_lsr": 0,
+                    "sstb_self_employment_income_before_lsr": 0,
+                }
+            ]
+        ),
+        "tax_unit_ids": [1],
+        "person_ids": [7],
+    }
+
+    request = build_eitc_request(
+        pe_data=pe_data,
+        year=2026,
+        contribution_base=184_500.0,
+        section_32_c_2_filer_relation=None,
+    )
+
+    relation_names = [relation["name"] for relation in request["dataset"]["relations"]]
+    assert (
+        f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit" not in relation_names
+    )
+    assert f"{EITC_BASE}#relation.qualifying_child_of_tax_unit" in relation_names
+
+
+def test_section_32_filer_relation_for_rulespec_discovers_declared_relation(
+    tmp_path,
+):
+    rulespec_root = tmp_path / "rulespec-us"
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: earned_income_filer_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: earned_income_filer_of_tax_unit
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(earned_income_filer_of_tax_unit, filer_earned_income, is_filer)
+"""
+    )
+
+    assert section_32_c_2_filer_relation_for_rulespec(rulespec_root) == (
+        f"{SECTION_32_C_2_BASE}#relation.earned_income_filer_of_tax_unit"
+    )
+
+
+def test_section_32_filer_relation_for_rulespec_returns_none_when_missing(
+    tmp_path,
+):
+    rulespec_root = tmp_path / "rulespec-us"
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages + self_employment_income
+"""
+    )
+
+    assert section_32_c_2_filer_relation_for_rulespec(rulespec_root) is None
+
+
+def test_section_32_filer_relation_for_rulespec_ignores_malformed_relation(
+    tmp_path,
+):
+    rulespec_root = tmp_path / "rulespec-us"
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: malformed_filer_relation
+    kind: data_relation
+    data_relation:
+      predicate: malformed_filer_relation
+      arity: many
+      arguments: Person
+"""
+    )
+
+    assert section_32_c_2_filer_relation_for_rulespec(rulespec_root) is None
 
 
 def test_build_capital_gain_definitions_request_uses_raw_person_capital_gains():

@@ -651,6 +651,7 @@ def compare_tax_ecps(
         person_variables=person_variables,
     )
     surface_results: dict[str, list[dict[str, Any]]] = {}
+    projection_notes: list[str] = []
     oasdi_wage_base_results: list[dict[str, Any]] | None = None
     contribution_base: float | None = None
     for selected_surface in surfaces:
@@ -713,13 +714,26 @@ def compare_tax_ecps(
                     rulespec_root=resolved_rulespec_root,
                     axiom_rules_path=resolved_axiom_rules_path,
                 )
+        section_32_c_2_filer_relation = (
+            section_32_c_2_filer_relation_for_rulespec(resolved_rulespec_root)
+            if selected_surface == "eitc"
+            else None
+        )
         request = build_axiom_request(
             pe_data=pe_data,
             year=year,
             surface=selected_surface,
             oasdi_wage_base_results=oasdi_wage_base_results,
             contribution_base=contribution_base,
+            section_32_c_2_filer_relation=section_32_c_2_filer_relation,
         )
+        if selected_surface == "eitc" and section_32_c_2_filer_relation is None:
+            projection_notes.append(
+                "The generated 26 USC 32(c)(2) RuleSpec does not declare a "
+                "person-to-tax-unit filer relation, so the EITC ECPS projection "
+                "runs the available tax-unit earnings surface instead of "
+                "supplying filer-level relation rows."
+            )
         surface_results[selected_surface] = run_axiom_program(
             program=program,
             request=request,
@@ -731,6 +745,7 @@ def compare_tax_ecps(
         axiom_outputs_by_surface=surface_results,
         tolerance=tolerance,
         relative_tolerance=relative_tolerance,
+        projection_notes=tuple(projection_notes),
     )
 
 
@@ -955,6 +970,9 @@ def build_axiom_request(
     surface: str = "ctc",
     oasdi_wage_base_results: list[dict[str, Any]] | None = None,
     contribution_base: float | None = None,
+    section_32_c_2_filer_relation: str | None = (
+        f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit"
+    ),
 ) -> dict[str, Any]:
     if surface == "ctc":
         return build_ctc_request(pe_data=pe_data, year=year)
@@ -971,6 +989,7 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
             contribution_base=contribution_base,
+            section_32_c_2_filer_relation=section_32_c_2_filer_relation,
         )
     if surface == "cdcc":
         return build_cdcc_request(pe_data=pe_data, year=year)
@@ -984,6 +1003,55 @@ def build_axiom_request(
             oasdi_wage_base_results=oasdi_wage_base_results,
         )
     raise ValueError(f"unsupported tax surface: {surface}")
+
+
+def section_32_c_2_filer_relation_for_rulespec(
+    rulespec_root: Path,
+) -> str | None:
+    """Return the generated 32(c)(2) person-to-tax-unit relation if declared."""
+
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    try:
+        payload = yaml.safe_load(target.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return None
+
+    fallback: str | None = None
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "data_relation":
+            continue
+        name = str(rule.get("name") or "").strip()
+        relation = rule.get("data_relation")
+        if not name or not isinstance(relation, dict):
+            continue
+        try:
+            arity = int(relation.get("arity") or 0)
+        except (TypeError, ValueError):
+            continue
+        if arity != 2:
+            continue
+        raw_arguments = relation.get("arguments")
+        if not isinstance(raw_arguments, (list, tuple)):
+            continue
+        arguments = tuple(str(arg).strip() for arg in raw_arguments)
+        if set(arguments) != {"Person", "TaxUnit"}:
+            continue
+        candidate = f"{SECTION_32_C_2_BASE}#relation.{name}"
+        normalized = name.lower()
+        if any(
+            token in normalized
+            for token in ("filer", "taxpayer", "spouse", "member", "individual")
+        ):
+            return candidate
+        fallback = fallback or candidate
+    return fallback
 
 
 def build_ctc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
@@ -1311,7 +1379,13 @@ def build_tax_before_credits_request(
 
 
 def build_eitc_request(
-    *, pe_data: dict[str, Any], year: int, contribution_base: float
+    *,
+    pe_data: dict[str, Any],
+    year: int,
+    contribution_base: float,
+    section_32_c_2_filer_relation: str | None = (
+        f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit"
+    ),
 ) -> dict[str, Any]:
     interval = {
         "period_kind": "tax_year",
@@ -1424,13 +1498,14 @@ def build_eitc_request(
                 }
             )
             if context.is_head or context.is_spouse:
-                relations.append(
-                    {
-                        "name": f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit",
-                        "tuple": [person_id, entity_id],
-                        "interval": interval,
-                    }
-                )
+                if section_32_c_2_filer_relation is not None:
+                    relations.append(
+                        {
+                            "name": section_32_c_2_filer_relation,
+                            "tuple": [person_id, entity_id],
+                            "interval": interval,
+                        }
+                    )
             for name, value in project_eitc_person_inputs(person, context).items():
                 inputs.append(
                     input_record(
@@ -2619,6 +2694,7 @@ def compare_outputs(
     axiom_outputs_by_surface: dict[str, list[dict[str, Any]]],
     tolerance: float,
     relative_tolerance: float,
+    projection_notes: tuple[str, ...] = (),
 ) -> TaxComparisonReport:
     mismatches: list[TaxComparisonRow] = []
     summary: dict[str, dict[str, Any]] = {
@@ -2692,6 +2768,7 @@ def compare_outputs(
         mismatches=mismatches,
         output_summary=list(summary.values()),
         projection_notes=[
+            *projection_notes,
             "Current CTC projection uses ECPS raw tax-unit membership, age, "
             "student status, separation status, and SSN-card type to reconstruct "
             "the structural Section 152 facts needed by 26 USC 24.",
