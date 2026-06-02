@@ -908,6 +908,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "do not assume one upstream raw input equals that imported output" in prompt
     assert "For IRC section 151 repairs" not in prompt
     assert "named numeric concept" in prompt
+    assert "1 / benefit_cost_rate_compensation_lookback_years" in prompt
+    assert "`1 / 5`" in prompt
     assert "if the source is a multi-state or\n  multi-jurisdiction table" in prompt
     assert "Do not invent a fake `State` entity" in prompt
     assert "do not create one scalar parameter per row, bound, or cell" in prompt
