@@ -4645,6 +4645,38 @@ rules:
     )
 
 
+def test_policyengine_coverage_classifies_3306_i_employee_definition(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/i.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: employee
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: officer_of_corporation or common_law_employee_status
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us:statutes/26/3306/i#employee"
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] == (
+        "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3307_deduction_payment_treatment(
     tmp_path,
 ):
