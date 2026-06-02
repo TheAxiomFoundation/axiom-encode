@@ -14989,6 +14989,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(i) defines the FUTA employee predicate by reference to section 3121(d) with specific paragraph exclusions; PolicyEngine exposes final FUTA taxable earnings, not this employee-definition predicate separately.
 
+  - legal_id_prefix: us:statutes/26/3306/j#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(j) defines chapter 23 jurisdiction, American-employer, and Puerto Rico or Virgin Islands citizenship predicates; PolicyEngine exposes final FUTA taxable earnings, not these definitional predicates separately.
+
   - legal_id_prefix: us:statutes/26/3307#
     country: us
     program: tax
