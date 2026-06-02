@@ -1,0 +1,1 @@
+Fixed source slicing and validation so subsection encodes stop before bracketed repealed sibling markers and reject executable rules sourced to sibling provisions of the requested citation; also classified section 3306(k) agricultural-labor outputs as known-not-comparable PolicyEngine oracle surfaces.

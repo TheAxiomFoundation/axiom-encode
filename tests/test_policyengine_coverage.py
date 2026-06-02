@@ -4715,6 +4715,44 @@ rules:
     }
 
 
+def test_policyengine_coverage_classifies_3306_k_agricultural_labor(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/k.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: chapter_group_operator_unmanufactured_commodity_handling_service
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: service_for_group_of_farm_operators and group_produced_more_than_half
+  - name: local_agricultural_labor
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: section_3121_g_agricultural_labor or chapter_group_operator_unmanufactured_commodity_handling_service
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {
+        "taxable_earnings_for_federal_unemployment_tax"
+    }
+
+
 def test_policyengine_coverage_classifies_3307_deduction_payment_treatment(
     tmp_path,
 ):

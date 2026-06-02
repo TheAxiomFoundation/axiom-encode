@@ -147,6 +147,46 @@ def test_resolve_corpus_source_unit_accepts_form_citation_path(tmp_path):
     assert source_unit.body == "CMS Medicaid, CHIP, and BHP eligibility levels table"
 
 
+def test_resolve_corpus_source_unit_slices_before_bracketed_sibling(tmp_path):
+    corpus_path = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us/statute/26/3306",
+        body=(
+            "(k) Agricultural labor For purposes of this chapter, the term "
+            "agricultural labor has the meaning assigned by section 3121(g).\n\n"
+            "[(l) Repealed. Sept. 1, 1954.]\n\n"
+            "(m) American vessel and aircraft For purposes of this chapter, "
+            "the term American vessel means a documented vessel."
+        ),
+    )
+
+    source_unit = resolve_corpus_source_unit("26 USC 3306(k)", corpus_path)
+
+    assert source_unit.citation_path == "us/statute/26/3306"
+    assert source_unit.body.startswith("(k) Agricultural labor")
+    assert "[(l) Repealed" not in source_unit.body
+    assert "(m) American vessel" not in source_unit.body
+
+
+def test_resolve_corpus_source_unit_slices_bracketed_repealed_subsection(tmp_path):
+    corpus_path = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us/statute/26/3306",
+        body=(
+            "(k) Agricultural labor For purposes of this chapter, the term "
+            "agricultural labor has the meaning assigned by section 3121(g).\n\n"
+            "[(l) Repealed. Sept. 1, 1954.]\n\n"
+            "(m) American vessel and aircraft For purposes of this chapter, "
+            "the term American vessel means a documented vessel."
+        ),
+    )
+
+    source_unit = resolve_corpus_source_unit("26 USC 3306(l)", corpus_path)
+
+    assert source_unit.citation_path == "us/statute/26/3306"
+    assert source_unit.body == "[(l) Repealed. Sept. 1, 1954.]"
+
+
 def test_resolve_corpus_source_unit_uses_form_child_blocks(tmp_path):
     citation = "us/form/cms/medicaid-chip-bhp-eligibility-levels"
     corpus_path = tmp_path / "axiom-corpus"

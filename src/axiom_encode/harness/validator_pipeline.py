@@ -1134,6 +1134,233 @@ def _citation_to_normalized_target(citation: str) -> tuple[str, ...] | None:
     return tuple(p.lower() for p in pieces if p)
 
 
+_SOURCE_CITATION_SEPARATOR_RE = re.compile(
+    r"\s*(?:,|;|\b(?:and|or)\b)\s*",
+    flags=re.IGNORECASE,
+)
+_USC_ABBREVIATION_RE = re.compile(
+    r"(?<![A-Za-z])U\.?\s*S\.?\s*C\.?(?![A-Za-z])",
+    flags=re.IGNORECASE,
+)
+_IRC_ABBREVIATION_RE = re.compile(
+    r"(?<![A-Za-z])I\.?\s*R\.?\s*C\.?(?![A-Za-z])",
+    flags=re.IGNORECASE,
+)
+_SOURCE_CITATION_RANGE_SUFFIX_RE = re.compile(
+    r"(?<=\))\s*(?:-|through)\s*(?P<endpoint>(?:\([^)]+\))+)\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_citation_to_normalized_targets(
+    source: str,
+    *,
+    context_source: str | None = None,
+) -> tuple[tuple[str, ...], ...]:
+    """Parse one RuleSpec source field into normalized citation targets.
+
+    Rule sources commonly cite multiple provisions in one string and omit the
+    USC title after the first citation, e.g. ``26 USC 24(b)(2), 24(h)(3)``.
+    """
+    context_targets = (
+        _source_citation_fragment_to_normalized_targets(
+            context_source,
+            default_title=None,
+            default_section=None,
+        )
+        if context_source
+        else ()
+    )
+    context_target = context_targets[0] if context_targets else None
+    current_title = (
+        context_target[1] if context_target and len(context_target) >= 3 else None
+    )
+    current_section = (
+        context_target[2] if context_target and len(context_target) >= 3 else None
+    )
+
+    targets: list[tuple[str, ...]] = []
+    seen: set[tuple[str, ...]] = set()
+    for raw_fragment in _SOURCE_CITATION_SEPARATOR_RE.split(source):
+        fragment_targets = _source_citation_fragment_to_normalized_targets(
+            raw_fragment,
+            default_title=current_title,
+            default_section=current_section,
+        )
+        for target in fragment_targets:
+            if len(target) >= 3:
+                current_title = target[1]
+                current_section = target[2]
+            if target in seen:
+                continue
+            seen.add(target)
+            targets.append(target)
+    return tuple(targets)
+
+
+def _source_citation_fragment_to_normalized_targets(
+    fragment: str,
+    *,
+    default_title: str | None,
+    default_section: str | None,
+) -> tuple[tuple[str, ...], ...]:
+    cleaned = _clean_source_citation_fragment(fragment)
+    if not cleaned:
+        return ()
+
+    range_match = _SOURCE_CITATION_RANGE_SUFFIX_RE.search(cleaned)
+    if not range_match:
+        target = _single_source_citation_fragment_to_normalized_target(
+            cleaned,
+            default_title=default_title,
+            default_section=default_section,
+        )
+        return (target,) if target is not None else ()
+
+    start_fragment = _SOURCE_CITATION_RANGE_SUFFIX_RE.sub("", cleaned).strip()
+    start_target = _single_source_citation_fragment_to_normalized_target(
+        start_fragment,
+        default_title=default_title,
+        default_section=default_section,
+    )
+    if start_target is None:
+        return ()
+    endpoint_target = _range_endpoint_normalized_target(
+        start_target,
+        range_match.group("endpoint"),
+    )
+    if endpoint_target is None or endpoint_target == start_target:
+        return (start_target,)
+    return (start_target, endpoint_target)
+
+
+def _single_source_citation_fragment_to_normalized_target(
+    fragment: str,
+    *,
+    default_title: str | None,
+    default_section: str | None,
+) -> tuple[str, ...] | None:
+    irc_citation = _irc_source_fragment_to_usc_citation(fragment)
+    if irc_citation is not None:
+        return _citation_to_normalized_target(irc_citation)
+
+    if _looks_like_absolute_usc_source_fragment(fragment):
+        target = _citation_to_normalized_target(fragment)
+        if target is not None:
+            return target
+
+    relative_citation = _relative_source_fragment_to_usc_citation(
+        fragment,
+        default_title=default_title,
+        default_section=default_section,
+    )
+    if relative_citation is not None:
+        return _citation_to_normalized_target(relative_citation)
+    return None
+
+
+def _looks_like_absolute_usc_source_fragment(fragment: str) -> bool:
+    return bool(
+        re.match(
+            r"^(?:us:statutes?/|us/statutes?/|statutes?/|\d+\s+USC\b)",
+            fragment,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _range_endpoint_normalized_target(
+    start_target: tuple[str, ...],
+    endpoint: str,
+) -> tuple[str, ...] | None:
+    endpoint_fragments = tuple(
+        fragment.lower() for fragment in re.findall(r"\(([^)]+)\)", endpoint)
+    )
+    if not endpoint_fragments or len(start_target) <= 3:
+        return None
+    prefix_length = len(start_target) - len(endpoint_fragments)
+    if prefix_length < 3:
+        return None
+    return start_target[:prefix_length] + endpoint_fragments
+
+
+def _clean_source_citation_fragment(fragment: str) -> str:
+    cleaned = fragment.strip()
+    cleaned = re.sub(r"^(?:and|or)\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.rstrip(".")
+    cleaned = _USC_ABBREVIATION_RE.sub("USC", cleaned)
+    cleaned = _IRC_ABBREVIATION_RE.sub("IRC", cleaned)
+    return cleaned.strip()
+
+
+def _irc_source_fragment_to_usc_citation(fragment: str) -> str | None:
+    match = re.match(
+        r"^IRC\s*(?:section|sec\.?|§)?\s*"
+        r"(?P<section>[0-9A-Za-z.-]+)(?P<tail>(?:\([^)]+\))*)$",
+        fragment,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return f"26 USC {match.group('section')}{match.group('tail')}"
+
+    match = re.match(
+        r"^(?:the\s+)?Internal\s+Revenue\s+Code\s+"
+        r"(?:section|sec\.?|§)\s*"
+        r"(?P<section>[0-9A-Za-z.-]+)(?P<tail>(?:\([^)]+\))*)$",
+        fragment,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return f"26 USC {match.group('section')}{match.group('tail')}"
+
+    match = re.match(
+        r"^section\s+(?P<section>[0-9A-Za-z.-]+)"
+        r"(?P<tail>(?:\([^)]+\))*)\s+of\s+(?:the\s+)?"
+        r"(?:Internal\s+Revenue\s+Code|IRC)$",
+        fragment,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return f"26 USC {match.group('section')}{match.group('tail')}"
+    return None
+
+
+def _relative_source_fragment_to_usc_citation(
+    fragment: str,
+    *,
+    default_title: str | None,
+    default_section: str | None,
+) -> str | None:
+    if not default_title:
+        return None
+    fragment = re.sub(
+        r"^(?:§|section)\s+",
+        "",
+        fragment,
+        flags=re.IGNORECASE,
+    ).strip()
+    fragment = re.sub(
+        r"^subsection\s+",
+        "",
+        fragment,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    match = re.match(
+        r"^(?P<section>[0-9A-Za-z.-]+)(?P<tail>(?:\([^)]+\))*)$",
+        fragment,
+    )
+    if match:
+        return f"{default_title} USC {match.group('section')}{match.group('tail')}"
+
+    if not default_section:
+        return None
+    match = re.match(r"^(?P<tail>(?:\([^)]+\))+)$", fragment)
+    if match:
+        return f"{default_title} USC {default_section}{match.group('tail')}"
+    return None
+
+
 def _source_metadata_sets_target_symbol(
     source_metadata: dict[str, object] | None, symbol_name: str
 ) -> bool:
@@ -7813,6 +8040,62 @@ def find_source_subparagraph_coverage_issues(
             f"`source: {citation}` or add a deferred_outputs entry naming the blocker."
         )
     return issues
+
+
+def find_out_of_scope_rule_source_issues(
+    content: str,
+    *,
+    requested_source: str | None,
+) -> list[str]:
+    """Flag executable rules sourced to sibling provisions of the encode target."""
+    if not requested_source:
+        return []
+    requested_targets = _source_citation_to_normalized_targets(requested_source)
+    requested_target = requested_targets[0] if requested_targets else None
+    if requested_target is None or len(requested_target) < 3:
+        return []
+
+    payload = _rulespec_payload(content)
+    if payload is None or payload.get("format") != "rulespec/v1":
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+
+    issues: list[str] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        if not _is_executable_rulespec_rule(rule):
+            continue
+        source = rule.get("source")
+        if not isinstance(source, str) or not source.strip():
+            continue
+        source_targets = _source_citation_to_normalized_targets(
+            source,
+            context_source=requested_source,
+        )
+        if not source_targets:
+            continue
+        if all(
+            _normalized_target_within(source_target, requested_target)
+            for source_target in source_targets
+        ):
+            continue
+        name = str(rule.get("name") or f"rules[{index}]")
+        issues.append(
+            f"`{name}` source `{source.strip()}` is outside requested source "
+            f"`{requested_source}`. Encode only the requested citation subtree; "
+            "defer or separately encode sibling provisions."
+        )
+    return issues
+
+
+def _normalized_target_within(
+    candidate: tuple[str, ...],
+    anchor: tuple[str, ...],
+) -> bool:
+    return candidate == anchor or candidate[: len(anchor)] == anchor
 
 
 def _empty_deferred_editorial_source_slice(
@@ -18082,6 +18365,12 @@ class ValidatorPipeline:
                     self.policy_repo_path,
                 )
             )
+        issues.extend(
+            find_out_of_scope_rule_source_issues(
+                content,
+                requested_source=requested_source,
+            )
+        )
         issues.extend(
             find_source_subparagraph_coverage_issues(
                 content,
