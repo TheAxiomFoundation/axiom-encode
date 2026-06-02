@@ -14973,6 +14973,14 @@ prefixes:
     candidate_priority: P4
     rationale: Section 3306(g) defines payment-level State-law unemployment fund contributions for chapter 23 credit calculations; PolicyEngine exposes final employer FUTA tax, not these State contribution amounts separately.
 
+  - legal_id_prefix: us:statutes/26/3306/h#
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: taxable_earnings_for_federal_unemployment_tax
+    candidate_priority: P4
+    rationale: Section 3306(h) defines payment-level unemployment compensation benefits for chapter 23 unemployment-fund administration; PolicyEngine exposes final FUTA taxable earnings, not these unemployment-benefit payment predicates separately.
+
   - legal_id_prefix: us:statutes/26/3307#
     country: us
     program: tax
