@@ -868,6 +868,10 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
         in prompt
     )
     assert "rate-applied result at that lower entity" in prompt
+    assert "keep the result executable by exposing a\n  local boundary input" in prompt
+    assert "such as `wages`" in prompt
+    assert 'contextual qualifiers such as\n  "received by"' in prompt
+    assert "do not fold them into the boundary input name" in prompt
     assert "Treat legal subject nouns as stronger evidence" in prompt
     assert "use `entity: Person` for the current source's own amount" in prompt
     assert "thresholded, capped, base-limited" in prompt
