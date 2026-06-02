@@ -45,6 +45,16 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   definition is currently encoded at a filing-unit, tax-unit, household, or
   other unit boundary. Only add a unit-level roll-up when this source text
   itself states that aggregate.
+- If the only unavailable dependency for that lower-entity rate-applied result
+  is the value of a named legal base, keep the result executable by exposing a
+  local boundary input for that base instead of deferring the tax, credit,
+  deduction, contribution, or amount. Name the boundary input after the concise
+  legal base term used by the source when one exists, such as `wages`, rather
+  than expanding it into the whole surrounding phrase. Parenthetical
+  definitions, recipient/payment verbs, and contextual qualifiers such as
+  "received by", "paid by", or "with respect to" usually describe how the base
+  is used; do not fold them into the boundary input name when the source has a
+  shorter legal base noun.
 - Treat legal subject nouns as stronger evidence than nearby repository
   context. When the source says "households in which all members",
   "households with a member", or another household/unit-level condition stated
