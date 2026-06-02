@@ -82,6 +82,8 @@ EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
 EITC_BASE = "us:statutes/26/32"
 CDCC_PROGRAM_PATH = Path("statutes/26/21.yaml")
 CDCC_BASE = "us:statutes/26/21"
+AOTC_PROGRAM_PATH = Path("statutes/26/25A.yaml")
+AOTC_BASE = "us:statutes/26/25A"
 SECTION_112_BASE = "us:statutes/26/112"
 SECTION_32_C_2_BASE = "us:statutes/26/32/c/2"
 SECTION_152_C_BASE = "us:statutes/26/152/c"
@@ -310,6 +312,24 @@ CDCC_OUTPUTS = {
         "pe": "cdcc",
     },
 }
+AOTC_OUTPUTS = {
+    "american_opportunity_credit": {
+        "axiom": f"{AOTC_BASE}#american_opportunity_credit",
+        "pe": "american_opportunity_credit",
+    },
+    "refundable_american_opportunity_credit": {
+        "axiom": f"{AOTC_BASE}#refundable_american_opportunity_credit",
+        "pe": "refundable_american_opportunity_credit",
+    },
+    "non_refundable_american_opportunity_credit": {
+        "axiom": f"{AOTC_BASE}#non_refundable_american_opportunity_credit",
+        "pe": "non_refundable_american_opportunity_credit",
+    },
+    "education_tax_credits": {
+        "axiom": f"{AOTC_BASE}#education_tax_credits",
+        "pe": "education_tax_credits",
+    },
+}
 SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
@@ -317,6 +337,7 @@ SURFACE_OUTPUTS = {
     "tax-before-credits": TAX_BEFORE_CREDITS_OUTPUTS,
     "eitc": EITC_OUTPUTS,
     "cdcc": CDCC_OUTPUTS,
+    "aotc": AOTC_OUTPUTS,
     **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
 SURFACE_PROGRAM_PATHS = {
@@ -326,6 +347,7 @@ SURFACE_PROGRAM_PATHS = {
     "tax-before-credits": TAX_BEFORE_CREDITS_PROGRAM_PATH,
     "eitc": EITC_PROGRAM_PATH,
     "cdcc": CDCC_PROGRAM_PATH,
+    "aotc": AOTC_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
 PE_TAX_UNIT_VARIABLES = tuple(
@@ -334,6 +356,7 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "additional_standard_deduction",
             "adjusted_gross_income",
             "adjusted_net_capital_gain",
+            "american_opportunity_credit",
             "basic_standard_deduction",
             "cdcc",
             "cdcc_credit_limit",
@@ -358,10 +381,14 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "eitc_phase_out_start",
             "eitc_phased_in",
             "eitc_reduction",
+            "education_tax_credits",
             "filing_status",
+            "foreign_tax_credit",
             "income_tax_before_credits",
             "min_head_spouse_earned",
             "net_capital_gain",
+            "non_refundable_american_opportunity_credit",
+            "refundable_american_opportunity_credit",
             "income_tax_main_rates",
             "standard_deduction",
             "tax_unit_childcare_expenses",
@@ -376,12 +403,21 @@ PE_PERSON_VARIABLES = tuple(
             "employee_social_security_tax",
             "employer_medicare_tax",
             "employer_social_security_tax",
+            "attends_eligible_educational_institution_for_american_opportunity_credit",
+            "american_opportunity_credit_claimed_prior_years",
+            "educational_assistance",
             "irs_employment_income",
+            "has_american_opportunity_credit_1098_t_or_exception",
+            "has_american_opportunity_credit_institution_ein",
+            "has_completed_first_four_years_of_postsecondary_education",
             "is_incapable_of_self_care",
+            "is_enrolled_at_least_half_time_for_american_opportunity_credit",
+            "is_pursuing_credential_for_american_opportunity_credit",
             "is_tax_unit_head",
             "is_tax_unit_head_or_spouse",
             "is_tax_unit_spouse",
             "payroll_tax_gross_wages",
+            "qualified_tuition_expenses",
         }
     )
 )
@@ -753,6 +789,11 @@ def load_policyengine_tax_data(
         tax_unit_ids=tax_unit_ids,
     )
     selected = raw_tax_units.iloc[indices].copy()
+    tax_unit_outputs = remove_output_columns_already_in_raw(
+        raw=selected,
+        outputs=tax_unit_outputs,
+        key="tax_unit_id",
+    )
     selected = selected.merge(
         tax_unit_outputs,
         on="tax_unit_id",
@@ -763,6 +804,11 @@ def load_policyengine_tax_data(
     selected_persons = raw_persons[
         raw_persons["person_tax_unit_id"].astype(int).isin(selected_ids)
     ].copy()
+    person_outputs = remove_output_columns_already_in_raw(
+        raw=selected_persons,
+        outputs=person_outputs,
+        key="person_id",
+    )
     selected_persons = selected_persons.merge(
         person_outputs,
         on="person_id",
@@ -775,6 +821,20 @@ def load_policyengine_tax_data(
         "tax_unit_ids": [int(value) for value in selected["tax_unit_id"]],
         "person_ids": [int(value) for value in selected_persons["person_id"]],
     }
+
+
+def remove_output_columns_already_in_raw(*, raw: Any, outputs: Any, key: str) -> Any:
+    """Avoid pandas suffixing when dataset inputs already contain a PE variable.
+
+    Newer ECPS data releases can store source variables that the harness also
+    requests through `extra_variables`. Those columns are already present in the
+    raw table, so keep the raw copy and merge only genuinely new outputs.
+    """
+
+    duplicate_columns = set(raw.columns).intersection(outputs.columns) - {key}
+    if not duplicate_columns:
+        return outputs
+    return outputs.drop(columns=sorted(duplicate_columns))
 
 
 def policyengine_variables_for_surfaces(
@@ -914,6 +974,8 @@ def build_axiom_request(
         )
     if surface == "cdcc":
         return build_cdcc_request(pe_data=pe_data, year=year)
+    if surface == "aotc":
+        return build_aotc_request(pe_data=pe_data, year=year)
     if surface in PAYROLL_SURFACES:
         return build_payroll_request(
             pe_data=pe_data,
@@ -1043,6 +1105,58 @@ def build_cdcc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
                 "entity_id": tax_entity_id(tax_unit_id),
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in CDCC_OUTPUTS.values()],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_aotc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        contexts = project_tax_unit_person_contexts(tax_unit_persons)
+        for name, value in project_aotc_tax_unit_inputs(row=row).items():
+            inputs.append(
+                input_record(f"{AOTC_BASE}#input.{name}", entity_id, interval, value)
+            )
+
+        for person_index, (person, context) in enumerate(
+            zip(tax_unit_persons, contexts, strict=True)
+        ):
+            person_id = f"{entity_id}_person_{person_index}"
+            relations.append(
+                {
+                    "name": f"{AOTC_BASE}#relation.education_credit_member_of_tax_unit",
+                    "tuple": [person_id, entity_id],
+                    "interval": interval,
+                }
+            )
+            for name, value in project_aotc_person_inputs(person, context).items():
+                inputs.append(
+                    input_record(
+                        f"{AOTC_BASE}#input.{name}", person_id, interval, value
+                    )
+                )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in AOTC_OUTPUTS.values()],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
         ],
@@ -1755,6 +1869,74 @@ def project_cdcc_person_inputs(
     }
 
 
+def project_aotc_tax_unit_inputs(*, row: Any) -> dict[str, Any]:
+    return {
+        "filing_status": filing_status_code(str(row["filing_status"])),
+        "modified_adjusted_gross_income": money(row["adjusted_gross_income"]),
+        "is_nonresident_alien": False,
+        "section_6013_resident_alien_election": False,
+        "taxpayer_is_section_1_g_child": False,
+        "income_tax_before_credits": money(row["income_tax_before_credits"]),
+        "foreign_tax_credit": money(row.get("foreign_tax_credit", 0)),
+        "cdcc": money(row.get("cdcc", 0)),
+    }
+
+
+def project_aotc_person_inputs(
+    person: Any,
+    context: PersonProjectionContext,
+) -> dict[str, Any]:
+    return {
+        "qualified_tuition_and_related_expenses": money(
+            person.get("qualified_tuition_expenses", 0)
+        ),
+        "excludable_educational_assistance": money(
+            person.get("educational_assistance", 0)
+        ),
+        "is_taxpayer": context.is_head,
+        "is_spouse": context.is_spouse,
+        "is_tax_unit_dependent": context.is_tax_unit_dependent,
+        "meets_higher_education_act_student_requirements": (
+            bool_value(
+                person.get(
+                    "is_pursuing_credential_for_american_opportunity_credit",
+                    False,
+                )
+            )
+            and bool_value(
+                person.get(
+                    "attends_eligible_educational_institution_for_american_opportunity_credit",
+                    False,
+                )
+            )
+        ),
+        "at_least_half_time_student": bool_value(
+            person.get(
+                "is_enrolled_at_least_half_time_for_american_opportunity_credit", False
+            )
+        ),
+        "aotc_prior_year_election_count": int(
+            money(person.get("american_opportunity_credit_claimed_prior_years", 0))
+        ),
+        "completed_first_four_years_postsecondary_before_year": bool_value(
+            person.get(
+                "has_completed_first_four_years_of_postsecondary_education", False
+            )
+        ),
+        "has_felony_drug_conviction": False,
+        "aotc_election_in_effect": True,
+        "education_credit_identification_requirements_met": context.has_valid_child_ssn,
+        "institution_employer_identification_number_included": bool_value(
+            person.get("has_american_opportunity_credit_institution_ein", False)
+        ),
+        "payee_statement_received": bool_value(
+            person.get("has_american_opportunity_credit_1098_t_or_exception", False)
+        ),
+        "aotc_disallowance_period_applies": False,
+        "education_credit_election_in_effect": False,
+    }
+
+
 def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
     filing_status = str(row["filing_status"])
     filing_status_numeric = filing_status_code(filing_status)
@@ -2437,6 +2619,12 @@ def compare_outputs(
             "Childcare expenses, the minimum head/spouse earned-income cap, and "
             "the available nonrefundable-credit limit remain explicit upstream "
             "boundary inputs until those federal tax chains are encoded "
+            "end-to-end.",
+            "AOTC projections run encoded 26 USC 25A math from ECPS tuition, "
+            "educational-assistance, enrollment, credential, institution, "
+            "prior-claim, and SSN-card facts. Income tax before credits, CDCC, "
+            "and foreign tax credit remain explicit upstream boundary inputs "
+            "until the full federal credit-ordering chain is encoded "
             "end-to-end.",
         ],
     )
