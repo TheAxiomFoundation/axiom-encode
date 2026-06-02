@@ -4390,6 +4390,12 @@ RuleSpec requirements:
 - Do not invent `dtype: String` variables just to restate the effective date.
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
 - Do not create public outputs for structural table row labels, household-size row indexes, or branch numbers. When those labels are source-stated numeric bounds or grid cells, keep them as private named numeric concepts or indexed table/grid values; consuming formulas should reference names rather than embedding the policy literal.
+- If a source-stated scalar is needed to compute another local scalar, reference
+  the named scalar concept instead of repeating its literal value in a formula.
+  For example, if the source states a five-year period and a one-fifth fraction,
+  encode the period as `benefit_cost_rate_compensation_lookback_years = 5` and
+  the fraction as `1 / benefit_cost_rate_compensation_lookback_years`, not
+  `1 / 5`.
 - In a state-specific RuleSpec repository, if the source is a multi-state or
   multi-jurisdiction table, encode only the row(s) for the target repository's
   jurisdiction. Do not invent a fake `State` entity, row-index input, or

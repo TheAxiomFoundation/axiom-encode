@@ -149,6 +149,12 @@ Hard requirements:
   it fits the local schema, but the invariant is the named concept: consuming
   formulas reference that name, so the concept can later change from a direct
   scalar to a computed formula without rewriting every consumer.
+- If a source-stated scalar is needed to compute another local scalar, reference
+  the named scalar concept instead of repeating its literal value in a formula.
+  For example, if the source states a five-year period and a one-fifth fraction,
+  encode the period as `benefit_cost_rate_compensation_lookback_years = 5` and
+  the fraction as `1 / benefit_cost_rate_compensation_lookback_years`, not
+  `1 / 5`.
 - Use `kind: parameter` with `indexed_by` and versioned `values` for source-stated
   numeric tables/scales keyed by household size, family size, income band,
   age band, or another row key. Do not encode those cells as `match` arms or
