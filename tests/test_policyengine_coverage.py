@@ -4613,6 +4613,38 @@ rules:
     assert item["policyengine_variable"] == "employer_federal_unemployment_tax"
 
 
+def test_policyengine_coverage_classifies_3306_h_compensation(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3306/h.yaml",
+        """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: compensation
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: payment_is_cash_benefit
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == "us:statutes/26/3306/h#compensation"
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] == (
+        "taxable_earnings_for_federal_unemployment_tax"
+    )
+
+
 def test_policyengine_coverage_classifies_3307_deduction_payment_treatment(
     tmp_path,
 ):
