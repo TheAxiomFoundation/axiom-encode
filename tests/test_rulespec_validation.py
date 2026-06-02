@@ -14242,6 +14242,32 @@ rules:
     )
 
 
+def test_source_subparagraph_coverage_allows_source_relation_citing_child():
+    source_text = """Definitions
+(m) American vessel and aircraft For purposes of this chapter, the term American vessel means any vessel documented or numbered under the laws of the United States; and the term American aircraft means an aircraft registered under the laws of the United States.
+"""
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/3306
+rules:
+  - name: american_vessel_restatement
+    kind: source_relation
+    source: 26 USC 3306(m)
+    source_relation:
+      type: restates
+      target: us:statutes/26/3121/f#american_vessel
+"""
+
+    assert (
+        find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={"us/statute/26/3306": source_text},
+        )
+        == []
+    )
+
+
 def test_source_subparagraph_coverage_rejects_sibling_omission_for_top_level_rule():
     source_text = """Definitions
 (a) Benefit means the amount payable under this program.

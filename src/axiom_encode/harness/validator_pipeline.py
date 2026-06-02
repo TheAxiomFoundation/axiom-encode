@@ -8024,6 +8024,9 @@ def find_source_subparagraph_coverage_issues(
 
     covered_children = _rule_source_covered_subparagraphs(payload, citation_path)
     covered_children.update(
+        _source_relation_covered_subparagraphs(payload, citation_path)
+    )
+    covered_children.update(
         _deferred_output_covered_subparagraphs(payload, citation_path)
     )
 
@@ -8170,6 +8173,37 @@ def _rule_source_subparagraph_paths(
     for _name, _kind, _formula, source, _rule in _rulespec_rule_formula_rule_records(
         payload
     ):
+        if isinstance(source, str):
+            paths.update(_source_citation_subparagraph_paths(source, citation_path))
+    return paths
+
+
+def _source_relation_covered_subparagraphs(
+    payload: dict[str, Any],
+    citation_path: str,
+) -> set[tuple[str, ...]]:
+    return {
+        _top_level_subparagraph_path(path)
+        for path in _source_relation_subparagraph_paths(payload, citation_path)
+        if path
+    }
+
+
+def _source_relation_subparagraph_paths(
+    payload: dict[str, Any],
+    citation_path: str,
+) -> set[tuple[str, ...]]:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+
+    paths: set[tuple[str, ...]] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "source_relation":
+            continue
+        source = rule.get("source")
         if isinstance(source, str):
             paths.update(_source_citation_subparagraph_paths(source, citation_path))
     return paths

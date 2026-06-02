@@ -10432,6 +10432,112 @@ rules:
         assert proof_import["hash"] == f"sha256:{_sha256_file(upstream_file)}"
         assert test_cases[0]["output"] == {"us:statutes/26/3306/d#pay_period": "holds"}
 
+    def test_upstream_placement_duplicate_repair_restates_duplicate_only_module(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us"
+        upstream_file = policy_repo / "statutes/26/3121/f.yaml"
+        rules_file = policy_repo / "statutes/26/3306/m.yaml"
+        test_file = policy_repo / "statutes/26/3306/m.test.yaml"
+        upstream_file.parent.mkdir(parents=True)
+        rules_file.parent.mkdir(parents=True)
+        upstream_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3121/base#asset_rule_applies
+rules:
+  - name: american_vessel
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: asset_rule_applies and asset_is_vessel and vessel_documented_or_numbered_under_laws_of_united_states
+  - name: american_aircraft
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: asset_rule_applies and asset_is_aircraft and aircraft_registered_under_laws_of_united_states
+"""
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/3121/base#asset_rule_applies
+module:
+  proof_validation:
+    required: true
+rules:
+  - name: american_vessel
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(m)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: asset_rule_applies and asset_is_vessel and vessel_documented_or_numbered_under_laws_of_united_states
+  - name: american_aircraft
+    kind: derived
+    entity: Asset
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3306(m)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: asset_rule_applies and asset_is_aircraft and aircraft_registered_under_laws_of_united_states
+"""
+        )
+        test_file.write_text(
+            """- name: vessel_case
+  period: 2026
+  input:
+    us:statutes/26/3306/m#input.asset_is_vessel: true
+    us:statutes/26/3306/m#input.vessel_documented_or_numbered_under_laws_of_united_states: true
+    us:statutes/26/3306/m#input.asset_is_aircraft: false
+    us:statutes/26/3306/m#input.aircraft_registered_under_laws_of_united_states: false
+  output:
+    us:statutes/26/3306/m#american_vessel: holds
+    us:statutes/26/3306/m#american_aircraft: not_holds
+"""
+        )
+
+        repaired = _repair_upstream_placement_duplicate_imports(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            relative_output=Path("statutes/26/3306/m.yaml"),
+        )
+
+        rules_payload = yaml.safe_load(rules_file.read_text())
+        assert repaired == ["american_aircraft", "american_vessel"]
+        assert "imports" not in rules_payload
+        assert rules_payload["rules"] == [
+            {
+                "name": "american_aircraft_restatement",
+                "kind": "source_relation",
+                "source": "26 USC 3306(m)",
+                "source_relation": {
+                    "type": "restates",
+                    "target": "us:statutes/26/3121/f#american_aircraft",
+                },
+            },
+            {
+                "name": "american_vessel_restatement",
+                "kind": "source_relation",
+                "source": "26 USC 3306(m)",
+                "source_relation": {
+                    "type": "restates",
+                    "target": "us:statutes/26/3121/f#american_vessel",
+                },
+            },
+        ]
+        assert yaml.safe_load(test_file.read_text()) == []
+
     def test_missing_deferred_output_repair_adds_definition_target(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "statutes/26/3306/e.yaml"
