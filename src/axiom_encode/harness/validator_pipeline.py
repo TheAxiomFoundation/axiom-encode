@@ -6921,11 +6921,11 @@ _TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
     r"\b(?:applicable\s+taxpayer|taxpayers?)\b[\s\S]{0,240}\b"
     r"(?:household\s+income|family\s+size|joint\s+return|fil(?:e|es|ing)\s+"
     r"(?:a\s+)?joint\s+return|spouse|dependents?|premium\s+assistance\s+"
-    r"credit|credit\s+allowed|taxable\s+year)\b"
+    r"credit|credit\s+allowed)\b"
     r"|"
     r"\b(?:household\s+income|family\s+size|joint\s+return|fil(?:e|es|ing)\s+"
     r"(?:a\s+)?joint\s+return|spouse|dependents?|premium\s+assistance\s+"
-    r"credit|credit\s+allowed|taxable\s+year)\b[\s\S]{0,240}\b"
+    r"credit|credit\s+allowed)\b[\s\S]{0,240}\b"
     r"(?:applicable\s+taxpayer|taxpayers?)\b",
     flags=re.IGNORECASE,
 )
@@ -7305,9 +7305,7 @@ def find_person_scoped_rate_base_unit_issues(content: str) -> list[str]:
     payload = _rulespec_payload(content)
     if payload is None:
         return []
-    source_text = extract_embedded_source_text(content)
-    if not source_text:
-        source_text = _extract_source_verification_text(content)
+    source_text = _scope_validation_source_text(content)
     if not source_text:
         return []
 
@@ -7329,10 +7327,15 @@ def find_person_scoped_rate_base_unit_issues(content: str) -> list[str]:
             continue
         if dtype_by_name.get(name) not in {"money", "decimal", "rate"}:
             continue
-        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
-        if not scoped_source_text:
-            scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
-        if not _PERSON_SCOPED_RATE_BASE_SOURCE_PATTERN.search(scoped_source_text):
+        scoped_source_texts = _scope_candidate_source_texts(
+            rule,
+            source_text=source_text,
+            rule_source=rule_source,
+        )
+        if not any(
+            _PERSON_SCOPED_RATE_BASE_SOURCE_PATTERN.search(scoped_source_text)
+            for scoped_source_text in scoped_source_texts
+        ):
             continue
         if _formula_or_referenced_helpers_use_relation_aggregate(
             formula,
@@ -7356,6 +7359,16 @@ _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN = re.compile(
     r"[\s\S]{0,180}\bderived\s+by\s+(?:an?|the|such)\s+"
     r"(?:individual|person|employee|member)\b"
     r"|"
+    r"\bnet\s+earnings?\s+from\s+self-employment\b[\s\S]{0,180}"
+    r"\bderived\s+by\s+(?:an?|the|such)\s+"
+    r"(?:individual|person|employee|member)\b"
+    r"|"
+    r"\bgross\s+income\b[\s\S]{0,220}\bderived\s+by\s+"
+    r"(?:an?|the|such)\s+(?:individual|person|employee|member)\b"
+    r"|"
+    r"\bgross\s+income\b[\s\S]{0,120}\bfrom\s+"
+    r"(?:an?\s+)?(?:individual|person|employee|member)'?s?\b"
+    r"|"
     r"\bnet\s+earnings?\b[\s\S]{0,220}\bwages\s+paid\s+to\s+"
     r"(?:an?|the|such)\s+(?:individual|person|employee|member)\b"
     r"|"
@@ -7371,9 +7384,7 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
     payload = _rulespec_payload(content)
     if payload is None:
         return []
-    source_text = extract_embedded_source_text(content)
-    if not source_text:
-        source_text = _extract_source_verification_text(content)
+    source_text = _scope_validation_source_text(content)
     if not source_text:
         return []
 
@@ -7383,17 +7394,25 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
         for name, kind, formula, _source, _rule in formula_records
         if kind == "derived"
     }
+    dtype_by_name = _rulespec_rule_dtype_by_name(payload)
     issues: list[str] = []
     for name, kind, formula, rule_source, rule in formula_records:
         if kind != "derived":
             continue
+        if dtype_by_name.get(name) == "rate":
+            continue
         entity = str(rule.get("entity") or "").strip()
         if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
             continue
-        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
-        if not scoped_source_text:
-            scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
-        if not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(scoped_source_text):
+        scoped_source_texts = _scope_candidate_source_texts(
+            rule,
+            source_text=source_text,
+            rule_source=rule_source,
+        )
+        if not any(
+            _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(scoped_source_text)
+            for scoped_source_text in scoped_source_texts
+        ):
             continue
         if _formula_or_referenced_helpers_use_relation_aggregate(
             formula,
@@ -7410,6 +7429,56 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
             "roll-up."
         )
     return issues
+
+
+def _scope_validation_source_text(content: str) -> str:
+    """Return authoritative source text for entity-scope validation.
+
+    Entity-scope checks need the legal source language, not only the model's
+    human-readable summary. Prefer corpus-backed `source_verification` text and
+    use the summary only for synthetic tests or local artifacts without a corpus
+    source.
+    """
+    return _extract_source_verification_text(content) or extract_embedded_source_text(
+        content
+    )
+
+
+_SCOPE_PARENT_SOURCE_MODIFIER_PATTERN = re.compile(
+    r"\b(?:"
+    r"before|"
+    r"without\s+regard\s+to|"
+    r"determined\s+without\s+regard\s+to|"
+    r"after"
+    r")\s+"
+    r"(?:paragraph|subparagraph|subsection|clause)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _scope_candidate_source_texts(
+    rule: dict[str, Any],
+    *,
+    source_text: str,
+    rule_source: Any,
+) -> tuple[str, ...]:
+    proof_text = " ".join(_rule_proof_source_excerpts(rule)).strip()
+    rule_source_text = _source_text_for_rule_source(source_text, rule_source).strip()
+    candidates: list[str] = []
+    for candidate in (proof_text, rule_source_text):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    if isinstance(rule_source, str) and _SCOPE_PARENT_SOURCE_MODIFIER_PATTERN.search(
+        rule_source
+    ):
+        parent_source = rule_source.split(",", 1)[0].strip()
+        parent_source_text = _source_text_for_rule_source(
+            source_text,
+            parent_source,
+        ).strip()
+        if parent_source_text and parent_source_text not in candidates:
+            candidates.append(parent_source_text)
+    return tuple(candidates)
 
 
 def find_employer_scoped_entity_issues(content: str) -> list[str]:
@@ -14268,25 +14337,178 @@ def _identifier_phrase_occurs(term: str, identifier: str) -> bool:
     return f"_{normalized_term}_" in f"_{normalized_identifier}_"
 
 
+_LIMITED_RATE_MECHANIC_TOKENS = frozenset(
+    {
+        "threshold",
+        "excess",
+        "cap",
+        "capped",
+        "ceiling",
+        "limit",
+        "limited",
+        "above",
+        "below",
+    }
+)
+
+_RATE_AFFINITY_STOPWORDS = frozenset(
+    {
+        "amount",
+        "amounts",
+        "base",
+        "employee",
+        "employer",
+        "employment",
+        "for",
+        "income",
+        "insurance",
+        "of",
+        "rate",
+        "rates",
+        "self",
+        "tax",
+        "taxable",
+        "taxes",
+        "the",
+        "wage",
+        "wages",
+    }
+)
+
+_USC_CITATION_RE = re.compile(
+    r"\b(?P<title>[0-9]+)\s+USC\s+"
+    r"(?P<section>[0-9][A-Za-z0-9.-]*)"
+    r"(?P<children>(?:\([A-Za-z0-9]+\))*)",
+    flags=re.IGNORECASE,
+)
+
+
+def _rulespec_rule_text(rule: dict[str, Any]) -> str:
+    """Return text for a single RuleSpec rule, not the whole imported file."""
+    with contextlib.suppress(yaml.YAMLError, ValueError):
+        return yaml.safe_dump(rule, sort_keys=False)
+    return str(rule)
+
+
+def _rulespec_rule_source_paths(rule: dict[str, Any]) -> set[tuple[str, ...]]:
+    """Extract normalized USC source paths from a RuleSpec rule."""
+    source_texts: list[str] = []
+    source = rule.get("source")
+    if isinstance(source, str):
+        source_texts.append(source)
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        for atom in atoms:
+            if not isinstance(atom, dict):
+                continue
+            atom_source = atom.get("source")
+            if not isinstance(atom_source, dict):
+                continue
+            span = atom_source.get("span")
+            if isinstance(span, str):
+                source_texts.append(span)
+
+    paths: set[tuple[str, ...]] = set()
+    for text in source_texts:
+        for match in _USC_CITATION_RE.finditer(text):
+            children = tuple(
+                child.lower()
+                for child in re.findall(r"\(([A-Za-z0-9]+)\)", match.group("children"))
+            )
+            paths.add(
+                (
+                    match.group("title").lower(),
+                    match.group("section").lower(),
+                    *children,
+                )
+            )
+    return paths
+
+
+def _source_paths_same_or_nested(
+    current_paths: set[tuple[str, ...]],
+    candidate_paths: set[tuple[str, ...]],
+) -> bool:
+    """Return whether two source path sets refer to the same or nested branch."""
+    if not current_paths or not candidate_paths:
+        return True
+    for current in current_paths:
+        for candidate in candidate_paths:
+            min_length = min(len(current), len(candidate))
+            if current[:min_length] == candidate[:min_length]:
+                return True
+    return False
+
+
+def _limited_rate_mechanics_tokens(text: str) -> set[str]:
+    """Return limited-rate mechanics mentioned by text."""
+    normalized = _normalize_identifier(text)
+    delimited = f"_{normalized}_"
+    return {
+        token for token in _LIMITED_RATE_MECHANIC_TOKENS if f"_{token}_" in delimited
+    }
+
+
+def _rate_affinity_tokens(text: str) -> set[str]:
+    """Return high-signal tokens for matching a rate to sibling mechanics."""
+    return {
+        token
+        for token in _normalize_identifier(text).split("_")
+        if token and token not in _RATE_AFFINITY_STOPWORDS
+    }
+
+
 def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
-    """Return whether an imported rate file also encodes limited rate mechanics."""
+    """Return whether an imported rate symbol carries limited-rate mechanics.
+
+    The check is symbol-scoped. A parent file can contain both flat rates and
+    unrelated thresholded rates; importing the flat symbol should not inherit the
+    threshold mechanics of a sibling rule from a different statutory branch.
+    """
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        payload = None
+    if isinstance(payload, dict) and isinstance(payload.get("rules"), list):
+        imported_rule = next(
+            (
+                rule
+                for rule in payload["rules"]
+                if isinstance(rule, dict)
+                and str(rule.get("name") or "").strip() == rate_name
+            ),
+            None,
+        )
+        if imported_rule is None:
+            return False
+
+        imported_rule_text = _rulespec_rule_text(imported_rule)
+        if _limited_rate_mechanics_tokens(imported_rule_text):
+            return True
+
+        imported_source_paths = _rulespec_rule_source_paths(imported_rule)
+        rate_tokens = _rate_affinity_tokens(rate_name)
+        for rule in payload["rules"]:
+            if not isinstance(rule, dict) or rule is imported_rule:
+                continue
+            rule_text = _rulespec_rule_text(rule)
+            if not _limited_rate_mechanics_tokens(rule_text):
+                continue
+            if not _source_paths_same_or_nested(
+                imported_source_paths,
+                _rulespec_rule_source_paths(rule),
+            ):
+                continue
+            sibling_name = str(rule.get("name") or "")
+            if len(rate_tokens & _rate_affinity_tokens(sibling_name)) >= 2:
+                return True
+        return False
+
     if rate_name not in _formula_local_identifiers(content):
         return False
-    normalized = _normalize_identifier(content)
-    return any(
-        token in normalized
-        for token in (
-            "threshold",
-            "excess",
-            "cap",
-            "capped",
-            "ceiling",
-            "limit",
-            "limited",
-            "above",
-            "below",
-        )
-    )
+    return bool(_limited_rate_mechanics_tokens(content))
 
 
 def _formula_preserves_thresholded_rate_mechanics(formula: str) -> bool:

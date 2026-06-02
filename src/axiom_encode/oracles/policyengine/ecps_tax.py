@@ -1441,6 +1441,48 @@ def build_eitc_request(
                         value,
                     )
                 )
+            if context.is_head or context.is_spouse:
+                for name, value in project_section_1402_a_person_inputs(
+                    person=person
+                ).items():
+                    inputs.append(
+                        input_record(
+                            f"{SECTION_1402_A_BASE}#input.{name}",
+                            person_id,
+                            interval,
+                            value,
+                        )
+                    )
+                for name, value in project_section_1402_b_person_inputs(
+                    person=person,
+                    contribution_base=contribution_base,
+                ).items():
+                    inputs.append(
+                        input_record(
+                            f"{SECTION_1402_B_BASE}#input.{name}",
+                            person_id,
+                            interval,
+                            value,
+                        )
+                    )
+                for name, value in project_section_164_f_person_inputs().items():
+                    inputs.append(
+                        input_record(
+                            f"{SECTION_164_F_BASE}#input.{name}",
+                            person_id,
+                            interval,
+                            value,
+                        )
+                    )
+                for name, value in project_section_1401_person_inputs(row=row).items():
+                    inputs.append(
+                        input_record(
+                            f"{SECTION_1401_BASE}#input.{name}",
+                            person_id,
+                            interval,
+                            value,
+                        )
+                    )
 
     return {
         "mode": "explain",
@@ -2033,28 +2075,45 @@ def project_section_1402_a_tax_unit_inputs(
     persons: list[Any],
     contexts: list[PersonProjectionContext],
 ) -> dict[str, Any]:
-    self_employment_income = sum(
-        money(person.get("self_employment_income_before_lsr", 0))
-        + money(person.get("sstb_self_employment_income_before_lsr", 0))
-        + money(person.get("farm_operations_income", 0))
+    person_inputs = [
+        project_section_1402_a_person_inputs(person=person)
         for person, context in zip(persons, contexts, strict=True)
         if context.is_head or context.is_spouse
-    )
-    partnership_self_employment_income = sum(
-        money(person.get("partnership_se_income", 0))
-        for person, context in zip(persons, contexts, strict=True)
-        if context.is_head or context.is_spouse
-    )
+    ]
     return {
-        "self_employment_trade_or_business_gross_income": self_employment_income,
+        "self_employment_trade_or_business_gross_income": sum(
+            projected["self_employment_trade_or_business_gross_income"]
+            for projected in person_inputs
+        ),
         "self_employment_trade_or_business_deductions": 0,
         "partnership_section_702_a_8_income_or_loss": (
-            partnership_self_employment_income
+            sum(
+                projected["partnership_section_702_a_8_income_or_loss"]
+                for projected in person_inputs
+            )
+        ),
+    }
+
+
+def project_section_1402_a_person_inputs(*, person: Any) -> dict[str, Any]:
+    return {
+        "self_employment_trade_or_business_gross_income": (
+            money(person.get("self_employment_income_before_lsr", 0))
+            + money(person.get("sstb_self_employment_income_before_lsr", 0))
+            + money(person.get("farm_operations_income", 0))
+        ),
+        "self_employment_trade_or_business_deductions": 0,
+        "partnership_section_702_a_8_income_or_loss": money(
+            person.get("partnership_se_income", 0)
         ),
     }
 
 
 def project_section_164_f_tax_unit_inputs() -> dict[str, Any]:
+    return project_section_164_f_person_inputs()
+
+
+def project_section_164_f_person_inputs() -> dict[str, Any]:
     return {"taxpayer_is_individual": True}
 
 
@@ -2070,13 +2129,29 @@ def project_section_1402_b_tax_unit_inputs(
         if context.is_head or context.is_spouse
     )
     return {
+        **project_section_1402_b_person_inputs(
+            person={},
+            contribution_base=contribution_base,
+        ),
+        "wages_paid_to_individual_for_section_1401_a": money(wages_paid),
+    }
+
+
+def project_section_1402_b_person_inputs(
+    *,
+    person: Any,
+    contribution_base: float,
+) -> dict[str, Any]:
+    return {
         "individual_is_nonresident_alien": False,
         "social_security_agreement_under_section_233_applies_to_nonresident_alien": False,
         "individual_is_noncitizen_territory_resident": False,
         "contribution_and_benefit_base_under_section_230_of_social_security_act": (
             contribution_base
         ),
-        "wages_paid_to_individual_for_section_1401_a": money(wages_paid),
+        "wages_paid_to_individual_for_section_1401_a": money(
+            project_fica_wages(person)
+        ),
     }
 
 
@@ -2086,6 +2161,10 @@ def project_section_1401_tax_unit_inputs(
     persons: list[Any],
     contexts: list[PersonProjectionContext],
 ) -> dict[str, Any]:
+    return project_section_1401_person_inputs(row=row)
+
+
+def project_section_1401_person_inputs(*, row: Any) -> dict[str, Any]:
     return {
         "international_social_security_agreement_under_section_233_in_effect": False,
         "filing_status": filing_status_code(str(row["filing_status"])),

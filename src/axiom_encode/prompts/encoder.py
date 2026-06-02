@@ -55,6 +55,19 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   "received by", "paid by", or "with respect to" usually describe how the base
   is used; do not fold them into the boundary input name when the source has a
   shorter legal base noun.
+- If a source defines a directly computable core amount and then lists
+  exclusions, special methods, or cross-referenced adjustments whose mechanics
+  are unavailable, keep the core executable with source-named boundary inputs
+  and document the omitted mechanics as deferred companion outputs or explicit
+  local adjustment inputs. Do not replace an existing executable public output
+  with `module.status: deferred` merely because every statutory exception is not
+  yet modeled; defer only the specific unavailable adjustment or downstream
+  mechanics that cannot be represented without inventing facts.
+- When an entire optional method, special method, or sibling adjustment is
+  deferred, do not create local parameters solely to populate that deferred
+  output's `source_values`. Parameters should exist only when they are used by
+  an executable rule in the requested source slice, or when the requested source
+  directly exports the parameter as its own public output.
 - Treat legal subject nouns as stronger evidence than nearby repository
   context. When the source says "households in which all members",
   "households with a member", or another household/unit-level condition stated
@@ -504,6 +517,12 @@ Hard requirements:
   input such as `tier_1_applicable_percentage`. Import the upstream output when
   it exists; otherwise defer the affected output and name the cited legal
   dependency in `reason`.
+  When the source identifies a subset of cited rates, subsections, paragraphs,
+  or clauses, import the narrowest existing outputs matching that subset. If the
+  source says to determine the rate without regard to a cited paragraph, do not
+  import a broader parent output that includes or depends on the disregarded
+  paragraph; import the included child rate outputs separately, or defer until
+  those child outputs exist.
   Before applying any imported rate to the current source's whole base, check
   whether the cited source makes that rate thresholded, capped, base-limited, or
   part of an amount formula that applies only above or below a specified amount.

@@ -69,9 +69,13 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_section_32_c_2_tax_unit_inputs,
     project_section_112_tax_unit_inputs,
     project_section_152_c_person_inputs,
+    project_section_164_f_person_inputs,
     project_section_164_f_tax_unit_inputs,
+    project_section_1401_person_inputs,
     project_section_1401_tax_unit_inputs,
+    project_section_1402_a_person_inputs,
     project_section_1402_a_tax_unit_inputs,
+    project_section_1402_b_person_inputs,
     project_section_1402_b_tax_unit_inputs,
     project_section_7703_tax_unit_inputs,
     project_standard_deduction_inputs,
@@ -877,7 +881,20 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "self_employment_trade_or_business_deductions": 0,
         "partnership_section_702_a_8_income_or_loss": 400,
     }
+    assert project_section_1402_a_person_inputs(person=persons[0]) == {
+        "self_employment_trade_or_business_gross_income": 2_800,
+        "self_employment_trade_or_business_deductions": 0,
+        "partnership_section_702_a_8_income_or_loss": 450,
+    }
+    assert project_section_1402_a_person_inputs(person=persons[1]) == {
+        "self_employment_trade_or_business_gross_income": 750,
+        "self_employment_trade_or_business_deductions": 0,
+        "partnership_section_702_a_8_income_or_loss": -50,
+    }
     assert project_section_164_f_tax_unit_inputs() == {
+        "taxpayer_is_individual": True,
+    }
+    assert project_section_164_f_person_inputs() == {
         "taxpayer_is_individual": True,
     }
     assert project_section_1402_b_tax_unit_inputs(
@@ -891,11 +908,30 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "contribution_and_benefit_base_under_section_230_of_social_security_act": 184_500.0,
         "wages_paid_to_individual_for_section_1401_a": 23_000,
     }
+    assert (
+        project_section_1402_b_person_inputs(
+            person=persons[0],
+            contribution_base=184_500,
+        )["wages_paid_to_individual_for_section_1401_a"]
+        == 18_000
+    )
+    assert (
+        project_section_1402_b_person_inputs(
+            person=persons[1],
+            contribution_base=184_500,
+        )["wages_paid_to_individual_for_section_1401_a"]
+        == 5_000
+    )
     assert project_section_1401_tax_unit_inputs(
         row=row,
         persons=persons,
         contexts=contexts,
     ) == {
+        "international_social_security_agreement_under_section_233_in_effect": False,
+        "filing_status": 0,
+        "wages_taken_into_account_for_additional_medicare_tax": 0,
+    }
+    assert project_section_1401_person_inputs(row=row) == {
         "international_social_security_agreement_under_section_233_in_effect": False,
         "filing_status": 0,
         "wages_taken_into_account_for_additional_medicare_tax": 0,
@@ -1082,6 +1118,10 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     input_values = {
         item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
     }
+    entity_input_values = {
+        (item["name"], item["entity_id"]): item["value"]["value"]
+        for item in request["dataset"]["inputs"]
+    }
     assert f"{EITC_BASE}#input.earned_income" not in input_values
     assert (
         f"{SECTION_32_C_2_BASE}#input.section_112_amounts_excluded_from_gross_income"
@@ -1131,6 +1171,46 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         ]
         == "18000.0"
     )
+    assert (
+        entity_input_values[
+            (
+                f"{SECTION_1402_A_BASE}#input.self_employment_trade_or_business_gross_income",
+                "tax_unit_1_person_0",
+            )
+        ]
+        == "0.0"
+    )
+    assert (
+        entity_input_values[
+            (
+                f"{SECTION_1402_B_BASE}#input.wages_paid_to_individual_for_section_1401_a",
+                "tax_unit_1_person_0",
+            )
+        ]
+        == "18000.0"
+    )
+    assert (
+        entity_input_values[
+            (
+                f"{SECTION_164_F_BASE}#input.taxpayer_is_individual",
+                "tax_unit_1_person_0",
+            )
+        ]
+        is True
+    )
+    assert (
+        entity_input_values[
+            (
+                f"{SECTION_1401_BASE}#input.international_social_security_agreement_under_section_233_in_effect",
+                "tax_unit_1_person_0",
+            )
+        ]
+        is False
+    )
+    assert (
+        f"{SECTION_1402_A_BASE}#input.self_employment_trade_or_business_gross_income",
+        "tax_unit_1_person_1",
+    ) not in entity_input_values
     assert (
         input_values[
             f"{SECTION_152_C_BASE}#input.individual_is_child_of_taxpayer_or_descendant_of_such_child"

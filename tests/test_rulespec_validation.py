@@ -8485,6 +8485,65 @@ rules:
     assert "additional_medicare_tax_rate" in issues[0]
 
 
+def test_flat_imported_rate_ignores_thresholded_sibling_branch(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "26" / "1401.yaml"
+    rules_file = repo / "statutes" / "26" / "1402" / "a.yaml"
+    imported_file.parent.mkdir(parents=True)
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: self_employment_hospital_insurance_tax_rate
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 1401(b)(1)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.029
+  - name: additional_medicare_self_employment_tax_rate
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 1401(b)(2)(A)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: 0.009
+  - name: additional_medicare_self_employment_threshold
+    kind: derived
+    dtype: Money
+    source: 26 USC 1401(b)(2)(A)(i)-(iii)
+    versions:
+      - effective_from: '2013-01-01'
+        formula: |
+          match filing_status:
+              1 => 250000
+              _ => 200000
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/1401#self_employment_hospital_insurance_tax_rate
+rules:
+  - name: paragraph_12_hospital_insurance_component
+    kind: derived
+    dtype: Money
+    versions:
+      - effective_from: '1990-01-01'
+        formula: net_earnings * self_employment_hospital_insurance_tax_rate
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_flattened_thresholded_imported_rates(rules_file)
+
+    assert issues == []
+
+
 def test_thresholded_imported_rate_allows_excess_amount_formula(tmp_path):
     repo = tmp_path / "rulespec-us"
     imported_file = repo / "statutes" / "26" / "3101" / "b" / "2.yaml"
@@ -12749,6 +12808,43 @@ rules:
         "test. Encode the rule at the source-stated unit scope or cite source "
         "text that states the person-level test."
     ]
+
+
+def test_source_scope_consistency_accepts_1402a_taxpayer_net_earnings_as_person_rule():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1402
+  summary: |-
+    “Net earnings from self-employment” means gross income derived by an
+    individual from a trade or business carried on by the individual, less
+    attributable deductions. Paragraph (12) allows a deduction equal to the
+    taxpayer's net earnings from self-employment for the taxable year
+    multiplied by the statutory rate fraction.
+rules:
+  - name: paragraph_12_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(a)(12)(A)-(B)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/1402
+              excerpt: "there shall be allowed a deduction equal to the product of— (A) the taxpayer's net earnings from self-employment for the taxable year (determined without regard to this paragraph), and (B) one-half of the sum of the rates"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          net_earnings_before_paragraph_12_adjustment
+          * paragraph_12_deduction_rate
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
 
 
 def test_source_scope_consistency_does_not_treat_taxpayer_alone_as_person_scope():

@@ -101,6 +101,7 @@ from axiom_encode.cli import (
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_policyengine_oracle_inputs_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
+    _try_repair_generated_section_1402_a_paragraph_12_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
@@ -159,7 +160,10 @@ from axiom_encode.harness.encoding_db import (
     ReviewResults,
 )
 from axiom_encode.harness.evals import EvalArtifactMetrics
-from axiom_encode.harness.validator_pipeline import _load_nearby_eval_source_metadata
+from axiom_encode.harness.validator_pipeline import (
+    _load_nearby_eval_source_metadata,
+    find_person_scoped_definition_unit_issues,
+)
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
@@ -5540,6 +5544,314 @@ rules:
         payload = yaml.safe_load(rules_file.read_text())
         assert [rule["entity"] for rule in payload["rules"]] == ["Person", "Person"]
 
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            (
+                "The term net earnings from self-employment means the gross "
+                "income derived by an individual from any trade or business "
+                "carried on by such individual, less attributable deductions."
+            ),
+            (
+                "Section 1402(a) defines net earnings from self-employment as "
+                "gross income from an individual's trade or business, less "
+                "attributable deductions."
+            ),
+        ],
+    )
+    def test_person_scoped_definition_validator_flags_1402a_net_earnings(self, summary):
+        content = f"""format: rulespec/v1
+module:
+  summary: |-
+    {summary}
+rules:
+  - name: net_earnings_before_paragraph_12_adjustment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 1402(a), before paragraph (12)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          self_employment_trade_or_business_gross_income
+          - self_employment_trade_or_business_deductions
+"""
+
+        issues = find_person_scoped_definition_unit_issues(content)
+
+        assert len(issues) == 1
+        assert "net_earnings_before_paragraph_12_adjustment" in issues[0]
+
+    def test_person_scoped_definition_validator_prefers_corpus_source(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "axiom_encode.harness.validator_pipeline._fetch_corpus_source_text",
+            lambda citation_path: (
+                "The term net earnings from self-employment means the gross "
+                "income derived by an individual from any trade or business "
+                "carried on by such individual, less attributable deductions."
+                if citation_path == "us/statute/26/1402"
+                else None
+            ),
+        )
+        content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/1402
+  summary: |-
+    Section 1402(a) defines net earnings from self-employment as trade or
+    business gross income less attributable deductions.
+rules:
+  - name: net_earnings_before_paragraph_12_adjustment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 1402(a), before paragraph (12)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          self_employment_trade_or_business_gross_income
+          - self_employment_trade_or_business_deductions
+"""
+
+        issues = find_person_scoped_definition_unit_issues(content)
+
+        assert len(issues) == 1
+        assert "net_earnings_before_paragraph_12_adjustment" in issues[0]
+
+    def test_person_scoped_definition_validator_flags_1402b_income(self):
+        content = """format: rulespec/v1
+module:
+  summary: |-
+    Self-employment income means the net earnings from self-employment
+    derived by an individual during a taxable year.
+rules:
+  - name: self_employment_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    source: 26 USC 1402(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/1402
+              excerpt: means the net earnings from self-employment derived by an individual
+    versions:
+      - effective_from: '1990-01-01'
+        formula: net_earnings_from_self_employment
+"""
+
+        issues = find_person_scoped_definition_unit_issues(content)
+
+        assert len(issues) == 1
+        assert "self_employment_income" in issues[0]
+
+    def test_repair_person_scoped_definition_entities_moves_1402a_chain(self, tmp_path):
+        rules_file = tmp_path / "statutes/26/1402/a.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: net_earnings_before_paragraph_12_adjustment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_trade_or_business_gross_income - self_employment_trade_or_business_deductions
+  - name: paragraph_12_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: net_earnings_before_paragraph_12_adjustment * paragraph_12_deduction_rate
+  - name: net_earnings_from_self_employment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: net_earnings_before_paragraph_12_adjustment - paragraph_12_deduction
+"""
+        )
+
+        repaired = _repair_person_scoped_definition_entities(
+            rules_file=rules_file,
+            target_names=["net_earnings_before_paragraph_12_adjustment"],
+        )
+
+        assert repaired == [
+            "net_earnings_before_paragraph_12_adjustment",
+            "net_earnings_from_self_employment",
+            "paragraph_12_deduction",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["entity"] for rule in payload["rules"]] == [
+            "Person",
+            "Person",
+            "Person",
+        ]
+
+    def test_repair_person_scoped_definition_entities_moves_1402b_chain(self, tmp_path):
+        rules_file = tmp_path / "statutes/26/1402/b.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_income_excluded_for_taxpayer
+    kind: derived
+    entity: TaxUnit
+    dtype: Judgment
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_is_nonresident_alien
+  - name: self_employment_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if self_employment_income_excluded_for_taxpayer: 0
+          else: net_earnings_from_self_employment
+  - name: self_employment_income_for_section_1401_a
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          min(
+            self_employment_income,
+            contribution_and_benefit_base_under_section_230_of_social_security_act
+            - wages_paid_to_individual_for_section_1401_a
+          )
+"""
+        )
+
+        repaired = _repair_person_scoped_definition_entities(
+            rules_file=rules_file,
+            target_names=["self_employment_income"],
+        )
+
+        assert repaired == [
+            "self_employment_income",
+            "self_employment_income_excluded_for_taxpayer",
+            "self_employment_income_for_section_1401_a",
+        ]
+        payload = yaml.safe_load(rules_file.read_text())
+        assert [rule["entity"] for rule in payload["rules"]] == [
+            "Person",
+            "Person",
+            "Person",
+        ]
+
+    def test_section_1402_a_paragraph_12_apply_repair_materializes_chain(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "openai-gpt-5.5" / "statutes/26/1402/a.yaml"
+        test_file = rules_file.with_name("a.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/1402
+  deferred_outputs:
+    - output: us:statutes/26/1402/a#net_earnings_from_self_employment
+      reason: Final amount was over-deferred.
+    - output: us:statutes/26/1402/a#paragraph_12_deduction
+      reason: Deduction was over-deferred.
+    - output: us:statutes/26/1402/a#agricultural_optional_method_net_earnings
+      reason: Still needs optional-method mechanics.
+rules:
+  - name: paragraph_12_deduction_rate
+    kind: derived
+    entity: Person
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_tax_equivalent_deduction_fraction * paragraph_12_non_additional_section_1401_rate_sum
+  - name: net_earnings_before_paragraph_12_adjustment
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '1990-01-01'
+        formula: adjusted_self_employment_trade_or_business_gross_income - adjusted_self_employment_trade_or_business_deductions
+"""
+        )
+        test_file.write_text(
+            """- name: core_net_earnings_with_positive_trade_income
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_gross_income: 100000
+    us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_deductions: 5000
+  output:
+    us:statutes/26/1402/a#paragraph_12_deduction_rate: 0.0765
+    us:statutes/26/1402/a#net_earnings_before_paragraph_12_adjustment: 95000
+"""
+        )
+        result = SimpleNamespace(
+            runner="openai-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_section_1402_a_paragraph_12_for_apply(
+            result,
+            output_root=output_root,
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        test_cases = yaml.safe_load(test_file.read_text())
+        assert repaired == [
+            "rule:paragraph_12_deduction",
+            "rule:net_earnings_from_self_employment",
+            "deferred:net_earnings_from_self_employment",
+            "deferred:paragraph_12_deduction",
+            "test:core_net_earnings_with_positive_trade_income",
+        ]
+        assert [rule["name"] for rule in payload["rules"]] == [
+            "paragraph_12_deduction_rate",
+            "net_earnings_before_paragraph_12_adjustment",
+            "paragraph_12_deduction",
+            "net_earnings_from_self_employment",
+        ]
+        assert [
+            record["output"] for record in payload["module"]["deferred_outputs"]
+        ] == [
+            "us:statutes/26/1402/a#agricultural_optional_method_net_earnings",
+        ]
+        outputs = test_cases[0]["output"]
+        assert outputs["us:statutes/26/1402/a#paragraph_12_deduction"] == 7267.5
+        assert (
+            outputs["us:statutes/26/1402/a#net_earnings_from_self_employment"]
+            == 87732.5
+        )
+
     def test_person_scoped_definition_issue_names_includes_source_scope_mismatch(self):
         issues = [
             "Source scope mismatch: `earned_income` is declared on `TaxUnit`, "
@@ -6002,9 +6314,9 @@ rules:
             """- name: section_1401_b_1_medicare
   period: 2024
   input:
-    us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income: 1200
-    us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions: 200
-    us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss: 0
+    us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_gross_income: 1200
+    us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_deductions: 200
+    us:statutes/26/1402/a#input.adjusted_partnership_section_702_a_8_income_or_loss: 0
     us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a: 100
   output:
     us:statutes/26/1401/b/1#self_employment_income_tax: 26.7815
@@ -6319,6 +6631,16 @@ rules:
         assert test_payload[-1]["name"] == (
             "self_employment_income_tax_ignores_section_1401_a_cap"
         )
+        assert test_payload[-1]["input"] == {
+            "us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_gross_income": 2500,
+            "us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_deductions": 200,
+            "us:statutes/26/1402/a#input.adjusted_partnership_section_702_a_8_income_or_loss": 0,
+            "us:statutes/26/1402/b#input.contribution_and_benefit_base_under_section_230_of_social_security_act": 1200,
+            "us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a": 500,
+            "us:statutes/26/1402/b#input.individual_is_nonresident_alien": False,
+            "us:statutes/26/1402/b#input.social_security_agreement_under_section_233_applies_to_nonresident_alien": False,
+            "us:statutes/26/1402/b#input.individual_is_noncitizen_territory_resident": False,
+        }
         assert test_payload[-1]["output"] == {
             "us:statutes/26/1401/b/1#self_employment_income_tax": 61.59745
         }
@@ -17004,6 +17326,76 @@ rules:
         assert issues == []
         assert supplemental == {}
         assert [path.name for path in validated_paths] == ["h.yaml"]
+
+    def test_apply_overlay_validation_preserves_transitive_imported_ancestor(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us"
+        generated = output_root / "codex-test-model" / "statutes/26/1401/a.yaml"
+        ancestor = policy_repo / "statutes/26/1401.yaml"
+        transitive = policy_repo / "statutes/26/1402/a.yaml"
+        generated.parent.mkdir(parents=True)
+        ancestor.parent.mkdir(parents=True)
+        transitive.parent.mkdir(parents=True)
+        generated.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/a#net_earnings_from_self_employment
+rules: []
+"""
+        )
+        ancestor.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_oasdi_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        value: 0.124
+"""
+        )
+        transitive.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/26/1401#self_employment_oasdi_tax_rate
+rules:
+  - name: net_earnings_from_self_employment
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          self_employment_oasdi_tax_rate
+"""
+        )
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model")
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                root_file = Path(path).parent.with_suffix(".yaml")
+                assert root_file.exists()
+                return SimpleNamespace(all_passed=True, results={})
+
+        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                validate_dependents=False,
+            )
+
+        assert ok is True
+        assert issues == []
+        assert supplemental == {}
 
     def test_apply_overlay_validation_fills_dependent_inputs_from_baseline(
         self, tmp_path

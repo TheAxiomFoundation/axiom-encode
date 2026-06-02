@@ -34,7 +34,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Iterable, NamedTuple
 
 import yaml
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
@@ -15105,6 +15105,20 @@ def cmd_encode(args):
                     "  apply=auto_repaired_section_1401_b_1_self_employment_income:"
                     + ",".join(repaired_section_1401_b_1_income)
                 )
+            repaired_section_1402_a_paragraph_12 = (
+                _try_repair_generated_section_1402_a_paragraph_12_for_apply(
+                    result,
+                    output_root=args.output,
+                )
+            )
+            if repaired_section_1402_a_paragraph_12:
+                outcome["auto_repaired_section_1402_a_paragraph_12"] = (
+                    repaired_section_1402_a_paragraph_12
+                )
+                print(
+                    "  apply=auto_repaired_section_1402_a_paragraph_12:"
+                    + ",".join(repaired_section_1402_a_paragraph_12)
+                )
             repaired_policyengine_oracle_inputs = (
                 _try_repair_generated_policyengine_oracle_inputs_for_apply(
                     result,
@@ -21353,6 +21367,13 @@ _SECTION_1402_B_SELF_EMPLOYMENT_INCOME_OUTPUT = (
 _SECTION_1402_B_SELF_EMPLOYMENT_INCOME_FOR_1401_A_OUTPUT = (
     "us:statutes/26/1402/b#self_employment_income_for_section_1401_a"
 )
+_SECTION_1402_A_OUTPUT = "us:statutes/26/1402/a"
+_SECTION_1402_A_PARAGRAPH_12_DEDUCTION_OUTPUT = (
+    f"{_SECTION_1402_A_OUTPUT}#paragraph_12_deduction"
+)
+_SECTION_1402_A_NET_EARNINGS_OUTPUT = (
+    f"{_SECTION_1402_A_OUTPUT}#net_earnings_from_self_employment"
+)
 _SECTION_1401_TAXABLE_SELF_EMPLOYMENT_RATE = Decimal("0.9235")
 _SECTION_1401_SELF_EMPLOYMENT_THRESHOLD = Decimal("400")
 _SECTION_1401_OASDI_BASE_BY_YEAR = {
@@ -21361,6 +21382,261 @@ _SECTION_1401_OASDI_BASE_BY_YEAR = {
     2025: Decimal("176100"),
     2026: Decimal("184500"),
 }
+
+
+def _try_repair_generated_section_1402_a_paragraph_12_for_apply(
+    result,
+    *,
+    output_root: Path,
+) -> list[str]:
+    """Materialize 1402(a)(12) once generated boundary amount and rate exist."""
+    try:
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
+    except RuntimeError:
+        return []
+    if relative_output.as_posix() != "statutes/26/1402/a.yaml":
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    test_file = _rulespec_test_path(rules_file)
+    repaired = _repair_section_1402_a_paragraph_12_rules(rules_file=rules_file)
+    if repaired:
+        repaired.extend(_repair_section_1402_a_paragraph_12_tests(test_file=test_file))
+    return repaired
+
+
+def _repair_section_1402_a_paragraph_12_rules(*, rules_file: Path) -> list[str]:
+    if not rules_file.exists():
+        return []
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    existing_names = {
+        str(rule.get("name") or "").strip() for rule in rules if isinstance(rule, dict)
+    }
+    required_inputs = {
+        "net_earnings_before_paragraph_12_adjustment",
+        "paragraph_12_deduction_rate",
+    }
+    if not required_inputs.issubset(existing_names):
+        return []
+
+    repaired: list[str] = []
+    if "paragraph_12_deduction" not in existing_names:
+        rules.append(_section_1402_a_paragraph_12_deduction_rule())
+        existing_names.add("paragraph_12_deduction")
+        repaired.append("rule:paragraph_12_deduction")
+    if "net_earnings_from_self_employment" not in existing_names:
+        rules.append(_section_1402_a_net_earnings_rule())
+        existing_names.add("net_earnings_from_self_employment")
+        repaired.append("rule:net_earnings_from_self_employment")
+
+    module = payload.get("module")
+    deferred_outputs = (
+        module.get("deferred_outputs") if isinstance(module, dict) else None
+    )
+    if isinstance(deferred_outputs, list):
+        kept_deferred_outputs: list[object] = []
+        for record in deferred_outputs:
+            output = record.get("output") if isinstance(record, dict) else None
+            if output == _SECTION_1402_A_PARAGRAPH_12_DEDUCTION_OUTPUT:
+                repaired.append("deferred:paragraph_12_deduction")
+                continue
+            if output == _SECTION_1402_A_NET_EARNINGS_OUTPUT:
+                repaired.append("deferred:net_earnings_from_self_employment")
+                continue
+            kept_deferred_outputs.append(record)
+        if kept_deferred_outputs != deferred_outputs:
+            module["deferred_outputs"] = kept_deferred_outputs
+            if not kept_deferred_outputs:
+                module.pop("deferred_outputs", None)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    return repaired
+
+
+def _section_1402_a_paragraph_12_deduction_rule() -> dict[str, object]:
+    return {
+        "name": "paragraph_12_deduction",
+        "kind": "derived",
+        "entity": "Person",
+        "dtype": "Money",
+        "period": "Year",
+        "unit": "USD",
+        "source": "26 USC 1402(a)(12)",
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "formula",
+                        "source": {
+                            "corpus_citation_path": "us/statute/26/1402",
+                            "excerpt": (
+                                "there shall be allowed a deduction equal to "
+                                "the product of"
+                            ),
+                        },
+                    },
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "import",
+                        "import": {
+                            "target": (
+                                f"{_SECTION_1402_A_OUTPUT}"
+                                "#net_earnings_before_paragraph_12_adjustment"
+                            ),
+                            "output": "net_earnings_before_paragraph_12_adjustment",
+                            "hash": "sha256:local",
+                        },
+                    },
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "import",
+                        "import": {
+                            "target": (
+                                f"{_SECTION_1402_A_OUTPUT}#paragraph_12_deduction_rate"
+                            ),
+                            "output": "paragraph_12_deduction_rate",
+                            "hash": "sha256:local",
+                        },
+                    },
+                ]
+            }
+        },
+        "versions": [
+            {
+                "effective_from": "1990-01-01",
+                "formula": (
+                    "net_earnings_before_paragraph_12_adjustment\n"
+                    "* paragraph_12_deduction_rate"
+                ),
+            }
+        ],
+    }
+
+
+def _section_1402_a_net_earnings_rule() -> dict[str, object]:
+    return {
+        "name": "net_earnings_from_self_employment",
+        "kind": "derived",
+        "entity": "Person",
+        "dtype": "Money",
+        "period": "Year",
+        "unit": "USD",
+        "source": "26 USC 1402(a), after paragraph (12)",
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "formula",
+                        "source": {
+                            "corpus_citation_path": "us/statute/26/1402",
+                            "excerpt": (
+                                "in lieu of the deduction provided by section 164(f)"
+                            ),
+                        },
+                    },
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "import",
+                        "import": {
+                            "target": (
+                                f"{_SECTION_1402_A_OUTPUT}"
+                                "#net_earnings_before_paragraph_12_adjustment"
+                            ),
+                            "output": "net_earnings_before_paragraph_12_adjustment",
+                            "hash": "sha256:local",
+                        },
+                    },
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "import",
+                        "import": {
+                            "target": (
+                                f"{_SECTION_1402_A_OUTPUT}#paragraph_12_deduction"
+                            ),
+                            "output": "paragraph_12_deduction",
+                            "hash": "sha256:local",
+                        },
+                    },
+                ]
+            }
+        },
+        "versions": [
+            {
+                "effective_from": "1990-01-01",
+                "formula": (
+                    "net_earnings_before_paragraph_12_adjustment\n"
+                    "- paragraph_12_deduction"
+                ),
+            }
+        ],
+    }
+
+
+def _repair_section_1402_a_paragraph_12_tests(*, test_file: Path) -> list[str]:
+    if not test_file.exists():
+        return []
+    try:
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(cases, list):
+        return []
+
+    repaired: list[str] = []
+    for case in cases:
+        if not isinstance(case, dict):
+            continue
+        output = case.get("output")
+        if not isinstance(output, dict):
+            continue
+        before_value = output.get(
+            f"{_SECTION_1402_A_OUTPUT}#net_earnings_before_paragraph_12_adjustment"
+        )
+        rate_value = output.get(f"{_SECTION_1402_A_OUTPUT}#paragraph_12_deduction_rate")
+        if before_value is None or rate_value is None:
+            continue
+        try:
+            before_decimal = Decimal(str(before_value))
+            rate_decimal = Decimal(str(rate_value))
+        except InvalidOperation:
+            continue
+        deduction = before_decimal * rate_decimal
+        net_earnings = before_decimal - deduction
+        output.setdefault(
+            _SECTION_1402_A_PARAGRAPH_12_DEDUCTION_OUTPUT,
+            _decimal_to_test_scalar(deduction),
+        )
+        output.setdefault(
+            _SECTION_1402_A_NET_EARNINGS_OUTPUT,
+            _decimal_to_test_scalar(net_earnings),
+        )
+        repaired.append(str(case.get("name") or "case"))
+
+    if not repaired:
+        return []
+    test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=False))
+    return [f"test:{name}" for name in repaired]
+
+
+def _decimal_to_test_scalar(value: Decimal) -> int | float:
+    if value == value.to_integral_value():
+        return int(value)
+    return float(value)
 
 
 def _try_repair_generated_section_1401_b_1_self_employment_income_for_apply(
@@ -21527,9 +21803,9 @@ def _append_section_1401_b_1_uncapped_self_employment_income_test(
                 "end": "2024-12-31",
             },
             "input": {
-                "us:statutes/26/1402/a#input.self_employment_trade_or_business_gross_income": 2500,
-                "us:statutes/26/1402/a#input.self_employment_trade_or_business_deductions": 200,
-                "us:statutes/26/1402/a#input.partnership_section_702_a_8_income_or_loss": 0,
+                "us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_gross_income": 2500,
+                "us:statutes/26/1402/a#input.adjusted_self_employment_trade_or_business_deductions": 200,
+                "us:statutes/26/1402/a#input.adjusted_partnership_section_702_a_8_income_or_loss": 0,
                 "us:statutes/26/1402/b#input.contribution_and_benefit_base_under_section_230_of_social_security_act": 1200,
                 "us:statutes/26/1402/b#input.wages_paid_to_individual_for_section_1401_a": 500,
                 "us:statutes/26/1402/b#input.individual_is_nonresident_alien": False,
@@ -21662,16 +21938,28 @@ def _section_1401_policyengine_oracle_inputs(
 def _section_1401_net_self_employment_income(
     inputs: dict[object, object],
 ) -> Decimal | None:
-    gross = _rulespec_test_numeric_input(
-        inputs, "self_employment_trade_or_business_gross_income"
+    gross = _rulespec_test_numeric_input_for_aliases(
+        inputs,
+        (
+            "adjusted_self_employment_trade_or_business_gross_income",
+            "self_employment_trade_or_business_gross_income",
+        ),
     )
     if gross is None:
         return None
-    deductions = _rulespec_test_numeric_input(
-        inputs, "self_employment_trade_or_business_deductions"
+    deductions = _rulespec_test_numeric_input_for_aliases(
+        inputs,
+        (
+            "adjusted_self_employment_trade_or_business_deductions",
+            "self_employment_trade_or_business_deductions",
+        ),
     ) or Decimal("0")
-    partnership = _rulespec_test_numeric_input(
-        inputs, "partnership_section_702_a_8_income_or_loss"
+    partnership = _rulespec_test_numeric_input_for_aliases(
+        inputs,
+        (
+            "adjusted_partnership_section_702_a_8_income_or_loss",
+            "partnership_section_702_a_8_income_or_loss",
+        ),
     ) or Decimal("0")
     return gross - deductions + partnership
 
@@ -21731,6 +22019,17 @@ def _rulespec_test_numeric_input(
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _rulespec_test_numeric_input_for_aliases(
+    inputs: dict[object, object],
+    names: Iterable[str],
+) -> Decimal | None:
+    for name in names:
+        value = _rulespec_test_numeric_input(inputs, name)
+        if value is not None:
+            return value
+    return None
 
 
 def _rulespec_test_case_input_value(
@@ -23010,7 +23309,7 @@ def _suppress_rulespec_ancestor_targets_for_subsection_overlay(
 ) -> list[Path]:
     """Remove ancestor RuleSpec files from a temporary subsection overlay."""
     suppressed: list[Path] = []
-    preserved_imports = _same_repo_imported_rulespec_paths(
+    preserved_imports = _same_repo_transitive_imported_rulespec_paths(
         overlay_repo / relative_output,
         policy_repo_path=overlay_repo,
     )
@@ -23026,6 +23325,34 @@ def _suppress_rulespec_ancestor_targets_for_subsection_overlay(
             candidate.unlink()
             suppressed.append(candidate.relative_to(overlay_repo))
     return suppressed
+
+
+def _same_repo_transitive_imported_rulespec_paths(
+    rules_file: Path,
+    *,
+    policy_repo_path: Path,
+) -> set[Path]:
+    """Return same-repo RuleSpec imports reachable from a generated target."""
+    imported_paths: set[Path] = set()
+    visited_files: set[Path] = set()
+    pending = [rules_file]
+    while pending:
+        current = pending.pop()
+        try:
+            resolved = current.resolve()
+        except OSError:
+            resolved = current
+        if resolved in visited_files:
+            continue
+        visited_files.add(resolved)
+        for relative in _same_repo_imported_rulespec_paths(
+            current,
+            policy_repo_path=policy_repo_path,
+        ):
+            if relative not in imported_paths:
+                imported_paths.add(relative)
+                pending.append(policy_repo_path / relative)
+    return imported_paths
 
 
 def _same_repo_imported_rulespec_paths(
