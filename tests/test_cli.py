@@ -123,6 +123,7 @@ from axiom_encode.cli import (
     cmd_oracle_coverage,
     cmd_repair_current_year_final_amounts,
     cmd_repair_imported_test_inputs,
+    cmd_repair_judgment_positive_tests,
     cmd_repair_missing_source_proofs,
     cmd_repair_nonnegative_floors,
     cmd_repair_oracle_parameter_tests,
@@ -8733,6 +8734,172 @@ rules:
             "us:statutes/26/3303#input.account_maintained_for_employer"
             not in synthesized["input"]
         )
+
+    def test_repair_judgment_positive_tests_repeats_until_validation_passes(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "26" / "3231" / "e.yaml"
+        test_file = repo_path / "statutes" / "26" / "3231" / "e.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: first_positive_judgment
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: first_condition
+  - name: second_positive_judgment
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: second_condition
+"""
+        )
+        test_file.write_text("[]\n")
+        args = SimpleNamespace(
+            repo=repo_path,
+            file=Path("statutes/26/3231/e.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        def has_holds_output(rule_name):
+            test_payload = yaml.safe_load(test_file.read_text()) or []
+            return any(
+                isinstance(test_case, dict)
+                and test_case.get("output")
+                == {f"us:statutes/26/3231/e#{rule_name}": "holds"}
+                for test_case in test_payload
+            )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                for rule_name in (
+                    "first_positive_judgment",
+                    "second_positive_judgment",
+                ):
+                    if not has_holds_output(rule_name):
+                        return SimpleNamespace(
+                            all_passed=False,
+                            results={
+                                "ci": SimpleNamespace(
+                                    error=(
+                                        "Judgment rule missing positive companion "
+                                        "output coverage: "
+                                        f"`us:statutes/26/3231/e#{rule_name}` "
+                                        "is not asserted as `holds` by the companion "
+                                        "`.test.yaml` file."
+                                    )
+                                )
+                            },
+                        )
+                return SimpleNamespace(all_passed=True, results={})
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_judgment_positive_tests(args)
+
+        test_payload = yaml.safe_load(test_file.read_text())
+        assert [test_case["name"] for test_case in test_payload] == [
+            "auto_positive_first_positive_judgment",
+            "auto_positive_second_positive_judgment",
+        ]
+        manifest = repo_path / ".axiom/encoding-manifests/statutes/26/3231/e.json"
+        payload = json.loads(manifest.read_text())
+        assert payload["tool"] == "axiom-encode repair-judgment-positive-tests"
+        assert [item["path"] for item in payload["applied_files"]] == [
+            "statutes/26/3231/e.yaml",
+            "statutes/26/3231/e.test.yaml",
+        ]
+
+    def test_repair_judgment_positive_tests_restores_when_no_candidate_passes(
+        self, tmp_path
+    ):
+        repo_path = tmp_path / "rulespec-us"
+        rules_file = repo_path / "statutes" / "26" / "3231" / "e.yaml"
+        test_file = repo_path / "statutes" / "26" / "3231" / "e.test.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: first_positive_judgment
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: first_condition
+"""
+        )
+        original_test_content = "# preserve this comment\n[]\n"
+        test_file.write_text(original_test_content)
+        args = SimpleNamespace(
+            repo=repo_path,
+            file=Path("statutes/26/3231/e.yaml"),
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                assert kwargs["require_policy_proofs"] is True
+
+            def validate(self, path, *, skip_reviewers):
+                assert path == rules_file.resolve()
+                assert skip_reviewers is True
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "ci": SimpleNamespace(
+                            error=(
+                                "Judgment rule missing positive companion output "
+                                "coverage: "
+                                "`us:statutes/26/3231/e#first_positive_judgment` "
+                                "is not asserted as `holds` by the companion "
+                                "`.test.yaml` file."
+                            )
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=["candidate still fails"],
+            ),
+            patch(
+                "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+                return_value={"commit": "abc123", "dirty_tracked": False},
+            ),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_KEY_ENV: TEST_APPLY_SIGNING_KEY},
+            ),
+        ):
+            cmd_repair_judgment_positive_tests(args)
+
+        assert test_file.read_text() == original_test_content
+        manifest = repo_path / ".axiom/encoding-manifests/statutes/26/3231/e.json"
+        assert not manifest.exists()
 
     def test_encode_apply_auto_repairs_auto_output_test_mismatches(
         self, capsys, tmp_path
