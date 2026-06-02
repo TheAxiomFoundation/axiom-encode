@@ -14466,6 +14466,7 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
 
     formulas_by_name: dict[str, list[str]] = {}
     imported_outputs_by_name: dict[str, set[str]] = {}
+    dtypes_by_name: dict[str, str] = {}
     exception_names: list[str] = []
     for rule in rules:
         if not isinstance(rule, dict):
@@ -14473,6 +14474,9 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
         name = str(rule.get("name") or "").strip()
         if not name:
             continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype:
+            dtypes_by_name[name] = dtype
         formulas = _rule_formula_texts(rule)
         if formulas:
             formulas_by_name[name] = formulas
@@ -14507,6 +14511,17 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
                 continue
             if any(
                 _formula_negates_identifier(formula, exception_name)
+                for formula in formulas
+            ):
+                continue
+            if _is_positive_excluded_amount_output(
+                rule_name,
+                dtype=dtypes_by_name.get(rule_name),
+            ) and any(
+                _formula_uses_identifier_as_positive_exclusion_amount(
+                    formula,
+                    exception_name,
+                )
                 for formula in formulas
             ):
                 continue
@@ -14623,6 +14638,52 @@ def _formula_negates_identifier(formula: str, identifier: str) -> bool:
             formula,
         )
     )
+
+
+def _is_positive_excluded_amount_output(
+    rule_name: str,
+    *,
+    dtype: str | None,
+) -> bool:
+    return dtype in {"decimal", "integer", "money", "number"} and (
+        "_excluded_from_" in rule_name or "_disregarded_for_" in rule_name
+    )
+
+
+def _formula_uses_identifier_as_positive_exclusion_amount(
+    formula: str,
+    identifier: str,
+) -> bool:
+    normalized = " ".join(formula.split())
+    match = re.fullmatch(
+        r"if\s+(?P<condition>.+?)\s*:\s*(?P<positive>.+?)\s+else\s*:\s*0(?:\.0+)?",
+        normalized,
+    )
+    if match is None:
+        return False
+    condition = _strip_wrapping_parentheses(match.group("condition").strip())
+    return condition == identifier
+
+
+def _strip_wrapping_parentheses(text: str) -> str:
+    while text.startswith("(") and text.endswith(")"):
+        inner = text[1:-1].strip()
+        if not inner or not _parentheses_balanced(inner):
+            break
+        text = inner
+    return text
+
+
+def _parentheses_balanced(text: str) -> bool:
+    depth = 0
+    for character in text:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
 
 
 def find_missing_child_exception_import_issues(

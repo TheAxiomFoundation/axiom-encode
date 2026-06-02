@@ -5993,6 +5993,156 @@ rules:
     assert find_unconsumed_local_exception_output_issues(content) == []
 
 
+def test_unconsumed_local_exception_output_allows_positive_excluded_amount_helper():
+    content = """format: rulespec/v1
+rules:
+  - name: employer_plan_exclusion_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: Clause (i) shall not apply to this payment.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: employer_plan_covers_payment
+  - name: employer_plan_excluded_from_compensation
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3231/e#employer_plan_exclusion_applies
+              output: employer_plan_exclusion_applies
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employer_plan_exclusion_applies: payment_amount else: 0
+"""
+
+    assert find_unconsumed_local_exception_output_issues(content) == []
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        "if employer_plan_exclusion_applies == False: payment_amount else: 0",
+        "if employer_plan_exclusion_applies or other_condition: payment_amount else: 0",
+        "if employer_plan_exclusion_applies: payment_amount else: 1",
+    ],
+)
+def test_unconsumed_local_exception_output_rejects_unsafe_positive_excluded_amount_helper(
+    formula,
+):
+    content = f"""format: rulespec/v1
+rules:
+  - name: employer_plan_exclusion_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: Clause (i) shall not apply to this payment.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: employer_plan_covers_payment
+  - name: employer_plan_excluded_from_compensation
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3231/e#employer_plan_exclusion_applies
+              output: employer_plan_exclusion_applies
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          {formula}
+"""
+
+    assert find_unconsumed_local_exception_output_issues(content) == [
+        "Unconsumed local exception output: "
+        "`employer_plan_exclusion_applies` appears to carve out "
+        "`employer_plan_excluded_from_compensation`, but "
+        "`employer_plan_excluded_from_compensation` does not negate it. "
+        "Compose the exception into the affected exported rule instead of "
+        "exposing both outputs independently."
+    ]
+
+
+def test_unconsumed_local_exception_output_rejects_non_amount_excluded_helper():
+    content = """format: rulespec/v1
+rules:
+  - name: employer_plan_exclusion_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: Clause (i) shall not apply to this payment.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: employer_plan_covers_payment
+  - name: employer_plan_excluded_from_compensation
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3231/e#employer_plan_exclusion_applies
+              output: employer_plan_exclusion_applies
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if employer_plan_exclusion_applies: payment_amount else: 0
+"""
+
+    assert find_unconsumed_local_exception_output_issues(content) == [
+        "Unconsumed local exception output: "
+        "`employer_plan_exclusion_applies` appears to carve out "
+        "`employer_plan_excluded_from_compensation`, but "
+        "`employer_plan_excluded_from_compensation` does not negate it. "
+        "Compose the exception into the affected exported rule instead of "
+        "exposing both outputs independently."
+    ]
+
+
 def test_anaphoric_scope_omission_rejects_broad_condition_predicate():
     source_text = (
         "Subparagraph (B) of paragraph (2) shall not apply with respect to a "
