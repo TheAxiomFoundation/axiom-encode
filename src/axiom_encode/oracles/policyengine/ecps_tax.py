@@ -76,6 +76,8 @@ FICA_PRE_TAX_CONTRIBUTION_COLUMNS = (
 )
 CAPITAL_GAINS_PROGRAM_PATH = Path("statutes/26/1/h.yaml")
 CAPITAL_GAINS_BASE = "us:statutes/26/1/h"
+TAX_BEFORE_CREDITS_PROGRAM_PATH = Path("statutes/26/1/j.yaml")
+TAX_BEFORE_CREDITS_BASE = "us:statutes/26/1/j"
 EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
 EITC_BASE = "us:statutes/26/32"
 SECTION_112_BASE = "us:statutes/26/112"
@@ -228,6 +230,12 @@ CAPITAL_GAINS_DEFINITION_OUTPUTS = {
         "pe": "adjusted_net_capital_gain",
     },
 }
+TAX_BEFORE_CREDITS_OUTPUTS = {
+    "income_tax_main_rates": {
+        "axiom": f"{TAX_BEFORE_CREDITS_BASE}#income_tax_main_rates",
+        "pe": "income_tax_main_rates",
+    },
+}
 EITC_OUTPUTS = {
     "eitc_earned_income": {
         "axiom": f"{SECTION_32_C_2_BASE}#earned_income",
@@ -278,6 +286,7 @@ SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
     "capital-gain-definitions": CAPITAL_GAINS_DEFINITION_OUTPUTS,
+    "tax-before-credits": TAX_BEFORE_CREDITS_OUTPUTS,
     "eitc": EITC_OUTPUTS,
     **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
@@ -285,6 +294,7 @@ SURFACE_PROGRAM_PATHS = {
     "ctc": CTC_PROGRAM_PATH,
     "standard-deduction": STANDARD_DEDUCTION_PROGRAM_PATH,
     "capital-gain-definitions": CAPITAL_GAINS_PROGRAM_PATH,
+    "tax-before-credits": TAX_BEFORE_CREDITS_PROGRAM_PATH,
     "eitc": EITC_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
@@ -313,7 +323,9 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "eitc_reduction",
             "filing_status",
             "net_capital_gain",
+            "income_tax_main_rates",
             "standard_deduction",
+            "taxable_income",
         }
     )
 )
@@ -849,6 +861,8 @@ def build_axiom_request(
         return build_standard_deduction_request(pe_data=pe_data, year=year)
     if surface == "capital-gain-definitions":
         return build_capital_gain_definitions_request(pe_data=pe_data, year=year)
+    if surface == "tax-before-credits":
+        return build_tax_before_credits_request(pe_data=pe_data, year=year)
     if surface == "eitc":
         if contribution_base is None:
             raise ValueError("EITC comparison requires a contribution-and-benefit base")
@@ -1016,6 +1030,67 @@ def build_capital_gain_definitions_request(
                 "period": interval,
                 "outputs": [
                     spec["axiom"] for spec in CAPITAL_GAINS_DEFINITION_OUTPUTS.values()
+                ],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_tax_before_credits_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        tax_inputs = project_tax_before_credits_inputs(row=row)
+        for name, value in tax_inputs.items():
+            inputs.append(
+                input_record(
+                    f"{TAX_BEFORE_CREDITS_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+            inputs.append(
+                input_record(
+                    f"{CAPITAL_GAINS_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        for name, value in project_capital_gain_definition_inputs(
+            row=row,
+            persons=tax_unit_persons,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{CAPITAL_GAINS_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in TAX_BEFORE_CREDITS_OUTPUTS.values()
                 ],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
@@ -1521,6 +1596,13 @@ def project_capital_gain_definition_inputs(
             row.get("unrecaptured_section_1250_gain", 0)
         ),
         "capital_gains_28_percent_rate_gain": capital_gains_28_percent_rate_gain,
+    }
+
+
+def project_tax_before_credits_inputs(*, row: Any) -> dict[str, Any]:
+    return {
+        "filing_status": filing_status_code(str(row["filing_status"])),
+        "taxable_income": money(row["taxable_income"]),
     }
 
 
