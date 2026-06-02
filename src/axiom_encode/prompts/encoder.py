@@ -18,6 +18,12 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   individual, person, employee, child, dependent, or spouse the operative
   lower-entity subject. Do not move an income-tax credit/deduction rule to
   `Person` merely because the source uses the word "taxpayer".
+- This federal-tax `taxpayer` rule does not override earnings definitions.
+  When the source defines the taxpayer's wages, salaries, tips, employee
+  compensation, earned income, or net earnings from self-employment, encode the
+  earnings components on `Person`; if the credit or deduction also needs a
+  filing-unit result, add a person-to-`TaxUnit` filer/spouse relation and a
+  `TaxUnit` roll-up via that relation.
 - When the source applies a cap, threshold, ceiling, reduction, "not exceed",
   "lesser/greater of", or coordination rule to the amount of an individual,
   person, member, taxpayer, employee, claimant, child, dependent, or spouse,
@@ -102,6 +108,14 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   declare a role-scoped person-to-unit relation and aggregate the person
   earnings through it; do not make the earnings component itself a unit input
   merely because a downstream output is unit-scoped.
+- For earnings roll-ups, preserve both levels explicitly. The person-level
+  rule should compute the source-defined wages, compensation, net earnings,
+  or earned income for one person. The unit-level rule should use
+  `sum_where(person_to_unit_relation, person_earnings_rule, role_predicate)`
+  or an equivalent relation aggregate. Do not satisfy a requested unit-level
+  output by changing person earnings inputs or helpers to `entity: TaxUnit`;
+  instead add a narrow relation such as taxpayer/spouse/filer/member of that
+  unit and aggregate through that relation.
 - Phrases like "on the [base] of every individual/person/employee" identify
   the entity of the current amount, tax, credit, deduction, contribution, or
   limit. Encode the current result on the individual/person/employee first,

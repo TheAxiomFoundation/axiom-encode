@@ -59,6 +59,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_nonnegative_amount_reduction_issues,
     find_out_of_scope_rule_source_issues,
     find_partial_extent_zeroing_issues,
+    find_person_earnings_unit_rollup_issues,
     find_person_scoped_definition_unit_issues,
     find_person_scoped_rate_base_unit_issues,
     find_proof_import_hash_consistency_issues,
@@ -13257,6 +13258,101 @@ rules:
 """
 
     assert find_person_scoped_definition_unit_issues(content) == []
+
+
+def test_person_earnings_unit_rollup_rejects_tax_unit_earned_income_components():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Earned income means wages, salaries, tips, and other employee compensation
+    plus net earnings from self-employment.
+rules:
+  - name: employee_compensation_earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              excerpt: wages, salaries, tips, and other employee compensation
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages_salaries_tips_and_other_employee_compensation
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              excerpt: earned income means wages, salaries, tips, and other employee compensation plus net earnings from self-employment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: employee_compensation_earned_income + net_earnings_from_self_employment
+"""
+
+    issues = find_person_earnings_unit_rollup_issues(content)
+
+    assert any("Person earnings roll-up missing" in issue for issue in issues)
+    assert any("employee_compensation_earned_income" in issue for issue in issues)
+    assert any("earned_income" in issue for issue in issues)
+
+
+def test_person_earnings_unit_rollup_accepts_relation_aggregate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Earned income means wages, salaries, tips, and other employee compensation
+    plus net earnings from self-employment.
+rules:
+  - name: earned_income_filer_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: earned_income_filer_of_tax_unit
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: person_earned_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages + net_earnings_from_self_employment
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              excerpt: earned income means wages, salaries, tips, and other employee compensation plus net earnings from self-employment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(earned_income_filer_of_tax_unit, person_earned_income, is_earned_income_filer)
+"""
+
+    assert find_person_earnings_unit_rollup_issues(content) == []
 
 
 def test_employer_scoped_entity_rejects_tax_unit():

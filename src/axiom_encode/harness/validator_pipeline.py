@@ -7377,6 +7377,35 @@ _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN = re.compile(
     r"(?:individual|person|employee|member)\b",
     flags=re.IGNORECASE,
 )
+_PERSON_EARNINGS_SOURCE_PATTERN = re.compile(
+    r"\b(?:wages?,?\s+salaries?,?\s+tips?|wages?|salaries|tips)\b"
+    r"[\s\S]{0,160}\b(?:employee\s+)?compensation\b"
+    r"|"
+    r"\b(?:employee\s+)?compensation\b[\s\S]{0,160}"
+    r"\b(?:wages?|salaries|tips)\b"
+    r"|"
+    r"\bnet\s+earnings?\s+from\s+self-employment\b"
+    r"|"
+    r"\bself-employment\s+income\b"
+    r"|"
+    r"\bearned\s+income\b[\s\S]{0,180}"
+    r"\b(?:wages?|salaries|tips|employee\s+compensation|"
+    r"net\s+earnings?\s+from\s+self-employment|self-employment\s+income)\b",
+    flags=re.IGNORECASE,
+)
+_PERSON_EARNINGS_EXPLICIT_UNIT_SOURCE_PATTERN = re.compile(
+    r"\b(?:household|family|tax\s+unit|filing\s+unit|assistance\s+unit|"
+    r"snap\s+unit|spm\s+unit)\b[\s\S]{0,120}"
+    r"\b(?:earned\s+income|wages?|salaries|tips|employee\s+compensation|"
+    r"net\s+earnings?|self-employment\s+income)\b"
+    r"|"
+    r"\b(?:earned\s+income|wages?|salaries|tips|employee\s+compensation|"
+    r"net\s+earnings?|self-employment\s+income)\b[\s\S]{0,120}"
+    r"\b(?:of|for|in)\s+(?:the\s+)?"
+    r"(?:household|family|tax\s+unit|filing\s+unit|assistance\s+unit|"
+    r"snap\s+unit|spm\s+unit)\b",
+    flags=re.IGNORECASE,
+)
 
 
 def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
@@ -7427,6 +7456,61 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
             "that definition at the lower entity first, then aggregate only "
             "through an explicit relation when the source states a unit-level "
             "roll-up."
+        )
+    return issues
+
+
+def find_person_earnings_unit_rollup_issues(content: str) -> list[str]:
+    """Flag unit-level earnings formulas that need person relation roll-ups."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    source_text = _scope_validation_source_text(content)
+    if not source_text:
+        return []
+
+    formula_records = _rulespec_rule_formula_rule_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source, _rule in formula_records
+        if kind == "derived"
+    }
+    dtype_by_name = _rulespec_rule_dtype_by_name(payload)
+    issues: list[str] = []
+    for name, kind, formula, rule_source, rule in formula_records:
+        if kind != "derived":
+            continue
+        if dtype_by_name.get(name) not in {"money", "decimal"}:
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
+            continue
+        if _formula_or_referenced_helpers_use_relation_aggregate(
+            formula,
+            formula_by_name=formula_by_name,
+        ):
+            continue
+        scoped_source_texts = _scope_candidate_source_texts(
+            rule,
+            source_text=source_text,
+            rule_source=rule_source,
+        )
+        if not any(
+            _PERSON_EARNINGS_SOURCE_PATTERN.search(scoped_source_text)
+            and not _PERSON_EARNINGS_EXPLICIT_UNIT_SOURCE_PATTERN.search(
+                scoped_source_text
+            )
+            for scoped_source_text in scoped_source_texts
+        ):
+            continue
+        issues.append(
+            "Person earnings roll-up missing: "
+            f"`{name}` is declared on `{entity}` and computes wages, employee "
+            "compensation, self-employment income, earned income, or similar "
+            "person earnings without aggregating through an explicit relation. "
+            "Encode the earnings at the person level first, then add a "
+            "role-scoped person-to-unit relation and a unit-level roll-up only "
+            "where the source or downstream surface requires the unit amount."
         )
     return issues
 
@@ -18680,6 +18764,7 @@ class ValidatorPipeline:
         issues.extend(find_shared_statutory_rate_entity_suffix_name_issues(content))
         issues.extend(find_person_scoped_rate_base_unit_issues(content))
         issues.extend(find_person_scoped_definition_unit_issues(content))
+        issues.extend(find_person_earnings_unit_rollup_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         # Read the requested-source target from the nearby eval workspace or
