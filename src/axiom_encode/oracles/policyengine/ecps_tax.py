@@ -80,6 +80,8 @@ TAX_BEFORE_CREDITS_PROGRAM_PATH = Path("statutes/26/1/j.yaml")
 TAX_BEFORE_CREDITS_BASE = "us:statutes/26/1/j"
 EITC_PROGRAM_PATH = Path("statutes/26/32.yaml")
 EITC_BASE = "us:statutes/26/32"
+CDCC_PROGRAM_PATH = Path("statutes/26/21.yaml")
+CDCC_BASE = "us:statutes/26/21"
 SECTION_112_BASE = "us:statutes/26/112"
 SECTION_32_C_2_BASE = "us:statutes/26/32/c/2"
 SECTION_152_C_BASE = "us:statutes/26/152/c"
@@ -282,12 +284,39 @@ EITC_OUTPUTS = {
         "pe": "eitc_eligible",
     },
 }
+CDCC_OUTPUTS = {
+    "cdcc_qualifying_individual_count": {
+        "axiom": f"{CDCC_BASE}#cdcc_qualifying_individual_count",
+        "pe": "count_cdcc_eligible",
+    },
+    "cdcc_dollar_limit": {
+        "axiom": f"{CDCC_BASE}#cdcc_dollar_limit",
+        "pe": "cdcc_limit",
+    },
+    "cdcc_creditable_expenses": {
+        "axiom": f"{CDCC_BASE}#cdcc_creditable_expenses",
+        "pe": "cdcc_relevant_expenses",
+    },
+    "cdcc_rate": {
+        "axiom": f"{CDCC_BASE}#cdcc_rate",
+        "pe": "cdcc_rate",
+    },
+    "cdcc_potential": {
+        "axiom": f"{CDCC_BASE}#cdcc_potential",
+        "pe": "cdcc_potential",
+    },
+    "cdcc": {
+        "axiom": f"{CDCC_BASE}#cdcc",
+        "pe": "cdcc",
+    },
+}
 SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
     "capital-gain-definitions": CAPITAL_GAINS_DEFINITION_OUTPUTS,
     "tax-before-credits": TAX_BEFORE_CREDITS_OUTPUTS,
     "eitc": EITC_OUTPUTS,
+    "cdcc": CDCC_OUTPUTS,
     **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
 SURFACE_PROGRAM_PATHS = {
@@ -296,6 +325,7 @@ SURFACE_PROGRAM_PATHS = {
     "capital-gain-definitions": CAPITAL_GAINS_PROGRAM_PATH,
     "tax-before-credits": TAX_BEFORE_CREDITS_PROGRAM_PATH,
     "eitc": EITC_PROGRAM_PATH,
+    "cdcc": CDCC_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
 PE_TAX_UNIT_VARIABLES = tuple(
@@ -305,6 +335,13 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "adjusted_gross_income",
             "adjusted_net_capital_gain",
             "basic_standard_deduction",
+            "cdcc",
+            "cdcc_credit_limit",
+            "cdcc_limit",
+            "cdcc_potential",
+            "cdcc_rate",
+            "cdcc_relevant_expenses",
+            "count_cdcc_eligible",
             "ctc",
             "ctc_maximum",
             "ctc_phase_out",
@@ -322,9 +359,12 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "eitc_phased_in",
             "eitc_reduction",
             "filing_status",
+            "income_tax_before_credits",
+            "min_head_spouse_earned",
             "net_capital_gain",
             "income_tax_main_rates",
             "standard_deduction",
+            "tax_unit_childcare_expenses",
             "taxable_income",
         }
     )
@@ -337,6 +377,7 @@ PE_PERSON_VARIABLES = tuple(
             "employer_medicare_tax",
             "employer_social_security_tax",
             "irs_employment_income",
+            "is_incapable_of_self_care",
             "is_tax_unit_head",
             "is_tax_unit_head_or_spouse",
             "is_tax_unit_spouse",
@@ -871,6 +912,8 @@ def build_axiom_request(
             year=year,
             contribution_base=contribution_base,
         )
+    if surface == "cdcc":
+        return build_cdcc_request(pe_data=pe_data, year=year)
     if surface in PAYROLL_SURFACES:
         return build_payroll_request(
             pe_data=pe_data,
@@ -945,6 +988,61 @@ def build_ctc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
                 "entity_id": tax_entity_id(tax_unit_id),
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in CTC_OUTPUTS.values()],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_cdcc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        tax_unit_persons = persons_by_tax_unit.get(tax_unit_id, [])
+        contexts = project_tax_unit_person_contexts(tax_unit_persons)
+        for name, value in project_cdcc_tax_unit_inputs(row=row).items():
+            inputs.append(
+                input_record(f"{CDCC_BASE}#input.{name}", entity_id, interval, value)
+            )
+
+        for person_index, (person, context) in enumerate(
+            zip(tax_unit_persons, contexts, strict=True)
+        ):
+            person_id = f"{entity_id}_person_{person_index}"
+            relations.append(
+                {
+                    "name": f"{CDCC_BASE}#relation.qualifying_individual_of_tax_unit",
+                    "tuple": [person_id, entity_id],
+                    "interval": interval,
+                }
+            )
+            for name, value in project_cdcc_person_inputs(person, context).items():
+                inputs.append(
+                    input_record(
+                        f"{CDCC_BASE}#input.{name}",
+                        person_id,
+                        interval,
+                        value,
+                    )
+                )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": relations},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [spec["axiom"] for spec in CDCC_OUTPUTS.values()],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
         ],
@@ -1603,6 +1701,57 @@ def project_tax_before_credits_inputs(*, row: Any) -> dict[str, Any]:
     return {
         "filing_status": filing_status_code(str(row["filing_status"])),
         "taxable_income": money(row["taxable_income"]),
+    }
+
+
+def project_cdcc_tax_unit_inputs(*, row: Any) -> dict[str, Any]:
+    filing_status_numeric = filing_status_code(str(row["filing_status"]))
+    cdcc_earned_income_cap = money(row["min_head_spouse_earned"])
+    employment_related_expenses = money(row["tax_unit_childcare_expenses"])
+    return {
+        "cdcc_temporary_expansion_applies": False,
+        "adjusted_gross_income": money(row["adjusted_gross_income"]),
+        "filing_status": filing_status_numeric,
+        "dependent_care_assistance_excludable_under_section_129": 0,
+        "married_at_close_of_taxable_year": filing_status_numeric in {1, 2},
+        "legally_separated_under_decree": False,
+        "maintains_household_principal_abode_of_qualifying_individual_more_than_half_year": False,
+        "furnishes_over_half_cost_of_household": False,
+        "spouse_not_member_of_household_during_last_six_months": False,
+        "taxpayer_earned_income_for_cdcc": cdcc_earned_income_cap,
+        "spouse_earned_income_for_cdcc": cdcc_earned_income_cap,
+        "employment_related_expense_requirements_satisfied": (
+            employment_related_expenses > 0 and cdcc_earned_income_cap > 0
+        ),
+        "employment_related_expenses_paid": employment_related_expenses,
+        "service_provider_identifying_information_requirement_satisfied": True,
+        "qualifying_individual_tin_included_on_return": True,
+        "paid_to_disallowed_related_individual": False,
+        "possession_credit_or_payment_bars_united_states_credit": False,
+        "taxpayer_or_spouse_has_us_principal_abode_more_than_half_year": True,
+        "tax_imposed_by_chapter_before_cdcc": money(row["cdcc_credit_limit"]),
+    }
+
+
+def project_cdcc_person_inputs(
+    person: Any,
+    context: PersonProjectionContext,
+) -> dict[str, Any]:
+    return {
+        "is_cdcc_child_dependent": context.is_tax_unit_dependent,
+        "age": money(person["age"]),
+        "abode_relationship_violates_local_law": False,
+        "noncustodial_parent_exception_applies": False,
+        "is_cdcc_dependent_disregarding_listed_subsections": (
+            context.is_tax_unit_dependent
+        ),
+        "physically_or_mentally_incapable_of_self_care": bool_value(
+            person.get("is_incapable_of_self_care", False)
+        ),
+        "same_principal_place_of_abode_more_than_half_year": (
+            context.is_tax_unit_dependent
+        ),
+        "is_spouse_of_taxpayer": context.is_spouse,
     }
 
 
@@ -2283,6 +2432,12 @@ def compare_outputs(
             "to Sections 32(c)(2) and 1402(a); Section 32 earned income is "
             "computed by Axiom and compared as an output rather than passed in "
             "from PolicyEngine.",
+            "CDCC projections run encoded 26 USC 21 math for qualifying counts, "
+            "expense limits, rates, potential credit, and final credit. "
+            "Childcare expenses, the minimum head/spouse earned-income cap, and "
+            "the available nonrefundable-credit limit remain explicit upstream "
+            "boundary inputs until those federal tax chains are encoded "
+            "end-to-end.",
         ],
     )
 

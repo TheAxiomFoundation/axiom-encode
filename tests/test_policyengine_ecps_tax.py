@@ -6,6 +6,8 @@ import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
 from axiom_encode.oracles.policyengine.ecps_tax import (
     CAPITAL_GAINS_BASE,
     CAPITAL_GAINS_DEFINITION_OUTPUTS,
+    CDCC_BASE,
+    CDCC_OUTPUTS,
     CTC_BASE,
     CTC_H_BASE,
     EITC_BASE,
@@ -30,6 +32,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     TAX_BEFORE_CREDITS_OUTPUTS,
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
+    build_cdcc_request,
     build_contribution_and_benefit_base_request,
     build_ctc_request,
     build_eitc_request,
@@ -49,6 +52,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     person_entity_id,
     policyengine_data_certification_override_required,
     project_capital_gain_definition_inputs,
+    project_cdcc_person_inputs,
+    project_cdcc_tax_unit_inputs,
     project_ctc_h_person_inputs,
     project_ctc_person_inputs,
     project_eitc_person_inputs,
@@ -1212,6 +1217,158 @@ def test_build_tax_before_credits_request_projects_section_1j_and_1h_inputs():
     assert request["queries"][0]["outputs"] == [
         spec["axiom"] for spec in TAX_BEFORE_CREDITS_OUTPUTS.values()
     ]
+
+
+def test_project_cdcc_tax_unit_inputs_declares_upstream_boundaries():
+    projected = project_cdcc_tax_unit_inputs(
+        row={
+            "filing_status": "JOINT",
+            "adjusted_gross_income": 80_000,
+            "min_head_spouse_earned": 50_000,
+            "tax_unit_childcare_expenses": 4_000,
+            "cdcc_credit_limit": 2_000,
+        }
+    )
+
+    assert projected["filing_status"] == 1
+    assert projected["married_at_close_of_taxable_year"] is True
+    assert projected["employment_related_expense_requirements_satisfied"] is True
+    assert projected["employment_related_expenses_paid"] == 4_000
+    assert projected["taxpayer_earned_income_for_cdcc"] == 50_000
+    assert projected["spouse_earned_income_for_cdcc"] == 50_000
+    assert projected["tax_imposed_by_chapter_before_cdcc"] == 2_000
+
+
+def test_project_cdcc_person_inputs_marks_child_and_disabled_paths():
+    child_context = project_tax_unit_person_contexts(
+        [
+            {"age": 38, "is_tax_unit_head": True, "is_tax_unit_spouse": False},
+            {"age": 9, "is_tax_unit_head": False, "is_tax_unit_spouse": False},
+        ]
+    )[1]
+    disabled_spouse_context = project_tax_unit_person_contexts(
+        [
+            {"age": 38, "is_tax_unit_head": True, "is_tax_unit_spouse": False},
+            {"age": 35, "is_tax_unit_head": False, "is_tax_unit_spouse": True},
+        ]
+    )[1]
+
+    child_inputs = project_cdcc_person_inputs(
+        {"age": 9, "is_incapable_of_self_care": False},
+        child_context,
+    )
+    disabled_spouse_inputs = project_cdcc_person_inputs(
+        {"age": 35, "is_incapable_of_self_care": True},
+        disabled_spouse_context,
+    )
+
+    assert child_inputs["is_cdcc_child_dependent"] is True
+    assert child_inputs["age"] == 9
+    assert disabled_spouse_inputs["is_spouse_of_taxpayer"] is True
+    assert (
+        disabled_spouse_inputs["physically_or_mentally_incapable_of_self_care"] is True
+    )
+
+
+def test_build_cdcc_request_uses_person_to_tax_unit_relation_and_outputs():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "filing_status": "JOINT",
+                    "adjusted_gross_income": 80_000,
+                    "min_head_spouse_earned": 50_000,
+                    "tax_unit_childcare_expenses": 4_000,
+                    "cdcc_credit_limit": 2_000,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "person_tax_unit_id": 1,
+                    "age": 38,
+                    "is_tax_unit_head": True,
+                    "is_tax_unit_spouse": False,
+                    "is_incapable_of_self_care": False,
+                },
+                {
+                    "person_id": 8,
+                    "person_tax_unit_id": 1,
+                    "age": 9,
+                    "is_tax_unit_head": False,
+                    "is_tax_unit_spouse": False,
+                    "is_incapable_of_self_care": False,
+                },
+            ]
+        ),
+        "tax_unit_ids": [1],
+    }
+
+    request = build_cdcc_request(pe_data=pe_data, year=2026)
+
+    assert request["queries"] == [
+        {
+            "entity_id": "tax_unit_1",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [spec["axiom"] for spec in CDCC_OUTPUTS.values()],
+        }
+    ]
+    assert request["dataset"]["relations"] == [
+        {
+            "name": f"{CDCC_BASE}#relation.qualifying_individual_of_tax_unit",
+            "tuple": ["tax_unit_1_person_0", "tax_unit_1"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+        {
+            "name": f"{CDCC_BASE}#relation.qualifying_individual_of_tax_unit",
+            "tuple": ["tax_unit_1_person_1", "tax_unit_1"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+    ]
+    input_values = {
+        (item["name"], item["entity_id"]): item["value"]["value"]
+        for item in request["dataset"]["inputs"]
+    }
+    assert (
+        input_values[
+            (
+                f"{CDCC_BASE}#input.employment_related_expenses_paid",
+                "tax_unit_1",
+            )
+        ]
+        == "4000.0"
+    )
+    assert (
+        input_values[
+            (
+                f"{CDCC_BASE}#input.tax_imposed_by_chapter_before_cdcc",
+                "tax_unit_1",
+            )
+        ]
+        == "2000.0"
+    )
+    assert (
+        input_values[
+            (f"{CDCC_BASE}#input.is_cdcc_child_dependent", "tax_unit_1_person_1")
+        ]
+        is True
+    )
 
 
 def test_within_tolerance_keeps_cent_level_strictness_for_ordinary_outputs():
