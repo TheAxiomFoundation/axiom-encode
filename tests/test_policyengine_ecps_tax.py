@@ -66,6 +66,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_eitc_tax_unit_inputs,
     project_fica_wages,
     project_oasdi_wage_base_inputs,
+    project_section_32_c_2_person_inputs,
     project_section_32_c_2_tax_unit_inputs,
     project_section_112_tax_unit_inputs,
     project_section_152_c_person_inputs,
@@ -732,9 +733,9 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
         == 0
     )
     assert self_employment_inputs == {
-        "self_employment_trade_or_business_gross_income": 0,
-        "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": 0,
+        "adjusted_self_employment_trade_or_business_gross_income": 0,
+        "adjusted_self_employment_trade_or_business_deductions": 0,
+        "adjusted_partnership_section_702_a_8_income_or_loss": 0,
     }
 
 
@@ -873,23 +874,31 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "subsidized_state_work_activity_amounts_received": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
+    assert project_section_32_c_2_person_inputs(person=persons[0]) == {
+        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": 18_000,
+        "pension_or_annuity_amounts_received": 0,
+        "amounts_to_which_section_871_a_applies": 0,
+        "amounts_received_for_services_while_inmate_at_penal_institution": 0,
+        "subsidized_state_work_activity_amounts_received": 0,
+        "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
+    }
     assert project_section_1402_a_tax_unit_inputs(
         persons=persons,
         contexts=contexts,
     ) == {
-        "self_employment_trade_or_business_gross_income": 3_550,
-        "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": 400,
+        "adjusted_self_employment_trade_or_business_gross_income": 3_550,
+        "adjusted_self_employment_trade_or_business_deductions": 0,
+        "adjusted_partnership_section_702_a_8_income_or_loss": 400,
     }
     assert project_section_1402_a_person_inputs(person=persons[0]) == {
-        "self_employment_trade_or_business_gross_income": 2_800,
-        "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": 450,
+        "adjusted_self_employment_trade_or_business_gross_income": 2_800,
+        "adjusted_self_employment_trade_or_business_deductions": 0,
+        "adjusted_partnership_section_702_a_8_income_or_loss": 450,
     }
     assert project_section_1402_a_person_inputs(person=persons[1]) == {
-        "self_employment_trade_or_business_gross_income": 750,
-        "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": -50,
+        "adjusted_self_employment_trade_or_business_gross_income": 750,
+        "adjusted_self_employment_trade_or_business_deductions": 0,
+        "adjusted_partnership_section_702_a_8_income_or_loss": -50,
     }
     assert project_section_164_f_tax_unit_inputs() == {
         "taxpayer_is_individual": True,
@@ -905,6 +914,7 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "individual_is_nonresident_alien": False,
         "social_security_agreement_under_section_233_applies_to_nonresident_alien": False,
         "individual_is_noncitizen_territory_resident": False,
+        "church_employee_income_adjustment_under_subsection_j_2_for_threshold_test": 0,
         "contribution_and_benefit_base_under_section_230_of_social_security_act": 184_500.0,
         "wages_paid_to_individual_for_section_1401_a": 23_000,
     }
@@ -1106,6 +1116,15 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
             },
         },
         {
+            "name": f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit",
+            "tuple": ["tax_unit_1_person_0", "tax_unit_1"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+        {
             "name": f"{EITC_BASE}#relation.qualifying_child_of_tax_unit",
             "tuple": ["tax_unit_1_person_1", "tax_unit_1"],
             "interval": {
@@ -1141,7 +1160,7 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     )
     assert (
         input_values[
-            f"{SECTION_1402_A_BASE}#input.self_employment_trade_or_business_gross_income"
+            f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income"
         ]
         == "0.0"
     )
@@ -1174,11 +1193,20 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     assert (
         entity_input_values[
             (
-                f"{SECTION_1402_A_BASE}#input.self_employment_trade_or_business_gross_income",
+                f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income",
                 "tax_unit_1_person_0",
             )
         ]
         == "0.0"
+    )
+    assert (
+        entity_input_values[
+            (
+                f"{SECTION_32_C_2_BASE}#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income",
+                "tax_unit_1_person_0",
+            )
+        ]
+        == "18000.0"
     )
     assert (
         entity_input_values[
@@ -1208,7 +1236,11 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         is False
     )
     assert (
-        f"{SECTION_1402_A_BASE}#input.self_employment_trade_or_business_gross_income",
+        f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income",
+        "tax_unit_1_person_1",
+    ) not in entity_input_values
+    assert (
+        f"{SECTION_32_C_2_BASE}#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income",
         "tax_unit_1_person_1",
     ) not in entity_input_values
     assert (

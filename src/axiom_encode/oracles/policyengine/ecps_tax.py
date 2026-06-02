@@ -1423,6 +1423,14 @@ def build_eitc_request(
                     "interval": interval,
                 }
             )
+            if context.is_head or context.is_spouse:
+                relations.append(
+                    {
+                        "name": f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit",
+                        "tuple": [person_id, entity_id],
+                        "interval": interval,
+                    }
+                )
             for name, value in project_eitc_person_inputs(person, context).items():
                 inputs.append(
                     input_record(
@@ -1442,6 +1450,17 @@ def build_eitc_request(
                     )
                 )
             if context.is_head or context.is_spouse:
+                for name, value in project_section_32_c_2_person_inputs(
+                    person=person
+                ).items():
+                    inputs.append(
+                        input_record(
+                            f"{SECTION_32_C_2_BASE}#input.{name}",
+                            person_id,
+                            interval,
+                            value,
+                        )
+                    )
                 for name, value in project_section_1402_a_person_inputs(
                     person=person
                 ).items():
@@ -2051,6 +2070,19 @@ def project_section_32_c_2_tax_unit_inputs(
     }
 
 
+def project_section_32_c_2_person_inputs(*, person: Any) -> dict[str, Any]:
+    return {
+        "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": money(
+            person.get("employment_income_before_lsr", 0)
+        ),
+        "pension_or_annuity_amounts_received": 0,
+        "amounts_to_which_section_871_a_applies": 0,
+        "amounts_received_for_services_while_inmate_at_penal_institution": 0,
+        "subsidized_state_work_activity_amounts_received": 0,
+        "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
+    }
+
+
 def project_section_112_tax_unit_inputs() -> dict[str, Any]:
     return {
         "member_below_grade_of_commissioned_officer_in_armed_forces": False,
@@ -2081,14 +2113,14 @@ def project_section_1402_a_tax_unit_inputs(
         if context.is_head or context.is_spouse
     ]
     return {
-        "self_employment_trade_or_business_gross_income": sum(
-            projected["self_employment_trade_or_business_gross_income"]
+        "adjusted_self_employment_trade_or_business_gross_income": sum(
+            projected["adjusted_self_employment_trade_or_business_gross_income"]
             for projected in person_inputs
         ),
-        "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": (
+        "adjusted_self_employment_trade_or_business_deductions": 0,
+        "adjusted_partnership_section_702_a_8_income_or_loss": (
             sum(
-                projected["partnership_section_702_a_8_income_or_loss"]
+                projected["adjusted_partnership_section_702_a_8_income_or_loss"]
                 for projected in person_inputs
             )
         ),
@@ -2097,13 +2129,13 @@ def project_section_1402_a_tax_unit_inputs(
 
 def project_section_1402_a_person_inputs(*, person: Any) -> dict[str, Any]:
     return {
-        "self_employment_trade_or_business_gross_income": (
+        "adjusted_self_employment_trade_or_business_gross_income": (
             money(person.get("self_employment_income_before_lsr", 0))
             + money(person.get("sstb_self_employment_income_before_lsr", 0))
             + money(person.get("farm_operations_income", 0))
         ),
-        "self_employment_trade_or_business_deductions": 0,
-        "partnership_section_702_a_8_income_or_loss": money(
+        "adjusted_self_employment_trade_or_business_deductions": 0,
+        "adjusted_partnership_section_702_a_8_income_or_loss": money(
             person.get("partnership_se_income", 0)
         ),
     }
@@ -2146,6 +2178,7 @@ def project_section_1402_b_person_inputs(
         "individual_is_nonresident_alien": False,
         "social_security_agreement_under_section_233_applies_to_nonresident_alien": False,
         "individual_is_noncitizen_territory_resident": False,
+        "church_employee_income_adjustment_under_subsection_j_2_for_threshold_test": 0,
         "contribution_and_benefit_base_under_section_230_of_social_security_act": (
             contribution_base
         ),

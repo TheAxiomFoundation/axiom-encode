@@ -45,6 +45,13 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   definition is currently encoded at a filing-unit, tax-unit, household, or
   other unit boundary. Only add a unit-level roll-up when this source text
   itself states that aggregate.
+- Conversely, when a filing-unit, tax-unit, household, family, or other unit
+  output depends on imported `Person` outputs, do not reference those person
+  outputs directly in a unit-scoped formula. Create the lower-entity support
+  rule on `Person`, declare or import the appropriate membership relation, and
+  aggregate with `sum(...)`, `sum_where(...)`, `len(...)`, or `count_where(...)`
+  over that relation. Directly adding a person amount to a unit amount silently
+  loses per-person caps, floors, and exclusions.
 - If the only unavailable dependency for that lower-entity rate-applied result
   is the value of a named legal base, keep the result executable by exposing a
   local boundary input for that base instead of deferring the tax, credit,

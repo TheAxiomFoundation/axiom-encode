@@ -15524,6 +15524,52 @@ rules:
     assert any("Nonnegative taxable income missing floor" in issue for issue in issues)
 
 
+def test_nonnegative_amount_reduction_rejects_unfloored_eitc_earned_income():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/32
+rules:
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          employee_compensation_earned_income
+          + self_employment_earned_income_component
+"""
+
+    issues = find_nonnegative_amount_reduction_issues(content)
+
+    assert any(
+        "Nonnegative EITC earned income missing floor" in issue for issue in issues
+    )
+
+
+def test_nonnegative_amount_reduction_does_not_flag_non_eitc_earned_income():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/63
+rules:
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          employee_compensation_earned_income
+          + self_employment_earned_income_component
+"""
+
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
 def test_repair_nonnegative_amount_reductions_floors_taxable_income_branches():
     content = """format: rulespec/v1
 rules:
@@ -15546,6 +15592,34 @@ rules:
         "max(0, taxable_income_for_individual_who_does_not_itemize) "
         "else: max(0, taxable_income_general_rule)" in repaired
     )
+    assert find_nonnegative_amount_reduction_issues(repaired) == []
+
+
+def test_repair_nonnegative_amount_reductions_floors_eitc_earned_income():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/32/c/2
+rules:
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          employee_compensation_earned_income
+          + self_employment_earned_income_component
+"""
+
+    repaired, rules = repair_nonnegative_amount_reductions(content)
+
+    assert rules == ["earned_income"]
+    assert (
+        "max(0, employee_compensation_earned_income\n"
+        "          + self_employment_earned_income_component)"
+    ) in repaired
     assert find_nonnegative_amount_reduction_issues(repaired) == []
 
 

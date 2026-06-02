@@ -12198,6 +12198,7 @@ def _only_pending_nonnegative_amount_reduction_issues(issues: list[str]) -> bool
         "Nonnegative amount reduction missing floor:" in issue
         or "Nonnegative amount income base missing floor:" in issue
         or "Nonnegative taxable income missing floor:" in issue
+        or "Nonnegative EITC earned income missing floor:" in issue
         for issue in issues
     )
 

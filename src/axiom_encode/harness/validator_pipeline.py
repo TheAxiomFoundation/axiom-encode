@@ -9044,8 +9044,10 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
         is_taxable_income = bool(
             _NONNEGATIVE_TAXABLE_INCOME_NAME_PATTERN.fullmatch(name)
         )
+        is_eitc_earned_income = _is_section_32_earned_income_rule(payload, name)
         if (
             not is_taxable_income
+            and not is_eitc_earned_income
             and not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name)
         ):
             continue
@@ -9065,6 +9067,16 @@ def find_nonnegative_amount_reduction_issues(content: str) -> list[str]:
                         f"`{name}` can return a negative amount. Taxable income "
                         "outputs used for current-law tax calculations must floor "
                         "the selected branch at zero."
+                    )
+                continue
+            if is_eitc_earned_income:
+                if not _taxable_income_formula_has_zero_floor(formula):
+                    issues.append(
+                        "Nonnegative EITC earned income missing floor: "
+                        f"`{name}` can return a negative amount. Earned income "
+                        "used for the earned income credit must floor the "
+                        "selected branch at zero before downstream credit "
+                        "calculations."
                     )
                 continue
             result_expressions = _formula_result_expressions(formula)
@@ -9133,8 +9145,10 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
         is_taxable_income = bool(
             _NONNEGATIVE_TAXABLE_INCOME_NAME_PATTERN.fullmatch(name)
         )
+        is_eitc_earned_income = _is_section_32_earned_income_rule(payload, name)
         if (
             not is_taxable_income
+            and not is_eitc_earned_income
             and not _NONNEGATIVE_REDUCTION_AMOUNT_NAME_PATTERN.search(name)
         ):
             continue
@@ -9149,7 +9163,7 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
                 continue
             repaired_formula = (
                 _repair_nonnegative_taxable_income_formula(formula)
-                if is_taxable_income
+                if is_taxable_income or is_eitc_earned_income
                 else _repair_nonnegative_amount_reduction_formula(formula)
             )
             if repaired_formula == formula:
@@ -9164,6 +9178,25 @@ def repair_nonnegative_amount_reductions(content: str) -> tuple[str, list[str]]:
             repaired_content = updated_content
             repaired_rules.append(name or "<unknown>")
     return repaired_content, repaired_rules
+
+
+def _is_section_32_earned_income_rule(
+    payload: dict[str, Any],
+    name: str,
+) -> bool:
+    if name != "earned_income":
+        return False
+    source_verification = _source_verification_block(payload)
+    if source_verification is None:
+        return False
+    citation_paths, _source_label = _source_verification_source_fields(
+        source_verification
+    )
+    return any(
+        citation_path == "us/statute/26/32"
+        or citation_path.startswith("us/statute/26/32/")
+        for citation_path in citation_paths
+    )
 
 
 def _taxable_income_formula_has_zero_floor(formula: str) -> bool:
