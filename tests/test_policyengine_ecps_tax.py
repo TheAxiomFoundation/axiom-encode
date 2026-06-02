@@ -26,6 +26,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     SECTION_1402_A_BASE,
     SECTION_1402_B_BASE,
     SECTION_7703_BASE,
+    TAX_BEFORE_CREDITS_BASE,
+    TAX_BEFORE_CREDITS_OUTPUTS,
     additional_standard_deduction_entitlement_count,
     build_capital_gain_definitions_request,
     build_contribution_and_benefit_base_request,
@@ -33,6 +35,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     build_eitc_request,
     build_oasdi_wage_base_request,
     build_payroll_request,
+    build_tax_before_credits_request,
     compare_tax_ecps,
     contribution_and_benefit_base_from_results,
     contribution_and_benefit_base_from_rulespec_test,
@@ -1161,6 +1164,56 @@ def test_build_capital_gain_definitions_request_uses_raw_person_capital_gains():
     )
 
 
+def test_build_tax_before_credits_request_projects_section_1j_and_1h_inputs():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 3,
+                    "filing_status": "JOINT",
+                    "taxable_income": 125_000,
+                    "long_term_capital_gains": 2_500,
+                    "short_term_capital_gains": 750,
+                    "qualified_dividend_income": 400,
+                    "unrecaptured_section_1250_gain": 125,
+                    "capital_gains_28_percent_rate_gain": 300,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame(
+            [
+                {"person_id": 10, "tax_unit_id": 3},
+                {
+                    "person_id": 11,
+                    "tax_unit_id": 3,
+                    "long_term_capital_gains": 2_000,
+                    "short_term_capital_gains": 250,
+                },
+            ]
+        ),
+        "tax_unit_ids": [3],
+    }
+
+    request = build_tax_before_credits_request(pe_data=pe_data, year=2026)
+
+    input_values = {
+        item["name"]: item["value"]["value"] for item in request["dataset"]["inputs"]
+    }
+    assert input_values[f"{TAX_BEFORE_CREDITS_BASE}#input.filing_status"] == 1
+    assert input_values[f"{TAX_BEFORE_CREDITS_BASE}#input.taxable_income"] == (
+        "125000.0"
+    )
+    assert input_values[f"{CAPITAL_GAINS_BASE}#input.filing_status"] == 1
+    assert input_values[f"{CAPITAL_GAINS_BASE}#input.taxable_income"] == "125000.0"
+    assert input_values[f"{CAPITAL_GAINS_BASE}#input.long_term_capital_gains"] == (
+        "2000.0"
+    )
+    assert request["queries"][0]["outputs"] == [
+        spec["axiom"] for spec in TAX_BEFORE_CREDITS_OUTPUTS.values()
+    ]
+
+
 def test_within_tolerance_keeps_cent_level_strictness_for_ordinary_outputs():
     assert within_tolerance(
         1000.005,
@@ -1642,6 +1695,16 @@ def test_policyengine_variables_for_non_payroll_surfaces_use_legacy_sets():
         ecps_tax.PE_TAX_UNIT_VARIABLES,
         ecps_tax.PE_PERSON_VARIABLES,
     )
+
+
+def test_policyengine_variables_for_tax_before_credits_include_main_rates_inputs():
+    tax_unit_variables, person_variables = ecps_tax.policyengine_variables_for_surfaces(
+        ["tax-before-credits"]
+    )
+
+    assert "income_tax_main_rates" in tax_unit_variables
+    assert "taxable_income" in tax_unit_variables
+    assert person_variables == ecps_tax.PE_PERSON_VARIABLES
 
 
 def test_taxable_oasdi_wages_come_from_axiom_3121_results():
