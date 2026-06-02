@@ -14509,9 +14509,15 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
             )
             if not imports_exception and not name_matches_exception_target:
                 continue
-            if any(
-                _formula_negates_identifier(formula, exception_name)
-                for formula in formulas
+            target_is_judgment_exception_output = dtypes_by_name.get(
+                rule_name
+            ) == "judgment" and _is_exception_identifier(rule_name)
+            if (
+                any(
+                    _formula_negates_identifier(formula, exception_name)
+                    for formula in formulas
+                )
+                and not target_is_judgment_exception_output
             ):
                 continue
             if _is_positive_excluded_amount_output(
@@ -14519,6 +14525,14 @@ def find_unconsumed_local_exception_output_issues(content: str) -> list[str]:
                 dtype=dtypes_by_name.get(rule_name),
             ) and any(
                 _formula_uses_identifier_as_positive_exclusion_amount(
+                    formula,
+                    exception_name,
+                )
+                for formula in formulas
+            ):
+                continue
+            if target_is_judgment_exception_output and any(
+                _formula_uses_identifier_as_positive_exception_component(
                     formula,
                     exception_name,
                 )
@@ -14663,6 +14677,52 @@ def _formula_uses_identifier_as_positive_exclusion_amount(
         return False
     condition = _strip_wrapping_parentheses(match.group("condition").strip())
     return condition == identifier
+
+
+def _formula_uses_identifier_as_positive_exception_component(
+    formula: str,
+    identifier: str,
+) -> bool:
+    normalized = _strip_wrapping_parentheses(" ".join(formula.split()))
+    or_terms = _split_top_level_or_terms(normalized)
+    if len(or_terms) < 2:
+        return False
+    return any(_strip_wrapping_parentheses(term) == identifier for term in or_terms)
+
+
+def _split_top_level_or_terms(expression: str) -> list[str]:
+    terms: list[str] = []
+    start = 0
+    depth = 0
+    quote: str | None = None
+    i = 0
+    while i < len(expression):
+        character = expression[i]
+        if quote is not None:
+            if character == quote:
+                quote = None
+            i += 1
+            continue
+        if character in {"'", '"'}:
+            quote = character
+            i += 1
+            continue
+        if character == "(":
+            depth += 1
+            i += 1
+            continue
+        if character == ")":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+        if depth == 0 and expression[i : i + 4].lower() == " or ":
+            terms.append(expression[start:i].strip())
+            i += 4
+            start = i
+            continue
+        i += 1
+    terms.append(expression[start:].strip())
+    return terms
 
 
 def _strip_wrapping_parentheses(text: str) -> str:
