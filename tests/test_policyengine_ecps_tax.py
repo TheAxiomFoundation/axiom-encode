@@ -4,6 +4,8 @@ import pytest
 
 import axiom_encode.oracles.policyengine.ecps_tax as ecps_tax
 from axiom_encode.oracles.policyengine.ecps_tax import (
+    AOTC_BASE,
+    AOTC_OUTPUTS,
     CAPITAL_GAINS_BASE,
     CAPITAL_GAINS_DEFINITION_OUTPUTS,
     CDCC_BASE,
@@ -31,6 +33,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     TAX_BEFORE_CREDITS_BASE,
     TAX_BEFORE_CREDITS_OUTPUTS,
     additional_standard_deduction_entitlement_count,
+    build_aotc_request,
     build_capital_gain_definitions_request,
     build_cdcc_request,
     build_contribution_and_benefit_base_request,
@@ -51,6 +54,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     output_number,
     person_entity_id,
     policyengine_data_certification_override_required,
+    project_aotc_person_inputs,
+    project_aotc_tax_unit_inputs,
     project_capital_gain_definition_inputs,
     project_cdcc_person_inputs,
     project_cdcc_tax_unit_inputs,
@@ -72,6 +77,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_standard_deduction_inputs,
     project_tax_unit_inputs,
     project_tax_unit_person_contexts,
+    remove_output_columns_already_in_raw,
     require_policyengine_versions,
     select_tax_unit_indices,
     taxable_oasdi_wages_by_person_id,
@@ -114,6 +120,40 @@ def test_scalar_value_keeps_plain_float_literal_format():
         "kind": "decimal",
         "value": "184500.0",
     }
+
+
+def test_remove_output_columns_already_in_raw_prevents_suffixing():
+    pd = pytest.importorskip("pandas")
+    raw = pd.DataFrame(
+        [
+            {
+                "person_id": 1,
+                "qualified_tuition_expenses": 4_000,
+                "age": 20,
+            }
+        ]
+    )
+    outputs = pd.DataFrame(
+        [
+            {
+                "person_id": 1,
+                "qualified_tuition_expenses": 4_000,
+                "american_opportunity_credit": 2_500,
+            }
+        ]
+    )
+
+    filtered = remove_output_columns_already_in_raw(
+        raw=raw,
+        outputs=outputs,
+        key="person_id",
+    )
+    merged = raw.merge(filtered, on="person_id", how="left", validate="one_to_one")
+
+    assert "qualified_tuition_expenses" in merged
+    assert "qualified_tuition_expenses_x" not in merged
+    assert "qualified_tuition_expenses_y" not in merged
+    assert merged.loc[0, "american_opportunity_credit"] == 2_500
 
 
 def test_run_axiom_program_compiles_through_canonical_repo_alias(
@@ -1366,6 +1406,188 @@ def test_build_cdcc_request_uses_person_to_tax_unit_relation_and_outputs():
     assert (
         input_values[
             (f"{CDCC_BASE}#input.is_cdcc_child_dependent", "tax_unit_1_person_1")
+        ]
+        is True
+    )
+
+
+def test_project_aotc_tax_unit_inputs_declares_credit_boundaries():
+    projected = project_aotc_tax_unit_inputs(
+        row={
+            "filing_status": "HEAD_OF_HOUSEHOLD",
+            "adjusted_gross_income": 68_000,
+            "income_tax_before_credits": 4_200,
+            "foreign_tax_credit": 100,
+            "cdcc": 750,
+        }
+    )
+
+    assert projected == {
+        "filing_status": 3,
+        "modified_adjusted_gross_income": 68_000,
+        "is_nonresident_alien": False,
+        "section_6013_resident_alien_election": False,
+        "taxpayer_is_section_1_g_child": False,
+        "income_tax_before_credits": 4_200,
+        "foreign_tax_credit": 100,
+        "cdcc": 750,
+    }
+
+
+def test_project_aotc_person_inputs_uses_ecps_education_leaves():
+    context = project_tax_unit_person_contexts(
+        [
+            {
+                "age": 42,
+                "is_tax_unit_head": True,
+                "is_tax_unit_spouse": False,
+                "ssn_card_type": "CITIZEN",
+            },
+            {
+                "age": 20,
+                "is_tax_unit_head": False,
+                "is_tax_unit_spouse": False,
+                "ssn_card_type": "CITIZEN",
+            },
+        ]
+    )[1]
+
+    projected = project_aotc_person_inputs(
+        {
+            "qualified_tuition_expenses": 4_500,
+            "educational_assistance": 500,
+            "is_pursuing_credential_for_american_opportunity_credit": True,
+            "attends_eligible_educational_institution_for_american_opportunity_credit": True,
+            "is_enrolled_at_least_half_time_for_american_opportunity_credit": True,
+            "american_opportunity_credit_claimed_prior_years": 1,
+            "has_completed_first_four_years_of_postsecondary_education": False,
+            "has_american_opportunity_credit_institution_ein": True,
+            "has_american_opportunity_credit_1098_t_or_exception": True,
+        },
+        context,
+    )
+
+    assert projected["qualified_tuition_and_related_expenses"] == 4_500
+    assert projected["excludable_educational_assistance"] == 500
+    assert projected["is_tax_unit_dependent"] is True
+    assert projected["meets_higher_education_act_student_requirements"] is True
+    assert projected["at_least_half_time_student"] is True
+    assert projected["aotc_prior_year_election_count"] == 1
+    assert projected["education_credit_identification_requirements_met"] is True
+    assert projected["institution_employer_identification_number_included"] is True
+    assert projected["payee_statement_received"] is True
+    assert projected["education_credit_election_in_effect"] is False
+
+
+def test_build_aotc_request_uses_person_to_tax_unit_relation_and_outputs():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "filing_status": "JOINT",
+                    "adjusted_gross_income": 80_000,
+                    "income_tax_before_credits": 5_000,
+                    "foreign_tax_credit": 0,
+                    "cdcc": 600,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame(
+            [
+                {
+                    "person_id": 7,
+                    "person_tax_unit_id": 1,
+                    "age": 44,
+                    "is_tax_unit_head": True,
+                    "is_tax_unit_spouse": False,
+                    "ssn_card_type": "CITIZEN",
+                    "qualified_tuition_expenses": 0,
+                },
+                {
+                    "person_id": 8,
+                    "person_tax_unit_id": 1,
+                    "age": 20,
+                    "is_tax_unit_head": False,
+                    "is_tax_unit_spouse": False,
+                    "ssn_card_type": "CITIZEN",
+                    "qualified_tuition_expenses": 4_000,
+                    "educational_assistance": 0,
+                    "is_pursuing_credential_for_american_opportunity_credit": True,
+                    "attends_eligible_educational_institution_for_american_opportunity_credit": True,
+                    "is_enrolled_at_least_half_time_for_american_opportunity_credit": True,
+                    "american_opportunity_credit_claimed_prior_years": 0,
+                    "has_completed_first_four_years_of_postsecondary_education": False,
+                    "has_american_opportunity_credit_institution_ein": True,
+                    "has_american_opportunity_credit_1098_t_or_exception": True,
+                },
+            ]
+        ),
+        "tax_unit_ids": [1],
+    }
+
+    request = build_aotc_request(pe_data=pe_data, year=2026)
+
+    assert request["queries"] == [
+        {
+            "entity_id": "tax_unit_1",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [spec["axiom"] for spec in AOTC_OUTPUTS.values()],
+        }
+    ]
+    assert request["dataset"]["relations"] == [
+        {
+            "name": f"{AOTC_BASE}#relation.education_credit_member_of_tax_unit",
+            "tuple": ["tax_unit_1_person_0", "tax_unit_1"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+        {
+            "name": f"{AOTC_BASE}#relation.education_credit_member_of_tax_unit",
+            "tuple": ["tax_unit_1_person_1", "tax_unit_1"],
+            "interval": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+        },
+    ]
+    input_values = {
+        (item["name"], item["entity_id"]): item["value"]["value"]
+        for item in request["dataset"]["inputs"]
+    }
+    assert (
+        input_values[
+            (
+                f"{AOTC_BASE}#input.income_tax_before_credits",
+                "tax_unit_1",
+            )
+        ]
+        == "5000.0"
+    )
+    assert (
+        input_values[
+            (
+                f"{AOTC_BASE}#input.qualified_tuition_and_related_expenses",
+                "tax_unit_1_person_1",
+            )
+        ]
+        == "4000.0"
+    )
+    assert (
+        input_values[
+            (
+                f"{AOTC_BASE}#input.meets_higher_education_act_student_requirements",
+                "tax_unit_1_person_1",
+            )
         ]
         is True
     )
