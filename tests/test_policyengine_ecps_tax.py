@@ -727,6 +727,7 @@ def test_eitc_projection_uses_ecps_income_and_demographic_inputs():
         "amounts_to_which_section_871_a_applies": 0,
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
+        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
     assert (
@@ -875,6 +876,7 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "amounts_to_which_section_871_a_applies": 0,
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
+        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
     assert project_section_32_c_2_person_inputs(person=persons[0]) == {
@@ -1176,10 +1178,7 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         f"{SECTION_32_C_2_BASE}"
         "#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
     )
-    assert (
-        section_32_wage_input,
-        "tax_unit_1",
-    ) not in entity_input_values
+    assert entity_input_values[(section_32_wage_input, "tax_unit_1")] == "18000.0"
     assert (
         entity_input_values[
             (
@@ -1188,6 +1187,16 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
             )
         ]
         == "18000.0"
+    )
+    assert (
+        entity_input_values[
+            (
+                f"{SECTION_32_C_2_BASE}"
+                "#input.amount_excluded_from_gross_income_by_reason_of_section_112_for_individual",
+                "tax_unit_1",
+            )
+        ]
+        == 0
     )
     assert (
         entity_input_values[
@@ -1210,9 +1219,14 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         == 0
     )
     assert (
-        f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income",
-        "tax_unit_1",
-    ) not in entity_input_values
+        entity_input_values[
+            (
+                f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income",
+                "tax_unit_1",
+            )
+        ]
+        == "0.0"
+    )
     assert (
         input_values[
             f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income"

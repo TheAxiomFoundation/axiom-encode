@@ -1502,19 +1502,19 @@ def build_eitc_request(
                     value,
                 )
             )
-        if not section_32_person_surface:
-            for name, value in project_section_32_c_2_tax_unit_inputs(
-                persons=tax_unit_persons,
-                contexts=contexts,
-            ).items():
-                inputs.append(
-                    input_record(
-                        f"{SECTION_32_C_2_BASE}#input.{name}",
-                        entity_id,
-                        interval,
-                        value,
-                    )
+        for name, value in project_section_32_c_2_tax_unit_inputs(
+            persons=tax_unit_persons,
+            contexts=contexts,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_32_C_2_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
                 )
+            )
+        if not section_32_person_surface:
             for name, value in project_section_112_tax_unit_inputs().items():
                 inputs.append(
                     input_record(
@@ -1524,53 +1524,53 @@ def build_eitc_request(
                         value,
                     )
                 )
-            for name, value in project_section_1402_a_tax_unit_inputs(
-                persons=tax_unit_persons,
-                contexts=contexts,
-            ).items():
-                inputs.append(
-                    input_record(
-                        f"{SECTION_1402_A_BASE}#input.{name}",
-                        entity_id,
-                        interval,
-                        value,
-                    )
+        for name, value in project_section_1402_a_tax_unit_inputs(
+            persons=tax_unit_persons,
+            contexts=contexts,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_1402_A_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
                 )
-            for name, value in project_section_1402_b_tax_unit_inputs(
-                persons=tax_unit_persons,
-                contexts=contexts,
-                contribution_base=contribution_base,
-            ).items():
-                inputs.append(
-                    input_record(
-                        f"{SECTION_1402_B_BASE}#input.{name}",
-                        entity_id,
-                        interval,
-                        value,
-                    )
+            )
+        for name, value in project_section_1402_b_tax_unit_inputs(
+            persons=tax_unit_persons,
+            contexts=contexts,
+            contribution_base=contribution_base,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_1402_B_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
                 )
-            for name, value in project_section_164_f_tax_unit_inputs().items():
-                inputs.append(
-                    input_record(
-                        f"{SECTION_164_F_BASE}#input.{name}",
-                        entity_id,
-                        interval,
-                        value,
-                    )
+            )
+        for name, value in project_section_164_f_tax_unit_inputs().items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_164_F_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
                 )
-            for name, value in project_section_1401_tax_unit_inputs(
-                row=row,
-                persons=tax_unit_persons,
-                contexts=contexts,
-            ).items():
-                inputs.append(
-                    input_record(
-                        f"{SECTION_1401_BASE}#input.{name}",
-                        entity_id,
-                        interval,
-                        value,
-                    )
+            )
+        for name, value in project_section_1401_tax_unit_inputs(
+            row=row,
+            persons=tax_unit_persons,
+            contexts=contexts,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{SECTION_1401_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
                 )
+            )
 
         for person_index, (person, context) in enumerate(
             zip(tax_unit_persons, contexts, strict=True)
@@ -2236,6 +2236,7 @@ def project_section_32_c_2_tax_unit_inputs(
         "amounts_to_which_section_871_a_applies": 0,
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
+        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
 
