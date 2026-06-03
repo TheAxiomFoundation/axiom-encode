@@ -87,6 +87,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     require_policyengine_versions,
     section_32_c_2_filer_relation_for_rulespec,
     section_32_c_2_filer_role_input_for_rulespec,
+    section_32_c_2_imports_section_112_for_rulespec,
+    section_32_c_2_uses_local_section_112_exclusion_input_for_rulespec,
     select_tax_unit_indices,
     taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
@@ -1198,6 +1200,28 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         ]
         == 0
     )
+    imported_section_112_request = build_eitc_request(
+        pe_data=pe_data,
+        year=2026,
+        contribution_base=184_500.0,
+        section_32_c_2_filer_relation=section_relation,
+        section_32_c_2_filer_role_input=section_role_input,
+        section_32_c_2_uses_local_section_112_exclusion_input=False,
+        section_32_c_2_imports_section_112=True,
+    )
+    imported_input_names = {
+        item["name"] for item in imported_section_112_request["dataset"]["inputs"]
+    }
+    assert (
+        f"{SECTION_32_C_2_BASE}"
+        "#input.amount_excluded_from_gross_income_by_reason_of_section_112_for_individual"
+        not in imported_input_names
+    )
+    assert (
+        f"{SECTION_112_BASE}"
+        "#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay"
+        in imported_input_names
+    )
     assert (
         entity_input_values[
             (
@@ -1547,6 +1571,46 @@ rules:
             f"{SECTION_32_C_2_BASE}#relation.earned_income_filer_of_tax_unit",
         )
         is None
+    )
+
+
+def test_section_32_c_2_section_112_import_shape_for_rulespec(tmp_path):
+    rulespec_root = tmp_path / "rulespec-us"
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        f"""format: rulespec/v1
+imports:
+  - {SECTION_112_BASE}#amount_excluded_from_gross_income_by_reason_of_section_112
+rules:
+  - name: earned_income_before_section_112_election
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages + net_earnings_from_self_employment
+  - name: tax_unit_earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0,
+            sum_where(taxpayer_or_spouse_of_tax_unit, earned_income_before_section_112_election, person_is_taxpayer_or_spouse_of_tax_unit)
+            + (if taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income: amount_excluded_from_gross_income_by_reason_of_section_112 else: 0))
+"""
+    )
+
+    assert section_32_c_2_imports_section_112_for_rulespec(rulespec_root) is True
+    assert (
+        section_32_c_2_uses_local_section_112_exclusion_input_for_rulespec(
+            rulespec_root
+        )
+        is False
     )
 
 

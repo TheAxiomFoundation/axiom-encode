@@ -30,6 +30,7 @@ from axiom_encode.harness.validator_pipeline import (
     _canonical_rulespec_compile_path,
     _rulespec_public_item_keys,
     _rulespec_repo_alias_parent,
+    _rulespec_rule_formula_rule_records,
 )
 
 try:
@@ -744,6 +745,18 @@ def compare_tax_ecps(
             if selected_surface == "eitc"
             else None
         )
+        section_32_c_2_uses_local_section_112_exclusion_input = (
+            section_32_c_2_uses_local_section_112_exclusion_input_for_rulespec(
+                resolved_rulespec_root
+            )
+            if selected_surface == "eitc"
+            else True
+        )
+        section_32_c_2_imports_section_112 = (
+            section_32_c_2_imports_section_112_for_rulespec(resolved_rulespec_root)
+            if selected_surface == "eitc"
+            else False
+        )
         if selected_surface == "eitc":
             surface_output_specs[selected_surface] = (
                 eitc_outputs_for_section_32_surface(section_32_c_2_filer_relation)
@@ -756,6 +769,10 @@ def compare_tax_ecps(
             contribution_base=contribution_base,
             section_32_c_2_filer_relation=section_32_c_2_filer_relation,
             section_32_c_2_filer_role_input=section_32_c_2_filer_role_input,
+            section_32_c_2_uses_local_section_112_exclusion_input=(
+                section_32_c_2_uses_local_section_112_exclusion_input
+            ),
+            section_32_c_2_imports_section_112=section_32_c_2_imports_section_112,
         )
         if selected_surface == "eitc" and section_32_c_2_filer_relation is None:
             projection_notes.append(
@@ -1005,6 +1022,8 @@ def build_axiom_request(
         f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit"
     ),
     section_32_c_2_filer_role_input: str | None = None,
+    section_32_c_2_uses_local_section_112_exclusion_input: bool = True,
+    section_32_c_2_imports_section_112: bool = False,
 ) -> dict[str, Any]:
     if surface == "ctc":
         return build_ctc_request(pe_data=pe_data, year=year)
@@ -1023,6 +1042,10 @@ def build_axiom_request(
             contribution_base=contribution_base,
             section_32_c_2_filer_relation=section_32_c_2_filer_relation,
             section_32_c_2_filer_role_input=section_32_c_2_filer_role_input,
+            section_32_c_2_uses_local_section_112_exclusion_input=(
+                section_32_c_2_uses_local_section_112_exclusion_input
+            ),
+            section_32_c_2_imports_section_112=section_32_c_2_imports_section_112,
         )
     if surface == "cdcc":
         return build_cdcc_request(pe_data=pe_data, year=year)
@@ -1134,6 +1157,49 @@ def section_32_c_2_filer_role_input_for_rulespec(
             if role_name and role_name not in rule_names:
                 return f"{SECTION_32_C_2_BASE}#input.{role_name}"
     return None
+
+
+def section_32_c_2_imports_section_112_for_rulespec(rulespec_root: Path) -> bool:
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    try:
+        payload = yaml.safe_load(target.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return False
+    return any(
+        isinstance(import_ref, str)
+        and (
+            import_ref == SECTION_112_BASE
+            or import_ref.startswith(f"{SECTION_112_BASE}#")
+        )
+        for import_ref in imports
+    )
+
+
+def section_32_c_2_uses_local_section_112_exclusion_input_for_rulespec(
+    rulespec_root: Path,
+) -> bool:
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    try:
+        payload = yaml.safe_load(target.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return True
+    if not isinstance(payload, dict):
+        return True
+    formula_text = "\n".join(
+        formula
+        for _name, _kind, formula, _source, _rule in _rulespec_rule_formula_rule_records(
+            payload
+        )
+    )
+    return (
+        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual"
+        in formula_text
+    )
 
 
 def build_ctc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
@@ -1469,6 +1535,8 @@ def build_eitc_request(
         f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit"
     ),
     section_32_c_2_filer_role_input: str | None = None,
+    section_32_c_2_uses_local_section_112_exclusion_input: bool = True,
+    section_32_c_2_imports_section_112: bool = False,
 ) -> dict[str, Any]:
     interval = {
         "period_kind": "tax_year",
@@ -1505,6 +1573,9 @@ def build_eitc_request(
         for name, value in project_section_32_c_2_tax_unit_inputs(
             persons=tax_unit_persons,
             contexts=contexts,
+            include_section_112_exclusion_input=(
+                section_32_c_2_uses_local_section_112_exclusion_input
+            ),
         ).items():
             inputs.append(
                 input_record(
@@ -1514,7 +1585,7 @@ def build_eitc_request(
                     value,
                 )
             )
-        if not section_32_person_surface:
+        if not section_32_person_surface or section_32_c_2_imports_section_112:
             for name, value in project_section_112_tax_unit_inputs().items():
                 inputs.append(
                     input_record(
@@ -1621,7 +1692,10 @@ def build_eitc_request(
                         )
                     )
                 for name, value in project_section_32_c_2_person_inputs(
-                    person=person
+                    person=person,
+                    include_section_112_exclusion_input=(
+                        section_32_c_2_uses_local_section_112_exclusion_input
+                    ),
                 ).items():
                     inputs.append(
                         input_record(
@@ -2225,8 +2299,9 @@ def project_section_32_c_2_tax_unit_inputs(
     *,
     persons: list[Any],
     contexts: list[PersonProjectionContext],
+    include_section_112_exclusion_input: bool = True,
 ) -> dict[str, Any]:
-    return {
+    projected = {
         "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": sum(
             money(person.get("employment_income_before_lsr", 0))
             for person, context in zip(persons, contexts, strict=True)
@@ -2236,13 +2311,21 @@ def project_section_32_c_2_tax_unit_inputs(
         "amounts_to_which_section_871_a_applies": 0,
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
-        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
+    if include_section_112_exclusion_input:
+        projected[
+            "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual"
+        ] = 0
+    return projected
 
 
-def project_section_32_c_2_person_inputs(*, person: Any) -> dict[str, Any]:
-    return {
+def project_section_32_c_2_person_inputs(
+    *,
+    person: Any,
+    include_section_112_exclusion_input: bool = True,
+) -> dict[str, Any]:
+    projected = {
         "wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income": money(
             person.get("employment_income_before_lsr", 0)
         ),
@@ -2250,9 +2333,13 @@ def project_section_32_c_2_person_inputs(*, person: Any) -> dict[str, Any]:
         "amounts_to_which_section_871_a_applies": 0,
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
-        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
+    if include_section_112_exclusion_input:
+        projected[
+            "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual"
+        ] = 0
+    return projected
 
 
 def project_section_112_tax_unit_inputs() -> dict[str, Any]:
