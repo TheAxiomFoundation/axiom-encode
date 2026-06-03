@@ -69,6 +69,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_rule_name_path_suffix_issues,
     find_rule_source_metadata_issues,
     find_scoped_exception_category_gate_issues,
+    find_section_32_c_2_tax_unit_rollup_issues,
     find_shared_statutory_rate_entity_suffix_name_issues,
     find_sibling_rule_name_collision_issues,
     find_source_claim_reference_issues,
@@ -13353,6 +13354,80 @@ rules:
 """
 
     assert find_person_earnings_unit_rollup_issues(content) == []
+
+
+def test_section_32_c_2_requires_tax_unit_earned_income_rollup():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/32
+  summary: |-
+    Earned income means wages, salaries, tips, and other employee compensation
+    plus net earnings from self-employment.
+rules:
+  - name: earned_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A), 26 USC 32(c)(2)(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, wages + net_earnings_from_self_employment)
+"""
+
+    issues = find_section_32_c_2_tax_unit_rollup_issues(content)
+
+    assert any(
+        "Section 32(c)(2) tax-unit earned-income roll-up missing" in issue
+        for issue in issues
+    )
+
+
+def test_section_32_c_2_accepts_tax_unit_earned_income_relation_rollup():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/32
+  summary: |-
+    Earned income means wages, salaries, tips, and other employee compensation
+    plus net earnings from self-employment.
+rules:
+  - name: section_32_earned_income_taxpayer_or_spouse
+    kind: data_relation
+    data_relation:
+      predicate: section_32_earned_income_taxpayer_or_spouse
+      arity: 2
+      arguments:
+        - Person
+        - TaxUnit
+  - name: earned_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)(A), 26 USC 32(c)(2)(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          max(0, wages + net_earnings_from_self_employment)
+  - name: tax_unit_earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          sum_where(section_32_earned_income_taxpayer_or_spouse, earned_income, person_in_section_32_earned_income_taxpayer_or_spouse_role)
+"""
+
+    assert find_section_32_c_2_tax_unit_rollup_issues(content) == []
 
 
 def test_employer_scoped_entity_rejects_tax_unit():

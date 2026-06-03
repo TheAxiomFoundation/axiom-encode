@@ -7515,6 +7515,92 @@ def find_person_earnings_unit_rollup_issues(content: str) -> list[str]:
     return issues
 
 
+def find_section_32_c_2_tax_unit_rollup_issues(content: str) -> list[str]:
+    """Require the generated EITC earned-income surface to export a unit roll-up."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    if not _payload_encodes_section_32_c_2(payload):
+        return []
+
+    has_person_earned_income = any(
+        isinstance(rule, dict)
+        and str(rule.get("kind") or "").strip() == "derived"
+        and str(rule.get("entity") or "").strip().lower() == "person"
+        and str(rule.get("name") or "").strip()
+        in {
+            "earned_income",
+            "earned_income_before_section_112_election",
+            "employee_compensation_earned_income",
+        }
+        for rule in rules
+    )
+    if not has_person_earned_income:
+        return []
+
+    formula_records = _rulespec_rule_formula_rule_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source, _rule in formula_records
+        if kind == "derived"
+    }
+    has_tax_unit_rollup = any(
+        name == "tax_unit_earned_income"
+        and kind == "derived"
+        and str(rule.get("entity") or "").strip().lower() == "taxunit"
+        and _formula_or_referenced_helpers_use_relation_aggregate(
+            formula,
+            formula_by_name=formula_by_name,
+        )
+        for name, kind, formula, _source, rule in formula_records
+    )
+    has_person_tax_unit_relation = any(
+        isinstance(rule, dict) and _is_person_to_tax_unit_data_relation(rule)
+        for rule in rules
+    )
+    if has_tax_unit_rollup and has_person_tax_unit_relation:
+        return []
+
+    return [
+        "Section 32(c)(2) tax-unit earned-income roll-up missing: generated "
+        "EITC surfaces must keep earned-income components at `Person` scope "
+        "and also export `tax_unit_earned_income` on `TaxUnit` through an "
+        "explicit Person-to-TaxUnit relation and `sum_where(...)` roll-up for "
+        "downstream Section 32."
+    ]
+
+
+def _payload_encodes_section_32_c_2(payload: dict[str, Any]) -> bool:
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        source = str(rule.get("source") or "").lower()
+        if "26 usc 32(c)(2" in source or "26 usc 32(c)(2)" in source:
+            return True
+    return False
+
+
+def _is_person_to_tax_unit_data_relation(rule: dict[str, Any]) -> bool:
+    if str(rule.get("kind") or "").strip() != "data_relation":
+        return False
+    relation = rule.get("data_relation")
+    if not isinstance(relation, dict):
+        return False
+    arguments = relation.get("arguments")
+    if not isinstance(arguments, list) or len(arguments) != 2:
+        return False
+    return [str(argument).strip().lower() for argument in arguments] == [
+        "person",
+        "taxunit",
+    ]
+
+
 def _scope_validation_source_text(content: str) -> str:
     """Return authoritative source text for entity-scope validation.
 
@@ -18765,6 +18851,7 @@ class ValidatorPipeline:
         issues.extend(find_person_scoped_rate_base_unit_issues(content))
         issues.extend(find_person_scoped_definition_unit_issues(content))
         issues.extend(find_person_earnings_unit_rollup_issues(content))
+        issues.extend(find_section_32_c_2_tax_unit_rollup_issues(content))
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         # Read the requested-source target from the nearby eval workspace or
