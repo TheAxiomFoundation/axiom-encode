@@ -143,6 +143,17 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "treat the copied aggregate shape as a defect to repair" in ENCODER_PROMPT
     assert "Treat that import as stale aggregate context" in ENCODER_PROMPT
     assert "Do not build a TaxUnit/Household formula" in ENCODER_PROMPT
+    assert "For 26 USC 1402(a)(12)" in ENCODER_PROMPT
+    assert (
+        "paragraph (12)\n  deduction and its net-earnings base on `Person`"
+        in ENCODER_PROMPT
+    )
+    assert (
+        "net_earnings_from_self_employment_determined_without_regard_to_paragraph_12"
+        in ENCODER_PROMPT
+    )
+    assert "Do not assert raw `parameter` outputs" in ENCODER_PROMPT
+    assert "assert derived `Person`\n  outputs only" in ENCODER_PROMPT
     assert "earned income of an individual shall be\n  computed" in ENCODER_PROMPT
     assert "replaced by one aggregated boundary input" in ENCODER_PROMPT
     assert "current\n  requested source changes the basis" in ENCODER_PROMPT

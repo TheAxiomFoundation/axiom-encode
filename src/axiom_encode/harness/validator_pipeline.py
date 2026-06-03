@@ -7372,6 +7372,13 @@ _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 
+_SECTION_1402_A_12_PERSON_BASE_PATTERN = re.compile(
+    r"\b(?:taxpayer'?s?\s+)?net\s+earnings?\s+from\s+self[-\s]?employment\b"
+    r"[\s\S]{0,220}\bdetermined\s+without\s+regard\s+to\s+"
+    r"(?:this\s+paragraph|paragraph\s*\(?12\)?)\b",
+    flags=re.IGNORECASE,
+)
+
 
 def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
     """Flag unit-level derived definitions for person-scoped legal amounts."""
@@ -7400,15 +7407,29 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
         scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
         if not scoped_source_text:
             scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if (
+            not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(scoped_source_text)
+            and not _section_1402_a_12_person_base_applies(
+                scoped_source_text=scoped_source_text,
+                source_text=source_text,
+                rule_source=rule_source,
+                rule=rule,
+            )
+            and _person_scoped_definition_module_fallback_applies(
+                source_text=source_text,
+                rule_source=rule_source,
+                rule=rule,
+            )
+        ):
+            scoped_source_text = source_text
         if not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(
             scoped_source_text
-        ) and _person_scoped_definition_module_fallback_applies(
+        ) and not _section_1402_a_12_person_base_applies(
+            scoped_source_text=scoped_source_text,
             source_text=source_text,
             rule_source=rule_source,
             rule=rule,
         ):
-            scoped_source_text = source_text
-        if not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(scoped_source_text):
             continue
         if _formula_or_referenced_helpers_use_relation_aggregate(
             formula,
@@ -7562,6 +7583,34 @@ def _person_scoped_definition_module_fallback_applies(
             "self_employment_income",
             "paragraph_12_deduction",
         )
+    )
+
+
+def _section_1402_a_12_person_base_applies(
+    *,
+    scoped_source_text: str,
+    source_text: str,
+    rule_source: str,
+    rule: Mapping[str, Any],
+) -> bool:
+    source = str(rule_source).lower()
+    if "1402(a)(12" not in source and "1402(a), including paragraph (12" not in source:
+        return False
+    if str(rule.get("dtype") or "").strip().lower() == "rate":
+        return False
+    name = str(rule.get("name") or "").lower()
+    if not any(
+        marker in name
+        for marker in (
+            "net_earnings",
+            "self_employment",
+            "deduction",
+        )
+    ):
+        return False
+    return bool(
+        _SECTION_1402_A_12_PERSON_BASE_PATTERN.search(scoped_source_text)
+        or _SECTION_1402_A_12_PERSON_BASE_PATTERN.search(source_text)
     )
 
 
@@ -14421,6 +14470,32 @@ def _identifier_phrase_occurs(term: str, identifier: str) -> bool:
     return f"_{normalized_term}_" in f"_{normalized_identifier}_"
 
 
+def _same_section_term_overlap_is_rate_import(
+    local_term: str,
+    imported_symbol: str,
+    import_item: str,
+) -> bool:
+    """Return whether a term overlap is a cited rate, not a stand-in amount."""
+    normalized_local = _normalize_identifier(local_term)
+    normalized_symbol = _normalize_identifier(imported_symbol)
+    if not normalized_local or not normalized_symbol:
+        return False
+    if normalized_local.endswith(("_rate", "_tax_rate")):
+        return False
+    if not normalized_symbol.endswith(("_rate", "_tax_rate")):
+        return False
+    if normalized_symbol not in {
+        f"{normalized_local}_rate",
+        f"{normalized_local}_tax_rate",
+    }:
+        return False
+    import_path = import_item.split("#", 1)[0]
+    import_path_tokens = {
+        token for token in re.split(r"[^a-z0-9]+", import_path.lower()) if token
+    }
+    return "rate" in import_path_tokens or "rates" in import_path_tokens
+
+
 def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
     """Return whether an imported rate file also encodes limited rate mechanics."""
     if rate_name not in _formula_local_identifiers(content):
@@ -19526,6 +19601,15 @@ class ValidatorPipeline:
                     if _identifier_phrase_occurs(local_term, symbol)
                 ]
                 if not overlapping_symbols:
+                    continue
+                if all(
+                    _same_section_term_overlap_is_rate_import(
+                        local_term,
+                        symbol,
+                        import_item,
+                    )
+                    for symbol in overlapping_symbols
+                ):
                     continue
                 if self._source_summary_cites_import_for_term(
                     source_text,

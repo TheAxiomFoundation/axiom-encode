@@ -554,6 +554,51 @@ rules:
     assert pipeline._check_unrelated_same_section_term_imports(rules_file) == []
 
 
+def test_unrelated_same_section_term_import_allows_cross_section_tax_rate(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    section_root = repo / "statutes/26/1402"
+    section_root.mkdir(parents=True)
+    (section_root / "b.yaml").write_text(
+        """format: rulespec/v1
+module:
+  summary: Definition of self-employment income.
+  deferred_outputs:
+    - output: us:statutes/26/1402/b#self_employment_income
+      reason: Needs trade-or-business income mechanics.
+rules: []
+"""
+    )
+    rules_file = section_root / "a/12.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/1401/b/1/rate#self_employment_income_tax_rate
+module:
+  summary: Paragraph (12) uses one-half of the section 1401(b)(1) rate.
+rules:
+  - name: paragraph_12_deduction_rate
+    kind: derived
+    entity: Person
+    dtype: Rate
+    period: Year
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_income_tax_rate / 2
+"""
+    )
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_unrelated_same_section_term_imports(rules_file) == []
+
+
 def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
     monkeypatch, tmp_path
 ):
@@ -13250,6 +13295,37 @@ rules:
     assert any("paragraph_12_deduction`" in issue for issue in issues)
     assert any("net_earnings_from_self_employment" in issue for issue in issues)
     assert not any("paragraph_12_deduction_rate" in issue for issue in issues)
+
+
+def test_person_scoped_definition_unit_rejects_section_1402a12_taxpayer_net_earnings_child_source():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    In lieu of the deduction provided by section 164(f), there shall be allowed
+    a deduction equal to the product of the taxpayer's net earnings from
+    self-employment for the taxable year, determined without regard to this
+    paragraph, and one-half of the sum of the rates imposed by subsections (a)
+    and (b) of section 1401.
+rules:
+  - name: deduction_in_lieu_of_section_164_f
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(a)(12)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          net_earnings_from_self_employment_determined_without_regard_to_paragraph_12
+          * deduction_rate_in_lieu_of_section_164_f
+"""
+
+    issues = find_person_scoped_definition_unit_issues(content)
+
+    assert any("Person-scoped definition at unit scope" in issue for issue in issues)
+    assert "deduction_in_lieu_of_section_164_f" in issues[0]
+    assert "TaxUnit" in issues[0]
 
 
 def test_person_scoped_definition_unit_rejects_individual_eitc_earned_income():
