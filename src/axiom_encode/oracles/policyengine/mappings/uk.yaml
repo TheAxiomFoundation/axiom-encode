@@ -241,120 +241,144 @@ mappings:
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.SINGLE_YOUNG
+    aliases:
+      - uk:regulations/uksi/2013/376/36#standard_allowance_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit standard allowance for a single claimant aged under 25.
+    rationale: Same Universal Credit standard allowance for a single claimant aged under 25. Companion tests exercise it through the branch-selected standard allowance output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_25_or_over_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.SINGLE_OLD
+    aliases:
+      - uk:regulations/uksi/2013/376/36#standard_allowance_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit standard allowance for a single claimant aged 25 or over.
+    rationale: Same Universal Credit standard allowance for a single claimant aged 25 or over. Companion tests exercise it through the branch-selected standard allowance output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_both_under_25_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.COUPLE_YOUNG
+    aliases:
+      - uk:regulations/uksi/2013/376/36#standard_allowance_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit standard allowance for joint claimants both aged under 25.
+    rationale: Same Universal Credit standard allowance for joint claimants both aged under 25. Companion tests exercise it through the branch-selected standard allowance output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_either_25_or_over_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.standard_allowance.amount.COUPLE_OLD
+    aliases:
+      - uk:regulations/uksi/2013/376/36#standard_allowance_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit standard allowance for joint claimants where either is aged 25 or over.
+    rationale: Same Universal Credit standard allowance for joint claimants where either is aged 25 or over. Companion tests exercise it through the branch-selected standard allowance output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#first_child_element_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.child.first.higher_amount
+    aliases:
+      - uk:regulations/uksi/2013/376/36#child_element_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit first-child child element amount.
+    rationale: Same Universal Credit first-child child element amount. Companion tests exercise it through the branch-selected child element output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#second_and_subsequent_child_element_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.child.amount
+    aliases:
+      - uk:regulations/uksi/2013/376/36#child_element_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit second and subsequent child element amount.
+    rationale: Same Universal Credit second and subsequent child element amount. Companion tests exercise it through the branch-selected child element output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_lower_rate_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.child.disabled.amount
+    aliases:
+      - uk:regulations/uksi/2013/376/36#disabled_child_additional_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit lower disabled-child addition amount.
+    rationale: Same Universal Credit lower disabled-child addition amount. Companion tests exercise it through the branch-selected disabled-child addition output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_higher_rate_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.child.severely_disabled.amount
+    aliases:
+      - uk:regulations/uksi/2013/376/36#disabled_child_additional_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit higher disabled-child addition amount.
+    rationale: Same Universal Credit higher disabled-child addition amount. Companion tests exercise it through the branch-selected disabled-child addition output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#lcwra_ordinary_claimant_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.disabled.amount
+    aliases:
+      - uk:regulations/uksi/2013/376/36#lcwra_element_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit standard limited capability for work and work-related activity element amount.
+    rationale: Same Universal Credit standard limited capability for work and work-related activity element amount. Companion tests exercise it through the branch-selected LCWRA element output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#carer_element_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.carer.amount
+    aliases:
+      - uk:regulations/uksi/2013/376/36#carer_element
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit carer element amount.
+    rationale: Same Universal Credit carer element amount. Companion tests exercise it through the branch-selected carer element output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_one_child_maximum_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.childcare.cap.1
+    aliases:
+      - uk:regulations/uksi/2013/376/36#childcare_costs_element_maximum_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit maximum childcare costs element for one child.
+    rationale: Same Universal Credit maximum childcare costs element for one child. Companion tests exercise it through the branch-selected childcare cap output.
 
   - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_two_or_more_children_maximum_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
     policyengine_parameter: gov.dwp.universal_credit.elements.childcare.cap.2
+    aliases:
+      - uk:regulations/uksi/2013/376/36#childcare_costs_element_maximum_amount
     period: month
     unit: GBP
     comparison: money
-    rationale: Same Universal Credit maximum childcare costs element for two or more children.
+    rationale: Same Universal Credit maximum childcare costs element for two or more children. Companion tests exercise it through the branch-selected childcare cap output.
 
 prefixes:
   - legal_id_prefix: uk:statutes/ukpga/2007/3/35#
@@ -380,3 +404,285 @@ prefixes:
     program: universal_credit
     mapping_type: not_comparable
     rationale: Universal Credit helper outputs not listed above are statutory amount variants that PolicyEngine UK does not expose as one-to-one oracle parameters in the current model, including the protected pre-2026 LCWRA amount.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/1#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 1 names and commencement labels are source metadata, not PolicyEngine UK variables or parameters.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/4#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 4 responsibility-for-child predicates are source-level relationship and absence tests; PolicyEngine UK exposes downstream benefit-unit composition and award results rather than these legal predicates one-to-one.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/5#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 5 qualifying-young-person education and training predicates are source-level status tests, not one-to-one PolicyEngine UK oracle outputs.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/18#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 18 prescribed capital limit helpers are claim-composition and capital-limit intermediates; PolicyEngine UK exposes final Universal Credit entitlement effects rather than these source predicates separately.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/22#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 22 income deduction, work allowance, and taper helpers are source-level award-calculation intermediates; PolicyEngine UK does not expose each statutory helper as a one-to-one oracle variable or parameter.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/24#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 24 child and disabled-child inclusion predicates are source-level element gating rules; PolicyEngine UK exposes computed child elements rather than these legal helpers separately.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/26#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 26 housing-cost schedule routing and shared-ownership predicates are source-level housing element conditions not exposed as one-to-one PolicyEngine UK oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/27#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 27 LCWRA element inclusion is a source-level award component gate; PolicyEngine UK exposes downstream element amounts rather than this legal helper separately.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/29#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 29 carer element inclusion predicates are source-level gates not exposed as one-to-one PolicyEngine UK oracle variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/31#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 31 childcare cost element inclusion is a source-level gate; PolicyEngine UK exposes downstream element amounts rather than this predicate separately.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/32#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 32 paid-work and unable-to-provide-childcare predicates are source-level childcare work-condition tests not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/33#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 33 childcare charge responsibility, work-purpose, and late-reporting predicates are source-level conditions not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/34#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 34 relevant childcare charge and reimbursement helpers are source-level element calculation intermediates; PolicyEngine UK does not expose each helper one-to-one.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/46#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 46 income-versus-capital treatment helpers are source-level classification and threshold tests not exposed as one-to-one PolicyEngine UK oracle outputs.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/47#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 47 beneficial-interest share presumptions are source-level capital attribution rules not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/48#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 48 schedule 10 capital disregard period helpers are source-level disregard mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/54#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 54 earned-income estimate helpers are source-level assessment-period mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/62#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 62 gainful self-employment, minimum-income-floor, and surplus-income helpers are source-level earned-income mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/66#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 66 unearned-income description and overlapping-benefit adjustment helpers are source-level income classification mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/72#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 72 tariff-income helpers are source-level capital-to-income conversion mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/77#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 77 company-owner and intermediary-income helpers are source-level capital and earnings attribution mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/80A#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 80A benefit-cap case and limit helpers are source-level cap selection mechanics; PolicyEngine UK exposes benefit cap effects rather than each statutory selector separately.
+
+  - legal_id_prefix: uk:regulations/uksi/2013/376/88#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Universal Credit regulation 88 expected-hours helpers are source-level conditionality mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/2#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 2 claim-making predicates are source-level claim administration rules not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/3#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 3 joint-claim predicates are source-level claim structure rules not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/4#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 4 age-condition helpers are source-level eligibility predicates not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/5#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 5 financial-condition and capital-threshold predicates are source-level eligibility mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/8#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 8 award-calculation structure helpers are source-level calculation control rules not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/9#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 9 standard allowance structure is implemented through regulation 36 amount parameters and downstream award calculations, not as a separate PolicyEngine UK oracle output.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/10#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 10 child and disabled-child amount structure is implemented through regulation 36 amount parameters and downstream award calculations, not as separate section-level PolicyEngine UK outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/11#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 11 housing amount structure is implemented through detailed housing rules and downstream award calculations, not as a one-to-one PolicyEngine UK output.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/12#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 12 prescribed-needs amount structure is implemented through regulations and downstream award calculations, not as separate section-level PolicyEngine UK outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/13#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 13 work-related requirement powers are conditionality predicates, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/14#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 14 claimant-commitment acceptance is a source-level administration predicate not exposed as a one-to-one PolicyEngine UK variable.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/15#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 15 work-focused interview requirements are conditionality rules, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/16#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 16 work-preparation and health-assessment requirements are conditionality rules, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/17#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 17 work-search requirements are conditionality rules, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/18#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 18 work-availability requirements are conditionality rules, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/19#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 19 claimant-group and carer predicates are conditionality rules, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/20#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 20 work-focused-interview-only group rules are conditionality rules, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/21#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 21 work-focused-interview and preparation group rules are conditionality rules, not one-to-one PolicyEngine UK benefit calculation outputs.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/23#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 23 sanctions and compliance-condition helpers are source-level conditionality mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/24#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 24 sanction reduction helpers are source-level conditionality mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/25#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 25 hardship payment helpers are source-level payment administration mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/26#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 26 higher-level sanction helpers are source-level conditionality mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/27#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 27 other sanction helpers are source-level conditionality mechanics not exposed as one-to-one PolicyEngine UK variables.
+
+  - legal_id_prefix: uk:statutes/ukpga/2012/5/40#
+    country: uk
+    program: universal_credit
+    mapping_type: not_comparable
+    rationale: Welfare Reform Act 2012 section 40 interpretation helpers are source-level definitions and administration rules not exposed as one-to-one PolicyEngine UK variables.
