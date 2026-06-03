@@ -90,6 +90,36 @@ mappings:
     comparison: money
     rationale: Same UK income tax personal allowance output.
 
+  - legal_id: uk:statutes/ukpga/1992/4/8#main_primary_percentage
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_1.rates.employee.main
+    period: week
+    comparison: rate
+    rationale: Same Class 1 employee main primary contribution percentage.
+
+  - legal_id: uk:statutes/ukpga/1992/4/8#additional_primary_percentage
+    country: uk
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.hmrc.national_insurance.class_1.rates.employee.additional
+    period: week
+    comparison: rate
+    rationale: Same Class 1 employee additional primary contribution percentage.
+
+  - legal_id: uk:statutes/ukpga/1992/4/8#primary_class_1_contribution
+    country: uk
+    program: tax
+    mapping_type: not_comparable
+    policyengine_variable: ni_class_1_employee
+    entity: person
+    period: week
+    unit: GBP
+    comparison: money
+    candidate_priority: P4
+    rationale: PolicyEngine UK exposes employee Class 1 NI as a monthly person variable composed from primary and additional monthly components; this generated RuleSpec output is a weekly source-level s.8 calculation with statutory displacement conditions and weekly threshold inputs, so it needs a period/composition adapter before direct oracle comparison.
+
   - legal_id: uk:regulations/uksi/2006/965/2#child_benefit_enhanced_weekly_rate
     country: uk
     program: child_benefit
