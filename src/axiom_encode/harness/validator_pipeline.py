@@ -16052,16 +16052,22 @@ def _fetch_local_corpus_source_text(citation_path: str) -> str | None:
         return None
 
     for provisions_root in _local_corpus_provisions_roots():
+        exact_records: list[dict[str, Any]] = []
         for provision_file in _candidate_local_corpus_provision_files(
             provisions_root,
             normalized_path,
         ):
-            source_text = _read_local_corpus_provision_file(
-                provision_file,
-                normalized_path,
+            exact_records.extend(
+                _read_local_corpus_provision_records(provision_file, normalized_path)
             )
-            if source_text is not None:
-                return source_text
+        source_text = _select_local_corpus_record_body(exact_records)
+        if source_text is not None:
+            return source_text
+
+        for provision_file in _candidate_local_corpus_provision_files(
+            provisions_root,
+            normalized_path,
+        ):
             source_text = _read_local_corpus_descendant_text(
                 provision_file,
                 normalized_path,
@@ -16147,14 +16153,15 @@ def _candidate_local_corpus_provision_files(
     return tuple(candidates)
 
 
-def _read_local_corpus_provision_file(
+def _read_local_corpus_provision_records(
     provision_file: Path,
     citation_path: str,
-) -> str | None:
+) -> list[dict[str, Any]]:
     try:
         lines = provision_file.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return None
+        return []
+    records: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():
             continue
@@ -16164,9 +16171,33 @@ def _read_local_corpus_provision_file(
             continue
         if not isinstance(record, dict) or record.get("citation_path") != citation_path:
             continue
-        body = record.get("body")
-        return str(body) if body is not None else None
-    return None
+        records.append(record)
+    return records
+
+
+def _read_local_corpus_provision_file(
+    provision_file: Path,
+    citation_path: str,
+) -> str | None:
+    records = _read_local_corpus_provision_records(provision_file, citation_path)
+    return _select_local_corpus_record_body(records)
+
+
+def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | None:
+    """Select the best body when local corpus files contain duplicate citations."""
+    body_records = [record for record in records if record.get("body") is not None]
+    if not body_records:
+        return None
+
+    def record_key(record: dict[str, Any]) -> tuple[str, int, str]:
+        source_as_of = str(record.get("source_as_of") or "")
+        source_format = str(record.get("source_format") or "")
+        official_source = 1 if source_format == "legislation.gov.uk-clml" else 0
+        version = str(record.get("version") or "")
+        return (source_as_of, official_source, version)
+
+    selected = max(body_records, key=record_key)
+    return str(selected["body"])
 
 
 def _read_local_corpus_descendant_text(

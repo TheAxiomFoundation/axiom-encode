@@ -81,25 +81,25 @@ PENSION_CREDIT_OUTPUTS = {
 
 UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS = {
     "standard_allowance_single_under_25": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_single_under_25",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_single_under_25_amount",
         "pe": "uc_standard_allowance",
         "pe_transform": "annual_to_monthly",
         "applies": ("uc_standard_allowance_claimant_type", "SINGLE_YOUNG"),
     },
     "standard_allowance_single_25_or_over": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_single_25_or_over",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_single_25_or_over_amount",
         "pe": "uc_standard_allowance",
         "pe_transform": "annual_to_monthly",
         "applies": ("uc_standard_allowance_claimant_type", "SINGLE_OLD"),
     },
     "standard_allowance_joint_both_under_25": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_joint_both_under_25",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_joint_both_under_25_amount",
         "pe": "uc_standard_allowance",
         "pe_transform": "annual_to_monthly",
         "applies": ("uc_standard_allowance_claimant_type", "COUPLE_YOUNG"),
     },
     "standard_allowance_joint_either_25_or_over": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_joint_either_25_or_over",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#standard_allowance_joint_either_25_or_over_amount",
         "pe": "uc_standard_allowance",
         "pe_transform": "annual_to_monthly",
         "applies": ("uc_standard_allowance_claimant_type", "COUPLE_OLD"),
@@ -108,25 +108,25 @@ UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS = {
 
 UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS = {
     "child_element_first_child_or_qualifying_young_person": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#child_element_first_child_or_qualifying_young_person",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#first_child_element_amount",
         "pe": "uc_individual_child_element",
         "pe_transform": "annual_to_monthly",
         "applies": "uc_first_child_element",
     },
     "child_element_second_and_each_subsequent_child_or_qualifying_young_person": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#child_element_second_and_each_subsequent_child_or_qualifying_young_person",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#second_and_subsequent_child_element_amount",
         "pe": "uc_individual_child_element",
         "pe_transform": "annual_to_monthly",
         "applies": "uc_subsequent_child_element",
     },
     "disabled_child_additional_amount_lower_rate": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#disabled_child_additional_amount_lower_rate",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#disabled_child_lower_rate_amount",
         "pe": "uc_individual_disabled_child_element",
         "pe_transform": "annual_to_monthly",
         "applies": "positive_pe_output",
     },
     "disabled_child_additional_amount_higher_rate": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#disabled_child_additional_amount_higher_rate",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#disabled_child_higher_rate_amount",
         "pe": "uc_individual_severely_disabled_child_element",
         "pe_transform": "annual_to_monthly",
         "applies": "positive_pe_output",
@@ -135,13 +135,13 @@ UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS = {
 
 UNIVERSAL_CREDIT_LCWRA_OUTPUTS = {
     "lcwra_element_standard_lcwra_claimant": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#lcwra_element_standard_lcwra_claimant",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#lcwra_ordinary_claimant_amount",
         "pe": "uc_LCWRA_element",
         "pe_transform": "annual_to_monthly",
         "applies": "uc_lcwra_standard_amount",
     },
     "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#lcwra_protected_claimant_amount",
         "pe": "uc_LCWRA_element",
         "pe_transform": "annual_to_monthly",
         "applies": "uc_lcwra_higher_amount",
@@ -150,7 +150,7 @@ UNIVERSAL_CREDIT_LCWRA_OUTPUTS = {
 
 UNIVERSAL_CREDIT_CARER_OUTPUTS = {
     "carer_element": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#carer_element",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#carer_element_amount",
         "pe": "uc_carer_element",
         "pe_transform": "annual_to_monthly",
         "applies": "positive_pe_output",
@@ -159,13 +159,13 @@ UNIVERSAL_CREDIT_CARER_OUTPUTS = {
 
 UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS = {
     "childcare_costs_element_maximum_one_child": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#childcare_costs_element_maximum_one_child",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#childcare_costs_element_one_child_maximum_amount",
         "pe": "uc_maximum_childcare_element_amount",
         "pe_transform": "annual_to_monthly",
         "applies": ("uc_childcare_element_eligible_children", 1),
     },
     "childcare_costs_element_maximum_two_or_more_children": {
-        "axiom": f"{UNIVERSAL_CREDIT_BASE}#childcare_costs_element_maximum_two_or_more_children",
+        "axiom": f"{UNIVERSAL_CREDIT_BASE}#childcare_costs_element_two_or_more_children_maximum_amount",
         "pe": "uc_maximum_childcare_element_amount",
         "pe_transform": "annual_to_monthly",
         "applies": "uc_childcare_two_or_more_children",

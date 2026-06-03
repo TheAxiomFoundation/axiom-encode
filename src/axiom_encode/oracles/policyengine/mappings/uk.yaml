@@ -236,7 +236,7 @@ mappings:
     comparison: money
     rationale: Same Pension Credit carer addition output after applying claimant circumstances.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -246,7 +246,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit standard allowance for a single claimant aged under 25.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_25_or_over
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_25_or_over_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -256,7 +256,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit standard allowance for a single claimant aged 25 or over.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_both_under_25
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_both_under_25_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -266,7 +266,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit standard allowance for joint claimants both aged under 25.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_either_25_or_over
+  - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_joint_either_25_or_over_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -276,7 +276,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit standard allowance for joint claimants where either is aged 25 or over.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#child_element_first_child_or_qualifying_young_person
+  - legal_id: uk:regulations/uksi/2013/376/36#first_child_element_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -286,7 +286,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit first-child child element amount.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#child_element_second_and_each_subsequent_child_or_qualifying_young_person
+  - legal_id: uk:regulations/uksi/2013/376/36#second_and_subsequent_child_element_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -296,7 +296,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit second and subsequent child element amount.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_additional_amount_lower_rate
+  - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_lower_rate_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -306,7 +306,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit lower disabled-child addition amount.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_additional_amount_higher_rate
+  - legal_id: uk:regulations/uksi/2013/376/36#disabled_child_higher_rate_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -316,7 +316,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit higher disabled-child addition amount.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#lcwra_element_standard_lcwra_claimant
+  - legal_id: uk:regulations/uksi/2013/376/36#lcwra_ordinary_claimant_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -326,7 +326,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit standard limited capability for work and work-related activity element amount.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#carer_element
+  - legal_id: uk:regulations/uksi/2013/376/36#carer_element_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -336,7 +336,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit carer element amount.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_maximum_one_child
+  - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_one_child_maximum_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
@@ -346,7 +346,7 @@ mappings:
     comparison: money
     rationale: Same Universal Credit maximum childcare costs element for one child.
 
-  - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_maximum_two_or_more_children
+  - legal_id: uk:regulations/uksi/2013/376/36#childcare_costs_element_two_or_more_children_maximum_amount
     country: uk
     program: universal_credit
     mapping_type: parameter_value
