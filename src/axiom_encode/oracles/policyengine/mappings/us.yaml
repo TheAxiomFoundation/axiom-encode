@@ -15422,6 +15422,12 @@ prefixes:
     mapping_type: not_comparable
     rationale: Section 1402(a) net-earnings-from-self-employment intermediates use statutory trade-or-business gross income, deduction, partnership, and paragraph (12) components that PE folds into taxable_self_employment_income unless an exact mapping overrides this prefix.
 
+  - legal_id_prefix: us:statutes/26/1402/a/
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 1402(a) child provision outputs, including paragraph (12) self-employment-tax-equivalent deduction helpers, are source-specific net-earnings assembly intermediates that PolicyEngine folds into taxable_self_employment_income unless an exact mapping overrides this prefix.
+
   - legal_id_prefix: us:statutes/26/164/f#
     country: us
     program: tax
