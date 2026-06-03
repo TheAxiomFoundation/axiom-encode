@@ -1922,6 +1922,12 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine does not expose the section 1402(b) nonresident-alien, agreement, and territory-resident exclusion predicate as a one-to-one variable.
 
+  - legal_id: us:statutes/26/1402/b#individual_excluded_from_self_employment_income_definition
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine does not expose the section 1402(b) nonresident-alien, agreement, and territory-resident exclusion predicate as a one-to-one variable.
+
   - legal_id: us:statutes/26/164/f#self_employment_tax_deduction_fraction
     country: us
     program: tax
@@ -2214,6 +2220,18 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine models employee FICA payroll taxes and excess payroll tax withheld, but not Railroad Retirement Tax Act section 3201(b) tier 2 employee tax or the section 3241 applicable percentage as a comparable output.
 
+  - legal_id: us:statutes/26/3201#tier_1_tax_tier_number
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3201 tier numbers are structural labels for Railroad Retirement Tax Act computations, not one-to-one PolicyEngine outputs.
+
+  - legal_id: us:statutes/26/3201#tier_2_tax_tier_number
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3201 tier numbers are structural labels for Railroad Retirement Tax Act computations, not one-to-one PolicyEngine outputs.
+
   - legal_id: us:statutes/26/3201#tier_2_applicable_percentage
     country: us
     program: tax
@@ -2232,11 +2250,41 @@ mappings:
     mapping_type: not_comparable
     rationale: PolicyEngine models employer FICA payroll taxes, but not Railroad Retirement Tax Act section 3221(b) tier 2 employer tax or the section 3241 applicable percentage as a comparable output.
 
+  - legal_id: us:statutes/26/3221#tier_1_applicable_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine exposes component employer OASDI and Medicare payroll tax rates, but not the section 3221(a) Railroad Retirement Tax Act tier 1 applicable-rate helper as a one-to-one output.
+
+  - legal_id: us:statutes/26/3221#tier_1_tax_tier_identifier
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3221 tier identifiers are structural labels for Railroad Retirement Tax Act computations, not one-to-one PolicyEngine outputs.
+
   - legal_id: us:statutes/26/3221#tier_1_applicable_percentage
     country: us
     program: tax
     mapping_type: not_comparable
     rationale: PolicyEngine exposes component employer OASDI and Medicare payroll tax rates, but not the section 3221(a) Railroad Retirement Tax Act tier 1 applicable-percentage helper as a one-to-one output.
+
+  - legal_id: us:statutes/26/3221#tier_2_applicable_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: PolicyEngine models employer FICA payroll taxes, but not the Railroad Retirement Tax Act section 3221(b) tier 2 applicable-rate helper as a one-to-one output.
+
+  - legal_id: us:statutes/26/3221#tier_2_tax_tier_identifier
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3221 tier identifiers are structural labels for Railroad Retirement Tax Act computations, not one-to-one PolicyEngine outputs.
+
+  - legal_id: us:statutes/26/3231#tips_compensation_deemed_paid_on_day_for_section_3201_taxes
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    rationale: Section 3231(h) deems tip compensation paid on the day received for Railroad Retirement Tax Act section 3201 taxes; PolicyEngine does not expose this RRTA timing rule as a one-to-one output.
 
   - legal_id: us:statutes/26/3111/a#employer_oasdi_excise_tax_rate
     country: us

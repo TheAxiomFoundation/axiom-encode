@@ -5348,6 +5348,41 @@ rules:
     assert {item["policyengine_variable"] for item in items_by_id.values()} == {None}
 
 
+def test_policyengine_coverage_classifies_3201_employee_rrta_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3201.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tier_1_tax_tier_number
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 1
+  - name: tier_2_tax_tier_number
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 2
+  - name: tier_2_employee_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tier_2_compensation * tier_2_rate
+  - name: tier_2_applicable_percentage
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: applicable_percentage
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 4}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
 def test_policyengine_coverage_classifies_3212_compensation_output(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-us" / "statutes/26/3212.yaml",
@@ -5370,6 +5405,51 @@ rules:
     )
     assert item["status"] == "known_not_comparable"
     assert item["policyengine_variable"] is None
+
+
+def test_policyengine_coverage_classifies_3221_employer_rrta_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3221.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tier_1_applicable_rate
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tier_1_rate
+  - name: tier_1_tax_tier_identifier
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tier_1
+  - name: tier_1_applicable_percentage
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tier_1_percentage
+  - name: tier_2_applicable_rate
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tier_2_rate
+  - name: tier_2_tax_tier_identifier
+    kind: parameter
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tier_2
+  - name: tier_2_employer_tax
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tier_2_compensation * tier_2_rate
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 6}
+    assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
+    assert {item["policyengine_variable"] for item in report["items"]} == {None}
 
 
 def test_policyengine_coverage_classifies_3241_a_applicable_percentage_outputs(
@@ -5439,6 +5519,30 @@ rules:
     assert report["status_counts"] == {"known_not_comparable": 5}
     assert {item["status"] for item in report["items"]} == {"known_not_comparable"}
     assert {item["policyengine_variable"] for item in report["items"]} == {None}
+
+
+def test_policyengine_coverage_classifies_3231_tip_timing_output(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us" / "statutes/26/3231.yaml",
+        """format: rulespec/v1
+rules:
+  - name: tips_compensation_deemed_paid_on_day_for_section_3201_taxes
+    kind: derived
+    versions:
+      - effective_from: '1990-01-01'
+        formula: tips_received_day
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {"known_not_comparable": 1}
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "us:statutes/26/3231#tips_compensation_deemed_paid_on_day_for_section_3201_taxes"
+    )
+    assert item["status"] == "known_not_comparable"
+    assert item["policyengine_variable"] is None
 
 
 def test_policyengine_coverage_classifies_3231_a_employer_definition_outputs(tmp_path):
@@ -7787,6 +7891,12 @@ rules:
     versions:
       - effective_from: '1990-01-01'
         formula: individual_is_nonresident_alien
+  - name: individual_excluded_from_self_employment_income_definition
+    kind: derived
+    entity: Person
+    versions:
+      - effective_from: '1990-01-01'
+        formula: individual_is_nonresident_alien
 """,
     )
     _write_rulespec_file(
@@ -7797,6 +7907,7 @@ rules:
     us:statutes/26/1402/b#self_employment_income: 923.5
     us:statutes/26/1402/b#self_employment_income_for_section_1401_a: 923.5
     us:statutes/26/1402/b#self_employment_income_excluded_for_taxpayer: false
+    us:statutes/26/1402/b#individual_excluded_from_self_employment_income_definition: false
 """,
     )
 
@@ -7804,7 +7915,7 @@ rules:
 
     assert report["status_counts"] == {
         "comparable": 1,
-        "known_not_comparable": 3,
+        "known_not_comparable": 4,
     }
     assert report["untested_comparable"] == 0
     items_by_id = {item["legal_id"]: item for item in report["items"]}
@@ -7828,6 +7939,12 @@ rules:
             "policyengine_variable"
         ]
         == "social_security_taxable_self_employment_income"
+    )
+    assert (
+        items_by_id[
+            "us:statutes/26/1402/b#individual_excluded_from_self_employment_income_definition"
+        ]["status"]
+        == "known_not_comparable"
     )
 
 
