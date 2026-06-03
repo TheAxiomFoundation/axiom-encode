@@ -235,7 +235,7 @@ def test_colorado_snap_outputs_use_composed_allotment_and_cfr_net_income():
         "us:regulations/7-cfr/273/10#snap_net_monthly_income"
     )
     assert config.relation_id == "us:statutes/7/2012/j#relation.member_of_household"
-    assert config.additional_relation_ids == ()
+    assert config.additional_relation_ids == ("member_of_household",)
 
 
 def test_projected_child_support_includes_gross_income_deduction():
