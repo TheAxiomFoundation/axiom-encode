@@ -86,6 +86,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     remove_output_columns_already_in_raw,
     require_policyengine_versions,
     section_32_c_2_filer_relation_for_rulespec,
+    section_32_c_2_filer_role_input_for_rulespec,
     select_tax_unit_indices,
     taxable_oasdi_wages_by_person_id,
     uses_joint_ctc_phaseout_threshold,
@@ -1094,6 +1095,10 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     section_relation = (
         f"{SECTION_32_C_2_BASE}#relation.section_32_earned_income_taxpayer_or_spouse"
     )
+    section_role_input = (
+        f"{SECTION_32_C_2_BASE}"
+        "#input.person_in_section_32_earned_income_taxpayer_or_spouse_role"
+    )
     output_specs = eitc_outputs_for_section_32_surface(section_relation)
 
     request = build_eitc_request(
@@ -1101,6 +1106,7 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         year=2026,
         contribution_base=184_500.0,
         section_32_c_2_filer_relation=section_relation,
+        section_32_c_2_filer_role_input=section_role_input,
     )
 
     assert request["queries"] == [
@@ -1183,6 +1189,16 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         ]
         == "18000.0"
     )
+    assert (
+        entity_input_values[
+            (
+                section_role_input,
+                "tax_unit_1_person_0",
+            )
+        ]
+        is True
+    )
+    assert (section_role_input, "tax_unit_1_person_1") not in entity_input_values
     assert (
         entity_input_values[
             (
@@ -1368,6 +1384,11 @@ def test_build_eitc_request_can_omit_section_32_filer_relation():
     assert entity_input_values[(section_32_wage_input, "tax_unit_1")] == "18000.0"
     assert (section_32_wage_input, "tax_unit_1_person_0") not in entity_input_values
     assert (
+        f"{SECTION_32_C_2_BASE}"
+        "#input.person_in_section_32_earned_income_taxpayer_or_spouse_role",
+        "tax_unit_1_person_0",
+    ) not in entity_input_values
+    assert (
         entity_input_values[
             (
                 f"{SECTION_112_BASE}"
@@ -1434,6 +1455,84 @@ rules:
 
     assert section_32_c_2_filer_relation_for_rulespec(rulespec_root) == (
         f"{SECTION_32_C_2_BASE}#relation.section_32_earned_income_taxpayer_or_spouse"
+    )
+
+
+def test_section_32_filer_role_input_for_rulespec_discovers_sum_where_role(
+    tmp_path,
+):
+    rulespec_root = tmp_path / "rulespec-us"
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: section_32_earned_income_taxpayer_or_spouse
+    kind: data_relation
+    data_relation:
+      predicate: section_32_earned_income_taxpayer_or_spouse
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: tax_unit_earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(section_32_earned_income_taxpayer_or_spouse, earned_income, person_in_section_32_earned_income_taxpayer_or_spouse_role)
+"""
+    )
+
+    assert section_32_c_2_filer_role_input_for_rulespec(
+        rulespec_root,
+        (f"{SECTION_32_C_2_BASE}#relation.section_32_earned_income_taxpayer_or_spouse"),
+    ) == (
+        f"{SECTION_32_C_2_BASE}"
+        "#input.person_in_section_32_earned_income_taxpayer_or_spouse_role"
+    )
+
+
+def test_section_32_filer_role_input_for_rulespec_ignores_declared_role_rule(
+    tmp_path,
+):
+    rulespec_root = tmp_path / "rulespec-us"
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: earned_income_filer_of_tax_unit
+    kind: data_relation
+    data_relation:
+      predicate: earned_income_filer_of_tax_unit
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: is_filer
+    kind: derived
+    entity: Person
+    dtype: Boolean
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum_where(earned_income_filer_of_tax_unit, filer_earned_income, is_filer)
+"""
+    )
+
+    assert (
+        section_32_c_2_filer_role_input_for_rulespec(
+            rulespec_root,
+            f"{SECTION_32_C_2_BASE}#relation.earned_income_filer_of_tax_unit",
+        )
+        is None
     )
 
 

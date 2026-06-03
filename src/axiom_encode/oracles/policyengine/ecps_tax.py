@@ -13,6 +13,7 @@ import copy
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -735,6 +736,14 @@ def compare_tax_ecps(
             if selected_surface == "eitc"
             else None
         )
+        section_32_c_2_filer_role_input = (
+            section_32_c_2_filer_role_input_for_rulespec(
+                resolved_rulespec_root,
+                section_32_c_2_filer_relation,
+            )
+            if selected_surface == "eitc"
+            else None
+        )
         if selected_surface == "eitc":
             surface_output_specs[selected_surface] = (
                 eitc_outputs_for_section_32_surface(section_32_c_2_filer_relation)
@@ -746,6 +755,7 @@ def compare_tax_ecps(
             oasdi_wage_base_results=oasdi_wage_base_results,
             contribution_base=contribution_base,
             section_32_c_2_filer_relation=section_32_c_2_filer_relation,
+            section_32_c_2_filer_role_input=section_32_c_2_filer_role_input,
         )
         if selected_surface == "eitc" and section_32_c_2_filer_relation is None:
             projection_notes.append(
@@ -994,6 +1004,7 @@ def build_axiom_request(
     section_32_c_2_filer_relation: str | None = (
         f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit"
     ),
+    section_32_c_2_filer_role_input: str | None = None,
 ) -> dict[str, Any]:
     if surface == "ctc":
         return build_ctc_request(pe_data=pe_data, year=year)
@@ -1011,6 +1022,7 @@ def build_axiom_request(
             year=year,
             contribution_base=contribution_base,
             section_32_c_2_filer_relation=section_32_c_2_filer_relation,
+            section_32_c_2_filer_role_input=section_32_c_2_filer_role_input,
         )
     if surface == "cdcc":
         return build_cdcc_request(pe_data=pe_data, year=year)
@@ -1073,6 +1085,55 @@ def section_32_c_2_filer_relation_for_rulespec(
             return candidate
         fallback = fallback or candidate
     return fallback
+
+
+def section_32_c_2_filer_role_input_for_rulespec(
+    rulespec_root: Path,
+    section_32_c_2_filer_relation: str | None,
+) -> str | None:
+    """Return the filer-role input used by a generated 32(c)(2) roll-up."""
+
+    if section_32_c_2_filer_relation is None:
+        return None
+    relation_prefix = f"{SECTION_32_C_2_BASE}#relation."
+    if not section_32_c_2_filer_relation.startswith(relation_prefix):
+        return None
+    relation_name = section_32_c_2_filer_relation.removeprefix(relation_prefix)
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    try:
+        payload = yaml.safe_load(target.read_text()) or {}
+    except (OSError, yaml.YAMLError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return None
+    rule_names = {
+        str(rule.get("name") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("name")
+    }
+    role_pattern = re.compile(
+        rf"\bsum_where\(\s*{re.escape(relation_name)}\s*,[^,]+,\s*([A-Za-z_][A-Za-z0-9_]*)"
+    )
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version_payload in versions:
+            if not isinstance(version_payload, dict):
+                continue
+            formula = str(version_payload.get("formula") or "")
+            match = role_pattern.search(formula)
+            if match is None:
+                continue
+            role_name = match.group(1)
+            if role_name and role_name not in rule_names:
+                return f"{SECTION_32_C_2_BASE}#input.{role_name}"
+    return None
 
 
 def build_ctc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
@@ -1407,6 +1468,7 @@ def build_eitc_request(
     section_32_c_2_filer_relation: str | None = (
         f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit"
     ),
+    section_32_c_2_filer_role_input: str | None = None,
 ) -> dict[str, Any]:
     interval = {
         "period_kind": "tax_year",
@@ -1549,6 +1611,15 @@ def build_eitc_request(
                     )
                 )
             if section_32_person_surface and (context.is_head or context.is_spouse):
+                if section_32_c_2_filer_role_input is not None:
+                    inputs.append(
+                        input_record(
+                            section_32_c_2_filer_role_input,
+                            person_id,
+                            interval,
+                            True,
+                        )
+                    )
                 for name, value in project_section_32_c_2_person_inputs(
                     person=person
                 ).items():
