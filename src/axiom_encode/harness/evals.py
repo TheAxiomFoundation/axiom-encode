@@ -4194,9 +4194,12 @@ RuleSpec requirements:
 - When source text says an exemption, exclusion, or adjustment applies
   `to the extent` of an amount, do not model it as all-or-nothing zeroing such as
   `if exempt_amount > 0: 0 else: tax`. Subtract or apportion the stated amount.
-  If imported child calculations cannot receive the adjusted basis faithfully
-  under the current executable schema, emit `module.status: entity_not_supported`
-  or `deferred` instead of an approximate executable formula.
+  Emit `module.status: entity_not_supported` or `deferred` only when the current
+  requested source changes the basis that would need to be passed into an
+  already-imported child result and the schema cannot wire that adjusted basis
+  into the child. Do not defer a parent merely because an imported terminal
+  child output internally handled its own `to the extent` exclusion; import and
+  compose that terminal child output at the parent scope instead.
 - If the source has a cross-reference such as `For application of different
   contribution bases ... see section X`, do not repair it by keeping tax,
   amount, or rate-times-compensation formulas on the raw wage, compensation,
