@@ -317,7 +317,7 @@ def test_run_axiom_parameter_outputs_reads_generated_rulespec_parameters(tmp_pat
         """
 format: rulespec/v1
 rules:
-  - name: standard_allowance_single_under_25
+  - name: standard_allowance_single_under_25_amount
     kind: parameter
     dtype: Money
     period: Month
@@ -338,7 +338,7 @@ rules:
                 {
                     "period": {"start": "2026-04-01"},
                     "outputs": [
-                        "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25"
+                        "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount"
                     ],
                 }
             ]
@@ -348,7 +348,7 @@ rules:
     assert results == [
         {
             "outputs": {
-                "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25": {
+                "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount": {
                     "value": {"value": "338.58"}
                 }
             }

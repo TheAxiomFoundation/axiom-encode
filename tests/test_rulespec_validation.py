@@ -18478,6 +18478,43 @@ rules:
     assert issues == []
 
 
+def test_local_corpus_source_text_prefers_newer_official_duplicate(
+    monkeypatch, tmp_path: Path
+):
+    provisions = tmp_path / "data" / "corpus" / "provisions" / "uk" / "regulation"
+    provisions.mkdir(parents=True)
+    older = {
+        "citation_path": "uk/regulation/uksi/2013/376/22",
+        "body": "Older microsim text says £684.00.",
+        "source_as_of": "2026-06-01-uk-frs-microsim",
+        "source_format": "lex.lab.i.ai.gov.uk",
+        "version": "2026-06-01-uk-frs-microsim",
+    }
+    newer = {
+        "citation_path": "uk/regulation/uksi/2013/376/22",
+        "body": "Newer official text says £710.00.",
+        "source_as_of": "2026-06-03",
+        "source_format": "legislation.gov.uk-clml",
+        "version": "2026-06-03-uk-universal-credit",
+    }
+    (provisions / "2026-06-01-uk-frs-microsim.jsonl").write_text(
+        json.dumps(older) + "\n"
+    )
+    (provisions / "2026-06-03-uk-universal-credit.jsonl").write_text(
+        json.dumps(newer) + "\n"
+    )
+
+    monkeypatch.setenv("AXIOM_CORPUS_REPO", str(tmp_path))
+    validator_pipeline._fetch_local_corpus_source_text.cache_clear()
+
+    assert (
+        validator_pipeline._fetch_local_corpus_source_text(
+            "uk/regulation/uksi/2013/376/22"
+        )
+        == "Newer official text says £710.00."
+    )
+
+
 def test_source_verification_rejects_source_value_mismatch():
     content = """format: rulespec/v1
 module:

@@ -19,7 +19,6 @@ import pytest
 import yaml
 
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
-from axiom_encode.oracles.policyengine.ecps_snap import JURISDICTION_CONFIGS
 from axiom_encode.cli import (
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_SIGNING_KEY_ENV,
@@ -161,6 +160,7 @@ from axiom_encode.harness.encoding_db import (
 )
 from axiom_encode.harness.evals import EvalArtifactMetrics
 from axiom_encode.harness.validator_pipeline import _load_nearby_eval_source_metadata
+from axiom_encode.oracles.policyengine.ecps_snap import JURISDICTION_CONFIGS
 from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
 
 TEST_APPLY_SIGNING_KEY = "test-apply-signing-key"
