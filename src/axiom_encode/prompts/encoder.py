@@ -116,6 +116,12 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   output by changing person earnings inputs or helpers to `entity: TaxUnit`;
   instead add a narrow relation such as taxpayer/spouse/filer/member of that
   unit and aggregate through that relation.
+- For 26 USC 32(c)(2) earned income, do not sum a person-level final
+  `earned_income` rule that already applies `max(0, ...)`. For a TaxUnit or
+  joint-return output, aggregate taxpayer/spouse pre-floor earned-income
+  components through the relation first, then apply `max(0, aggregate)`.
+  Negative self-employment components from one spouse must offset positive
+  wages or earnings from the other spouse before the TaxUnit floor.
 - Phrases like "on the [base] of every individual/person/employee" identify
   the entity of the current amount, tax, credit, deduction, contribution, or
   limit. Encode the current result on the individual/person/employee first,

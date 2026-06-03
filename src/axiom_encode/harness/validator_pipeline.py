@@ -7406,6 +7406,14 @@ _PERSON_EARNINGS_EXPLICIT_UNIT_SOURCE_PATTERN = re.compile(
     r"snap\s+unit|spm\s+unit)\b",
     flags=re.IGNORECASE,
 )
+_SECTION_32_C_2_FINAL_EARNED_INCOME_SUM_PATTERN = re.compile(
+    r"\bsum_where\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*earned_income\s*,",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_SECTION_32_C_2_TAX_UNIT_FLOOR_PATTERN = re.compile(
+    r"\bmax\s*\(\s*0\s*,",
+    flags=re.IGNORECASE,
+)
 
 
 def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
@@ -7547,30 +7555,51 @@ def find_section_32_c_2_tax_unit_rollup_issues(content: str) -> list[str]:
         for name, kind, formula, _source, _rule in formula_records
         if kind == "derived"
     }
-    has_tax_unit_rollup = any(
-        name == "tax_unit_earned_income"
+    tax_unit_rollup_records = [
+        (formula, rule)
+        for name, kind, formula, _source, rule in formula_records
+        if name == "tax_unit_earned_income"
         and kind == "derived"
         and str(rule.get("entity") or "").strip().lower() == "taxunit"
-        and _formula_or_referenced_helpers_use_relation_aggregate(
+    ]
+    has_tax_unit_rollup = any(
+        _formula_or_referenced_helpers_use_relation_aggregate(
             formula,
             formula_by_name=formula_by_name,
         )
-        for name, kind, formula, _source, rule in formula_records
+        for formula, _rule in tax_unit_rollup_records
     )
     has_person_tax_unit_relation = any(
         isinstance(rule, dict) and _is_person_to_tax_unit_data_relation(rule)
         for rule in rules
     )
-    if has_tax_unit_rollup and has_person_tax_unit_relation:
-        return []
+    if not has_tax_unit_rollup or not has_person_tax_unit_relation:
+        return [
+            "Section 32(c)(2) tax-unit earned-income roll-up missing: generated "
+            "EITC surfaces must keep earned-income components at `Person` scope "
+            "and also export `tax_unit_earned_income` on `TaxUnit` through an "
+            "explicit Person-to-TaxUnit relation and `sum_where(...)` roll-up for "
+            "downstream Section 32."
+        ]
 
-    return [
-        "Section 32(c)(2) tax-unit earned-income roll-up missing: generated "
-        "EITC surfaces must keep earned-income components at `Person` scope "
-        "and also export `tax_unit_earned_income` on `TaxUnit` through an "
-        "explicit Person-to-TaxUnit relation and `sum_where(...)` roll-up for "
-        "downstream Section 32."
-    ]
+    for formula, _rule in tax_unit_rollup_records:
+        expanded_formula = _formula_with_referenced_helpers(
+            formula,
+            formula_by_name=formula_by_name,
+        )
+        if _SECTION_32_C_2_FINAL_EARNED_INCOME_SUM_PATTERN.search(
+            expanded_formula
+        ) or not _SECTION_32_C_2_TAX_UNIT_FLOOR_PATTERN.search(formula):
+            return [
+                "Section 32(c)(2) tax-unit earned-income roll-up floors too "
+                "early: `tax_unit_earned_income` must aggregate taxpayer/spouse "
+                "pre-floor earned-income components through the Person-to-TaxUnit "
+                "relation and then apply `max(0, ...)` at TaxUnit scope. Do not "
+                "sum a person-level final `earned_income` rule that already "
+                "floors negative self-employment components."
+            ]
+
+    return []
 
 
 def _payload_encodes_section_32_c_2(payload: dict[str, Any]) -> bool:
@@ -7599,6 +7628,31 @@ def _is_person_to_tax_unit_data_relation(rule: dict[str, Any]) -> bool:
         "person",
         "taxunit",
     ]
+
+
+def _formula_with_referenced_helpers(
+    formula: str,
+    *,
+    formula_by_name: dict[str, str],
+    seen: set[str] | None = None,
+) -> str:
+    visited = set(seen or set())
+    parts = [formula]
+    for identifier in _formula_local_identifiers(formula):
+        if identifier in visited:
+            continue
+        helper_formula = formula_by_name.get(identifier)
+        if helper_formula is None:
+            continue
+        visited.add(identifier)
+        parts.append(
+            _formula_with_referenced_helpers(
+                helper_formula,
+                formula_by_name=formula_by_name,
+                seen=visited,
+            )
+        )
+    return "\n".join(parts)
 
 
 def _scope_validation_source_text(content: str) -> str:
