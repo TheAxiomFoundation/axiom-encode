@@ -733,6 +733,81 @@ rules:
     assert future_output["status"] == "unmapped"
 
 
+def test_policyengine_coverage_classifies_uk_class_1_ni_section_8_outputs(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/8.yaml",
+        """format: rulespec/v1
+rules:
+  - name: main_primary_percentage
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2024-04-06'
+        formula: '0.08'
+  - name: additional_primary_percentage
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2011-04-06'
+        formula: '0.02'
+  - name: primary_class_1_contribution
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    versions:
+      - effective_from: '2024-04-06'
+        formula: 68
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/1992/4/8.test.yaml",
+        """- name: class 1 employee ni
+  period:
+    period_kind: custom
+    name: tax_week
+    start: '2024-04-08'
+    end: '2024-04-14'
+  input: {}
+  output:
+    uk:statutes/ukpga/1992/4/8#main_primary_percentage: 0.08
+    uk:statutes/ukpga/1992/4/8#additional_primary_percentage: 0.02
+    uk:statutes/ukpga/1992/4/8#primary_class_1_contribution: 68
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 1,
+    }
+    assert report["untested_comparable"] == 0
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    main_rate = items_by_id["uk:statutes/ukpga/1992/4/8#main_primary_percentage"]
+    additional_rate = items_by_id[
+        "uk:statutes/ukpga/1992/4/8#additional_primary_percentage"
+    ]
+    contribution = items_by_id[
+        "uk:statutes/ukpga/1992/4/8#primary_class_1_contribution"
+    ]
+
+    assert (
+        main_rate["policyengine_parameter"]
+        == "gov.hmrc.national_insurance.class_1.rates.employee.main"
+    )
+    assert main_rate["tested"] is True
+    assert (
+        additional_rate["policyengine_parameter"]
+        == "gov.hmrc.national_insurance.class_1.rates.employee.additional"
+    )
+    assert additional_rate["tested"] is True
+    assert contribution["status"] == "known_not_comparable"
+    assert contribution["policyengine_variable"] == "ni_class_1_employee"
+    assert contribution["candidate_priority"] == "P4"
+
+
 def test_policyengine_coverage_counts_uk_aliases_as_tested(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.yaml",
