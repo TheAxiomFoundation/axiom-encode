@@ -20142,7 +20142,9 @@ class ValidatorPipeline:
             for pattern in patterns:
                 for match in pattern.finditer(segment_text):
                     label = _normalize_identifier(match.group("label"))
-                    section = match.group("section")
+                    section = match.group("section").rstrip(".")
+                    if not section:
+                        continue
                     if _section_reference_to_named_act_without_title(
                         section,
                         source_text,

@@ -8766,6 +8766,55 @@ rules:
     assert issues == []
 
 
+def test_cross_reference_numeric_placeholder_accepts_trailing_period_citation_import(
+    tmp_path,
+):
+    repo = tmp_path / "rulespec-us"
+    rules_file = repo / "statutes" / "26" / "3201.yaml"
+    imported_file = repo / "statutes" / "26" / "3241" / "a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    imported_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: applicable_percentage_for_section_3201_b_for_purposes_of_subsection_a
+    kind: derived
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.049
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/3241/a#applicable_percentage_for_section_3201_b_for_purposes_of_subsection_a
+module:
+  summary: |-
+    Subsection (b) imposes a Tier 2 tax equal to the percentage determined
+    under section 3241.
+rules:
+  - name: tier_2_applicable_percentage
+    kind: derived
+    entity: Person
+    dtype: Rate
+    source: 26 USC 3201(b)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: applicable_percentage_for_section_3201_b_for_purposes_of_subsection_a
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_cross_reference_numeric_placeholders(rules_file)
+
+    assert issues == []
+
+
 def test_encoded_cross_reference_placeholder_allows_under_section_when_unencoded(
     tmp_path,
 ):
