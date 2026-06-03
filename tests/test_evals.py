@@ -5961,6 +5961,55 @@ rules:
         assert "`us:statutes/26/1211#other_taxpayer_capital_losses_allowed`" in prompt
         assert "Do not keep a local `_under_section_...`" in prompt
 
+    def test_build_eval_prompt_treats_in_lieu_citation_as_displaced_context(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        cited_file = policy_repo_root / "statutes" / "26" / "164" / "f.yaml"
+        cited_file.parent.mkdir(parents=True)
+        cited_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: self_employment_tax_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: self_employment_tax * 0.5
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 1402(a)(12)",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "In lieu of the deduction provided by section 164(f), there "
+                "shall be allowed a deduction equal to the product of the "
+                "taxpayer's net earnings from self-employment and one-half of "
+                "the rates imposed by section 1401."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[cited_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 1402(a)(12)",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="12.yaml",
+            target_ref_prefix="us:statutes/26/1402/a/12",
+            include_tests=True,
+        )
+
+        assert "Source cites `164(f)`" in prompt
+        assert "displacement or replacement phrase" in prompt
+        assert "Do not import the cited final amount" in prompt
+        assert "prefer the final imported output" not in prompt
+
     def test_build_eval_prompt_guides_excluded_child_branch_imports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
         parent_file = policy_repo_root / "statutes" / "26" / "1401.yaml"
@@ -8041,6 +8090,62 @@ rules:
         assert copied_sources[str(parent)]["import_path"] == "us:statutes/26/3101"
         assert copied_sources[str(oasdi)]["import_path"] == "us:statutes/26/3101/a"
         assert copied_sources[str(hi)]["import_path"] == "us:statutes/26/3101/b/1"
+
+    def test_prepare_eval_workspace_adds_child_rate_context_for_exporting_cited_parent(
+        self, tmp_path
+    ):
+        repo_root = tmp_path / "repos"
+        policy_repo_root = repo_root / "axiom-rules-engine"
+        policy_repo_root.mkdir(parents=True)
+        section_root = repo_root / "rulespec-us" / "statutes" / "26" / "1401"
+        section_root.mkdir(parents=True)
+        parent = section_root.with_suffix(".yaml")
+        parent.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: self_employment_oasdi_tax_rate\n"
+            "    kind: parameter\n"
+            "    versions:\n"
+            "      - effective_from: '1990-01-01'\n"
+            "        formula: '0.124'\n"
+        )
+        oasdi_rate = section_root / "a" / "rate.yaml"
+        oasdi_rate.parent.mkdir(parents=True)
+        oasdi_rate.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: old_age_survivors_and_disability_insurance_tax_rate\n"
+            "    kind: parameter\n"
+            "    versions:\n"
+            "      - effective_from: '1990-01-01'\n"
+            "        formula: '0.124'\n"
+        )
+        hi_rate = section_root / "b" / "1" / "rate.yaml"
+        hi_rate.parent.mkdir(parents=True)
+        hi_rate.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: self_employment_income_tax_rate\n"
+            "    kind: parameter\n"
+            "    versions:\n"
+            "      - effective_from: '1990-01-01'\n"
+            "        formula: '0.029'\n"
+        )
+        source_text = (
+            "There shall be allowed a deduction equal to the product of net "
+            "earnings and one-half of the sum of the rates imposed by "
+            "subsections (a) and (b) of section 1401."
+        )
+
+        selected = _select_cross_section_context_files(
+            "26 USC 1402(a)(12)",
+            source_text,
+            repo_root / "rulespec-us",
+        )
+
+        assert parent in selected
+        assert oasdi_rate in selected
+        assert hi_rate in selected
 
     def test_prepare_eval_workspace_adds_cross_section_list_and_parent_fallback_context(
         self, tmp_path

@@ -2319,7 +2319,13 @@ def _select_cross_section_context_files(
         for candidate_rel in _cited_context_candidate_paths(cited_parts):
             if candidate_rel == target_rel:
                 continue
-            candidates = _cited_context_candidates(policy_root, candidate_rel)
+            candidates = _cited_context_candidates(
+                policy_root,
+                candidate_rel,
+                include_exporting_candidate_children=(
+                    _source_text_requests_cited_subsection_rates(source_text)
+                ),
+            )
             if not candidates:
                 continue
             for candidate in candidates:
@@ -2329,6 +2335,24 @@ def _select_cross_section_context_files(
                     seen.add(resolved)
             break
     return selected
+
+
+def _source_text_requests_cited_subsection_rates(source_text: str) -> bool:
+    """Return whether source asks for rates under cited section subsections."""
+    return bool(
+        re.search(
+            r"\b(?:rate|rates|percentage|percentages)\b.{0,120}"
+            r"\bsubsections?\b.{0,120}\bsection\b",
+            source_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        or re.search(
+            r"\bsection\b.{0,120}\bsubsections?\b.{0,120}"
+            r"\b(?:rate|rates|percentage|percentages)\b",
+            source_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    )
 
 
 def _cited_context_candidate_paths(cited_parts: CitationParts) -> list[Path]:
@@ -5388,12 +5412,20 @@ def _format_cited_context_import_guidance(
         references = ", ".join(f"`{item.import_path}#{name}`" for name in exports[:8])
         if len(exports) > 8:
             references += ", ..."
-        preferred_exports = _preferred_exports_for_cited_reference(
-            source_text,
-            citation,
-            exports,
-        )
+        preferred_exports: list[str] = []
         preferred_note = ""
+        if _source_text_citation_is_displacement_reference(source_text, citation):
+            preferred_note = (
+                " This citation appears in a displacement or replacement phrase; "
+                "use the cited file only as context for what is being displaced. "
+                "Do not import the cited final amount solely because it is named."
+            )
+        else:
+            preferred_exports = _preferred_exports_for_cited_reference(
+                source_text,
+                citation,
+                exports,
+            )
         if preferred_exports:
             preferred = ", ".join(
                 f"`{item.import_path}#{name}`" for name in preferred_exports
@@ -5419,6 +5451,10 @@ formula. Do not keep a local `_under_section_...` or `_under_subsection_...`
 input, or a local `_provided_in_section_...`, `_allowed_under_section_...`,
 `_deduction_under_section_...`, or `_credit_allowed_under_section_...` input,
 for an already copied RuleSpec context target.
+If a cited target appears in a displacement phrase such as `in lieu of`,
+`instead of`, or `in place of`, do not import the cited target's final amount
+solely because it is cited; encode the current source's replacement amount or
+rate from the current source text.
 """
 
 
@@ -5911,6 +5947,24 @@ def _preferred_exports_for_cited_reference(
             continue
         scored.append(((-score, len(export), exports.index(export), export), export))
     return [export for _sort_key, export in sorted(scored)[:3]]
+
+
+def _source_text_citation_is_displacement_reference(
+    source_text: str,
+    citation: _StatuteCitation,
+) -> bool:
+    """Return whether a cited provision is being displaced, not composed."""
+    window = _source_text_citation_window(source_text, citation).lower()
+    if not window:
+        return False
+    if not re.search(r"\b(?:in\s+lieu\s+of|instead\s+of|in\s+place\s+of)\b", window):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:deduction|credit|allowance|exemption|rate|tax|amount)\b",
+            window,
+        )
+    )
 
 
 def _source_text_citation_window(
