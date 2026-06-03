@@ -914,6 +914,17 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "do not fold them into the boundary input name" in prompt
     assert "Treat legal subject nouns as stronger evidence" in prompt
     assert "use `entity: Person` for the current source's own amount" in prompt
+    assert (
+        "Existing target or repository-precedent files are not entity-scope authority"
+        in prompt
+    )
+    assert "treat the copied aggregate shape as a defect to repair" in prompt
+    assert (
+        "Do not preserve the\n  aggregate entity just to keep old output names or tests compatible"
+        in prompt
+    )
+    assert "earned income of an individual shall be\n  computed" in prompt
+    assert "replaced by one aggregated boundary input" in prompt
     assert "thresholded, capped, base-limited" in prompt
     assert (
         "do not flatten the cited mechanics into `current_base * imported_rate`"

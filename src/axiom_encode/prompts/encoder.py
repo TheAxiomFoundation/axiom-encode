@@ -68,12 +68,27 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   `entity: TaxUnit`, `Household`, `Family`, or another aggregate entity merely
   because an imported base amount or companion test is currently declared at
   that aggregate entity.
+- Existing target or repository-precedent files are not entity-scope authority.
+  If copied context shows an older `TaxUnit`, `Household`, `Family`, or other
+  aggregate implementation but the supplied source text defines an amount,
+  tax, deduction, contribution, exclusion, threshold, or limit for an
+  individual, person, employee, member, claimant, child, dependent, or spouse,
+  treat the copied aggregate shape as a defect to repair. Re-scope the current
+  source's executable output to the source-stated lower entity, or defer it if
+  the needed lower-entity facts cannot be represented. Do not preserve the
+  aggregate entity just to keep old output names or tests compatible.
 - When a definition uses "taxpayer" but also says the amount is "of an
   individual" or applies exclusions for services, income, payments, or statuses
   of an individual/person/employee/member, encode those components on `Person`.
   Add an aggregate rule only when the same source defines how those person
   amounts roll up to a tax unit, household, family, or other unit. Do not let
   the word "taxpayer" erase a source-stated individual/person subject.
+- When a tax definition says "earned income of an individual shall be
+  computed" with exclusions for that individual's income, services, payments,
+  status, or self-employment amounts, keep those earned-income components on
+  `Person`. A filing-unit or tax-unit EITC rule may consume a separate
+  relation-backed roll-up, but the person-level computation must not be
+  replaced by one aggregated boundary input.
 - Phrases like "on the [base] of every individual/person/employee" identify
   the entity of the current amount, tax, credit, deduction, contribution, or
   limit. Encode the current result on the individual/person/employee first,

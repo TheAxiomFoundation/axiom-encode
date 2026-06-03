@@ -135,6 +135,12 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     )
     assert "rate-applied result at the source-stated lower entity" in ENCODER_PROMPT
     assert "unit-level placeholder or aggregate base by the rate" in ENCODER_PROMPT
+    assert (
+        "Existing target or repository-precedent files are not entity-scope authority"
+    ) in ENCODER_PROMPT
+    assert "treat the copied aggregate shape as a defect to repair" in ENCODER_PROMPT
+    assert "earned income of an individual shall be\n  computed" in ENCODER_PROMPT
+    assert "replaced by one aggregated boundary input" in ENCODER_PROMPT
     assert "Never drop the jurisdiction prefix" in ENCODER_PROMPT
     assert "listed under invalid copied local inputs" in ENCODER_PROMPT
     assert "do not preserve, rename, or recreate" in ENCODER_PROMPT
