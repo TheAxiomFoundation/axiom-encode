@@ -808,6 +808,64 @@ rules:
     assert contribution["candidate_priority"] == "P4"
 
 
+def test_policyengine_coverage_classifies_uk_pension_credit_section_1_outputs(
+    tmp_path,
+):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2002/16/1.yaml",
+        """format: rulespec/v1
+rules:
+  - name: qualifying_age
+    kind: derived
+    entity: Person
+    dtype: Count
+    period: Day
+    unit: year
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if claimant_is_woman: pensionable_age else: pensionable_age_for_woman_born_same_day
+  - name: claimant_has_attained_qualifying_age
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Day
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          claimant_age >= qualifying_age
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2002/16/1.test.yaml",
+        """- name: claimant at qualifying age
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-01-01'
+    end: '2026-01-01'
+  input: {}
+  output:
+    uk:statutes/ukpga/2002/16/1#qualifying_age: 66
+    uk:statutes/ukpga/2002/16/1#claimant_has_attained_qualifying_age: holds
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="pension_credit")
+
+    assert report["status_counts"] == {"known_not_comparable": 2}
+    items_by_id = {item["legal_id"]: item for item in report["items"]}
+    qualifying_age = items_by_id["uk:statutes/ukpga/2002/16/1#qualifying_age"]
+    attained_age = items_by_id[
+        "uk:statutes/ukpga/2002/16/1#claimant_has_attained_qualifying_age"
+    ]
+
+    assert qualifying_age["policyengine_variable"] == "state_pension_age"
+    assert qualifying_age["candidate_priority"] == "P3"
+    assert attained_age["policyengine_variable"] == "is_SP_age"
+    assert attained_age["candidate_priority"] == "P3"
+
+
 def test_policyengine_coverage_counts_uk_aliases_as_tested(tmp_path):
     _write_rulespec_file(
         tmp_path / "rulespec-uk" / "regulations/uksi/2006/965/2.yaml",

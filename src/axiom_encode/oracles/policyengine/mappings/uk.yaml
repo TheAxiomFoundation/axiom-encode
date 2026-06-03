@@ -236,6 +236,29 @@ mappings:
     comparison: money
     rationale: Same Pension Credit carer addition output after applying claimant circumstances.
 
+  - legal_id: uk:statutes/ukpga/2002/16/1#qualifying_age
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    policyengine_variable: state_pension_age
+    entity: person
+    period: day
+    unit: year
+    comparison: count
+    candidate_priority: P3
+    rationale: State Pension Credit Act section 1 defines a source-level qualifying age at day granularity, including the man's woman-born-same-day rule. PolicyEngine UK exposes state_pension_age as a year-period person variable from state-pension age parameters, so this needs a period and historical-sex-rule adapter before direct oracle comparison.
+
+  - legal_id: uk:statutes/ukpga/2002/16/1#claimant_has_attained_qualifying_age
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    policyengine_variable: is_SP_age
+    entity: person
+    period: day
+    comparison: boolean
+    candidate_priority: P3
+    rationale: State Pension Credit Act section 1 tests whether the claimant has attained the statutory qualifying age at day granularity. PolicyEngine UK exposes the nearby is_SP_age predicate annually and rolls Pension Credit eligibility up to benefit-unit entitlement conditions, so this needs a period/entity adapter before direct oracle comparison.
+
   - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount
     country: uk
     program: universal_credit
