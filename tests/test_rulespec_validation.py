@@ -49,6 +49,7 @@ from axiom_encode.harness.validator_pipeline import (
     find_helper_only_definition_issues,
     find_import_shape_issues,
     find_imported_deferred_branch_composition_issues,
+    find_imported_person_scoped_definition_unit_issues,
     find_interval_table_reencoding_candidates,
     find_interval_table_reencoding_issues,
     find_judgment_conditional_formula_issues,
@@ -8532,6 +8533,68 @@ rules:
     assert issues == []
 
 
+def test_thresholded_imported_rate_allows_source_stated_composite_rate(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "26" / "1401.yaml"
+    rules_file = repo / "statutes" / "26" / "1402" / "a" / "12.yaml"
+    imported_file.parent.mkdir(parents=True)
+    rules_file.parent.mkdir(parents=True, exist_ok=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: self_employment_oasdi_tax_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '1990-01-01'
+        formula: 0.124
+  - name: self_employment_oasdi_wage_base
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 184500
+"""
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+imports:
+  - us:statutes/26/1401#self_employment_oasdi_tax_rate
+module:
+  summary: |-
+    There shall be allowed a deduction equal to the product of the taxpayer's
+    net earnings from self-employment and one-half of the sum of the rates
+    imposed by subsections (a) and (b) of section 1401.
+rules:
+  - name: paragraph_12_deduction_rate
+    kind: derived
+    entity: Person
+    dtype: Rate
+    period: Year
+    source: 26 USC 1402(a)(12)(B)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              excerpt: one-half of the sum of the rates imposed by subsections (a) and (b) of section 1401
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_oasdi_tax_rate / 2
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_flattened_thresholded_imported_rates(rules_file)
+
+    assert issues == []
+
+
 def test_cross_reference_base_mechanics_raw_compensation_tax_is_rejected(tmp_path):
     repo = tmp_path / "rulespec-us"
     rules_file = repo / "statutes" / "26" / "3201.yaml"
@@ -13252,6 +13315,70 @@ rules:
 """
 
     assert find_person_scoped_definition_unit_issues(content) == []
+
+
+def test_imported_person_scoped_definition_unit_rejects_stale_1402a_import(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    imported_file = repo / "statutes" / "26" / "1402" / "a.yaml"
+    imported_file.parent.mkdir(parents=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    (a) Net earnings from self-employment The term net earnings from
+    self-employment means the gross income derived by an individual from any
+    trade or business carried on by such individual, less deductions. (12) in
+    lieu of the deduction provided by section 164(f), there shall be allowed a
+    deduction equal to the product of the taxpayer's net earnings and one-half
+    of the section 1401 rates.
+rules:
+  - name: net_earnings_before_paragraph_12_adjustment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(a), before paragraph (12)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: self_employment_trade_or_business_gross_income - self_employment_trade_or_business_deductions
+"""
+    )
+    content = """format: rulespec/v1
+imports:
+  - us:statutes/26/1402/a#net_earnings_before_paragraph_12_adjustment
+module:
+  summary: |-
+    In lieu of the deduction provided by section 164(f), a deduction is allowed
+    equal to the product of the taxpayer's net earnings from self-employment
+    for the taxable year, determined without regard to paragraph (12), and
+    one-half of the section 1401 rates.
+rules:
+  - name: paragraph_12_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(a)(12)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, net_earnings_before_paragraph_12_adjustment) * paragraph_12_deduction_rate
+"""
+    rules_file = repo / "statutes" / "26" / "1402" / "a" / "12.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(content)
+
+    issues = find_imported_person_scoped_definition_unit_issues(
+        content,
+        rules_file=rules_file,
+        policy_repo_path=repo,
+    )
+
+    assert len(issues) == 1
+    assert "Imported person-scoped definition at unit scope" in issues[0]
+    assert "paragraph_12_deduction" in issues[0]
+    assert "net_earnings_before_paragraph_12_adjustment" in issues[0]
 
 
 def test_employer_scoped_entity_rejects_tax_unit():

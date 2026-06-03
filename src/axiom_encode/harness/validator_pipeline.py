@@ -7427,6 +7427,119 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
     return issues
 
 
+def find_imported_person_scoped_definition_unit_issues(
+    content: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+) -> list[str]:
+    """Flag unit-scope formulas that compose stale imported person-scope definitions."""
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return []
+
+    bad_imported_symbols: dict[str, str] = {}
+    for import_item in _extract_import_items_from_content(content):
+        import_base, separator, imported_symbol = import_item.partition("#")
+        imported_symbol = imported_symbol.strip()
+        if not separator or not imported_symbol:
+            continue
+        import_file = _resolve_rulespec_import_file_static(
+            import_base,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+        )
+        if import_file is None:
+            continue
+        imported_content = import_file.read_text()
+        if not _imported_symbol_is_person_scoped_definition_at_unit_scope(
+            imported_content,
+            imported_symbol,
+        ):
+            continue
+        bad_imported_symbols[imported_symbol] = import_item
+
+    if not bad_imported_symbols:
+        return []
+
+    formula_records = _rulespec_rule_formula_rule_records(payload)
+    formula_by_name = {
+        name: formula
+        for name, kind, formula, _source, _rule in formula_records
+        if kind == "derived"
+    }
+    issues: list[str] = []
+    for name, kind, formula, _rule_source, rule in formula_records:
+        if kind != "derived":
+            continue
+        entity = str(rule.get("entity") or "").strip()
+        if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
+            continue
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"money", "decimal"}:
+            continue
+        imported_dependencies = sorted(
+            _formula_local_identifiers(formula) & set(bad_imported_symbols)
+        )
+        if not imported_dependencies:
+            continue
+        if _formula_or_referenced_helpers_use_relation_aggregate(
+            formula,
+            formula_by_name=formula_by_name,
+        ):
+            continue
+        formatted = ", ".join(
+            f"`{bad_imported_symbols[symbol]}`" for symbol in imported_dependencies
+        )
+        issues.append(
+            "Imported person-scoped definition at unit scope: "
+            f"`{name}` is declared on `{entity}` and composes imported "
+            f"{formatted}, whose source defines a lower-entity amount while "
+            "the imported RuleSpec exports it at unit scope. Re-encode/import "
+            "the upstream definition at the lower entity first, then aggregate "
+            "through an explicit relation; do not build new unit-scope formulas "
+            "on top of stale aggregate imports."
+        )
+    return issues
+
+
+def _imported_symbol_is_person_scoped_definition_at_unit_scope(
+    content: str,
+    symbol: str,
+) -> bool:
+    payload = _rulespec_payload(content)
+    if payload is None:
+        return False
+    source_text = extract_embedded_source_text(content)
+    if not source_text:
+        source_text = _extract_source_verification_text(content)
+    if not source_text:
+        return False
+
+    for name, kind, _formula, rule_source, rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if name != symbol or kind != "derived":
+            continue
+        entity = str(rule.get("entity") or "").strip().lower()
+        if entity not in _UNIT_SCOPED_ENTITY_NAMES:
+            return False
+        dtype = str(rule.get("dtype") or "").strip().lower()
+        if dtype not in {"money", "decimal"}:
+            return False
+        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        if not scoped_source_text:
+            scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(scoped_source_text):
+            return True
+        return _person_scoped_definition_module_fallback_applies(
+            source_text=source_text,
+            rule_source=rule_source,
+            rule=rule,
+        )
+    return False
+
+
 def _person_scoped_definition_module_fallback_applies(
     *,
     source_text: str,
@@ -14329,6 +14442,35 @@ def _imported_rate_source_is_thresholded(content: str, rate_name: str) -> bool:
     )
 
 
+_SOURCE_STATED_COMPOSITE_RATE_PATTERN = re.compile(
+    r"\b(?:one-half|half|sum)\b[\s\S]{0,160}\b"
+    r"rates?\s+imposed\s+by\b"
+    r"|"
+    r"\brates?\s+imposed\s+by\b[\s\S]{0,160}\b(?:one-half|half|sum)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _block_is_source_stated_composite_rate(
+    block: Mapping[str, object],
+    source_text: str,
+) -> bool:
+    """Allow Rate rules when the source itself asks for a sum of imported rates."""
+    if str(block.get("dtype") or "").strip().lower() != "rate":
+        return False
+    proof_excerpts = block.get("proof_excerpts")
+    scoped_text = (
+        " ".join(str(item) for item in proof_excerpts)
+        if isinstance(proof_excerpts, list)
+        else ""
+    ).strip()
+    if not scoped_text:
+        scoped_text = str(block.get("source") or "")
+    if not scoped_text:
+        scoped_text = source_text
+    return bool(_SOURCE_STATED_COMPOSITE_RATE_PATTERN.search(scoped_text))
+
+
 def _formula_preserves_thresholded_rate_mechanics(formula: str) -> bool:
     """Return whether a local formula appears to preserve limited-rate mechanics."""
     normalized = _normalize_identifier(formula)
@@ -18465,6 +18607,13 @@ class ValidatorPipeline:
         issues.extend(find_shared_statutory_rate_entity_suffix_name_issues(content))
         issues.extend(find_person_scoped_rate_base_unit_issues(content))
         issues.extend(find_person_scoped_definition_unit_issues(content))
+        issues.extend(
+            find_imported_person_scoped_definition_unit_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         # Read the requested-source target from the nearby eval workspace or
@@ -19265,6 +19414,7 @@ class ValidatorPipeline:
     ) -> list[str]:
         """Reject formulas that flatten thresholded imported rates into flat rates."""
         content = rulespec_file.read_text()
+        source_text = extract_embedded_source_text(content)
         imported_rate_sources: dict[str, str] = {}
         for import_item in self._extract_import_items(content):
             fragment = self._import_item_fragment(import_item)
@@ -19294,6 +19444,8 @@ class ValidatorPipeline:
             identifiers = _formula_local_identifiers(formula)
             for rate_name, import_item in sorted(imported_rate_sources.items()):
                 if rate_name not in identifiers:
+                    continue
+                if _block_is_source_stated_composite_rate(block, source_text):
                     continue
                 if _formula_preserves_thresholded_rate_mechanics(formula):
                     continue
