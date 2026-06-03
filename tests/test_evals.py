@@ -5912,6 +5912,8 @@ rules:
         assert "Importing a child rate or threshold is not enough" in prompt
         assert "`to the extent`" in prompt
         assert "all-or-nothing zeroing" in prompt
+        assert "current\n  requested source changes the basis" in prompt
+        assert "internally handled its own `to the extent` exclusion" in prompt
 
     def test_build_eval_prompt_highlights_cited_context_import_exports(self, tmp_path):
         policy_repo_root = tmp_path / "rulespec-us"
@@ -6224,6 +6226,65 @@ rules:
         assert "entity_not_supported" in prompt
         assert "`rules: []`" in prompt
         assert "`*_before_exemption`" in prompt
+
+    def test_build_eval_prompt_does_not_defer_parent_for_child_internal_extent(
+        self, tmp_path
+    ):
+        policy_repo_root = tmp_path / "rulespec-us"
+        child_file = policy_repo_root / "statutes" / "26" / "32" / "c" / "2.yaml"
+        child_file.parent.mkdir(parents=True, exist_ok=True)
+        child_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    Earned income excludes subsidized work-activity amounts only to the extent
+    subsidized under the State program.
+rules:
+  - name: earned_income
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)
+    versions:
+      - effective_from: '1990-01-01'
+        formula: max(0, wages - subsidized_state_work_activity_amounts_received)
+"""
+        )
+        workspace = prepare_eval_workspace(
+            citation="26 USC 32",
+            runner=parse_runner_spec("openai:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "(a) In the case of an eligible individual, there shall be "
+                "allowed as a credit an amount equal to the credit percentage "
+                "of so much of the taxpayer's earned income as does not exceed "
+                "the earned income amount. (c)(2) The term earned income means "
+                "employee compensation plus self-employment income, and no "
+                "amount received for work activities shall be taken into "
+                "account, but only to the extent such amount is subsidized "
+                "under such State program."
+            ),
+            axiom_rules_path=policy_repo_root,
+            mode="repo-augmented",
+            extra_context_paths=[child_file],
+        )
+
+        prompt = _build_eval_prompt(
+            "26 USC 32",
+            "repo-augmented",
+            workspace,
+            workspace.context_files,
+            target_file_name="32.yaml",
+            target_ref_prefix="us:statutes/26/32",
+            include_tests=True,
+        )
+
+        assert "Target-specific schema limit" not in prompt
+        assert "Aggregate parent child outputs detected" in prompt
+        assert "`us:statutes/26/32/c/2#earned_income`" in prompt
+        assert "internally handled its own `to the extent` exclusion" in prompt
 
     def test_build_eval_prompt_does_not_defer_amount_adjustment_parent_list(
         self, tmp_path
