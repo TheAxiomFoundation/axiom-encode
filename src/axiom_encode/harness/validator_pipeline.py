@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 import yaml
 
@@ -7356,6 +7356,10 @@ _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN = re.compile(
     r"[\s\S]{0,180}\bderived\s+by\s+(?:an?|the|such)\s+"
     r"(?:individual|person|employee|member)\b"
     r"|"
+    r"\bterm\s+[\"'“”‘’]?net\s+earnings?\b[\s\S]{0,160}\bmeans\b"
+    r"[\s\S]{0,260}\bderived\s+by\s+(?:an?|the|such)\s+"
+    r"(?:individual|person|employee|member)\b"
+    r"|"
     r"\bearned\s+income\s+of\s+(?:an?|the|such)\s+individual\b"
     r"[\s\S]{0,220}\bcomputed\b"
     r"|"
@@ -7396,6 +7400,14 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
         scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
         if not scoped_source_text:
             scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
+        if not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(
+            scoped_source_text
+        ) and _person_scoped_definition_module_fallback_applies(
+            source_text=source_text,
+            rule_source=rule_source,
+            rule=rule,
+        ):
+            scoped_source_text = source_text
         if not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(scoped_source_text):
             continue
         if _formula_or_referenced_helpers_use_relation_aggregate(
@@ -7413,6 +7425,31 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
             "roll-up."
         )
     return issues
+
+
+def _person_scoped_definition_module_fallback_applies(
+    *,
+    source_text: str,
+    rule_source: str,
+    rule: Mapping[str, Any],
+) -> bool:
+    if not source_text:
+        return False
+    if not _PERSON_SCOPED_DEFINITION_SOURCE_PATTERN.search(source_text):
+        return False
+    if "1402(a)" not in str(rule_source).lower():
+        return False
+    if str(rule.get("dtype") or "").strip().lower() == "rate":
+        return False
+    name = str(rule.get("name") or "").lower()
+    return any(
+        marker in name
+        for marker in (
+            "net_earnings",
+            "self_employment_income",
+            "paragraph_12_deduction",
+        )
+    )
 
 
 def find_employer_scoped_entity_issues(content: str) -> list[str]:

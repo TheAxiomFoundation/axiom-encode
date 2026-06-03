@@ -13126,6 +13126,69 @@ rules:
     assert "TaxUnit" in issues[0]
 
 
+def test_person_scoped_definition_unit_rejects_section_1402a_net_earnings_module_source():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    (a) Net earnings from self-employment The term net earnings from
+    self-employment means the gross income derived by an individual from any
+    trade or business carried on by such individual, less deductions. (12) in
+    lieu of the deduction provided by section 164(f), there shall be allowed a
+    deduction equal to the product of the taxpayer's net earnings and one-half
+    of the section 1401 rates.
+rules:
+  - name: net_earnings_before_paragraph_12_adjustment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(a), before paragraph (12)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          self_employment_trade_or_business_gross_income
+          - self_employment_trade_or_business_deductions
+  - name: paragraph_12_deduction_rate
+    kind: derived
+    entity: TaxUnit
+    dtype: Rate
+    period: Year
+    source: 26 USC 1402(a)(12)(B)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.0765
+  - name: paragraph_12_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(a)(12)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: net_earnings_before_paragraph_12_adjustment * paragraph_12_deduction_rate
+  - name: net_earnings_from_self_employment
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 1402(a), including paragraph (12)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: net_earnings_before_paragraph_12_adjustment - paragraph_12_deduction
+"""
+
+    issues = find_person_scoped_definition_unit_issues(content)
+
+    assert len(issues) == 3
+    assert "net_earnings_before_paragraph_12_adjustment" in issues[0]
+    assert any("paragraph_12_deduction`" in issue for issue in issues)
+    assert any("net_earnings_from_self_employment" in issue for issue in issues)
+    assert not any("paragraph_12_deduction_rate" in issue for issue in issues)
+
+
 def test_person_scoped_definition_unit_rejects_individual_eitc_earned_income():
     content = """format: rulespec/v1
 module:

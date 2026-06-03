@@ -141,6 +141,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "treat the copied aggregate shape as a defect to repair" in ENCODER_PROMPT
     assert "earned income of an individual shall be\n  computed" in ENCODER_PROMPT
     assert "replaced by one aggregated boundary input" in ENCODER_PROMPT
+    assert "current\n  requested source changes the basis" in ENCODER_PROMPT
+    assert "internally handled its own `to the extent` exclusion" in ENCODER_PROMPT
     assert "Never drop the jurisdiction prefix" in ENCODER_PROMPT
     assert "listed under invalid copied local inputs" in ENCODER_PROMPT
     assert "do not preserve, rename, or recreate" in ENCODER_PROMPT
