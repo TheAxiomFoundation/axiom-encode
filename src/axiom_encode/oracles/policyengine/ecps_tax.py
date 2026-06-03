@@ -84,6 +84,8 @@ CDCC_PROGRAM_PATH = Path("statutes/26/21.yaml")
 CDCC_BASE = "us:statutes/26/21"
 AOTC_PROGRAM_PATH = Path("statutes/26/25A.yaml")
 AOTC_BASE = "us:statutes/26/25A"
+NONREFUNDABLE_CREDITS_PROGRAM_PATH = Path("statutes/26/26.yaml")
+NONREFUNDABLE_CREDITS_BASE = "us:statutes/26/26"
 SECTION_112_BASE = "us:statutes/26/112"
 SECTION_32_C_2_BASE = "us:statutes/26/32/c/2"
 SECTION_152_C_BASE = "us:statutes/26/152/c"
@@ -330,6 +332,20 @@ AOTC_OUTPUTS = {
         "pe": "education_tax_credits",
     },
 }
+NONREFUNDABLE_CREDITS_OUTPUTS = {
+    "income_tax_non_refundable_credits": {
+        "axiom": f"{NONREFUNDABLE_CREDITS_BASE}#income_tax_non_refundable_credits",
+        "pe": "income_tax_non_refundable_credits",
+    },
+    "income_tax_unavailable_non_refundable_credits": {
+        "axiom": f"{NONREFUNDABLE_CREDITS_BASE}#income_tax_unavailable_non_refundable_credits",
+        "pe": "income_tax_unavailable_non_refundable_credits",
+    },
+    "income_tax_capped_non_refundable_credits": {
+        "axiom": f"{NONREFUNDABLE_CREDITS_BASE}#income_tax_capped_non_refundable_credits",
+        "pe": "income_tax_capped_non_refundable_credits",
+    },
+}
 SURFACE_OUTPUTS = {
     "ctc": CTC_OUTPUTS,
     "standard-deduction": STANDARD_DEDUCTION_OUTPUTS,
@@ -338,6 +354,7 @@ SURFACE_OUTPUTS = {
     "eitc": EITC_OUTPUTS,
     "cdcc": CDCC_OUTPUTS,
     "aotc": AOTC_OUTPUTS,
+    "nonrefundable-credits": NONREFUNDABLE_CREDITS_OUTPUTS,
     **{surface: config["outputs"] for surface, config in PAYROLL_SURFACES.items()},
 }
 SURFACE_PROGRAM_PATHS = {
@@ -348,6 +365,7 @@ SURFACE_PROGRAM_PATHS = {
     "eitc": EITC_PROGRAM_PATH,
     "cdcc": CDCC_PROGRAM_PATH,
     "aotc": AOTC_PROGRAM_PATH,
+    "nonrefundable-credits": NONREFUNDABLE_CREDITS_PROGRAM_PATH,
     **{surface: config["program"] for surface, config in PAYROLL_SURFACES.items()},
 }
 PE_TAX_UNIT_VARIABLES = tuple(
@@ -382,17 +400,28 @@ PE_TAX_UNIT_VARIABLES = tuple(
             "eitc_phased_in",
             "eitc_reduction",
             "education_tax_credits",
+            "elderly_disabled_credit",
+            "energy_efficient_home_improvement_credit",
             "filing_status",
             "foreign_tax_credit",
             "income_tax_before_credits",
+            "income_tax_capped_non_refundable_credits",
+            "income_tax_non_refundable_credits",
+            "income_tax_unavailable_non_refundable_credits",
             "min_head_spouse_earned",
             "net_capital_gain",
+            "new_clean_vehicle_credit",
             "non_refundable_american_opportunity_credit",
+            "non_refundable_ctc",
             "refundable_american_opportunity_credit",
             "income_tax_main_rates",
+            "residential_clean_energy_credit",
+            "savers_credit",
             "standard_deduction",
             "tax_unit_childcare_expenses",
             "taxable_income",
+            "used_clean_vehicle_credit",
+            "lifetime_learning_credit",
         }
     )
 )
@@ -976,6 +1005,8 @@ def build_axiom_request(
         return build_cdcc_request(pe_data=pe_data, year=year)
     if surface == "aotc":
         return build_aotc_request(pe_data=pe_data, year=year)
+    if surface == "nonrefundable-credits":
+        return build_nonrefundable_credits_request(pe_data=pe_data, year=year)
     if surface in PAYROLL_SURFACES:
         return build_payroll_request(
             pe_data=pe_data,
@@ -1157,6 +1188,45 @@ def build_aotc_request(*, pe_data: dict[str, Any], year: int) -> dict[str, Any]:
                 "entity_id": tax_entity_id(tax_unit_id),
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in AOTC_OUTPUTS.values()],
+            }
+            for tax_unit_id in pe_data["tax_unit_ids"]
+        ],
+    }
+
+
+def build_nonrefundable_credits_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = {
+        "period_kind": "tax_year",
+        "start": f"{year:04d}-01-01",
+        "end": f"{year:04d}-12-31",
+    }
+    inputs: list[dict[str, Any]] = []
+
+    for _idx, row in pe_data["tax_units"].iterrows():
+        tax_unit_id = int(row["tax_unit_id"])
+        entity_id = tax_entity_id(tax_unit_id)
+        for name, value in project_nonrefundable_credits_inputs(row=row).items():
+            inputs.append(
+                input_record(
+                    f"{NONREFUNDABLE_CREDITS_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": [
+            {
+                "entity_id": tax_entity_id(tax_unit_id),
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in NONREFUNDABLE_CREDITS_OUTPUTS.values()
+                ],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
         ],
@@ -1937,6 +2007,29 @@ def project_aotc_person_inputs(
     }
 
 
+def project_nonrefundable_credits_inputs(*, row: Any) -> dict[str, Any]:
+    return {
+        "foreign_tax_credit": money(row.get("foreign_tax_credit", 0)),
+        "cdcc": money(row.get("cdcc", 0)),
+        "non_refundable_american_opportunity_credit": money(
+            row.get("non_refundable_american_opportunity_credit", 0)
+        ),
+        "lifetime_learning_credit": money(row.get("lifetime_learning_credit", 0)),
+        "savers_credit": money(row.get("savers_credit", 0)),
+        "residential_clean_energy_credit": money(
+            row.get("residential_clean_energy_credit", 0)
+        ),
+        "energy_efficient_home_improvement_credit": money(
+            row.get("energy_efficient_home_improvement_credit", 0)
+        ),
+        "elderly_disabled_credit": money(row.get("elderly_disabled_credit", 0)),
+        "new_clean_vehicle_credit": money(row.get("new_clean_vehicle_credit", 0)),
+        "used_clean_vehicle_credit": money(row.get("used_clean_vehicle_credit", 0)),
+        "non_refundable_ctc": money(row.get("non_refundable_ctc", 0)),
+        "income_tax_before_credits": money(row.get("income_tax_before_credits", 0)),
+    }
+
+
 def project_eitc_tax_unit_inputs(row: Any, persons: list[Any]) -> dict[str, Any]:
     filing_status = str(row["filing_status"])
     filing_status_numeric = filing_status_code(filing_status)
@@ -2626,6 +2719,11 @@ def compare_outputs(
             "and foreign tax credit remain explicit upstream boundary inputs "
             "until the full federal credit-ordering chain is encoded "
             "end-to-end.",
+            "Nonrefundable-credit projections run encoded 26 USC 26 aggregate "
+            "sum and cap math from upstream credit components supplied as "
+            "boundary inputs. Individual component-credit correctness remains "
+            "with each component surface until the full federal credit chain is "
+            "encoded end-to-end.",
         ],
     )
 

@@ -16,6 +16,8 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     EITC_OUTPUTS,
     EMPLOYEE_OASDI_BASE,
     EMPLOYEE_OASDI_PROGRAM_PATH,
+    NONREFUNDABLE_CREDITS_BASE,
+    NONREFUNDABLE_CREDITS_OUTPUTS,
     OASDI_WAGE_BASE_BASE,
     OASDI_WAGE_BASE_EXCLUSION_OUTPUT,
     OASDI_WAGE_BASE_PROGRAM_PATH,
@@ -39,6 +41,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     build_contribution_and_benefit_base_request,
     build_ctc_request,
     build_eitc_request,
+    build_nonrefundable_credits_request,
     build_oasdi_wage_base_request,
     build_payroll_request,
     build_tax_before_credits_request,
@@ -65,6 +68,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     project_eitc_relevant_investment_income,
     project_eitc_tax_unit_inputs,
     project_fica_wages,
+    project_nonrefundable_credits_inputs,
     project_oasdi_wage_base_inputs,
     project_section_32_c_2_tax_unit_inputs,
     project_section_112_tax_unit_inputs,
@@ -1590,6 +1594,106 @@ def test_build_aotc_request_uses_person_to_tax_unit_relation_and_outputs():
             )
         ]
         is True
+    )
+
+
+def test_project_nonrefundable_credits_inputs_uses_credit_boundaries():
+    projected = project_nonrefundable_credits_inputs(
+        row={
+            "foreign_tax_credit": 10,
+            "cdcc": 20,
+            "non_refundable_american_opportunity_credit": 30,
+            "lifetime_learning_credit": 40,
+            "savers_credit": 50,
+            "residential_clean_energy_credit": 60,
+            "energy_efficient_home_improvement_credit": 70,
+            "elderly_disabled_credit": 80,
+            "new_clean_vehicle_credit": 90,
+            "used_clean_vehicle_credit": 100,
+            "non_refundable_ctc": 110,
+            "income_tax_before_credits": 500,
+        }
+    )
+
+    assert projected == {
+        "foreign_tax_credit": 10,
+        "cdcc": 20,
+        "non_refundable_american_opportunity_credit": 30,
+        "lifetime_learning_credit": 40,
+        "savers_credit": 50,
+        "residential_clean_energy_credit": 60,
+        "energy_efficient_home_improvement_credit": 70,
+        "elderly_disabled_credit": 80,
+        "new_clean_vehicle_credit": 90,
+        "used_clean_vehicle_credit": 100,
+        "non_refundable_ctc": 110,
+        "income_tax_before_credits": 500,
+    }
+
+
+def test_build_nonrefundable_credits_request_uses_tax_unit_inputs_and_outputs():
+    pd = pytest.importorskip("pandas")
+    pe_data = {
+        "tax_units": pd.DataFrame(
+            [
+                {
+                    "tax_unit_id": 1,
+                    "foreign_tax_credit": 10,
+                    "cdcc": 20,
+                    "non_refundable_american_opportunity_credit": 30,
+                    "lifetime_learning_credit": 40,
+                    "savers_credit": 50,
+                    "residential_clean_energy_credit": 60,
+                    "energy_efficient_home_improvement_credit": 70,
+                    "elderly_disabled_credit": 80,
+                    "new_clean_vehicle_credit": 90,
+                    "used_clean_vehicle_credit": 100,
+                    "non_refundable_ctc": 110,
+                    "income_tax_before_credits": 500,
+                }
+            ]
+        ),
+        "persons": pd.DataFrame([]),
+        "tax_unit_ids": [1],
+    }
+
+    request = build_nonrefundable_credits_request(pe_data=pe_data, year=2026)
+
+    assert request["queries"] == [
+        {
+            "entity_id": "tax_unit_1",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": [
+                spec["axiom"] for spec in NONREFUNDABLE_CREDITS_OUTPUTS.values()
+            ],
+        }
+    ]
+    assert request["dataset"]["relations"] == []
+    input_values = {
+        (item["name"], item["entity_id"]): item["value"]["value"]
+        for item in request["dataset"]["inputs"]
+    }
+    assert (
+        input_values[
+            (
+                f"{NONREFUNDABLE_CREDITS_BASE}#input.savers_credit",
+                "tax_unit_1",
+            )
+        ]
+        == "50.0"
+    )
+    assert (
+        input_values[
+            (
+                f"{NONREFUNDABLE_CREDITS_BASE}#input.income_tax_before_credits",
+                "tax_unit_1",
+            )
+        ]
+        == "500.0"
     )
 
 
