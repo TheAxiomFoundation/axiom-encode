@@ -13126,6 +13126,34 @@ rules:
     assert "TaxUnit" in issues[0]
 
 
+def test_person_scoped_definition_unit_rejects_individual_eitc_earned_income():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The term earned income means wages, salaries, tips, and other employee
+    compensation, plus net earnings from self-employment. For purposes of this
+    subparagraph, the earned income of an individual shall be computed without
+    regard to any community property laws.
+rules:
+  - name: employee_compensation_earned_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 32(c)(2)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: wages_salaries_tips_and_other_employee_compensation
+"""
+
+    issues = find_person_scoped_definition_unit_issues(content)
+
+    assert any("Person-scoped definition at unit scope" in issue for issue in issues)
+    assert "employee_compensation_earned_income" in issues[0]
+    assert "TaxUnit" in issues[0]
+
+
 def test_person_scoped_definition_unit_accepts_relation_rollup():
     content = """format: rulespec/v1
 module:
