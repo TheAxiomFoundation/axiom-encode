@@ -49,6 +49,7 @@ from axiom_encode.oracles.policyengine.ecps_tax import (
     contribution_and_benefit_base_output_for_program,
     contribution_and_benefit_base_program_path,
     ctc_h_filing_status_code,
+    eitc_outputs_for_section_32_surface,
     filing_status_code,
     individual_is_unmarried_and_not_surviving_spouse,
     output_number,
@@ -881,6 +882,7 @@ def test_eitc_projection_sends_self_employment_to_section_1402_not_earned_income
         "amounts_to_which_section_871_a_applies": 0,
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
+        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
     assert project_section_1402_a_tax_unit_inputs(
@@ -1089,10 +1091,16 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         "person_ids": [7, 8],
     }
 
+    section_relation = (
+        f"{SECTION_32_C_2_BASE}#relation.section_32_earned_income_taxpayer_or_spouse"
+    )
+    output_specs = eitc_outputs_for_section_32_surface(section_relation)
+
     request = build_eitc_request(
         pe_data=pe_data,
         year=2026,
         contribution_base=184_500.0,
+        section_32_c_2_filer_relation=section_relation,
     )
 
     assert request["queries"] == [
@@ -1103,9 +1111,16 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
                 "start": "2026-01-01",
                 "end": "2026-12-31",
             },
-            "outputs": [spec["axiom"] for spec in EITC_OUTPUTS.values()],
+            "outputs": [spec["axiom"] for spec in output_specs.values()],
         }
     ]
+    assert (
+        f"{SECTION_32_C_2_BASE}#tax_unit_earned_income"
+        in request["queries"][0]["outputs"]
+    )
+    assert (
+        f"{SECTION_32_C_2_BASE}#earned_income" not in request["queries"][0]["outputs"]
+    )
     assert request["dataset"]["relations"] == [
         {
             "name": f"{EITC_BASE}#relation.qualifying_child_of_tax_unit",
@@ -1117,7 +1132,7 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
             },
         },
         {
-            "name": f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit",
+            "name": section_relation,
             "tuple": ["tax_unit_1_person_0", "tax_unit_1"],
             "interval": {
                 "period_kind": "tax_year",
@@ -1147,18 +1162,41 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         f"{SECTION_32_C_2_BASE}#input.section_112_amounts_excluded_from_gross_income"
         not in input_values
     )
+    assert not any(
+        item["name"].startswith(f"{SECTION_112_BASE}#input.")
+        for item in request["dataset"]["inputs"]
+    )
+    section_32_wage_input = (
+        f"{SECTION_32_C_2_BASE}"
+        "#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
+    )
     assert (
-        input_values[
-            f"{SECTION_32_C_2_BASE}#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
+        section_32_wage_input,
+        "tax_unit_1",
+    ) not in entity_input_values
+    assert (
+        entity_input_values[
+            (
+                section_32_wage_input,
+                "tax_unit_1_person_0",
+            )
         ]
         == "18000.0"
     )
     assert (
-        input_values[
-            f"{SECTION_112_BASE}#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay"
+        entity_input_values[
+            (
+                f"{SECTION_32_C_2_BASE}"
+                "#input.amount_excluded_from_gross_income_by_reason_of_section_112_for_individual",
+                "tax_unit_1_person_0",
+            )
         ]
         == 0
     )
+    assert (
+        f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income",
+        "tax_unit_1",
+    ) not in entity_input_values
     assert (
         input_values[
             f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income"
@@ -1203,7 +1241,7 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
     assert (
         entity_input_values[
             (
-                f"{SECTION_32_C_2_BASE}#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income",
+                section_32_wage_input,
                 "tax_unit_1_person_0",
             )
         ]
@@ -1241,7 +1279,7 @@ def test_build_eitc_request_uses_structural_child_relation_and_component_outputs
         "tax_unit_1_person_1",
     ) not in entity_input_values
     assert (
-        f"{SECTION_32_C_2_BASE}#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income",
+        section_32_wage_input,
         "tax_unit_1_person_1",
     ) not in entity_input_values
     assert (
@@ -1312,6 +1350,37 @@ def test_build_eitc_request_can_omit_section_32_filer_relation():
         f"{SECTION_32_C_2_BASE}#relation.eitc_filer_of_tax_unit" not in relation_names
     )
     assert f"{EITC_BASE}#relation.qualifying_child_of_tax_unit" in relation_names
+    assert request["queries"][0]["outputs"] == [
+        spec["axiom"] for spec in EITC_OUTPUTS.values()
+    ]
+    assert (
+        f"{SECTION_32_C_2_BASE}#tax_unit_earned_income"
+        not in request["queries"][0]["outputs"]
+    )
+    entity_input_values = {
+        (item["name"], item["entity_id"]): item["value"]["value"]
+        for item in request["dataset"]["inputs"]
+    }
+    section_32_wage_input = (
+        f"{SECTION_32_C_2_BASE}"
+        "#input.wages_salaries_tips_and_other_employee_compensation_includible_in_gross_income"
+    )
+    assert entity_input_values[(section_32_wage_input, "tax_unit_1")] == "18000.0"
+    assert (section_32_wage_input, "tax_unit_1_person_0") not in entity_input_values
+    assert (
+        entity_input_values[
+            (
+                f"{SECTION_112_BASE}"
+                "#input.active_service_compensation_as_enlisted_member_excluding_pensions_and_retirement_pay",
+                "tax_unit_1",
+            )
+        ]
+        == 0
+    )
+    assert (
+        f"{SECTION_1402_A_BASE}#input.adjusted_self_employment_trade_or_business_gross_income",
+        "tax_unit_1_person_0",
+    ) not in entity_input_values
 
 
 def test_section_32_filer_relation_for_rulespec_discovers_declared_relation(
@@ -1342,6 +1411,29 @@ rules:
 
     assert section_32_c_2_filer_relation_for_rulespec(rulespec_root) == (
         f"{SECTION_32_C_2_BASE}#relation.earned_income_filer_of_tax_unit"
+    )
+
+
+def test_section_32_filer_relation_for_rulespec_discovers_taxpayer_spouse_relation(
+    tmp_path,
+):
+    rulespec_root = tmp_path / "rulespec-us"
+    target = rulespec_root / "statutes/26/32/c/2.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: section_32_earned_income_taxpayer_or_spouse
+    kind: data_relation
+    data_relation:
+      predicate: section_32_earned_income_taxpayer_or_spouse
+      arity: 2
+      arguments: [Person, TaxUnit]
+"""
+    )
+
+    assert section_32_c_2_filer_relation_for_rulespec(rulespec_root) == (
+        f"{SECTION_32_C_2_BASE}#relation.section_32_earned_income_taxpayer_or_spouse"
     )
 
 

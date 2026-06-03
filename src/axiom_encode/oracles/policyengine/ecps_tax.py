@@ -286,6 +286,19 @@ EITC_OUTPUTS = {
         "pe": "eitc_eligible",
     },
 }
+
+
+def eitc_outputs_for_section_32_surface(
+    section_32_c_2_filer_relation: str | None,
+) -> dict[str, dict[str, str]]:
+    outputs = {name: dict(spec) for name, spec in EITC_OUTPUTS.items()}
+    if section_32_c_2_filer_relation is not None:
+        outputs["eitc_earned_income"]["axiom"] = (
+            f"{SECTION_32_C_2_BASE}#tax_unit_earned_income"
+        )
+    return outputs
+
+
 CDCC_OUTPUTS = {
     "cdcc_qualifying_individual_count": {
         "axiom": f"{CDCC_BASE}#cdcc_qualifying_individual_count",
@@ -651,6 +664,9 @@ def compare_tax_ecps(
         person_variables=person_variables,
     )
     surface_results: dict[str, list[dict[str, Any]]] = {}
+    surface_output_specs = {
+        surface_name: outputs for surface_name, outputs in SURFACE_OUTPUTS.items()
+    }
     projection_notes: list[str] = []
     oasdi_wage_base_results: list[dict[str, Any]] | None = None
     contribution_base: float | None = None
@@ -719,6 +735,10 @@ def compare_tax_ecps(
             if selected_surface == "eitc"
             else None
         )
+        if selected_surface == "eitc":
+            surface_output_specs[selected_surface] = (
+                eitc_outputs_for_section_32_surface(section_32_c_2_filer_relation)
+            )
         request = build_axiom_request(
             pe_data=pe_data,
             year=year,
@@ -746,6 +766,7 @@ def compare_tax_ecps(
         tolerance=tolerance,
         relative_tolerance=relative_tolerance,
         projection_notes=tuple(projection_notes),
+        surface_outputs=surface_output_specs,
     )
 
 
@@ -1395,6 +1416,8 @@ def build_eitc_request(
     inputs: list[dict[str, Any]] = []
     relations: list[dict[str, Any]] = []
     persons_by_tax_unit = group_person_rows_by_tax_unit(pe_data["persons"])
+    section_32_person_surface = section_32_c_2_filer_relation is not None
+    output_specs = eitc_outputs_for_section_32_surface(section_32_c_2_filer_relation)
 
     for _idx, row in pe_data["tax_units"].iterrows():
         tax_unit_id = int(row["tax_unit_id"])
@@ -1417,74 +1440,75 @@ def build_eitc_request(
                     value,
                 )
             )
-        for name, value in project_section_32_c_2_tax_unit_inputs(
-            persons=tax_unit_persons,
-            contexts=contexts,
-        ).items():
-            inputs.append(
-                input_record(
-                    f"{SECTION_32_C_2_BASE}#input.{name}",
-                    entity_id,
-                    interval,
-                    value,
+        if not section_32_person_surface:
+            for name, value in project_section_32_c_2_tax_unit_inputs(
+                persons=tax_unit_persons,
+                contexts=contexts,
+            ).items():
+                inputs.append(
+                    input_record(
+                        f"{SECTION_32_C_2_BASE}#input.{name}",
+                        entity_id,
+                        interval,
+                        value,
+                    )
                 )
-            )
-        for name, value in project_section_112_tax_unit_inputs().items():
-            inputs.append(
-                input_record(
-                    f"{SECTION_112_BASE}#input.{name}",
-                    entity_id,
-                    interval,
-                    value,
+            for name, value in project_section_112_tax_unit_inputs().items():
+                inputs.append(
+                    input_record(
+                        f"{SECTION_112_BASE}#input.{name}",
+                        entity_id,
+                        interval,
+                        value,
+                    )
                 )
-            )
-        for name, value in project_section_1402_a_tax_unit_inputs(
-            persons=tax_unit_persons,
-            contexts=contexts,
-        ).items():
-            inputs.append(
-                input_record(
-                    f"{SECTION_1402_A_BASE}#input.{name}",
-                    entity_id,
-                    interval,
-                    value,
+            for name, value in project_section_1402_a_tax_unit_inputs(
+                persons=tax_unit_persons,
+                contexts=contexts,
+            ).items():
+                inputs.append(
+                    input_record(
+                        f"{SECTION_1402_A_BASE}#input.{name}",
+                        entity_id,
+                        interval,
+                        value,
+                    )
                 )
-            )
-        for name, value in project_section_1402_b_tax_unit_inputs(
-            persons=tax_unit_persons,
-            contexts=contexts,
-            contribution_base=contribution_base,
-        ).items():
-            inputs.append(
-                input_record(
-                    f"{SECTION_1402_B_BASE}#input.{name}",
-                    entity_id,
-                    interval,
-                    value,
+            for name, value in project_section_1402_b_tax_unit_inputs(
+                persons=tax_unit_persons,
+                contexts=contexts,
+                contribution_base=contribution_base,
+            ).items():
+                inputs.append(
+                    input_record(
+                        f"{SECTION_1402_B_BASE}#input.{name}",
+                        entity_id,
+                        interval,
+                        value,
+                    )
                 )
-            )
-        for name, value in project_section_164_f_tax_unit_inputs().items():
-            inputs.append(
-                input_record(
-                    f"{SECTION_164_F_BASE}#input.{name}",
-                    entity_id,
-                    interval,
-                    value,
+            for name, value in project_section_164_f_tax_unit_inputs().items():
+                inputs.append(
+                    input_record(
+                        f"{SECTION_164_F_BASE}#input.{name}",
+                        entity_id,
+                        interval,
+                        value,
+                    )
                 )
-            )
-        for name, value in project_section_1401_tax_unit_inputs(
-            row=row,
-            persons=tax_unit_persons,
-            contexts=contexts,
-        ).items():
-            inputs.append(
-                input_record(
-                    f"{SECTION_1401_BASE}#input.{name}",
-                    entity_id,
-                    interval,
-                    value,
+            for name, value in project_section_1401_tax_unit_inputs(
+                row=row,
+                persons=tax_unit_persons,
+                contexts=contexts,
+            ).items():
+                inputs.append(
+                    input_record(
+                        f"{SECTION_1401_BASE}#input.{name}",
+                        entity_id,
+                        interval,
+                        value,
+                    )
                 )
-            )
 
         for person_index, (person, context) in enumerate(
             zip(tax_unit_persons, contexts, strict=True)
@@ -1524,7 +1548,7 @@ def build_eitc_request(
                         value,
                     )
                 )
-            if context.is_head or context.is_spouse:
+            if section_32_person_surface and (context.is_head or context.is_spouse):
                 for name, value in project_section_32_c_2_person_inputs(
                     person=person
                 ).items():
@@ -1585,7 +1609,7 @@ def build_eitc_request(
             {
                 "entity_id": tax_entity_id(tax_unit_id),
                 "period": interval,
-                "outputs": [spec["axiom"] for spec in EITC_OUTPUTS.values()],
+                "outputs": [spec["axiom"] for spec in output_specs.values()],
             }
             for tax_unit_id in pe_data["tax_unit_ids"]
         ],
@@ -2154,6 +2178,7 @@ def project_section_32_c_2_person_inputs(*, person: Any) -> dict[str, Any]:
         "amounts_to_which_section_871_a_applies": 0,
         "amounts_received_for_services_while_inmate_at_penal_institution": 0,
         "subsidized_state_work_activity_amounts_received": 0,
+        "amount_excluded_from_gross_income_by_reason_of_section_112_for_individual": 0,
         "taxpayer_elects_to_treat_section_112_excluded_amounts_as_earned_income": False,
     }
 
@@ -2695,7 +2720,9 @@ def compare_outputs(
     tolerance: float,
     relative_tolerance: float,
     projection_notes: tuple[str, ...] = (),
+    surface_outputs: dict[str, dict[str, dict[str, str]]] | None = None,
 ) -> TaxComparisonReport:
+    output_specs_by_surface = surface_outputs or SURFACE_OUTPUTS
     mismatches: list[TaxComparisonRow] = []
     summary: dict[str, dict[str, Any]] = {
         f"{surface}:{name}": {
@@ -2706,7 +2733,7 @@ def compare_outputs(
             "max_abs_diff": 0.0,
             "max_relative_diff": 0.0,
         }
-        for surface, outputs in SURFACE_OUTPUTS.items()
+        for surface, outputs in output_specs_by_surface.items()
         if surface in axiom_outputs_by_surface
         for name in outputs
     }
@@ -2714,7 +2741,7 @@ def compare_outputs(
     persons = pe_data["persons"].reset_index(drop=True)
     compared_values = 0
     for surface, axiom_outputs in axiom_outputs_by_surface.items():
-        output_specs = SURFACE_OUTPUTS[surface]
+        output_specs = output_specs_by_surface[surface]
         source_rows = persons if surface in PAYROLL_SURFACES else tax_units
         source_ids = (
             pe_data["person_ids"]
