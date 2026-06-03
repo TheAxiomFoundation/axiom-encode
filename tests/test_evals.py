@@ -88,6 +88,25 @@ def _write_test_corpus_provision(
     return corpus_path
 
 
+def _artifact_metrics(
+    *,
+    compile_pass: bool = True,
+    compile_issues: list[str] | None = None,
+    ci_pass: bool = True,
+    ci_issues: list[str] | None = None,
+) -> EvalArtifactMetrics:
+    return EvalArtifactMetrics(
+        compile_pass=compile_pass,
+        compile_issues=compile_issues or [],
+        ci_pass=ci_pass,
+        ci_issues=ci_issues or [],
+        embedded_source_present=True,
+        grounded_numeric_count=0,
+        ungrounded_numeric_count=0,
+        grounding=[],
+    )
+
+
 class TestParseRunnerSpec:
     def test_parses_named_runner(self):
         runner = parse_runner_spec("gpt=codex:gpt-5.4")
@@ -2325,6 +2344,79 @@ def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_
     assert result.success is True
     assert result.retry_count == 0
     assert mock_prompt_eval.call_count == 1
+
+
+def test_run_source_eval_retries_written_artifact_after_validation_failure(tmp_path):
+    policy_repo_root = tmp_path / "axiom-rules-engine"
+    policy_repo_root.mkdir()
+    first_response = EvalPromptResponse(
+        text=(
+            "=== FILE: sample.yaml ===\n"
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: failed shape.\n"
+            "rules: []\n"
+            "=== FILE: sample.test.yaml ===\n"
+            "[]\n"
+        ),
+        duration_ms=10,
+        trace={"attempt": "initial"},
+    )
+    second_response = EvalPromptResponse(
+        text=(
+            "=== FILE: sample.yaml ===\n"
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: repaired relation shape.\n"
+            "rules: []\n"
+            "=== FILE: sample.test.yaml ===\n"
+            "[]\n"
+        ),
+        duration_ms=20,
+        trace={"attempt": "validation-retry"},
+    )
+    issue = (
+        "Person earnings roll-up missing: earned_income is declared on TaxUnit "
+        "without a relation aggregate."
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            side_effect=[first_response, second_response],
+        ) as mock_prompt_eval,
+        patch(
+            "axiom_encode.harness.evals.evaluate_artifact",
+            side_effect=[
+                _artifact_metrics(ci_pass=False, ci_issues=[issue]),
+                _artifact_metrics(),
+            ],
+        ) as mock_evaluate,
+    ):
+        [result] = run_source_eval(
+            source_id="sample",
+            source_text="source states earned income.",
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            mode="cold",
+        )
+
+    assert result.success is True
+    assert result.retry_count == 1
+    assert result.duration_ms == 30
+    assert mock_prompt_eval.call_count == 2
+    assert mock_evaluate.call_count == 2
+    retry_prompt = mock_prompt_eval.call_args_list[1].args[2]
+    assert "Generated RuleSpec failed CI validation" in retry_prompt
+    assert issue in retry_prompt
+    assert "Do not preserve the failing shape" in retry_prompt
+    assert "move the source-defined wages" in retry_prompt
+    assert "failed shape" in retry_prompt
+    assert "repaired relation shape" in Path(result.output_file).read_text()
+    trace = json.loads(Path(result.trace_file).read_text())
+    assert trace["retry_reason"] == "rulespec_validation_feedback"
+    assert trace["retry_count"] == 1
 
 
 def test_eval_result_payload_round_trips_prompt_digests():

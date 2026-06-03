@@ -549,8 +549,31 @@ def _combine_retry_response(
     initial: EvalPromptResponse,
     retry: EvalPromptResponse,
     retry_prompt: str,
+    retry_reason: str,
 ) -> EvalPromptResponse:
     """Return the retry response while preserving aggregate accounting."""
+    retry_prompt_sha256 = _sha256_text(retry_prompt)
+    initial_trace = initial.trace or {}
+    if isinstance(initial_trace.get("attempts"), list):
+        attempts = list(initial_trace["attempts"])
+    else:
+        attempts = [{"attempt": 0, "trace": initial_trace}]
+    attempts.append({"attempt": len(attempts), "trace": retry.trace or {}})
+
+    prior_reasons = []
+    if isinstance(initial_trace.get("retry_reasons"), list):
+        prior_reasons = [str(item) for item in initial_trace["retry_reasons"]]
+    elif initial_trace.get("retry_reason"):
+        prior_reasons = [str(initial_trace["retry_reason"])]
+
+    prior_prompt_hashes = []
+    if isinstance(initial_trace.get("retry_prompt_sha256s"), list):
+        prior_prompt_hashes = [
+            str(item) for item in initial_trace["retry_prompt_sha256s"]
+        ]
+    elif initial_trace.get("retry_prompt_sha256"):
+        prior_prompt_hashes = [str(initial_trace["retry_prompt_sha256"])]
+
     return EvalPromptResponse(
         text=retry.text,
         duration_ms=initial.duration_ms + retry.duration_ms,
@@ -562,13 +585,12 @@ def _combine_retry_response(
             initial.actual_cost_usd, retry.actual_cost_usd
         ),
         trace={
-            "retry_count": 1,
-            "retry_reason": "empty_rulespec_artifact",
-            "retry_prompt_sha256": _sha256_text(retry_prompt),
-            "attempts": [
-                {"attempt": 0, "trace": initial.trace or {}},
-                {"attempt": 1, "trace": retry.trace or {}},
-            ],
+            "retry_count": len(attempts) - 1,
+            "retry_reason": retry_reason,
+            "retry_reasons": [*prior_reasons, retry_reason],
+            "retry_prompt_sha256": retry_prompt_sha256,
+            "retry_prompt_sha256s": [*prior_prompt_hashes, retry_prompt_sha256],
+            "attempts": attempts,
         },
         unexpected_accesses=[
             *initial.unexpected_accesses,
@@ -2993,8 +3015,222 @@ def _run_prompt_eval_with_empty_artifact_retry(
         policyengine_rule_hint=policyengine_rule_hint,
     )
     return (
-        _combine_retry_response(response, retry_response, retry_prompt),
+        _combine_retry_response(
+            response,
+            retry_response,
+            retry_prompt,
+            retry_reason="empty_rulespec_artifact",
+        ),
         retry_wrote_artifact,
+        1,
+    )
+
+
+def _validation_feedback_issues(metrics: EvalArtifactMetrics | None) -> list[str]:
+    """Return deterministic validation issues worth sending back to the model."""
+    if metrics is None:
+        return []
+
+    issues: list[str] = []
+    if not metrics.compile_pass:
+        compile_issues = metrics.compile_issues or [
+            "compile validator failed without a detailed issue"
+        ]
+        issues.extend(f"compile: {issue}" for issue in compile_issues)
+    if not metrics.ci_pass:
+        ci_issues = metrics.ci_issues or [
+            "CI validator failed without a detailed issue"
+        ]
+        issues.extend(f"ci: {issue}" for issue in ci_issues)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue in seen:
+            continue
+        deduped.append(issue)
+        seen.add(issue)
+    return deduped[:12]
+
+
+def _validation_retry_artifact_excerpt(output_file: Path) -> str:
+    """Return a bounded excerpt of the failed generated files for repair prompts."""
+    snippets: list[str] = []
+    for path in (output_file, _rulespec_test_path(output_file)):
+        if not path.exists():
+            continue
+        content = path.read_text()
+        max_chars = 16_000 if path == output_file else 8_000
+        truncated = len(content) > max_chars
+        excerpt = content[:max_chars]
+        if truncated:
+            excerpt += "\n... [truncated]\n"
+        snippets.append(
+            f"=== BEGIN PREVIOUS {path.name} ===\n"
+            f"{excerpt.rstrip()}\n"
+            f"=== END PREVIOUS {path.name} ==="
+        )
+    return "\n\n".join(snippets)
+
+
+def _validation_retry_extra_guidance(issues: list[str]) -> str:
+    """Return targeted repair guidance for known deterministic failure classes."""
+    if any("Person earnings roll-up missing" in issue for issue in issues):
+        return (
+            "\n- For person earnings roll-up failures, move the source-defined wages, "
+            "employee compensation, earned income, or net self-employment earnings "
+            "component to `entity: Person`. If the source also needs a filing-unit "
+            "amount, add a narrow Person-to-TaxUnit relation such as filer, spouse, "
+            "or taxpayer and aggregate the person rule through that relation with "
+            "`sum_where(...)` or the RuleSpec equivalent."
+        )
+    return ""
+
+
+def _build_validation_feedback_retry_prompt(
+    original_prompt: str,
+    target_file_name: str,
+    include_tests: bool,
+    validation_error: str,
+    issues: list[str],
+    output_file: Path,
+) -> str:
+    """Build the one-shot repair prompt for written artifacts that fail validation."""
+    output_contract = (
+        f"Return exactly this two-file bundle and nothing else, beginning with "
+        f"`=== FILE: {target_file_name} ===`."
+        if include_tests
+        else (
+            f"Return only raw RuleSpec YAML for `{target_file_name}` beginning "
+            "with `format: rulespec/v1`."
+        )
+    )
+    issue_list = "\n".join(f"- {issue}" for issue in issues) or "- validation failed"
+    previous_artifact = _validation_retry_artifact_excerpt(output_file)
+    previous_section = (
+        f"\nThe failed generated artifact was:\n\n{previous_artifact}\n"
+        if previous_artifact
+        else ""
+    )
+    extra_guidance = _validation_retry_extra_guidance(issues)
+    return f"""The previous RuleSpec artifact was written successfully, but deterministic validation rejected it.
+
+Validation result: {validation_error}
+Issues:
+{issue_list}
+
+Repair the artifact now.
+- Do not preserve the failing shape just because it compiled.
+- Keep the same source, target path, RuleSpec schema, imports, and validation constraints from the original task.
+- Correct the generated RuleSpec and companion tests, not the validator.
+- Do not narrate your plan or include markdown prose outside the requested file bundle.
+{output_contract}{extra_guidance}
+{previous_section}
+=== BEGIN ORIGINAL TASK ===
+{original_prompt}
+=== END ORIGINAL TASK ===
+"""
+
+
+def _evaluate_materialized_eval_artifact(
+    output_file: Path,
+    policy_path: Path,
+    runtime_axiom_rules_path: Path,
+    source_text: str,
+    oracle: EvalOracleMode = "none",
+    policyengine_country: str = "auto",
+    policyengine_rule_hint: str | None = None,
+) -> EvalArtifactMetrics | None:
+    """Evaluate a written artifact, returning None when no artifact exists."""
+    if not output_file.exists():
+        return None
+    return evaluate_artifact(
+        rulespec_file=output_file,
+        policy_repo_root=policy_path,
+        axiom_rules_path=runtime_axiom_rules_path,
+        source_text=source_text,
+        oracle=oracle,
+        policyengine_country=policyengine_country,
+        policyengine_rule_hint=policyengine_rule_hint,
+    )
+
+
+def _run_validation_feedback_retry(
+    runner: EvalRunnerSpec,
+    workspace: EvalWorkspace,
+    prompt: str,
+    response: EvalPromptResponse,
+    wrote_artifact: bool,
+    output_file: Path,
+    eval_root: Path,
+    source_text: str,
+    target_file_name: str,
+    include_tests: bool,
+    policy_path: Path,
+    runtime_axiom_rules_path: Path,
+    oracle: EvalOracleMode = "none",
+    policyengine_country: str = "auto",
+    policyengine_rule_hint: str | None = None,
+) -> tuple[EvalPromptResponse, bool, EvalArtifactMetrics | None, str | None, int]:
+    """Retry once with deterministic validation feedback if a written artifact fails."""
+    if wrote_artifact:
+        _hydrate_eval_root(eval_root, workspace)
+
+    metrics = _evaluate_materialized_eval_artifact(
+        output_file=output_file,
+        policy_path=policy_path,
+        runtime_axiom_rules_path=runtime_axiom_rules_path,
+        source_text=source_text,
+        oracle=oracle,
+        policyengine_country=policyengine_country,
+        policyengine_rule_hint=policyengine_rule_hint,
+    )
+    validation_error = _eval_artifact_validation_error(metrics)
+    if not (wrote_artifact and response.error is None and validation_error):
+        return response, wrote_artifact, metrics, validation_error, 0
+
+    issues = _validation_feedback_issues(metrics)
+    retry_prompt = _build_validation_feedback_retry_prompt(
+        original_prompt=prompt,
+        target_file_name=target_file_name,
+        include_tests=include_tests,
+        validation_error=validation_error,
+        issues=issues,
+        output_file=output_file,
+    )
+    retry_response = _run_prompt_eval(runner, workspace, retry_prompt)
+    retry_wrote_artifact = _materialize_eval_artifact(
+        retry_response.text,
+        output_file,
+        source_text=source_text,
+        workspace_root=workspace.root,
+        policyengine_rule_hint=policyengine_rule_hint,
+    )
+    combined_response = _combine_retry_response(
+        response,
+        retry_response,
+        retry_prompt,
+        retry_reason="rulespec_validation_feedback",
+    )
+    if not retry_wrote_artifact:
+        return combined_response, wrote_artifact, metrics, validation_error, 1
+
+    _hydrate_eval_root(eval_root, workspace)
+    retry_metrics = _evaluate_materialized_eval_artifact(
+        output_file=output_file,
+        policy_path=policy_path,
+        runtime_axiom_rules_path=runtime_axiom_rules_path,
+        source_text=source_text,
+        oracle=oracle,
+        policyengine_country=policyengine_country,
+        policyengine_rule_hint=policyengine_rule_hint,
+    )
+    retry_validation_error = _eval_artifact_validation_error(retry_metrics)
+    return (
+        combined_response,
+        retry_wrote_artifact,
+        retry_metrics,
+        retry_validation_error,
         1,
     )
 
@@ -3073,25 +3309,34 @@ def _run_single_eval(
         target_file_name=relative_output.name,
         include_tests=include_tests,
     )
-    if wrote_artifact:
-        eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+    eval_root = Path(output_root) / runner.name
+    (
+        response,
+        wrote_artifact,
+        metrics,
+        validation_error,
+        validation_retry_count,
+    ) = _run_validation_feedback_retry(
+        runner=runner,
+        workspace=workspace,
+        prompt=prompt,
+        response=response,
+        wrote_artifact=wrote_artifact,
+        output_file=output_file,
+        eval_root=eval_root,
+        source_text=source_text,
+        target_file_name=relative_output.name,
+        include_tests=include_tests,
+        policy_path=policy_path,
+        runtime_axiom_rules_path=runtime_axiom_rules_path,
+    )
+    retry_count += validation_retry_count
 
     trace_file = (
         Path(output_root) / "traces" / runner.name / f"{_slugify(citation)}.json"
     )
     trace_file.parent.mkdir(parents=True, exist_ok=True)
     trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
-
-    metrics = None
-    if output_file.exists():
-        metrics = evaluate_artifact(
-            rulespec_file=output_file,
-            policy_repo_root=policy_path,
-            axiom_rules_path=runtime_axiom_rules_path,
-            source_text=source_text,
-        )
-    validation_error = _eval_artifact_validation_error(metrics)
 
     tokens = response.tokens
     result = EvalResult(
@@ -3208,28 +3453,37 @@ def _run_single_source_eval(
         include_tests=True,
         policyengine_rule_hint=policyengine_rule_hint,
     )
-    if wrote_artifact:
-        eval_root = Path(output_root) / runner.name
-        _hydrate_eval_root(eval_root, workspace)
+    eval_root = Path(output_root) / runner.name
+    (
+        response,
+        wrote_artifact,
+        metrics,
+        validation_error,
+        validation_retry_count,
+    ) = _run_validation_feedback_retry(
+        runner=runner,
+        workspace=workspace,
+        prompt=prompt,
+        response=response,
+        wrote_artifact=wrote_artifact,
+        output_file=output_file,
+        eval_root=eval_root,
+        source_text=source_text,
+        target_file_name=relative_output.name,
+        include_tests=True,
+        policy_path=policy_path,
+        runtime_axiom_rules_path=runtime_axiom_rules_path,
+        oracle=oracle,
+        policyengine_country=policyengine_country,
+        policyengine_rule_hint=policyengine_rule_hint,
+    )
+    retry_count += validation_retry_count
 
     trace_file = (
         Path(output_root) / "traces" / runner.name / f"{_slugify(source_id)}.json"
     )
     trace_file.parent.mkdir(parents=True, exist_ok=True)
     trace_file.write_text(json.dumps(response.trace or {}, indent=2, sort_keys=True))
-
-    metrics = None
-    if output_file.exists():
-        metrics = evaluate_artifact(
-            rulespec_file=output_file,
-            policy_repo_root=policy_path,
-            axiom_rules_path=runtime_axiom_rules_path,
-            source_text=source_text,
-            oracle=oracle,
-            policyengine_country=policyengine_country,
-            policyengine_rule_hint=policyengine_rule_hint,
-        )
-    validation_error = _eval_artifact_validation_error(metrics)
 
     tokens = response.tokens
     result = EvalResult(
