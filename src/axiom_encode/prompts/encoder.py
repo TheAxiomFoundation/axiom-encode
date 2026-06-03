@@ -45,6 +45,16 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
   definition is currently encoded at a filing-unit, tax-unit, household, or
   other unit boundary. Only add a unit-level roll-up when this source text
   itself states that aggregate.
+- Do not compose a new unit-scope Money/Decimal formula from an imported
+  output whose copied source summary or proof defines the base as a
+  lower-entity amount, such as net earnings "derived by an individual",
+  self-employment income "of every individual", wages paid to an employee, or
+  earned income of an individual. Treat that import as stale aggregate context:
+  use an available lower-entity import, expose a lower-entity boundary input
+  for the named legal base and compute the current amount at that lower entity,
+  or defer the current executable output if the required lower-entity shape and
+  relation cannot be represented. Do not build a TaxUnit/Household formula on
+  top of the stale aggregate import.
 - If the only unavailable dependency for that lower-entity rate-applied result
   is the value of a named legal base, keep the result executable by exposing a
   local boundary input for that base instead of deferring the tax, credit,
@@ -304,6 +314,11 @@ Hard requirements:
   the canonical home for the scalar. Import the exact child export and use it
   in the current formula; do not emit a duplicate local `parameter` with the
   same value or name in the parent/composition file.
+- When encoding a child fragment or subparagraph, also check copied parent and
+  sibling context for exported helper, parameter, and amount names. Do not emit
+  a local rule with the same name as a copied parent or sibling export. Import
+  and use that export if it is the same legal concept, or choose a
+  source-specific name for the new child concept if the legal meaning differs.
 - Before using any imported output in arithmetic, check the copied context
   export's `dtype:`. An imported `dtype: Judgment` is a predicate, not a scalar
   amount, rate, or base. Never multiply, add, subtract, divide, `min`, or `max`
@@ -571,6 +586,13 @@ Hard requirements:
   not import an unrelated output from that file as a stand-in; encode the proper
   upstream source slice first, split the unresolved branch, or emit a deferred
   status when the requested file cannot compute faithfully without it.
+- If the source says the current deduction, tax, rate, or amount applies "in
+  lieu of" another section's amount, or parenthetically says another section is
+  "relating to" that displaced amount, do not import the displaced section
+  unless the current formula actually uses an exported value from it. The
+  replacement formula must be based on the current source's stated base, rate,
+  and conditions; a top-level import used only to acknowledge the displaced
+  section is an unused/proof-only import and is invalid.
 - When the requested source imposes a rate, tax, deduction, credit, cap, or
   threshold on a legal term that is defined by an available upstream RuleSpec
   file, import that upstream definition and use it in the formula. Do not leave

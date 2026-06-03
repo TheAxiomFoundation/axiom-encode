@@ -93,6 +93,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Importing an adjacent upstream output only as proof" in ENCODER_PROMPT
     assert "does not satisfy the dependency" in ENCODER_PROMPT
     assert "is not an executable dependency" in ENCODER_PROMPT
+    assert "same name as a copied parent or sibling export" in ENCODER_PROMPT
+    assert "unused/proof-only import" in ENCODER_PROMPT
     assert "directly or transitively" in ENCODER_PROMPT
     assert "numeric boundary input" in ENCODER_PROMPT
     assert "rate-bearing source" in ENCODER_PROMPT
@@ -139,6 +141,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
         "Existing target or repository-precedent files are not entity-scope authority"
     ) in ENCODER_PROMPT
     assert "treat the copied aggregate shape as a defect to repair" in ENCODER_PROMPT
+    assert "Treat that import as stale aggregate context" in ENCODER_PROMPT
+    assert "Do not build a TaxUnit/Household formula" in ENCODER_PROMPT
     assert "earned income of an individual shall be\n  computed" in ENCODER_PROMPT
     assert "replaced by one aggregated boundary input" in ENCODER_PROMPT
     assert "current\n  requested source changes the basis" in ENCODER_PROMPT
@@ -202,6 +206,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "Importing an adjacent upstream output only as proof" in prompt
     assert "does not satisfy the dependency" in prompt
     assert "is not an executable dependency" in prompt
+    assert "same name as a copied parent or sibling export" in prompt
+    assert "unused/proof-only import" in prompt
     assert "Do not treat a missing\n  deferred child branch as zero" in prompt
     assert "purpose-limited replacement rate" in prompt
     assert "computed at" in prompt
@@ -214,6 +220,8 @@ def test_generic_encoder_prompt_includes_statutory_base_naming_guidance():
     assert "toggle each gate at least once" in prompt
     assert "rate-applied result at the source-stated lower entity" in prompt
     assert "unit-level placeholder or aggregate base by the rate" in prompt
+    assert "Treat that import as stale aggregate context" in prompt
+    assert "Do not build a TaxUnit/Household formula" in prompt
     assert "Never drop the jurisdiction prefix" in prompt
     assert "listed under invalid copied local inputs" in prompt
     assert "do not preserve, rename, or recreate" in prompt
