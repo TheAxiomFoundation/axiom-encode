@@ -8677,3 +8677,60 @@ rules:
     assert candidate["category"] == "known_adjacent_target"
     assert candidate["priority"] == "P4"
     assert candidate["policyengine_variable"] == "snap_individual_utility_allowance"
+
+
+def test_universal_credit_parameter_alias_counts_branch_output_test(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/36.yaml",
+        """format: rulespec/v1
+rules:
+  - name: standard_allowance_single_under_25_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-04-01'
+        value: 338.58
+""",
+    )
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/36.test.yaml",
+        """- name: branch_selected_standard_allowance
+  period: 2026-04
+  output:
+    uk:regulations/uksi/2013/376/36#standard_allowance_amount: 338.58
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount"
+    )
+    assert item["status"] == "comparable"
+    assert item["tested"] is True
+    assert item["test_output_count"] == 1
+
+
+def test_universal_credit_source_helper_prefix_is_classified(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-uk" / "statutes/ukpga/2012/5/2.yaml",
+        """format: rulespec/v1
+rules:
+  - name: universal_credit_claim_may_be_made
+    kind: derived
+    versions:
+      - effective_from: '2026-04-01'
+        formula: claim_submitted
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path)
+
+    item = report["items"][0]
+    assert item["legal_id"] == (
+        "uk:statutes/ukpga/2012/5/2#universal_credit_claim_may_be_made"
+    )
+    assert item["program"] == "universal_credit"
+    assert item["status"] == "known_not_comparable"
+    assert item["mapping_type"] == "not_comparable"
