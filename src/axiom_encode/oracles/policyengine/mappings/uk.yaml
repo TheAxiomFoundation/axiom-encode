@@ -524,6 +524,17 @@ mappings:
     mapping_type: not_comparable
     rationale: Source-law entitlement predicate under State Pension Credit Act section 3(2). PolicyEngine UK has an eligibility variable, but it combines age and income conditions and is not a one-to-one match for this second condition.
 
+  - legal_id: uk:statutes/ukpga/2012/5/8#universal_credit_award_amount
+    country: uk
+    program: universal_credit
+    mapping_type: derived_expression
+    expression: max(uc_maximum_amount - uc_income_reduction, 0)
+    entity: benunit
+    period: month
+    unit: GBP
+    comparison: money
+    rationale: Welfare Reform Act 2012 section 8 computes the award as the positive difference between the maximum amount and prescribed income deductions. PolicyEngine UK's universal_credit_pre_benefit_cap also applies the stochastic would_claim_uc take-up gate, so the EFRS oracle compares the equivalent pre-take-up expression from uc_maximum_amount and uc_income_reduction.
+
   - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount
     country: uk
     program: universal_credit
