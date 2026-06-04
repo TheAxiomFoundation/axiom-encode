@@ -272,13 +272,13 @@ mappings:
   - legal_id: uk:statutes/ukpga/2002/16/1#claimant_has_attained_qualifying_age
     country: uk
     program: pension_credit
-    mapping_type: not_comparable
+    mapping_type: direct_variable
     policyengine_variable: is_SP_age
     entity: person
     period: day
     comparison: boolean
     candidate_priority: P3
-    rationale: State Pension Credit Act section 1 tests whether the claimant has attained the statutory qualifying age at day granularity. PolicyEngine UK exposes the nearby is_SP_age predicate annually and rolls Pension Credit eligibility up to benefit-unit entitlement conditions, so this needs a period/entity adapter before direct oracle comparison.
+    rationale: State Pension Credit Act section 1 tests whether the claimant has attained the statutory qualifying age at day granularity. The UK EFRS oracle compares RuleSpec's judgment output to PolicyEngine UK's annual is_SP_age predicate after supplying the same age and state_pension_age projection used for qualifying_age.
 
   - legal_id: uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount
     country: uk

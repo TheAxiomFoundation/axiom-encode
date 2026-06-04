@@ -728,6 +728,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     ) == (
         "age",
         "gender",
+        "is_SP_age",
         "state_pension_age",
     )
     assert policyengine_benunit_variables_for_surfaces(

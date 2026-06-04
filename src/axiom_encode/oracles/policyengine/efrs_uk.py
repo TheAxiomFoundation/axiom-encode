@@ -124,6 +124,13 @@ STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS = {
         "axiom": f"{STATE_PENSION_CREDIT_SECTION_1_BASE}#qualifying_age",
         "pe": "state_pension_age",
     },
+    "claimant_has_attained_qualifying_age": {
+        "axiom": (
+            f"{STATE_PENSION_CREDIT_SECTION_1_BASE}"
+            "#claimant_has_attained_qualifying_age"
+        ),
+        "pe": "is_SP_age",
+    },
 }
 
 PENSION_CREDIT_OUTPUTS = {
@@ -313,6 +320,7 @@ SURFACE_SPECS = {
         pe_variables=(
             "age",
             "gender",
+            "is_SP_age",
             "state_pension_age",
         ),
     ),
@@ -2361,9 +2369,11 @@ def compare_outputs(
             "State Pension Credit Act section 1 qualifying-age comparison "
             "queries RuleSpec's day-level qualifying_age on a representative "
             "day and supplies PolicyEngine's annual state_pension_age for both "
-            "the pensionable-age leaf and the woman-born-same-day leaf. Current "
-            "PolicyEngine UK EFRS data exposes the modern equalized-age surface "
-            "rather than historical sex-specific age transitions.",
+            "the pensionable-age leaf and the woman-born-same-day leaf. The "
+            "same projection compares the attained-age judgment against "
+            "PolicyEngine's is_SP_age boolean. Current PolicyEngine UK EFRS "
+            "data exposes the modern equalized-age surface rather than "
+            "historical sex-specific age transitions.",
             "Universal Credit Regulation 36 comparisons treat the generated "
             "RuleSpec outputs as component table amounts. PolicyEngine annual "
             "EFRS component outputs are divided by 12, and EFRS category "
