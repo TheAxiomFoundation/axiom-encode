@@ -19231,6 +19231,76 @@ rules:
     ]
 
 
+def test_embedded_formula_numeric_guard_allows_imported_parameter_scalar_equality(
+    tmp_path,
+):
+    imported_file = (
+        tmp_path / "policies/dhhs/fns/fns-227-non-citizen-requirements/page-1.yaml"
+    )
+    imported_file.parent.mkdir(parents=True)
+    imported_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: lpr_waiting_period_years
+    kind: parameter
+    dtype: Count
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us-nc/manual/dhhs/fns/fns-227-non-citizen-requirements/page-1
+              excerpt: "Subject to 5-year waiting period unless exempt"
+    versions:
+      - effective_from: '2026-02-01'
+        formula: |-
+          5
+""",
+    )
+    rules_file = (
+        tmp_path / "policies/dhhs/fns/fns-227-non-citizen-requirements/page-12.yaml"
+    )
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: lpr_adjusted_status_subject_to_five_year_waiting_period_due_to_prior_status
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-nc/manual/dhhs/fns/fns-227-non-citizen-requirements/page-12
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-nc:policies/dhhs/fns/fns-227-non-citizen-requirements/page-1#lpr_waiting_period_years
+              output: lpr_waiting_period_years
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-02-01'
+        formula: |-
+          adjusted_status_to_lpr
+          and not otherwise_exempt_from_lpr_five_year_waiting_period
+          and lpr_waiting_period_years == 5
+imports:
+  - us-nc:policies/dhhs/fns/fns-227-non-citizen-requirements/page-1#lpr_waiting_period_years
+""",
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_embedded_scalar_literals(rules_file) == []
+
+
 def test_embedded_formula_numeric_guard_allows_map_arm_keys(tmp_path):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
