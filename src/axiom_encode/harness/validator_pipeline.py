@@ -853,7 +853,7 @@ _MONTH_DAY_OF_MONTH_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|\d{1,2}(?:\.\d+)?)\)"
+    r"(?<![A-Za-z0-9])\((?:[A-Za-z]|[ivxlcdmIVXLCDM]+|0|[1-9]\d?(?:\.\d+)?)\)"
 )
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
@@ -2727,6 +2727,8 @@ def _span_overlaps(
 
 def _clean_source_text_for_numeric_extraction(text: str) -> str:
     """Strip structural source scaffolding before numeric extraction."""
+    text = re.sub(r"\\r\\n|\\n|\\r", "\n", text)
+    text = text.replace(r"\t", "\t")
     cleaned_lines: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
