@@ -37,6 +37,8 @@ WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
 POLICYENGINE_UK_VERSION = "2.88.20"
 
+NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
+NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
 PERSONAL_ALLOWANCE_PROGRAM_PATH = Path("statutes/ukpga/2007/3/35.yaml")
 PERSONAL_ALLOWANCE_BASE = "uk:statutes/ukpga/2007/3/35"
 INCOME_TAX_SECTION_23_PROGRAM_PATH = Path("statutes/ukpga/2007/3/23.yaml")
@@ -52,6 +54,14 @@ PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
         "axiom": f"{PERSONAL_ALLOWANCE_BASE}#personal_allowance",
         "pe": "personal_allowance",
+    },
+}
+
+NATIONAL_INSURANCE_CLASS_1_OUTPUTS = {
+    "primary_class_1_contribution": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#primary_class_1_contribution",
+        "pe": "ni_class_1_employee",
+        "pe_transform": "annual_to_weekly",
     },
 }
 
@@ -218,6 +228,16 @@ class UKEFRSSurfaceSpec:
 
 
 SURFACE_SPECS = {
+    "national-insurance-class-1": UKEFRSSurfaceSpec(
+        program=NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH,
+        entity="person",
+        outputs=NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
+        pe_variables=(
+            "ni_class_1_employee",
+            "ni_class_1_income",
+            "ni_liable",
+        ),
+    ),
     "personal-allowance": UKEFRSSurfaceSpec(
         program=PERSONAL_ALLOWANCE_PROGRAM_PATH,
         entity="person",
@@ -1666,6 +1686,8 @@ def build_axiom_request(
     year: int,
     surface: str = "personal-allowance",
 ) -> dict[str, Any]:
+    if surface == "national-insurance-class-1":
+        return build_national_insurance_class_1_request(pe_data=pe_data, year=year)
     if surface == "personal-allowance":
         return build_personal_allowance_request(pe_data=pe_data, year=year)
     if surface == "income-tax-income-base":
@@ -1681,6 +1703,59 @@ def build_axiom_request(
             surface=surface,
         )
     raise ValueError(f"unsupported UK EFRS surface: {surface}")
+
+
+def build_national_insurance_class_1_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_week_interval(year)
+    parameters = policyengine_uk_class_1_weekly_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "national-insurance-class-1"):
+        entity_id = person_entity_id(int(row_value(row, "person_id")))
+        projected = {
+            "primary_class_1_contribution_payable_as_mentioned_in_section_6_1_a": bool(
+                row_value(row, "ni_liable", True)
+            ),
+            "regulations_under_section_6_6_do_not_displace_calculation": True,
+            "regulations_under_sections_116_to_120_do_not_displace_calculation": True,
+            "earnings_paid_in_tax_week_in_respect_of_employment": money(
+                row_value(row, "ni_class_1_income", 0)
+            )
+            / WEEKS_IN_YEAR,
+            "current_primary_threshold_or_prescribed_equivalent": parameters[
+                "primary_threshold"
+            ],
+            "current_upper_earnings_limit_or_prescribed_equivalent": parameters[
+                "upper_earnings_limit"
+            ],
+        }
+        for name, value in projected.items():
+            inputs.append(
+                input_record(
+                    f"{NATIONAL_INSURANCE_SECTION_8_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in NATIONAL_INSURANCE_CLASS_1_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
 
 
 def build_personal_allowance_request(
@@ -2058,6 +2133,11 @@ def compare_outputs(
             "meeting the Section 56 residence/citizenship-condition boundary "
             "facts, matching the usual PolicyEngine UK EFRS personal allowance "
             "surface until those upstream legal predicates are encoded.",
+            "National Insurance Class 1 comparison projects annual PolicyEngine "
+            "NI Class 1 income into a representative tax week, supplies the "
+            "PolicyEngine weekly primary threshold and upper earnings limit, "
+            "and compares RuleSpec's weekly section 8 output against "
+            "PolicyEngine's annual ni_class_1_employee divided by 52.",
             "Child Benefit comparison filters to positive PolicyEngine "
             "child_benefit_respective_amount rows, divides that annualized "
             "PolicyEngine output by 52 to compare against the RuleSpec weekly "
@@ -2388,6 +2468,15 @@ def benefit_week_interval(year: int) -> dict[str, str]:
     }
 
 
+def tax_week_interval(year: int) -> dict[str, str]:
+    return {
+        "period_kind": "custom",
+        "name": "tax_week",
+        "start": f"{year:04d}-04-06",
+        "end": f"{year:04d}-04-12",
+    }
+
+
 def benefit_month_interval(year: int) -> dict[str, str]:
     return {
         "period_kind": "month",
@@ -2443,6 +2532,24 @@ def require_policyengine_uk_versions(command: str = "uk-efrs-compare") -> None:
             f"policyengine-uk=={POLICYENGINE_UK_VERSION} required; found "
             f"{policyengine_uk_version}. {policyengine_uk_install_message(command)}"
         )
+
+
+def policyengine_uk_class_1_weekly_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    class_1 = (
+        CountryTaxBenefitSystem()
+        .parameters(f"{year:04d}-04-06")
+        .gov.hmrc.national_insurance.class_1
+    )
+    return {
+        "primary_threshold": money(class_1.thresholds.primary_threshold),
+        "upper_earnings_limit": money(class_1.thresholds.upper_earnings_limit),
+    }
 
 
 def policyengine_uk_install_message(command: str = "uk-efrs-compare") -> str:

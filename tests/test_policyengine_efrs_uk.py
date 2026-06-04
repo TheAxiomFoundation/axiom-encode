@@ -11,6 +11,8 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     INCOME_TAX_INCOME_BASE_COMPONENTS,
     INCOME_TAX_INCOME_BASE_OUTPUTS,
     INCOME_TAX_SECTION_23_BASE,
+    NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
+    NATIONAL_INSURANCE_SECTION_8_BASE,
     PENSION_CREDIT_BASE,
     PENSION_CREDIT_OUTPUTS,
     PERSONAL_ALLOWANCE_BASE,
@@ -21,6 +23,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     WEEKS_IN_YEAR,
     build_child_benefit_request,
     build_income_tax_income_base_request,
+    build_national_insurance_class_1_request,
     build_pension_credit_request,
     build_personal_allowance_request,
     build_uk_efrs_coverage_report,
@@ -40,6 +43,64 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
 
 def decimal_output(value):
     return {"value": {"value": str(value)}}
+
+
+def test_national_insurance_class_1_request_projects_weekly_inputs(monkeypatch):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_class_1_weekly_parameters",
+        lambda year: {
+            "primary_threshold": 241.73,
+            "upper_earnings_limit": 966.73,
+        },
+    )
+
+    request = build_national_insurance_class_1_request(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "ni_class_1_income": 52_000,
+                    "ni_class_1_employee": 3_356.12,
+                    "ni_liable": True,
+                }
+            ],
+            "person_ids": [7],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "person_7",
+            "period": {
+                "period_kind": "custom",
+                "name": "tax_week",
+                "start": "2026-04-06",
+                "end": "2026-04-12",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in NATIONAL_INSURANCE_CLASS_1_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs = {
+        record["name"] + ":" + record["entity_id"]: record["value"]
+        for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_8_BASE}#input.primary_class_1_contribution_payable_as_mentioned_in_section_6_1_a:person_7"
+    ] == {"kind": "bool", "value": True}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_8_BASE}#input.earnings_paid_in_tax_week_in_respect_of_employment:person_7"
+    ] == {"kind": "decimal", "value": "1000.0"}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_8_BASE}#input.current_primary_threshold_or_prescribed_equivalent:person_7"
+    ] == {"kind": "decimal", "value": "241.73"}
+    assert inputs[
+        f"{NATIONAL_INSURANCE_SECTION_8_BASE}#input.current_upper_earnings_limit_or_prescribed_equivalent:person_7"
+    ] == {"kind": "decimal", "value": "966.73"}
 
 
 class FakePolicyEngineVariable:
@@ -533,6 +594,13 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
                 "total_income",
             )
         ),
+    )
+    assert policyengine_person_variables_for_surfaces(
+        ["national-insurance-class-1"]
+    ) == (
+        "ni_class_1_employee",
+        "ni_class_1_income",
+        "ni_liable",
     )
     assert policyengine_benunit_variables_for_surfaces(
         ["personal-allowance", "pension-credit"]
