@@ -76,6 +76,11 @@ NATIONAL_INSURANCE_CLASS_1_OUTPUTS = {
         "pe": "ni_class_1_employee",
         "pe_transform": "annual_to_weekly",
     },
+    "employee_national_insurance": {
+        "axiom": f"{NATIONAL_INSURANCE_SECTION_8_BASE}#primary_class_1_contribution",
+        "pe": "ni_employee",
+        "pe_transform": "annual_to_weekly",
+    },
 }
 
 INCOME_TAX_INCOME_BASE_COMPONENTS = (
@@ -284,6 +289,7 @@ SURFACE_SPECS = {
             "ni_class_1_employee_additional",
             "ni_class_1_employee_primary",
             "ni_class_1_income",
+            "ni_employee",
             "ni_liable",
         ),
     ),
@@ -2371,6 +2377,9 @@ def compare_outputs(
             "PolicyEngine weekly primary threshold and upper earnings limit, "
             "compares RuleSpec's weekly section 8 aggregate output against "
             "PolicyEngine's annual ni_class_1_employee divided by 52, and "
+            "also compares the same aggregate against PolicyEngine's "
+            "ni_employee wrapper because PE-UK defines ni_employee as an "
+            "aggregate containing only ni_class_1_employee. It "
             "compares the main/additional component outputs on ni_liable rows "
             "because PolicyEngine's component formulas are not masked by that "
             "liability predicate.",
