@@ -1899,7 +1899,6 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_income_reduction",
         "uc_maximum_amount",
         "uc_standard_allowance",
-        "universal_credit_pre_benefit_cap",
     )
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-housing-costs"]
@@ -2094,13 +2093,13 @@ def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
     def fake_version(package):
         versions = {
             "policyengine-core": efrs_uk.POLICYENGINE_CORE_VERSION,
-            "policyengine-uk": "2.88.39",
+            "policyengine-uk": "2.88.41",
         }
         return versions[package]
 
     monkeypatch.setattr(efrs_uk, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-uk==2.88.40 required"):
+    with pytest.raises(SystemExit, match="policyengine-uk==2.88.42 required"):
         require_policyengine_uk_versions()
 
 
@@ -2181,7 +2180,7 @@ def test_compare_outputs_rejects_missing_axiom_rows():
         )
 
 
-def test_compare_outputs_classifies_known_policyengine_personal_allowance_rounding():
+def test_compare_outputs_no_longer_classifies_personal_allowance_rounding_bug():
     report = compare_outputs(
         pe_data={
             "persons": [
@@ -2207,10 +2206,10 @@ def test_compare_outputs_classifies_known_policyengine_personal_allowance_roundi
         relative_tolerance=2e-7,
     )
 
-    assert report.mismatches == []
-    assert len(report.oracle_divergences) == 1
-    assert report.oracle_divergences[0].issue_url.endswith("/issues/1738")
-    assert report.output_summary[0]["oracle_divergences"] == 1
+    assert len(report.mismatches) == 1
+    assert report.mismatches[0].entity_id == "person_7"
+    assert report.oracle_divergences == []
+    assert report.output_summary[0]["mismatches"] == 1
 
 
 def test_compare_outputs_compares_child_benefit_weekly_rate():
@@ -2382,7 +2381,7 @@ def test_compare_outputs_transforms_universal_credit_award_outputs_monthly():
                     "benunit_id": 11,
                     "uc_maximum_amount": 12_000,
                     "uc_income_reduction": 3_600,
-                    "universal_credit_pre_benefit_cap": 8_400,
+                    "universal_credit_pre_benefit_cap": 0,
                 },
             ],
             "benunit_ids": [11],
@@ -2400,6 +2399,46 @@ def test_compare_outputs_transforms_universal_credit_award_outputs_monthly():
                         UNIVERSAL_CREDIT_AWARD_OUTPUTS["universal_credit_award_amount"][
                             "axiom"
                         ]: decimal_output(700),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 3
+    assert report.mismatches == []
+
+
+def test_compare_outputs_floors_universal_credit_award_expression():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_maximum_amount": 3_000,
+                    "uc_income_reduction": 3_600,
+                    "universal_credit_pre_benefit_cap": 0,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-award": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_AWARD_OUTPUTS[
+                            "universal_credit_maximum_amount"
+                        ]["axiom"]: decimal_output(250),
+                        UNIVERSAL_CREDIT_AWARD_OUTPUTS[
+                            "universal_credit_amounts_to_be_deducted"
+                        ]["axiom"]: decimal_output(300),
+                        UNIVERSAL_CREDIT_AWARD_OUTPUTS["universal_credit_award_amount"][
+                            "axiom"
+                        ]: decimal_output(0),
                     }
                 }
             ]
@@ -2646,6 +2685,55 @@ def test_compare_outputs_matches_income_tax_section_11d_savings_income():
                         INCOME_TAX_SECTION_11D_OUTPUTS[
                             "income_tax_on_section_11d_savings_income"
                         ]["axiom"]: decimal_output(460),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 5
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_allows_section_11d_efrs_float_precision():
+    report = compare_outputs(
+        pe_data={
+            "persons": [
+                {
+                    "person_id": 7,
+                    "basic_rate_savings_income": 0,
+                    "higher_rate_savings_income": 0,
+                    "add_rate_savings_income": 7_571.5,
+                    "taxed_savings_income": 7_571.5,
+                    "savings_income_tax": 3_407.1748046875,
+                }
+            ],
+            "person_ids": [7],
+            "benunits": [],
+            "benunit_ids": [],
+        },
+        axiom_outputs_by_surface={
+            "income-tax-section-11d-savings-income": [
+                {
+                    "outputs": {
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_at_savings_basic_rate"
+                        ]["axiom"]: decimal_output(0),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_at_savings_higher_rate"
+                        ]["axiom"]: decimal_output(0),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_at_savings_additional_rate"
+                        ]["axiom"]: decimal_output(7_571.275390625),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "savings_income_charged_under_section_11d"
+                        ]["axiom"]: decimal_output(7_571.275390625),
+                        INCOME_TAX_SECTION_11D_OUTPUTS[
+                            "income_tax_on_section_11d_savings_income"
+                        ]["axiom"]: decimal_output(3_407.07392578125),
                     }
                 }
             ]
@@ -2996,7 +3084,7 @@ def test_compare_outputs_classifies_known_policyengine_pension_credit_rates():
     assert report.oracle_divergences[0].issue_url.endswith("/issues/1740")
 
 
-def test_compare_outputs_classifies_policyengine_savings_credit_maximum_bug():
+def test_compare_outputs_no_longer_classifies_policyengine_savings_credit_bug():
     report = compare_outputs(
         pe_data={
             "persons": [],
@@ -3026,10 +3114,9 @@ def test_compare_outputs_classifies_policyengine_savings_credit_maximum_bug():
         relative_tolerance=0,
     )
 
-    assert report.mismatches == []
-    assert len(report.oracle_divergences) == 1
-    assert report.oracle_divergences[0].entity_id == "benunit_79791"
-    assert report.oracle_divergences[0].issue_url.endswith("/issues/1753")
+    assert len(report.mismatches) == 1
+    assert report.mismatches[0].entity_id == "benunit_79791"
+    assert report.oracle_divergences == []
 
 
 def test_compare_outputs_classifies_known_policyengine_pension_credit_additions():

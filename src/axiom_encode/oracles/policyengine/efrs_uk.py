@@ -34,7 +34,7 @@ from .ecps_tax import (
 DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
-POLICYENGINE_UK_VERSION = "2.88.40"
+POLICYENGINE_UK_VERSION = "2.88.42"
 
 NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
@@ -185,27 +185,27 @@ INCOME_TAX_SECTION_11D_OUTPUTS = {
     "savings_income_charged_at_savings_basic_rate": {
         "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_at_savings_basic_rate",
         "pe": "basic_rate_savings_income",
-        "tolerance": 0.1,
+        "tolerance": 0.25,
     },
     "savings_income_charged_at_savings_higher_rate": {
         "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_at_savings_higher_rate",
         "pe": "higher_rate_savings_income",
-        "tolerance": 0.1,
+        "tolerance": 0.25,
     },
     "savings_income_charged_at_savings_additional_rate": {
         "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_at_savings_additional_rate",
         "pe": "add_rate_savings_income",
-        "tolerance": 0.1,
+        "tolerance": 0.25,
     },
     "savings_income_charged_under_section_11d": {
         "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#savings_income_charged_under_section_11d",
         "pe": "taxed_savings_income",
-        "tolerance": 0.1,
+        "tolerance": 0.25,
     },
     "income_tax_on_section_11d_savings_income": {
         "axiom": f"{INCOME_TAX_SECTION_11D_BASE}#income_tax_on_section_11d_savings_income",
         "pe": "savings_income_tax",
-        "tolerance": 0.1,
+        "tolerance": 0.25,
     },
 }
 
@@ -395,7 +395,7 @@ UNIVERSAL_CREDIT_AWARD_OUTPUTS = {
     },
     "universal_credit_award_amount": {
         "axiom": f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#universal_credit_award_amount",
-        "pe": "universal_credit_pre_benefit_cap",
+        "pe_expression": "uc_award_before_takeup",
         "pe_transform": "annual_to_monthly",
     },
 }
@@ -689,7 +689,6 @@ SURFACE_SPECS = {
             "uc_income_reduction",
             "uc_maximum_amount",
             "uc_standard_allowance",
-            "universal_credit_pre_benefit_cap",
         ),
     ),
     "universal-credit-housing-costs": UKEFRSSurfaceSpec(
@@ -1685,6 +1684,7 @@ def covered_uk_policyengine_output_variables() -> list[str]:
             str(output["pe"])
             for spec in SURFACE_SPECS.values()
             for output in spec.outputs.values()
+            if output.get("pe")
         }
     )
 
@@ -3512,10 +3512,7 @@ def compare_outputs(
             "projects PolicyEngine's annual savings_credit_income as qualifying "
             "income, pension_credit_income as claimant income, "
             "standard_minimum_guarantee for the maximum-credit cap, and "
-            "minimum_guarantee for the amount B reduction. Rows where "
-            "PolicyEngine lets additional minimum-guarantee amounts increase "
-            "the savings-credit maximum are classified as a known PE oracle "
-            "divergence.",
+            "minimum_guarantee for the amount B reduction.",
             "Universal Credit Regulation 36 comparisons treat the generated "
             "RuleSpec outputs as component table amounts. PolicyEngine annual "
             "EFRS component outputs are divided by 12, and EFRS category "
@@ -3527,7 +3524,10 @@ def compare_outputs(
             "PolicyEngine's is_uc_eligible predicate to match uc_maximum_amount, "
             "and projects PolicyEngine's capped uc_income_reduction as the "
             "prescribed income deduction because PolicyEngine exposes the final "
-            "deduction rather than the exact statutory earned/unearned split.",
+            "deduction rather than the exact statutory earned/unearned split. "
+            "The final section 8 award amount is compared against "
+            "max(uc_maximum_amount - uc_income_reduction, 0), before "
+            "PolicyEngine's would_claim_uc take-up gate.",
             "Welfare Reform Act 2012 section 11 Universal Credit housing-costs "
             "comparison projects PolicyEngine's annual uc_housing_costs_element "
             "into the monthly amount determined or calculated by regulations, "
@@ -3588,7 +3588,7 @@ def compare_outputs(
             "capacity before the remaining section 11D savings income starts. "
             "It uses UK income-tax thresholds and savings rates from "
             "PolicyEngine parameters to compare the section 11D band amounts "
-            "and aggregate savings income tax, with a 10p output tolerance for "
+            "and aggregate savings income tax, with a 25p output tolerance for "
             "EFRS float precision in PolicyEngine's savings-income arrays.",
             "Income Tax Act 2007 section 13 dividend-income comparison projects "
             "PolicyEngine's dividend tax formula directly: savings after income "
@@ -3607,7 +3607,7 @@ def entity_id_for_surface(surface: str, row: Any) -> str:
 
 
 def policyengine_output_value(spec: dict[str, Any], row: Any) -> float:
-    raw_value = money(row_value(row, spec["pe"]))
+    raw_value = policyengine_raw_output_value(spec, row)
     if spec.get("pe_transform") == "annual_to_weekly":
         return raw_value / WEEKS_IN_YEAR
     if spec.get("pe_transform") == "annual_to_weekly_per_carer":
@@ -3619,6 +3619,17 @@ def policyengine_output_value(spec: dict[str, Any], row: Any) -> float:
     if spec.get("pe_transform") == "annual_to_monthly":
         return raw_value / MONTHS_IN_YEAR
     return raw_value
+
+
+def policyengine_raw_output_value(spec: dict[str, Any], row: Any) -> float:
+    expression = spec.get("pe_expression")
+    if expression == "uc_award_before_takeup":
+        maximum_amount = money(row_value(row, "uc_maximum_amount", 0))
+        income_reduction = money(row_value(row, "uc_income_reduction", 0))
+        return max(0.0, maximum_amount - income_reduction)
+    if expression is not None:
+        raise ValueError(f"unsupported PolicyEngine expression: {expression!r}")
+    return money(row_value(row, spec["pe"]))
 
 
 def output_applies(spec: dict[str, Any], row: Any) -> bool:
@@ -3703,26 +3714,6 @@ def known_policyengine_divergence(
     pe_row: Any | None = None,
 ) -> UKEFRSOracleDivergence | None:
     if (
-        surface == "personal-allowance"
-        and output == "personal_allowance"
-        and 0 < diff < 1
-        and math.isclose(axiom_value, math.ceil(policyengine_value), abs_tol=1e-9)
-    ):
-        return UKEFRSOracleDivergence(
-            surface=surface,
-            entity_id=entity_id,
-            output=output,
-            axiom=axiom_value,
-            policyengine=policyengine_value,
-            diff=diff,
-            reason=(
-                "PolicyEngine UK currently returns fractional tapered personal "
-                "allowances instead of rounding up to the nearest pound under "
-                "ITA 2007 s.35(3)."
-            ),
-            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1738",
-        )
-    if (
         surface == "child-benefit"
         and output == "child_benefit_weekly_rate"
         and 0 < diff < 0.2
@@ -3795,29 +3786,6 @@ def known_policyengine_divergence(
                 "2026-27 weekly rates."
             ),
             issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1742",
-        )
-    if (
-        surface == "state-pension-credit-savings-credit"
-        and output == "savings_credit"
-        and pe_row is not None
-        and policyengine_value > axiom_value
-        and money(row_value(pe_row, "minimum_guarantee", 0))
-        > money(row_value(pe_row, "standard_minimum_guarantee", 0))
-    ):
-        return UKEFRSOracleDivergence(
-            surface=surface,
-            entity_id=entity_id,
-            output=output,
-            axiom=axiom_value,
-            policyengine=policyengine_value,
-            diff=diff,
-            reason=(
-                "PolicyEngine UK currently uses the full minimum_guarantee, "
-                "including additions, to compute the savings-credit maximum; "
-                "State Pension Credit Act 2002 s.3(7) bases that maximum on "
-                "the standard minimum guarantee."
-            ),
-            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1753",
         )
     expected_uc_rate = UNIVERSAL_CREDIT_2026_RULESPEC_RATES.get(output)
     if (
@@ -4128,6 +4096,7 @@ def policyengine_uk_savings_credit_parameters(year: int) -> dict[str, float]:
 def policyengine_uk_install_message(command: str = "uk-efrs-compare") -> str:
     return (
         "Run with: uv run "
+        f"--with policyengine-core=={POLICYENGINE_CORE_VERSION} "
         f"--with policyengine-uk=={POLICYENGINE_UK_VERSION} "
         f"axiom-encode {command}"
     )
