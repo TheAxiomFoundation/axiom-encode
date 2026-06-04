@@ -54,6 +54,8 @@ BENEFIT_CAP_REGULATION_80A_PROGRAM_PATH = Path("regulations/uksi/2013/376/80A.ya
 BENEFIT_CAP_REGULATION_80A_BASE = "uk:regulations/uksi/2013/376/80A"
 STATE_PENSION_CREDIT_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/2002/16/1.yaml")
 STATE_PENSION_CREDIT_SECTION_1_BASE = "uk:statutes/ukpga/2002/16/1"
+STATE_PENSION_CREDIT_SECTION_3_PROGRAM_PATH = Path("statutes/ukpga/2002/16/3.yaml")
+STATE_PENSION_CREDIT_SECTION_3_BASE = "uk:statutes/ukpga/2002/16/3"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
@@ -247,6 +249,14 @@ STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS = {
             "#claimant_has_attained_qualifying_age"
         ),
         "pe": "is_SP_age",
+    },
+}
+
+STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS = {
+    "savings_credit": {
+        "axiom": f"{STATE_PENSION_CREDIT_SECTION_3_BASE}#savings_credit",
+        "pe": "savings_credit",
+        "tolerance": 0.1,
     },
 }
 
@@ -585,6 +595,20 @@ SURFACE_SPECS = {
             "gender",
             "is_SP_age",
             "state_pension_age",
+        ),
+    ),
+    "state-pension-credit-savings-credit": UKEFRSSurfaceSpec(
+        program=STATE_PENSION_CREDIT_SECTION_3_PROGRAM_PATH,
+        entity="benunit",
+        outputs=STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS,
+        pe_variables=(
+            "is_savings_credit_eligible",
+            "minimum_guarantee",
+            "pension_credit_income",
+            "relation_type",
+            "savings_credit",
+            "savings_credit_income",
+            "standard_minimum_guarantee",
         ),
     ),
     "pension-credit": UKEFRSSurfaceSpec(
@@ -2176,6 +2200,11 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "state-pension-credit-savings-credit":
+        return build_state_pension_credit_savings_credit_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
     if surface == "universal-credit-childcare-element":
@@ -2605,6 +2634,45 @@ def build_pension_credit_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in PENSION_CREDIT_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_state_pension_credit_savings_credit_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    parameters = policyengine_uk_savings_credit_parameters(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "state-pension-credit-savings-credit"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_state_pension_credit_savings_credit_inputs(
+            row,
+            parameters=parameters,
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{STATE_PENSION_CREDIT_SECTION_3_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS.values()
+                ],
             }
         )
 
@@ -3219,6 +3287,33 @@ def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_state_pension_credit_savings_credit_inputs(
+    row: Any,
+    *,
+    parameters: dict[str, float],
+) -> dict[str, Any]:
+    relation_type = enum_name(row_value(row, "relation_type", "SINGLE")).upper()
+    threshold_key = "COUPLE" if relation_type == "COUPLE" else "SINGLE"
+    return {
+        "claimant_satisfies_savings_credit_first_condition": bool(
+            row_value(row, "is_savings_credit_eligible", False)
+        ),
+        "claimant_qualifying_income": money(row_value(row, "savings_credit_income", 0)),
+        "claimant_income": money(row_value(row, "pension_credit_income", 0)),
+        "savings_credit_threshold": parameters[
+            f"savings_credit_threshold_{threshold_key.lower()}"
+        ],
+        "prescribed_percentage_for_amount_a": parameters["phase_in_rate"],
+        "prescribed_percentage_for_amount_b": parameters["phase_out_rate"],
+        "prescribed_percentage_for_maximum_savings_credit": parameters["phase_in_rate"],
+        "standard_minimum_guarantee": money(
+            row_value(row, "standard_minimum_guarantee", 0)
+        ),
+        "appropriate_minimum_guarantee": money(row_value(row, "minimum_guarantee", 0)),
+        "maximum_savings_credit_taken_as_nil_by_regulations": False,
+    }
+
+
 def rows_for_surface(pe_data: dict[str, Any], surface: str) -> list[dict[str, Any]]:
     persons = pe_data["persons"]
     if surface == "child-benefit":
@@ -3334,6 +3429,7 @@ def compare_outputs(
                         axiom_value=axiom_value,
                         policyengine_value=pe_value,
                         diff=diff,
+                        pe_row=pe_row,
                     )
                     if divergence is not None:
                         summary[summary_key]["oracle_divergences"] += 1
@@ -3412,6 +3508,14 @@ def compare_outputs(
             "PolicyEngine's is_SP_age boolean. Current PolicyEngine UK EFRS "
             "data exposes the modern equalized-age surface rather than "
             "historical sex-specific age transitions.",
+            "State Pension Credit Act section 3 savings-credit comparison "
+            "projects PolicyEngine's annual savings_credit_income as qualifying "
+            "income, pension_credit_income as claimant income, "
+            "standard_minimum_guarantee for the maximum-credit cap, and "
+            "minimum_guarantee for the amount B reduction. Rows where "
+            "PolicyEngine lets additional minimum-guarantee amounts increase "
+            "the savings-credit maximum are classified as a known PE oracle "
+            "divergence.",
             "Universal Credit Regulation 36 comparisons treat the generated "
             "RuleSpec outputs as component table amounts. PolicyEngine annual "
             "EFRS component outputs are divided by 12, and EFRS category "
@@ -3596,6 +3700,7 @@ def known_policyengine_divergence(
     axiom_value: float,
     policyengine_value: float,
     diff: float,
+    pe_row: Any | None = None,
 ) -> UKEFRSOracleDivergence | None:
     if (
         surface == "personal-allowance"
@@ -3690,6 +3795,29 @@ def known_policyengine_divergence(
                 "2026-27 weekly rates."
             ),
             issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1742",
+        )
+    if (
+        surface == "state-pension-credit-savings-credit"
+        and output == "savings_credit"
+        and pe_row is not None
+        and policyengine_value > axiom_value
+        and money(row_value(pe_row, "minimum_guarantee", 0))
+        > money(row_value(pe_row, "standard_minimum_guarantee", 0))
+    ):
+        return UKEFRSOracleDivergence(
+            surface=surface,
+            entity_id=entity_id,
+            output=output,
+            axiom=axiom_value,
+            policyengine=policyengine_value,
+            diff=diff,
+            reason=(
+                "PolicyEngine UK currently uses the full minimum_guarantee, "
+                "including additions, to compute the savings-credit maximum; "
+                "State Pension Credit Act 2002 s.3(7) bases that maximum on "
+                "the standard minimum guarantee."
+            ),
+            issue_url="https://github.com/PolicyEngine/policyengine-uk/issues/1753",
         )
     expected_uc_rate = UNIVERSAL_CREDIT_2026_RULESPEC_RATES.get(output)
     if (
@@ -3972,6 +4100,28 @@ def policyengine_uk_income_tax_section_13_parameters(year: int) -> dict[str, flo
         "dividend_ordinary_rate": money(income_tax_rates.dividends.rates[0]),
         "dividend_upper_rate": money(income_tax_rates.dividends.rates[1]),
         "dividend_additional_rate": money(income_tax_rates.dividends.rates[2]),
+    }
+
+
+def policyengine_uk_savings_credit_parameters(year: int) -> dict[str, float]:
+    require_policyengine_uk_versions()
+    try:
+        from policyengine_uk import CountryTaxBenefitSystem
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency
+        raise SystemExit(policyengine_uk_install_message()) from exc
+
+    savings_credit = (
+        CountryTaxBenefitSystem()
+        .parameters(f"{year:04d}-04-06")
+        .gov.dwp.pension_credit.savings_credit
+    )
+    return {
+        "savings_credit_threshold_single": money(savings_credit.threshold.SINGLE)
+        * WEEKS_IN_YEAR,
+        "savings_credit_threshold_couple": money(savings_credit.threshold.COUPLE)
+        * WEEKS_IN_YEAR,
+        "phase_in_rate": money(savings_credit.rate.phase_in),
+        "phase_out_rate": money(savings_credit.rate.phase_out),
     }
 
 

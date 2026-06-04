@@ -30,7 +30,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
     STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
+    STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS,
     STATE_PENSION_CREDIT_SECTION_1_BASE,
+    STATE_PENSION_CREDIT_SECTION_3_BASE,
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
@@ -56,6 +58,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_pension_credit_request,
     build_personal_allowance_request,
     build_state_pension_credit_qualifying_age_request,
+    build_state_pension_credit_savings_credit_request,
     build_uk_efrs_coverage_report,
     build_universal_credit_award_request,
     build_universal_credit_childcare_element_request,
@@ -79,6 +82,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
     project_state_pension_credit_qualifying_age_inputs,
+    project_state_pension_credit_savings_credit_inputs,
     project_universal_credit_award_inputs,
     project_universal_credit_childcare_element_inputs,
     project_universal_credit_housing_costs_inputs,
@@ -1003,6 +1007,96 @@ def test_pension_credit_request_projects_benefit_units():
     }
 
 
+def test_state_pension_credit_savings_credit_projection_uses_section_3_inputs():
+    projected = project_state_pension_credit_savings_credit_inputs(
+        {
+            "relation_type": "RelationType.COUPLE",
+            "is_savings_credit_eligible": True,
+            "savings_credit_income": 18_000,
+            "pension_credit_income": 18_600,
+            "standard_minimum_guarantee": 363.25 * WEEKS_IN_YEAR,
+            "minimum_guarantee": 410.50 * WEEKS_IN_YEAR,
+        },
+        parameters={
+            "savings_credit_threshold_single": 208.07 * WEEKS_IN_YEAR,
+            "savings_credit_threshold_couple": 329.75 * WEEKS_IN_YEAR,
+            "phase_in_rate": 0.6,
+            "phase_out_rate": 0.4,
+        },
+    )
+
+    assert projected == {
+        "claimant_satisfies_savings_credit_first_condition": True,
+        "claimant_qualifying_income": 18_000,
+        "claimant_income": 18_600,
+        "savings_credit_threshold": 329.75 * WEEKS_IN_YEAR,
+        "prescribed_percentage_for_amount_a": 0.6,
+        "prescribed_percentage_for_amount_b": 0.4,
+        "prescribed_percentage_for_maximum_savings_credit": 0.6,
+        "standard_minimum_guarantee": 363.25 * WEEKS_IN_YEAR,
+        "appropriate_minimum_guarantee": 410.50 * WEEKS_IN_YEAR,
+        "maximum_savings_credit_taken_as_nil_by_regulations": False,
+    }
+
+
+def test_state_pension_credit_savings_credit_request_projects_benefit_units(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        efrs_uk,
+        "policyengine_uk_savings_credit_parameters",
+        lambda year: {
+            "savings_credit_threshold_single": 208.07 * WEEKS_IN_YEAR,
+            "savings_credit_threshold_couple": 329.75 * WEEKS_IN_YEAR,
+            "phase_in_rate": 0.6,
+            "phase_out_rate": 0.4,
+        },
+    )
+
+    request = build_state_pension_credit_savings_credit_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 12,
+                    "benunit_weight": 1,
+                    "relation_type": "SINGLE",
+                    "is_savings_credit_eligible": True,
+                    "savings_credit": 12.5 * WEEKS_IN_YEAR,
+                    "savings_credit_income": 11_000,
+                    "pension_credit_income": 11_000,
+                    "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+                    "minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [12],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_12",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS.values()
+            ),
+        }
+    ]
+    assert {record["name"]: record["value"] for record in request["dataset"]["inputs"]}[
+        f"{STATE_PENSION_CREDIT_SECTION_3_BASE}#input.savings_credit_threshold"
+    ] == {
+        "kind": "decimal",
+        "value": str(208.07 * WEEKS_IN_YEAR),
+    }
+
+
 def test_universal_credit_request_queries_monthly_table_amounts():
     request = build_universal_credit_request(
         pe_data={
@@ -1755,6 +1849,17 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "num_carers",
         "relation_type",
         "severe_disability_minimum_guarantee_addition",
+        "standard_minimum_guarantee",
+    )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["state-pension-credit-savings-credit"]
+    ) == (
+        "is_savings_credit_eligible",
+        "minimum_guarantee",
+        "pension_credit_income",
+        "relation_type",
+        "savings_credit",
+        "savings_credit_income",
         "standard_minimum_guarantee",
     )
     assert policyengine_benunit_variables_for_surfaces(
@@ -2889,6 +2994,42 @@ def test_compare_outputs_classifies_known_policyengine_pension_credit_rates():
     assert len(report.oracle_divergences) == 1
     assert report.oracle_divergences[0].entity_id == "benunit_11"
     assert report.oracle_divergences[0].issue_url.endswith("/issues/1740")
+
+
+def test_compare_outputs_classifies_policyengine_savings_credit_maximum_bug():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 79791,
+                    "savings_credit": 4022.257080078125,
+                    "standard_minimum_guarantee": 18889.0,
+                    "minimum_guarantee": 27838.2,
+                }
+            ],
+            "benunit_ids": [79791],
+        },
+        axiom_outputs_by_surface={
+            "state-pension-credit-savings-credit": [
+                {
+                    "outputs": {
+                        f"{STATE_PENSION_CREDIT_SECTION_3_BASE}#savings_credit": decimal_output(
+                            1045.2
+                        )
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=0,
+    )
+
+    assert report.mismatches == []
+    assert len(report.oracle_divergences) == 1
+    assert report.oracle_divergences[0].entity_id == "benunit_79791"
+    assert report.oracle_divergences[0].issue_url.endswith("/issues/1753")
 
 
 def test_compare_outputs_classifies_known_policyengine_pension_credit_additions():
