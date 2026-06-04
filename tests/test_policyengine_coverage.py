@@ -906,7 +906,9 @@ def test_policyengine_coverage_classifies_uk_universal_credit_schedule_outputs(
     tmp_path,
 ):
     _write_rulespec_file(
-        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/schedule/4/paragraph/36.yaml",
+        tmp_path
+        / "rulespec-uk"
+        / "regulations/uksi/2013/376/schedule/4/paragraph/36.yaml",
         """format: rulespec/v1
 rules:
   - name: under_occupancy_deduction_amount
@@ -921,7 +923,9 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/schedule/10/paragraph/1.yaml",
+        tmp_path
+        / "rulespec-uk"
+        / "regulations/uksi/2013/376/schedule/10/paragraph/1.yaml",
         """format: rulespec/v1
 rules:
   - name: premises_treated_as_persons_home_for_paragraphs_1_to_5
@@ -935,7 +939,9 @@ rules:
 """,
     )
     _write_rulespec_file(
-        tmp_path / "rulespec-uk" / "regulations/uksi/2013/376/schedule/5/paragraph/9.yaml",
+        tmp_path
+        / "rulespec-uk"
+        / "regulations/uksi/2013/376/schedule/5/paragraph/9.yaml",
         """format: rulespec/v1
 rules:
   - name: owner_occupier_housing_costs_element_amount
