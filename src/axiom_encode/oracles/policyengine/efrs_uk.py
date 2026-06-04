@@ -54,6 +54,8 @@ BENEFIT_CAP_REGULATION_80A_PROGRAM_PATH = Path("regulations/uksi/2013/376/80A.ya
 BENEFIT_CAP_REGULATION_80A_BASE = "uk:regulations/uksi/2013/376/80A"
 STATE_PENSION_CREDIT_SECTION_1_PROGRAM_PATH = Path("statutes/ukpga/2002/16/1.yaml")
 STATE_PENSION_CREDIT_SECTION_1_BASE = "uk:statutes/ukpga/2002/16/1"
+STATE_PENSION_CREDIT_SECTION_2_PROGRAM_PATH = Path("statutes/ukpga/2002/16/2.yaml")
+STATE_PENSION_CREDIT_SECTION_2_BASE = "uk:statutes/ukpga/2002/16/2"
 STATE_PENSION_CREDIT_SECTION_3_PROGRAM_PATH = Path("statutes/ukpga/2002/16/3.yaml")
 STATE_PENSION_CREDIT_SECTION_3_BASE = "uk:statutes/ukpga/2002/16/3"
 PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
@@ -251,6 +253,21 @@ STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS = {
             "#claimant_has_attained_qualifying_age"
         ),
         "pe": "is_SP_age",
+    },
+}
+
+STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS = {
+    "appropriate_minimum_guarantee": {
+        "axiom": (
+            f"{STATE_PENSION_CREDIT_SECTION_2_BASE}#appropriate_minimum_guarantee"
+        ),
+        "pe": "minimum_guarantee",
+        "tolerance": 0.1,
+    },
+    "guarantee_credit": {
+        "axiom": f"{STATE_PENSION_CREDIT_SECTION_2_BASE}#guarantee_credit",
+        "pe": "guarantee_credit",
+        "tolerance": 0.1,
     },
 }
 
@@ -608,6 +625,18 @@ SURFACE_SPECS = {
             "gender",
             "is_SP_age",
             "state_pension_age",
+        ),
+    ),
+    "state-pension-credit-guarantee-credit": UKEFRSSurfaceSpec(
+        program=STATE_PENSION_CREDIT_SECTION_2_PROGRAM_PATH,
+        entity="benunit",
+        outputs=STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS,
+        pe_variables=(
+            "guarantee_credit",
+            "is_guarantee_credit_eligible",
+            "minimum_guarantee",
+            "pension_credit_income",
+            "standard_minimum_guarantee",
         ),
     ),
     "state-pension-credit-savings-credit": UKEFRSSurfaceSpec(
@@ -2274,6 +2303,11 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "state-pension-credit-guarantee-credit":
+        return build_state_pension_credit_guarantee_credit_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "state-pension-credit-savings-credit":
         return build_state_pension_credit_savings_credit_request(
             pe_data=pe_data,
@@ -2713,6 +2747,43 @@ def build_pension_credit_request(
                 "entity_id": entity_id,
                 "period": interval,
                 "outputs": [spec["axiom"] for spec in PENSION_CREDIT_OUTPUTS.values()],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
+def build_state_pension_credit_guarantee_credit_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = tax_year_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "state-pension-credit-guarantee-credit"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_state_pension_credit_guarantee_credit_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{STATE_PENSION_CREDIT_SECTION_2_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS.values()
+                ],
             }
         )
 
@@ -3434,6 +3505,24 @@ def project_pension_credit_inputs(row: Any) -> dict[str, Any]:
     }
 
 
+def project_state_pension_credit_guarantee_credit_inputs(
+    row: Any,
+) -> dict[str, Any]:
+    standard_minimum_guarantee = money(row_value(row, "standard_minimum_guarantee", 0))
+    minimum_guarantee = money(row_value(row, "minimum_guarantee", 0))
+    return {
+        "claimant_income": money(row_value(row, "pension_credit_income", 0)),
+        "standard_minimum_guarantee": standard_minimum_guarantee,
+        "prescribed_additional_amounts_applicable": max(
+            0.0,
+            minimum_guarantee - standard_minimum_guarantee,
+        ),
+        "claimant_is_entitled_to_guarantee_credit": bool(
+            row_value(row, "is_guarantee_credit_eligible", False)
+        ),
+    }
+
+
 def project_state_pension_credit_savings_credit_inputs(
     row: Any,
     *,
@@ -3655,6 +3744,12 @@ def compare_outputs(
             "PolicyEngine's is_SP_age boolean. Current PolicyEngine UK EFRS "
             "data exposes the modern equalized-age surface rather than "
             "historical sex-specific age transitions.",
+            "State Pension Credit Act section 2 guarantee-credit comparison "
+            "projects PolicyEngine's annual minimum_guarantee into the "
+            "statutory appropriate minimum guarantee by supplying "
+            "standard_minimum_guarantee and the remaining positive prescribed "
+            "additional amount, and gates the amount with PolicyEngine's "
+            "is_guarantee_credit_eligible predicate.",
             "State Pension Credit Act section 3 savings-credit comparison "
             "projects PolicyEngine's annual savings_credit_income as qualifying "
             "income, pension_credit_income as claimant income, "

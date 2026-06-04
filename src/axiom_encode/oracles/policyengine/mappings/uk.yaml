@@ -488,6 +488,36 @@ mappings:
     candidate_priority: P3
     rationale: State Pension Credit Act section 1 tests whether the claimant has attained the statutory qualifying age at day granularity. The UK EFRS oracle compares RuleSpec's judgment output to PolicyEngine UK's annual is_SP_age predicate after supplying the same age and state_pension_age projection used for qualifying_age.
 
+  - legal_id: uk:statutes/ukpga/2002/16/2#guarantee_credit
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: guarantee_credit
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    candidate_priority: P2
+    rationale: Same annual State Pension Credit guarantee credit amount. The EFRS oracle projects claimant income from PolicyEngine's pension_credit_income, appropriate minimum guarantee from minimum_guarantee, and entitlement from is_guarantee_credit_eligible.
+
+  - legal_id: uk:statutes/ukpga/2002/16/2#appropriate_minimum_guarantee
+    country: uk
+    program: pension_credit
+    mapping_type: direct_variable
+    policyengine_variable: minimum_guarantee
+    entity: benunit
+    period: year
+    unit: GBP
+    comparison: money
+    candidate_priority: P3
+    rationale: Same annual State Pension Credit appropriate minimum guarantee, after the EFRS oracle projects PolicyEngine's standard_minimum_guarantee and positive additional amount decomposition into the section 2 formula.
+
+  - legal_id: uk:statutes/ukpga/2002/16/2#guarantee_credit_condition_satisfied
+    country: uk
+    program: pension_credit
+    mapping_type: not_comparable
+    rationale: Source-law income condition for State Pension Credit Act section 2. PolicyEngine UK exposes is_guarantee_credit_eligible, but that combines this income condition with section 1 entitlement predicates and is not a one-to-one match.
+
   - legal_id: uk:statutes/ukpga/2002/16/3#savings_credit
     country: uk
     program: pension_credit

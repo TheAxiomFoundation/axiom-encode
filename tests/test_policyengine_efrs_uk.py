@@ -29,9 +29,11 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PERSONAL_ALLOWANCE_BASE,
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
+    STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS,
     STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
     STATE_PENSION_CREDIT_SAVINGS_CREDIT_OUTPUTS,
     STATE_PENSION_CREDIT_SECTION_1_BASE,
+    STATE_PENSION_CREDIT_SECTION_2_BASE,
     STATE_PENSION_CREDIT_SECTION_3_BASE,
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
@@ -59,6 +61,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_national_insurance_class_1_request,
     build_pension_credit_request,
     build_personal_allowance_request,
+    build_state_pension_credit_guarantee_credit_request,
     build_state_pension_credit_qualifying_age_request,
     build_state_pension_credit_savings_credit_request,
     build_uk_efrs_coverage_report,
@@ -84,6 +87,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_income_tax_section_23_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
+    project_state_pension_credit_guarantee_credit_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_state_pension_credit_savings_credit_inputs,
     project_universal_credit_award_inputs,
@@ -1012,6 +1016,76 @@ def test_pension_credit_request_projects_benefit_units():
     ] == {
         "kind": "bool",
         "value": False,
+    }
+
+
+def test_state_pension_credit_guarantee_credit_projection_uses_section_2_inputs():
+    projected = project_state_pension_credit_guarantee_credit_inputs(
+        {
+            "is_guarantee_credit_eligible": True,
+            "pension_credit_income": 11_000,
+            "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+            "minimum_guarantee": 280.00 * WEEKS_IN_YEAR,
+        }
+    )
+
+    assert projected == {
+        "claimant_income": 11_000,
+        "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+        "prescribed_additional_amounts_applicable": 42.00 * WEEKS_IN_YEAR,
+        "claimant_is_entitled_to_guarantee_credit": True,
+    }
+
+
+def test_state_pension_credit_guarantee_credit_request_projects_benefit_units():
+    request = build_state_pension_credit_guarantee_credit_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 12,
+                    "benunit_weight": 1,
+                    "is_guarantee_credit_eligible": True,
+                    "guarantee_credit": 2_000,
+                    "pension_credit_income": 11_000,
+                    "standard_minimum_guarantee": 238.00 * WEEKS_IN_YEAR,
+                    "minimum_guarantee": 280.00 * WEEKS_IN_YEAR,
+                }
+            ],
+            "benunit_ids": [12],
+        },
+        year=2026,
+    )
+
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_12",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs[
+        f"{STATE_PENSION_CREDIT_SECTION_2_BASE}#input.claimant_is_entitled_to_guarantee_credit"
+    ] == {
+        "kind": "bool",
+        "value": True,
+    }
+    assert inputs[
+        f"{STATE_PENSION_CREDIT_SECTION_2_BASE}#input.prescribed_additional_amounts_applicable"
+    ] == {
+        "kind": "decimal",
+        "value": str(42.00 * WEEKS_IN_YEAR),
     }
 
 
@@ -1991,6 +2065,15 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "relation_type",
         "savings_credit",
         "savings_credit_income",
+        "standard_minimum_guarantee",
+    )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["state-pension-credit-guarantee-credit"]
+    ) == (
+        "guarantee_credit",
+        "is_guarantee_credit_eligible",
+        "minimum_guarantee",
+        "pension_credit_income",
         "standard_minimum_guarantee",
     )
     assert policyengine_benunit_variables_for_surfaces(
@@ -3300,6 +3383,43 @@ def test_compare_outputs_no_longer_classifies_policyengine_savings_credit_bug():
 
     assert len(report.mismatches) == 1
     assert report.mismatches[0].entity_id == "benunit_79791"
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_handles_state_pension_credit_guarantee_credit():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 12,
+                    "minimum_guarantee": 14_560,
+                    "guarantee_credit": 3_560,
+                }
+            ],
+            "benunit_ids": [12],
+        },
+        axiom_outputs_by_surface={
+            "state-pension-credit-guarantee-credit": [
+                {
+                    "outputs": {
+                        STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS[
+                            "appropriate_minimum_guarantee"
+                        ]["axiom"]: decimal_output(14_560),
+                        STATE_PENSION_CREDIT_GUARANTEE_CREDIT_OUTPUTS[
+                            "guarantee_credit"
+                        ]["axiom"]: decimal_output(3_560),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=0,
+    )
+
+    assert report.compared_values == 2
+    assert report.mismatches == []
     assert report.oracle_divergences == []
 
 
