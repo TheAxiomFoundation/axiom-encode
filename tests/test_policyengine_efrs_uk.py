@@ -10,7 +10,9 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     CHILD_BENEFIT_OUTPUTS,
     INCOME_TAX_INCOME_BASE_COMPONENTS,
     INCOME_TAX_INCOME_BASE_OUTPUTS,
+    INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
     INCOME_TAX_SECTION_23_BASE,
+    INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
     NATIONAL_INSURANCE_CLASS_1_OUTPUTS,
     NATIONAL_INSURANCE_SECTION_8_BASE,
     PENSION_CREDIT_BASE,
@@ -34,6 +36,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     policyengine_person_variables_for_surfaces,
     project_child_benefit_inputs,
     project_income_tax_income_base_components,
+    project_income_tax_section_23_inputs,
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
     require_policyengine_uk_versions,
@@ -197,6 +200,24 @@ def test_income_tax_income_base_projection_uses_income_components():
     ]
 
 
+def test_income_tax_section_23_projection_uses_pe_liability_components():
+    projected = project_income_tax_section_23_inputs(
+        {
+            "income_tax_pre_charges": 4_500,
+            "CB_HITC": 300,
+            "personal_pension_contributions_tax": 200,
+            "capped_mcad": 100,
+            "other_tax_credits": 50,
+        }
+    )
+
+    assert projected == {
+        "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances": 5_000,
+        "tax_reductions_listed_in_section_26": 150,
+        "additional_tax_amounts_listed_in_section_30": 0.0,
+    }
+
+
 def test_income_tax_income_base_request_projects_section_23_relation():
     request = build_income_tax_income_base_request(
         pe_data={
@@ -205,6 +226,12 @@ def test_income_tax_income_base_request_projects_section_23_relation():
                     "person_id": 7,
                     "employment_income": 30_000,
                     "private_pension_income": 2_000,
+                    "income_tax_pre_charges": 4_500,
+                    "CB_HITC": 300,
+                    "personal_pension_contributions_tax": 200,
+                    "capped_mcad": 100,
+                    "other_tax_credits": 50,
+                    "income_tax": 4_850,
                     "total_income": 32_000,
                 }
             ],
@@ -253,6 +280,15 @@ def test_income_tax_income_base_request_projects_section_23_relation():
     assert inputs[
         f"{INCOME_TAX_SECTION_23_BASE}#input.amount_charged_to_income_tax:person_7_income_employment_income"
     ] == {"kind": "decimal", "value": "30000.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_23_BASE}#input.tax_calculated_at_applicable_rates_on_income_remaining_after_allowances:person_7"
+    ] == {"kind": "decimal", "value": "5000.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_23_BASE}#input.tax_reductions_listed_in_section_26:person_7"
+    ] == {"kind": "decimal", "value": "150.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_23_BASE}#input.additional_tax_amounts_listed_in_section_30:person_7"
+    ] == {"kind": "decimal", "value": "0.0"}
 
 
 def test_child_benefit_projection_uses_child_index():
@@ -591,6 +627,9 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         *sorted(
             (
                 *INCOME_TAX_INCOME_BASE_COMPONENTS,
+                *INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
+                *INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
+                "income_tax",
                 "total_income",
             )
         ),
@@ -687,10 +726,9 @@ class age(Variable):
     assert report.computed_variables_total == 3
     assert report.computed_variables_by_entity == {"person": 3}
     assert report.computed_variables_by_domain == {"gov": 2, "input": 1}
-    assert report.computed_covered_variables == ["personal_allowance"]
-    assert report.missing_variables_total == 2
+    assert report.computed_covered_variables == ["income_tax", "personal_allowance"]
+    assert report.missing_variables_total == 1
     assert [variable.name for variable in report.missing_variables] == [
-        "income_tax",
         "employment_income",
     ]
 
@@ -762,8 +800,9 @@ class income_tax(Variable):
     )
 
     payload = report.to_json()
-    assert payload["missing_variables_total"] == 1
-    assert payload["missing_variables"][0]["name"] == "income_tax"
+    assert payload["missing_variables_total"] == 0
+    assert payload["missing_variables"] == []
+    assert "income_tax" in payload["covered_output_variables"]
     assert "personal_allowance" in payload["covered_output_variables"]
 
 

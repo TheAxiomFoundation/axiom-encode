@@ -88,10 +88,25 @@ INCOME_TAX_INCOME_BASE_COMPONENTS = (
     "miscellaneous_income",
 )
 
+INCOME_TAX_SECTION_23_ADDITION_COMPONENTS = (
+    "income_tax_pre_charges",
+    "CB_HITC",
+    "personal_pension_contributions_tax",
+)
+
+INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS = (
+    "capped_mcad",
+    "other_tax_credits",
+)
+
 INCOME_TAX_INCOME_BASE_OUTPUTS = {
     "total_income": {
         "axiom": f"{INCOME_TAX_SECTION_23_BASE}#total_income",
         "pe": "total_income",
+    },
+    "income_tax_liability": {
+        "axiom": f"{INCOME_TAX_SECTION_23_BASE}#income_tax_liability",
+        "pe": "income_tax",
     },
 }
 
@@ -268,6 +283,9 @@ SURFACE_SPECS = {
         outputs=INCOME_TAX_INCOME_BASE_OUTPUTS,
         pe_variables=(
             *INCOME_TAX_INCOME_BASE_COMPONENTS,
+            *INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
+            *INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
+            "income_tax",
             "total_income",
         ),
     ),
@@ -1836,6 +1854,15 @@ def build_income_tax_income_base_request(
                     money(component["amount_charged_to_income_tax"]),
                 )
             )
+        for name, value in project_income_tax_section_23_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_23_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
         queries.append(
             {
                 "entity_id": entity_id,
@@ -1966,6 +1993,22 @@ def project_income_tax_income_base_components(row: Any) -> list[dict[str, Any]]:
         for component in components
         if money(component["amount_charged_to_income_tax"])
     ]
+
+
+def project_income_tax_section_23_inputs(row: Any) -> dict[str, Any]:
+    additions = sum(
+        money(row_value(row, name, 0))
+        for name in INCOME_TAX_SECTION_23_ADDITION_COMPONENTS
+    )
+    reductions = sum(
+        money(row_value(row, name, 0))
+        for name in INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS
+    )
+    return {
+        "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances": additions,
+        "tax_reductions_listed_in_section_26": reductions,
+        "additional_tax_amounts_listed_in_section_30": 0.0,
+    }
 
 
 def project_child_benefit_inputs(row: Any) -> dict[str, Any]:
@@ -2180,6 +2223,12 @@ def compare_outputs(
             "EFRS component outputs are divided by 12, and EFRS category "
             "variables select the matching standard-allowance, child-element, "
             "carer, LCWRA, and childcare-cap rows.",
+            "Income Tax Act 2007 section 23 final-liability comparison collapses "
+            "PolicyEngine's income_tax_additions into the RuleSpec step-4 tax "
+            "input and PolicyEngine's income_tax_subtractions into the section "
+            "26 reductions input, because PolicyEngine exposes final income_tax "
+            "and aggregate additive/subtractive components rather than exact "
+            "section 23 step buckets.",
         ],
     )
 
