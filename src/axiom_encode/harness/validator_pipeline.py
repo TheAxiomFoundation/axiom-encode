@@ -569,6 +569,111 @@ SOURCE_TEXT_NUMBER_PATTERN = re.compile(
 SOURCE_TEXT_RATIO_NUMBER_PATTERN = re.compile(
     r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w/])"
 )
+_SIMPLE_FRACTION_EXPRESSION = re.compile(
+    r"(?P<numerator>-?\d+)\s*/\s*(?P<denominator>\d+)"
+)
+_EXTRACTED_PARAMETER_SCALAR_COMPARISON = re.compile(
+    r"^(?:(?P<left_name>[A-Za-z_][A-Za-z0-9_]*)\s*==\s*(?P<right_value>-?[\d,]+(?:\.\d+)?)|(?P<left_value>-?[\d,]+(?:\.\d+)?)\s*==\s*(?P<right_name>[A-Za-z_][A-Za-z0-9_]*))$"
+)
+
+
+def _is_source_backed_simple_fraction_parameter(
+    rule: dict[str, Any],
+    expression: str,
+    source_text: str,
+) -> bool:
+    """Allow exact source-stated ASCII fractions as parameter formulas."""
+    if str(rule.get("kind") or "").lower() != "parameter":
+        return False
+    match = _SIMPLE_FRACTION_EXPRESSION.fullmatch(expression)
+    if not match:
+        return False
+    denominator = match.group("denominator")
+    if denominator == "0":
+        return False
+    fraction_text = f"{match.group('numerator')}/{denominator}"
+    normalized_source = re.sub(r"\s*/\s*", "/", source_text)
+    return bool(
+        re.search(
+            rf"(?<![\d./-]){re.escape(fraction_text)}(?![\d./])",
+            normalized_source,
+        )
+    )
+
+
+def _rule_has_source_proof(rule: dict[str, Any]) -> bool:
+    metadata = rule.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    proof = metadata.get("proof")
+    if not isinstance(proof, dict):
+        return False
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return False
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        source = atom.get("source")
+        if isinstance(source, dict) and (
+            source.get("corpus_citation_path")
+            or source.get("corpus_citation_paths")
+            or source.get("excerpt")
+        ):
+            return True
+    return False
+
+
+def _normalize_scalar_literal_text(value: str) -> str:
+    return value.strip().replace(",", "")
+
+
+def _source_backed_parameter_scalar_values(
+    rules: list[Any],
+) -> dict[str, set[str]]:
+    values: dict[str, set[str]] = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        if str(rule.get("kind") or "").lower() != "parameter":
+            continue
+        name = str(rule.get("name") or "").strip()
+        if not name or not _rule_has_source_proof(rule):
+            continue
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            normalized = _normalize_scalar_literal_text(formula)
+            if not _EMBEDDED_SCALAR_DIRECT_VALUE.fullmatch(normalized):
+                continue
+            values.setdefault(name, set()).add(normalized)
+    return values
+
+
+def _line_compares_extracted_parameter_to_own_scalar(
+    expression: str,
+    parameter_scalar_values: dict[str, set[str]],
+) -> bool:
+    normalized_expression = re.sub(r"^(?:and|or)\s+", "", expression.strip())
+    match = _EXTRACTED_PARAMETER_SCALAR_COMPARISON.fullmatch(normalized_expression)
+    if not match:
+        return False
+    name = match.group("left_name") or match.group("right_name")
+    value = match.group("right_value") or match.group("left_value")
+    if not name or not value:
+        return False
+    return _normalize_scalar_literal_text(value) in parameter_scalar_values.get(
+        name,
+        set(),
+    )
+
+
 _UNICODE_FRACTION_VALUES = {
     "¼": 0.25,
     "½": 0.5,
@@ -20709,6 +20814,10 @@ class ValidatorPipeline:
         if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
             return []
         selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+        source_text = extract_embedded_source_text(content) or ""
+        parameter_scalar_values = _source_backed_parameter_scalar_values(
+            payload["rules"],
+        )
 
         for rule_index, rule in enumerate(payload["rules"], start=1):
             if not isinstance(rule, dict):
@@ -20725,11 +20834,23 @@ class ValidatorPipeline:
                     continue
                 if not isinstance(formula, str):
                     continue
-                if self._is_direct_scalar_expression(formula.strip()):
+                stripped_formula = formula.strip()
+                if self._is_direct_scalar_expression(stripped_formula):
+                    continue
+                if _is_source_backed_simple_fraction_parameter(
+                    rule,
+                    stripped_formula,
+                    source_text,
+                ):
                     continue
                 for line in formula.splitlines() or [formula]:
                     stripped = line.strip()
                     if not stripped:
+                        continue
+                    if _line_compares_extracted_parameter_to_own_scalar(
+                        stripped,
+                        parameter_scalar_values,
+                    ):
                         continue
                     issues.extend(
                         (rule_index, name, literal, stripped)
