@@ -5257,6 +5257,45 @@ rules:
     assert 1000000 in occurrences
 
 
+def test_rulespec_grounding_accepts_cardinal_words_split_by_escaped_newline():
+    content = """format: rulespec/v1
+rules:
+  - name: foreign_presence_period_day_count
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 548
+  - name: foreign_country_presence_day_threshold
+    kind: parameter
+    dtype: Count
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 450
+"""
+
+    source_text = (
+        "within any period of five hundred forty-eight consecutive days\\n"
+        "the taxpayer is present in a foreign country or countries for at least\\n"
+        "four hundred fifty days"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    source_values = extract_numbers_from_text(source_text)
+    assert 548 in source_values
+    assert 450 in source_values
+
+
+def test_numeric_occurrence_extraction_treats_escaped_newline_as_line_break():
+    actual = "Table 1\n1 | 100\n2 | 200"
+    escaped = r"Table 1\n1 | 100\n2 | 200"
+
+    assert extract_numeric_occurrences_from_text(escaped) == (
+        extract_numeric_occurrences_from_text(actual)
+    )
+    assert extract_numbers_from_text(escaped) == extract_numbers_from_text(actual)
+
+
 def test_rulespec_grounding_treats_household_size_match_keys_as_structural():
     content = """format: rulespec/v1
 module:
@@ -19894,6 +19933,29 @@ rules:
 
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
     assert 15 in extract_numeric_occurrences_from_text(source_text)
+
+
+def test_ungrounded_numeric_preserves_zero_prefixed_decimal_parenthetical():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-ny/statute/TAX/1310
+rules:
+  - name: city_eitc_phaseout_reduction_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2022-01-01'
+        formula: |-
+          0.002
+"""
+    source_text = (
+        "thirty percent reduced by the product of two-tenths of a percentage "
+        "point (0.002) and the amount of adjusted gross income in excess of $4,999"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert 0.002 in extract_numeric_occurrences_from_text(source_text)
 
 
 def test_ungrounded_numeric_accepts_source_mixed_unicode_fraction_percentage():
