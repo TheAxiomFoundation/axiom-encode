@@ -14194,6 +14194,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Arizona manual shelter deduction helper outputs cover source-specific allowable shelter expenses, utility composition, uncapped excess amounts, and state manual cap mechanics; exact PolicyEngine mappings are registered only where the output boundary is comparable.
 
+  - legal_id_prefix: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual benefit-amount outputs decompose AZTECS net-income reduction, allotment-test, minimum-allotment round-up, and initial-month proration status mechanics; PolicyEngine exposes final SNAP benefit calculations rather than these source-specific intermediate Arizona manual boundaries as one-to-one outputs.
+
+  - legal_id_prefix: us-az:policies/des/faa5/na-eligibility-and-benefit-determination/net-income-test#
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: Arizona manual net-income-test outputs decompose earned-income deduction, net-income construction, income-standard pass/fail, and denial predicates; PolicyEngine computes SNAP income eligibility through its own scenario and program variables rather than exposing these FAA5 source-slice helper outputs as one-to-one oracle targets.
+
   - legal_id_prefix: us:statutes/26/3102/a#
     country: us
     program: tax
