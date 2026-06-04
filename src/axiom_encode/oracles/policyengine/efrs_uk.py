@@ -322,6 +322,31 @@ UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS = {
+    "earned_income_amount_subject_to_taper": {
+        "axiom": (
+            f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}"
+            "#earned_income_amount_subject_to_taper"
+        ),
+        "pe": "uc_earned_income",
+        "pe_transform": "annual_to_monthly",
+    },
+    "unearned_income_for_deduction": {
+        "axiom": f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#unearned_income_for_deduction",
+        "pe": "uc_unearned_income",
+        "pe_transform": "annual_to_monthly",
+    },
+    "universal_credit_award_deduction_from_maximum_amount": {
+        "axiom": (
+            f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}"
+            "#universal_credit_award_deduction_from_maximum_amount"
+        ),
+        "pe": "uc_income_reduction",
+        "pe_transform": "annual_to_monthly",
+        "applies": "uc_income_reduction_uncapped",
+    },
+}
+
 UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "standard_allowance_single_under_25": 338.58,
     "standard_allowance_single_25_or_over": 424.90,
@@ -337,6 +362,7 @@ UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "childcare_costs_element_maximum_one_child": 1071.09,
     "childcare_costs_element_maximum_two_or_more_children": 1836.16,
     "childcare_costs_element_reimbursement_rate": 0.85,
+    "earned_income_taper_rate": 0.55,
 }
 
 
@@ -512,6 +538,22 @@ SURFACE_SPECS = {
             "num_adults",
             "num_children",
             "uc_housing_costs_element",
+            "uc_work_allowance",
+        ),
+    ),
+    "universal-credit-income-deduction": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS,
+        pe_variables=(
+            "is_uc_work_allowance_eligible",
+            "num_adults",
+            "num_children",
+            "uc_earned_income",
+            "uc_housing_costs_element",
+            "uc_income_reduction",
+            "uc_maximum_amount",
+            "uc_unearned_income",
             "uc_work_allowance",
         ),
     ),
@@ -1987,6 +2029,11 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "universal-credit-income-deduction":
+        return build_universal_credit_income_deduction_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "universal-credit-work-allowance":
         return build_universal_credit_work_allowance_request(
             pe_data=pe_data,
@@ -2420,6 +2467,43 @@ def build_universal_credit_housing_costs_request(
     }
 
 
+def build_universal_credit_income_deduction_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-income-deduction"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_income_deduction_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_universal_credit_work_allowance_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -2631,6 +2715,48 @@ def project_universal_credit_housing_costs_inputs(row: Any) -> dict[str, Any]:
         "section_11_inclusion_has_ended_at_prescribed_time_by_regulations": False,
         "section_11_inclusion_has_not_started_until_prescribed_time_by_regulations": False,
         "amount_determined_or_calculated_by_regulations_under_section_11": monthly_housing_costs,
+    }
+
+
+def project_universal_credit_income_deduction_inputs(row: Any) -> dict[str, Any]:
+    work_allowance_inputs = project_universal_credit_work_allowance_inputs(row)
+    work_allowance_specified = (
+        work_allowance_inputs[
+            "joint_claimants_responsible_for_child_or_qualifying_young_person"
+        ]
+        or work_allowance_inputs[
+            "one_or_both_joint_claimants_have_limited_capability_for_work"
+        ]
+        or work_allowance_inputs[
+            "single_claimant_responsible_for_child_or_qualifying_young_person"
+        ]
+        or work_allowance_inputs["single_claimant_has_limited_capability_for_work"]
+    )
+    monthly_earned_subject_to_taper = (
+        money(row_value(row, "uc_earned_income", 0)) / MONTHS_IN_YEAR
+    )
+    monthly_work_allowance = (
+        money(row_value(row, "uc_work_allowance", 0)) / MONTHS_IN_YEAR
+        if work_allowance_specified
+        else 0.0
+    )
+    monthly_earned_income_for_deduction = (
+        monthly_earned_subject_to_taper + monthly_work_allowance
+    )
+    monthly_unearned_income = (
+        money(row_value(row, "uc_unearned_income", 0)) / MONTHS_IN_YEAR
+    )
+    joint_claim = bool(work_allowance_inputs["claim_is_for_joint_claimants"])
+    claimant_earned_income = 0.0 if joint_claim else monthly_earned_income_for_deduction
+    joint_earned_income = monthly_earned_income_for_deduction if joint_claim else 0.0
+    claimant_unearned_income = 0.0 if joint_claim else monthly_unearned_income
+    joint_unearned_income = monthly_unearned_income if joint_claim else 0.0
+    return {
+        **work_allowance_inputs,
+        "claimant_earned_income_in_assessment_period": claimant_earned_income,
+        "joint_claimants_combined_earned_income_in_assessment_period": joint_earned_income,
+        "claimant_unearned_income_in_assessment_period": claimant_unearned_income,
+        "joint_claimants_combined_unearned_income_in_assessment_period": joint_unearned_income,
     }
 
 
@@ -2899,6 +3025,17 @@ def compare_outputs(
             "higher/lower work-allowance case split, then compares the monthly "
             "RuleSpec allowance against PolicyEngine's annual uc_work_allowance "
             "divided by 12.",
+            "Universal Credit Regulation 22 income-deduction comparison "
+            "projects PolicyEngine's annual uc_earned_income divided by 12 as "
+            "the post-work-allowance amount subject to taper, adds back the "
+            "monthly uc_work_allowance when Regulation 22 specifies one to "
+            "supply the pre-allowance earned-income leaf, projects annual "
+            "uc_unearned_income divided by 12 as the unearned-income leaf, and "
+            "compares the final Regulation 22 deduction to uc_income_reduction "
+            "only on rows where PolicyEngine's maximum-credit cap is not binding "
+            "and PolicyEngine's negative-unearned-income treatment does not "
+            "differ from Regulation 22's non-negative unearned-income "
+            "deduction.",
             "Universal Credit Regulation 34 childcare-costs element comparison "
             "projects PolicyEngine's annual uc_childcare_element into monthly "
             "relevant childcare charges by reversing the statutory 85 percent "
@@ -2983,6 +3120,20 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
         return math.isclose(monthly_value, expected, abs_tol=0.01)
     if applies == "uc_childcare_two_or_more_children":
         return int(row_value(row, "uc_childcare_element_eligible_children", 0)) >= 2
+    if applies == "uc_income_reduction_uncapped":
+        annual_uncapped_reduction = UNIVERSAL_CREDIT_2026_RULESPEC_RATES[
+            "earned_income_taper_rate"
+        ] * money(row_value(row, "uc_earned_income", 0)) + max(
+            0.0,
+            money(row_value(row, "uc_unearned_income", 0)),
+        )
+        pe_reduction = money(row_value(row, "uc_income_reduction", 0))
+        maximum_credit = money(row_value(row, "uc_maximum_amount", 0))
+        return (
+            pe_reduction >= 0
+            and annual_uncapped_reduction <= maximum_credit + 0.01
+            and math.isclose(pe_reduction, annual_uncapped_reduction, abs_tol=0.01)
+        )
     if isinstance(applies, tuple) and len(applies) == 2:
         name, expected = applies
         value = row_value(row, name)

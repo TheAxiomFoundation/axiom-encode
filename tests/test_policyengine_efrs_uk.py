@@ -29,6 +29,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS,
+    UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
     UNIVERSAL_CREDIT_REGULATION_22_BASE,
     UNIVERSAL_CREDIT_REGULATION_34_BASE,
@@ -48,6 +49,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_universal_credit_award_request,
     build_universal_credit_childcare_element_request,
     build_universal_credit_housing_costs_request,
+    build_universal_credit_income_deduction_request,
     build_universal_credit_request,
     build_universal_credit_work_allowance_request,
     compare_outputs,
@@ -65,6 +67,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_universal_credit_award_inputs,
     project_universal_credit_childcare_element_inputs,
     project_universal_credit_housing_costs_inputs,
+    project_universal_credit_income_deduction_inputs,
     project_universal_credit_work_allowance_inputs,
     require_policyengine_uk_versions,
     select_person_indices,
@@ -1007,6 +1010,116 @@ def test_universal_credit_work_allowance_request_projects_regulation_22_inputs()
     }
 
 
+def test_universal_credit_income_deduction_projection_uses_regulation_22_inputs():
+    projected = project_universal_credit_income_deduction_inputs(
+        {
+            "num_adults": 1,
+            "num_children": 1,
+            "is_uc_work_allowance_eligible": True,
+            "uc_housing_costs_element": 360,
+            "uc_work_allowance": 5_124,
+            "uc_earned_income": 6_876,
+            "uc_unearned_income": 600,
+        }
+    )
+
+    assert projected == {
+        "claim_is_for_joint_claimants": False,
+        "claimant_is_member_of_couple": False,
+        "claimant_makes_claim_as_single_person": False,
+        "joint_claimants_responsible_for_child_or_qualifying_young_person": False,
+        "one_or_both_joint_claimants_have_limited_capability_for_work": False,
+        "single_claimant_responsible_for_child_or_qualifying_young_person": True,
+        "single_claimant_has_limited_capability_for_work": False,
+        "award_contains_housing_costs_element": True,
+        "claimant_earned_income_in_assessment_period": 1_000,
+        "joint_claimants_combined_earned_income_in_assessment_period": 0.0,
+        "claimant_unearned_income_in_assessment_period": 50,
+        "joint_claimants_combined_unearned_income_in_assessment_period": 0.0,
+    }
+
+    joint_projection = project_universal_credit_income_deduction_inputs(
+        {
+            "num_adults": 2,
+            "num_children": 0,
+            "is_uc_work_allowance_eligible": True,
+            "uc_housing_costs_element": 0,
+            "uc_work_allowance": 8_520,
+            "uc_earned_income": 15_480,
+            "uc_unearned_income": 3_600,
+        }
+    )
+    assert (
+        joint_projection["joint_claimants_combined_earned_income_in_assessment_period"]
+        == 2_000
+    )
+    assert (
+        joint_projection[
+            "joint_claimants_combined_unearned_income_in_assessment_period"
+        ]
+        == 300
+    )
+    assert (
+        joint_projection["one_or_both_joint_claimants_have_limited_capability_for_work"]
+        is True
+    )
+
+
+def test_universal_credit_income_deduction_request_projects_regulation_22_inputs():
+    request = build_universal_credit_income_deduction_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "num_adults": 1,
+                    "num_children": 1,
+                    "is_uc_work_allowance_eligible": True,
+                    "uc_housing_costs_element": 360,
+                    "uc_work_allowance": 5_124,
+                    "uc_earned_income": 6_876,
+                    "uc_unearned_income": 600,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#input.claimant_earned_income_in_assessment_period"
+    ] == {
+        "kind": "decimal",
+        "value": "1000.0",
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_22_BASE}#input.claimant_unearned_income_in_assessment_period"
+    ] == {
+        "kind": "decimal",
+        "value": "50.0",
+    }
+
+
 def test_universal_credit_child_element_request_filters_to_positive_rows():
     request = build_universal_credit_request(
         pe_data={
@@ -1273,6 +1386,19 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "num_adults",
         "num_children",
         "uc_housing_costs_element",
+        "uc_work_allowance",
+    )
+    assert policyengine_benunit_variables_for_surfaces(
+        ["universal-credit-income-deduction"]
+    ) == (
+        "is_uc_work_allowance_eligible",
+        "num_adults",
+        "num_children",
+        "uc_earned_income",
+        "uc_housing_costs_element",
+        "uc_income_reduction",
+        "uc_maximum_amount",
+        "uc_unearned_income",
         "uc_work_allowance",
     )
 
@@ -1830,6 +1956,132 @@ def test_compare_outputs_transforms_universal_credit_work_allowance_monthly():
 
     assert report.compared_values == 1
     assert report.mismatches == []
+
+
+def test_compare_outputs_transforms_universal_credit_income_deduction_monthly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_earned_income": 6_876,
+                    "uc_unearned_income": 600,
+                    "uc_income_reduction": 4_381.8,
+                    "uc_maximum_amount": 12_000,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-income-deduction": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "earned_income_amount_subject_to_taper"
+                        ]["axiom"]: decimal_output(573),
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "unearned_income_for_deduction"
+                        ]["axiom"]: decimal_output(50),
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "universal_credit_award_deduction_from_maximum_amount"
+                        ]["axiom"]: decimal_output(365.15),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 3
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_skips_capped_universal_credit_income_deduction_final():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_earned_income": 12_000,
+                    "uc_unearned_income": 0,
+                    "uc_income_reduction": 3_000,
+                    "uc_maximum_amount": 3_000,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-income-deduction": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "earned_income_amount_subject_to_taper"
+                        ]["axiom"]: decimal_output(1_000),
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "unearned_income_for_deduction"
+                        ]["axiom"]: decimal_output(0),
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "universal_credit_award_deduction_from_maximum_amount"
+                        ]["axiom"]: decimal_output(550),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 2
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_skips_negative_unearned_income_deduction_final():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_earned_income": 24_000,
+                    "uc_unearned_income": -1_200,
+                    "uc_income_reduction": 12_000,
+                    "uc_maximum_amount": 20_000,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-income-deduction": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "earned_income_amount_subject_to_taper"
+                        ]["axiom"]: decimal_output(2_000),
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "unearned_income_for_deduction"
+                        ]["axiom"]: decimal_output(-100),
+                        UNIVERSAL_CREDIT_INCOME_DEDUCTION_OUTPUTS[
+                            "universal_credit_award_deduction_from_maximum_amount"
+                        ]["axiom"]: decimal_output(1_100),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 2
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
 
 
 def test_compare_outputs_skips_rebalanced_universal_credit_lcwra_health_element():
