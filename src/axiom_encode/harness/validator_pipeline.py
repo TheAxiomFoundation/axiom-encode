@@ -21057,26 +21057,37 @@ class ValidatorPipeline:
                     source_text,
                 ):
                     continue
+                structural_selector_keys = (
+                    selector_table_keys.get(name)
+                    if _is_structural_selector_rule(rule)
+                    else None
+                )
+                previous_stripped = ""
                 for line in formula.splitlines() or [formula]:
                     stripped = line.strip()
                     if not stripped:
                         continue
+                    expression = stripped
+                    if (
+                        structural_selector_keys
+                        and previous_stripped.endswith(":")
+                        and re.fullmatch(r"\d+(?:\.0+)?", stripped)
+                    ):
+                        expression = f"{previous_stripped} {stripped}"
                     if _line_compares_extracted_parameter_to_own_scalar(
                         stripped,
                         parameter_scalar_values,
                     ):
+                        previous_stripped = stripped
                         continue
                     issues.extend(
                         (rule_index, name, literal, stripped)
                         for literal in self._extract_embedded_scalar_literals(
-                            stripped,
-                            structural_selector_keys=(
-                                selector_table_keys.get(name)
-                                if _is_structural_selector_rule(rule)
-                                else None
-                            ),
+                            expression,
+                            structural_selector_keys=structural_selector_keys,
                         )
                     )
+                    previous_stripped = stripped
         return issues
 
     def _is_direct_scalar_expression(self, expression: str) -> bool:

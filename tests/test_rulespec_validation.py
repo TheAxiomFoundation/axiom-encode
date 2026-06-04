@@ -19270,6 +19270,48 @@ rules:
     assert pipeline._check_embedded_scalar_literals(rules_file) == []
 
 
+def test_embedded_formula_numeric_guard_allows_multiline_selector_result_keys(
+    tmp_path,
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: limit_by_band
+    kind: parameter
+    dtype: Money
+    indexed_by: income_band
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          0: 0
+          1: 15000
+          2: 20000
+          3: 25000
+          4: 30000
+  - name: income_band
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_income < limit_by_band[1]:
+            1
+          else:
+            4
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    assert pipeline._check_embedded_scalar_literals(rules_file) == []
+
+
 def test_embedded_formula_numeric_guard_allows_source_backed_ascii_fraction_parameters(
     tmp_path,
 ):
@@ -19616,6 +19658,51 @@ rules:
     assert "benefit_amount" in issues[0]
     assert "embeds 4" in issues[0]
     assert "embeds 8" not in issues[0]
+
+
+def test_embedded_formula_numeric_guard_rejects_multiline_call_argument_literal(
+    tmp_path,
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+  - name: limit_by_band
+    kind: parameter
+    dtype: Money
+    indexed_by: income_band
+    versions:
+      - effective_from: '2024-01-01'
+        values:
+          1: 100
+          4: 400
+  - name: income_band
+    kind: derived
+    entity: Household
+    dtype: Integer
+    period: Year
+    versions:
+      - effective_from: '2024-01-01'
+        formula: |-
+          if household_income > limit_by_band[1]:
+            other_func(
+              4
+            )
+          else:
+            1
+"""
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    issues = pipeline._check_embedded_scalar_literals(rules_file)
+
+    assert len(issues) == 1
+    assert "income_band" in issues[0]
+    assert "embeds 4" in issues[0]
 
 
 def test_embedded_formula_numeric_guard_is_occurrence_aware(
