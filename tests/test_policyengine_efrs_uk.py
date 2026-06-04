@@ -27,9 +27,11 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     STATE_PENSION_CREDIT_SECTION_1_BASE,
     UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
+    UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
     UNIVERSAL_CREDIT_REGULATION_22_BASE,
+    UNIVERSAL_CREDIT_REGULATION_34_BASE,
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
     UNIVERSAL_CREDIT_WORK_ALLOWANCE_OUTPUTS,
     WEEKS_IN_YEAR,
@@ -44,6 +46,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_state_pension_credit_qualifying_age_request,
     build_uk_efrs_coverage_report,
     build_universal_credit_award_request,
+    build_universal_credit_childcare_element_request,
     build_universal_credit_housing_costs_request,
     build_universal_credit_request,
     build_universal_credit_work_allowance_request,
@@ -60,6 +63,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_personal_allowance_inputs,
     project_state_pension_credit_qualifying_age_inputs,
     project_universal_credit_award_inputs,
+    project_universal_credit_childcare_element_inputs,
     project_universal_credit_housing_costs_inputs,
     project_universal_credit_work_allowance_inputs,
     require_policyengine_uk_versions,
@@ -774,6 +778,89 @@ def test_universal_credit_award_request_projects_section_8_inputs():
     }
 
 
+def test_universal_credit_childcare_element_projection_reverses_rate_and_cap():
+    projected = project_universal_credit_childcare_element_inputs(
+        {
+            "uc_childcare_element": 1_020,
+            "uc_maximum_childcare_element_amount": 1_800,
+        }
+    )
+
+    assert projected == {
+        "charges_paid_for_relevant_childcare_attributable_to_assessment_period": 100,
+        "amount_considered_excessive_having_regard_to_paid_work_extent": 0.0,
+        "amount_met_or_reimbursed_by_employer_or_some_other_person": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_meets_non_other_relevant_support_conditions": False,
+        "amount_from_funds_provided_by_secretary_of_state_or_scottish_or_welsh_ministers_for_work_related_activity_or_training": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_amount": 0.0,
+        "maximum_amount_specified_in_table_in_regulation_36": 150,
+    }
+    assert project_universal_credit_childcare_element_inputs(
+        {
+            "uc_childcare_element": 0,
+            "uc_maximum_childcare_element_amount": 0,
+        }
+    ) == {
+        "charges_paid_for_relevant_childcare_attributable_to_assessment_period": 0.0,
+        "amount_considered_excessive_having_regard_to_paid_work_extent": 0.0,
+        "amount_met_or_reimbursed_by_employer_or_some_other_person": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_meets_non_other_relevant_support_conditions": False,
+        "amount_from_funds_provided_by_secretary_of_state_or_scottish_or_welsh_ministers_for_work_related_activity_or_training": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_amount": 0.0,
+        "maximum_amount_specified_in_table_in_regulation_36": 0.0,
+    }
+
+
+def test_universal_credit_childcare_element_request_projects_regulation_34_inputs():
+    request = build_universal_credit_childcare_element_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_childcare_element": 1_020,
+                    "uc_maximum_childcare_element_amount": 1_800,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"]
+                for output in UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_34_BASE}#input.charges_paid_for_relevant_childcare_attributable_to_assessment_period"
+    ] == {
+        "kind": "decimal",
+        "value": "100.0",
+    }
+    assert inputs_by_name[
+        f"{UNIVERSAL_CREDIT_REGULATION_34_BASE}#input.maximum_amount_specified_in_table_in_regulation_36"
+    ] == {
+        "kind": "decimal",
+        "value": "150.0",
+    }
+
+
 def test_universal_credit_housing_costs_projection_uses_monthly_amount():
     projected = project_universal_credit_housing_costs_inputs(
         {"uc_housing_costs_element": 360}
@@ -1173,6 +1260,12 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-housing-costs"]
     ) == ("uc_housing_costs_element",)
+    assert policyengine_benunit_variables_for_surfaces(
+        ["universal-credit-childcare-element"]
+    ) == (
+        "uc_childcare_element",
+        "uc_maximum_childcare_element_amount",
+    )
     assert policyengine_benunit_variables_for_surfaces(
         ["universal-credit-work-allowance"]
     ) == (
@@ -1661,6 +1754,39 @@ def test_compare_outputs_transforms_universal_credit_housing_costs_monthly():
                         UNIVERSAL_CREDIT_HOUSING_COSTS_OUTPUTS[
                             "section_11_amount_for_accommodation_payments"
                         ]["axiom"]: decimal_output(30),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+
+
+def test_compare_outputs_transforms_universal_credit_childcare_element_monthly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_childcare_element": 1_020,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-childcare-element": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS[
+                            "childcare_costs_element_amount"
+                        ]["axiom"]: decimal_output(85),
                     }
                 }
             ]

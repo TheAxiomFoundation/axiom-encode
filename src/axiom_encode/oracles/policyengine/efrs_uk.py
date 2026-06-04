@@ -54,6 +54,8 @@ UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
 UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH = Path("regulations/uksi/2013/376/22.yaml")
 UNIVERSAL_CREDIT_REGULATION_22_BASE = "uk:regulations/uksi/2013/376/22"
+UNIVERSAL_CREDIT_REGULATION_34_PROGRAM_PATH = Path("regulations/uksi/2013/376/34.yaml")
+UNIVERSAL_CREDIT_REGULATION_34_BASE = "uk:regulations/uksi/2013/376/34"
 WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/2012/5/8.yaml")
 WELFARE_REFORM_ACT_SECTION_8_BASE = "uk:statutes/ukpga/2012/5/8"
 WELFARE_REFORM_ACT_SECTION_11_PROGRAM_PATH = Path("statutes/ukpga/2012/5/11.yaml")
@@ -270,6 +272,14 @@ UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS = {
+    "childcare_costs_element_amount": {
+        "axiom": f"{UNIVERSAL_CREDIT_REGULATION_34_BASE}#childcare_costs_element_amount",
+        "pe": "uc_childcare_element",
+        "pe_transform": "annual_to_monthly",
+    },
+}
+
 UNIVERSAL_CREDIT_AWARD_OUTPUTS = {
     "universal_credit_maximum_amount": {
         "axiom": f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#universal_credit_maximum_amount",
@@ -326,6 +336,7 @@ UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "carer_element": 209.34,
     "childcare_costs_element_maximum_one_child": 1071.09,
     "childcare_costs_element_maximum_two_or_more_children": 1836.16,
+    "childcare_costs_element_reimbursement_rate": 0.85,
 }
 
 
@@ -457,6 +468,15 @@ SURFACE_SPECS = {
         outputs=UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS,
         pe_variables=(
             "uc_childcare_element_eligible_children",
+            "uc_maximum_childcare_element_amount",
+        ),
+    ),
+    "universal-credit-childcare-element": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_34_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS,
+        pe_variables=(
+            "uc_childcare_element",
             "uc_maximum_childcare_element_amount",
         ),
     ),
@@ -1955,6 +1975,11 @@ def build_axiom_request(
         )
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
+    if surface == "universal-credit-childcare-element":
+        return build_universal_credit_childcare_element_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "universal-credit-award":
         return build_universal_credit_award_request(pe_data=pe_data, year=year)
     if surface == "universal-credit-housing-costs":
@@ -2289,6 +2314,43 @@ def build_universal_credit_request(
     }
 
 
+def build_universal_credit_childcare_element_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-childcare-element"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_childcare_element_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_34_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_universal_credit_award_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -2519,6 +2581,35 @@ def project_universal_credit_award_inputs(row: Any) -> dict[str, Any]:
             "uc_income_reduction"
         ),
         "unearned_income_deduction_calculated_in_prescribed_manner": 0.0,
+    }
+
+
+def project_universal_credit_childcare_element_inputs(row: Any) -> dict[str, Any]:
+    monthly_childcare_element = money(row_value(row, "uc_childcare_element", 0)) / (
+        MONTHS_IN_YEAR
+    )
+    monthly_childcare_maximum = (
+        money(row_value(row, "uc_maximum_childcare_element_amount", 0)) / MONTHS_IN_YEAR
+    )
+    relevant_charges = (
+        monthly_childcare_element
+        / UNIVERSAL_CREDIT_2026_RULESPEC_RATES[
+            "childcare_costs_element_reimbursement_rate"
+        ]
+        if monthly_childcare_element
+        else 0.0
+    )
+    return {
+        "charges_paid_for_relevant_childcare_attributable_to_assessment_period": relevant_charges,
+        "amount_considered_excessive_having_regard_to_paid_work_extent": 0.0,
+        "amount_met_or_reimbursed_by_employer_or_some_other_person": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_meets_non_other_relevant_support_conditions": False,
+        "amount_from_funds_provided_by_secretary_of_state_or_scottish_or_welsh_ministers_for_work_related_activity_or_training": 0.0,
+        "secretary_of_state_work_transition_childcare_payment_amount": 0.0,
+        "maximum_amount_specified_in_table_in_regulation_36": max(
+            0.0,
+            monthly_childcare_maximum,
+        ),
     }
 
 
@@ -2808,6 +2899,13 @@ def compare_outputs(
             "higher/lower work-allowance case split, then compares the monthly "
             "RuleSpec allowance against PolicyEngine's annual uc_work_allowance "
             "divided by 12.",
+            "Universal Credit Regulation 34 childcare-costs element comparison "
+            "projects PolicyEngine's annual uc_childcare_element into monthly "
+            "relevant childcare charges by reversing the statutory 85 percent "
+            "reimbursement rate, supplies PolicyEngine's annual "
+            "uc_maximum_childcare_element_amount divided by 12 as the regulation "
+            "36 maximum, and projects excluded, reimbursed, and other-support "
+            "amounts to zero.",
             "The protected LCWRA Regulation 36 table amount is compared only "
             "when PolicyEngine exposes the raw protected amount. Current "
             "PolicyEngine UK EFRS outputs apply the July 2025 UC rebalancing "
