@@ -23,7 +23,6 @@ import yaml
 
 from .ecps_tax import (
     POLICYENGINE_CORE_VERSION,
-    POLICYENGINE_VERSION,
     input_record,
     money,
     output_number,
@@ -35,7 +34,7 @@ from .ecps_tax import (
 DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
-POLICYENGINE_UK_VERSION = "2.88.20"
+POLICYENGINE_UK_VERSION = "2.88.40"
 
 NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
@@ -773,54 +772,61 @@ def load_policyengine_uk_data(
     ].pe_variables,
     benunit_variables: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    require_policyengine_uk_versions()
+    local_dataset = local_policyengine_uk_dataset_path(dataset)
+    if local_dataset is not None:
+        return load_local_policyengine_uk_data(
+            local_path=local_dataset,
+            year=year,
+            sample_size=sample_size,
+            person_ids=person_ids,
+            person_variables=person_variables,
+            benunit_variables=benunit_variables,
+        )
 
+    raise SystemExit(
+        "uk-efrs-compare with current PolicyEngine UK requires a local .h5 "
+        f"--dataset path. {policyengine_uk_install_message()}"
+    )
+
+
+def load_local_policyengine_uk_data(
+    *,
+    local_path: Path,
+    year: int,
+    sample_size: int,
+    person_ids: tuple[int, ...],
+    person_variables: tuple[str, ...],
+    benunit_variables: tuple[str, ...],
+) -> dict[str, Any]:
+    require_policyengine_uk_versions()
     try:
-        from policyengine.core import Simulation
-        from policyengine.provenance.manifest import dataset_logical_name
-        from policyengine.tax_benefit_models.uk import ensure_datasets, uk_latest
+        import pandas as pd
+        from policyengine_uk import Microsimulation
+        from policyengine_uk.data import UKSingleYearDataset
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message()) from exc
 
-    log("Loading PolicyEngine UK EFRS...")
-    local_dataset = local_policyengine_uk_dataset(
-        dataset=dataset,
-        year=year,
-    )
-    if local_dataset is not None:
-        pe_dataset = local_dataset
-    else:
-        resolved_dataset = resolve_policyengine_uk_dataset_reference(dataset)
-        datasets = ensure_datasets(
-            datasets=[resolved_dataset],
-            years=[year],
-            data_folder=str(data_folder),
-        )
-        pe_dataset = datasets[f"{dataset_logical_name(resolved_dataset)}_{year}"]
-    extra_variables: dict[str, list[str]] = {}
-    if person_variables:
-        extra_variables["person"] = list(person_variables)
-    if benunit_variables:
-        extra_variables["benunit"] = list(benunit_variables)
-    sim = Simulation(
-        dataset=pe_dataset,
-        tax_benefit_model_version=uk_latest,
-        extra_variables=extra_variables,
-    )
-    log("Running PolicyEngine UK outputs...")
-    sim.run()
+    log("Loading local PolicyEngine UK EFRS...")
+    pe_dataset = UKSingleYearDataset(file_path=str(local_path))
+    sim = Microsimulation(dataset=pe_dataset)
 
+    with pd.HDFStore(local_path, mode="r") as store:
+        raw_person = store["person"].copy()
+        raw_benunit = store["benunit"].copy()
+        household = store["household"].copy()
+
+    person = add_policyengine_uk_person_weights(raw_person, household)
     person_columns = ["person_id", "person_weight"]
-    if "person_benunit_id" in pe_dataset.data.person.columns:
+    if "person_benunit_id" in person.columns:
         person_columns.append("person_benunit_id")
-    raw_persons = pe_dataset.data.person[person_columns].copy()
-    person_outputs = sim.output_dataset.data.person[["person_id", *person_variables]]
-    merged = raw_persons.merge(
-        person_outputs,
-        on="person_id",
-        how="left",
-        validate="one_to_one",
-    )
+    merged = person[person_columns].copy()
+    log("Running PolicyEngine UK person outputs...")
+    for variable in person_variables:
+        merged[variable] = sim.calculate(
+            variable,
+            period=year,
+            map_to="person",
+        ).values
     records = table_records(merged)
     selected_indices = select_person_indices(
         records,
@@ -828,19 +834,21 @@ def load_policyengine_uk_data(
         person_ids=person_ids,
     )
     selected = [records[index] for index in selected_indices]
-    benunit_records: list[dict[str, Any]] = []
     selected_benunits: list[dict[str, Any]] = []
     if benunit_variables:
-        raw_benunits = pe_dataset.data.benunit[["benunit_id", "benunit_weight"]].copy()
-        benunit_outputs = sim.output_dataset.data.benunit[
-            ["benunit_id", *benunit_variables]
-        ]
-        merged_benunits = raw_benunits.merge(
-            benunit_outputs,
-            on="benunit_id",
-            how="left",
-            validate="one_to_one",
+        benunit = add_policyengine_uk_benunit_weights(
+            raw_benunit,
+            raw_person,
+            household,
         )
+        merged_benunits = benunit[["benunit_id", "benunit_weight"]].copy()
+        log("Running PolicyEngine UK benefit-unit outputs...")
+        for variable in benunit_variables:
+            merged_benunits[variable] = sim.calculate(
+                variable,
+                period=year,
+                map_to="benunit",
+            ).values
         benunit_records = table_records(merged_benunits)
         selected_benunit_ids = ()
         if person_ids:
@@ -865,6 +873,48 @@ def load_policyengine_uk_data(
         "benunits": selected_benunits,
         "benunit_ids": [int(row_value(row, "benunit_id")) for row in selected_benunits],
     }
+
+
+def add_policyengine_uk_person_weights(raw_person: Any, household: Any) -> Any:
+    person = raw_person.merge(
+        household[["household_id", "household_weight"]],
+        left_on="person_household_id",
+        right_on="household_id",
+        how="left",
+    )
+    return person.rename(columns={"household_weight": "person_weight"}).drop(
+        columns=["household_id"],
+    )
+
+
+def add_policyengine_uk_benunit_weights(
+    raw_benunit: Any,
+    raw_person: Any,
+    household: Any,
+) -> Any:
+    benunit_household_map = raw_person[
+        ["person_benunit_id", "person_household_id"]
+    ].drop_duplicates()
+    benunit = raw_benunit.merge(
+        benunit_household_map,
+        left_on="benunit_id",
+        right_on="person_benunit_id",
+        how="left",
+    )
+    benunit = benunit.merge(
+        household[["household_id", "household_weight"]],
+        left_on="person_household_id",
+        right_on="household_id",
+        how="left",
+    )
+    return benunit.rename(columns={"household_weight": "benunit_weight"}).drop(
+        columns=[
+            "person_benunit_id",
+            "person_household_id",
+            "household_id",
+        ],
+        errors="ignore",
+    )
 
 
 def resolve_policyengine_uk_dataset_reference(dataset: str) -> str:
@@ -1279,18 +1329,14 @@ def policyengine_uk_variables_source_root(*, required: bool = True) -> Path | No
 
 
 def policyengine_uk_versions() -> dict[str, str]:
-    try:
-        return {
-            "policyengine": version("policyengine"),
-            "policyengine-core": version("policyengine-core"),
-            "policyengine-uk": version("policyengine-uk"),
-        }
-    except PackageNotFoundError:
-        return {
-            "policyengine": "not installed",
-            "policyengine-core": "not installed",
-            "policyengine-uk": "not installed",
-        }
+    packages = ("policyengine", "policyengine-core", "policyengine-uk")
+    versions: dict[str, str] = {}
+    for package in packages:
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = "not installed"
+    return versions
 
 
 def policyengine_uk_efrs_activity(
@@ -1304,24 +1350,35 @@ def policyengine_uk_efrs_activity(
     try:
         import numpy as np
         import pandas as pd
-        from policyengine.core import Simulation
-        from policyengine.provenance.manifest import dataset_logical_name
-        from policyengine.tax_benefit_models.uk import ensure_datasets, uk_latest
+        from policyengine_uk import Microsimulation
+        from policyengine_uk.data import UKSingleYearDataset
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
 
-    log("Loading PolicyEngine UK EFRS...")
-    local_dataset = local_policyengine_uk_dataset(dataset=dataset, year=year)
-    if local_dataset is not None:
-        pe_dataset = local_dataset
-    else:
-        resolved_dataset = resolve_policyengine_uk_dataset_reference(dataset)
-        datasets = ensure_datasets(
-            datasets=[resolved_dataset],
-            years=[year],
-            data_folder=str(data_folder),
+    local_dataset = local_policyengine_uk_dataset_path(dataset)
+    if local_dataset is None:
+        raise SystemExit(
+            "uk-efrs-coverage --with-efrs-activity with current PolicyEngine UK "
+            f"requires a local .h5 --dataset path. "
+            f"{policyengine_uk_install_message('uk-efrs-coverage')}"
         )
-        pe_dataset = datasets[f"{dataset_logical_name(resolved_dataset)}_{year}"]
+
+    log("Loading local PolicyEngine UK EFRS for coverage activity...")
+    pe_dataset = UKSingleYearDataset(file_path=str(local_dataset))
+    sim = Microsimulation(dataset=pe_dataset)
+    with pd.HDFStore(local_dataset, mode="r") as store:
+        raw_person = store["person"].copy()
+        raw_benunit = store["benunit"].copy()
+        household = store["household"].copy()
+    raw_tables = {
+        "person": add_policyengine_uk_person_weights(raw_person, household),
+        "benunit": add_policyengine_uk_benunit_weights(
+            raw_benunit,
+            raw_person,
+            household,
+        ),
+        "household": household,
+    }
 
     extra_variables: dict[str, list[str]] = defaultdict(list)
     variables_by_name = {variable.name: variable for variable in variables}
@@ -1330,18 +1387,11 @@ def policyengine_uk_efrs_activity(
             extra_variables[variable.entity].append(variable.name)
 
     log("Running PolicyEngine UK outputs for coverage activity...")
-    sim = Simulation(
-        dataset=pe_dataset,
-        tax_benefit_model_version=uk_latest,
-        extra_variables=dict(extra_variables),
-    )
-    sim.run()
 
     activity: list[UKEFRSVariableActivity] = []
     errors: list[dict[str, str]] = []
     for entity, names in sorted(extra_variables.items()):
-        output_table = getattr(sim.output_dataset.data, entity)
-        raw_table = getattr(pe_dataset.data, entity)
+        raw_table = raw_tables[entity]
         weight_column = ENTITY_WEIGHT_COLUMNS[entity]
         id_column = ENTITY_ID_COLUMNS[entity]
         if weight_column not in raw_table.columns:
@@ -1353,7 +1403,7 @@ def policyengine_uk_efrs_activity(
                 }
             )
             continue
-        if id_column not in raw_table.columns or id_column not in output_table.columns:
+        if id_column not in raw_table.columns:
             errors.append(
                 {
                     "entity": entity,
@@ -1362,6 +1412,22 @@ def policyengine_uk_efrs_activity(
                 }
             )
             continue
+        output_table = raw_table[[id_column]].copy()
+        for name in sorted(names):
+            try:
+                output_table[name] = sim.calculate(
+                    name,
+                    period=year,
+                    map_to=entity,
+                ).values
+            except Exception as exc:  # pragma: no cover - depends on PE variable graph
+                errors.append(
+                    {
+                        "entity": entity,
+                        "variable": name,
+                        "error": str(exc),
+                    }
+                )
         raw_weights = raw_table[[id_column, weight_column]].copy()
         output_ids = output_table[[id_column]].copy()
         aligned_weights = output_ids.merge(
@@ -2223,6 +2289,11 @@ def compare_outputs(
             "EFRS component outputs are divided by 12, and EFRS category "
             "variables select the matching standard-allowance, child-element, "
             "carer, LCWRA, and childcare-cap rows.",
+            "The protected LCWRA Regulation 36 table amount is compared only "
+            "when PolicyEngine exposes the raw protected amount. Current "
+            "PolicyEngine UK EFRS outputs apply the July 2025 UC rebalancing "
+            "scenario for existing claimants, so those rebalanced health-element "
+            "values are not treated as the same surface.",
             "Income Tax Act 2007 section 23 final-liability comparison collapses "
             "PolicyEngine's income_tax_additions into the RuleSpec step-4 tax "
             "input and PolicyEngine's income_tax_subtractions into the section "
@@ -2276,7 +2347,10 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
         return 0 < monthly_value < 300
     if applies == "uc_lcwra_higher_amount":
         monthly_value = policyengine_output_value(spec, row)
-        return 300 <= monthly_value < 600
+        expected = UNIVERSAL_CREDIT_2026_RULESPEC_RATES[
+            "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant"
+        ]
+        return math.isclose(monthly_value, expected, abs_tol=0.01)
     if applies == "uc_childcare_two_or_more_children":
         return int(row_value(row, "uc_childcare_element_eligible_children", 0)) >= 2
     if isinstance(applies, tuple) and len(applies) == 2:
@@ -2578,16 +2652,10 @@ def resolve_workspace_root(root: Path | None) -> Path:
 
 def require_policyengine_uk_versions(command: str = "uk-efrs-compare") -> None:
     try:
-        policyengine_version = version("policyengine")
         policyengine_core_version = version("policyengine-core")
         policyengine_uk_version = version("policyengine-uk")
     except PackageNotFoundError as exc:
         raise SystemExit(policyengine_uk_install_message(command)) from exc
-    if policyengine_version != POLICYENGINE_VERSION:
-        raise SystemExit(
-            f"policyengine=={POLICYENGINE_VERSION} required; found "
-            f"{policyengine_version}. {policyengine_uk_install_message(command)}"
-        )
     if policyengine_core_version != POLICYENGINE_CORE_VERSION:
         raise SystemExit(
             f"policyengine-core=={POLICYENGINE_CORE_VERSION} required; found "
@@ -2621,7 +2689,7 @@ def policyengine_uk_class_1_weekly_parameters(year: int) -> dict[str, float]:
 def policyengine_uk_install_message(command: str = "uk-efrs-compare") -> str:
     return (
         "Run with: uv run "
-        f"--with 'policyengine[uk]=={POLICYENGINE_VERSION}' "
+        f"--with policyengine-uk=={POLICYENGINE_UK_VERSION} "
         f"axiom-encode {command}"
     )
 

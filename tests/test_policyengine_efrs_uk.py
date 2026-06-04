@@ -21,6 +21,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PERSONAL_ALLOWANCE_OUTPUTS,
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
+    UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
     WEEKS_IN_YEAR,
     build_child_benefit_request,
@@ -809,22 +810,20 @@ class income_tax(Variable):
 def test_policyengine_uk_version_guard_rejects_unpinned_version(monkeypatch):
     def fake_version(package):
         versions = {
-            "policyengine": efrs_uk.POLICYENGINE_VERSION,
             "policyengine-core": efrs_uk.POLICYENGINE_CORE_VERSION,
-            "policyengine-uk": "2.88.19",
+            "policyengine-uk": "2.88.39",
         }
         return versions[package]
 
     monkeypatch.setattr(efrs_uk, "version", fake_version)
 
-    with pytest.raises(SystemExit, match="policyengine-uk==2.88.20 required"):
+    with pytest.raises(SystemExit, match="policyengine-uk==2.88.40 required"):
         require_policyengine_uk_versions()
 
 
 def test_policyengine_uk_version_guard_allows_pinned_versions(monkeypatch):
     def fake_version(package):
         versions = {
-            "policyengine": efrs_uk.POLICYENGINE_VERSION,
             "policyengine-core": efrs_uk.POLICYENGINE_CORE_VERSION,
             "policyengine-uk": efrs_uk.POLICYENGINE_UK_VERSION,
         }
@@ -1010,6 +1009,88 @@ def test_compare_outputs_compares_applicable_universal_credit_standard_allowance
         for item in report.output_summary
         if item["compared"]
     ] == [("standard_allowance_single_under_25", 1)]
+
+
+def test_compare_outputs_compares_raw_protected_universal_credit_lcwra_amount():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_LCWRA_element": 429.80 * 12,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-lcwra-element": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_LCWRA_OUTPUTS[
+                            "lcwra_element_standard_lcwra_claimant"
+                        ]["axiom"]: decimal_output(217.26),
+                        UNIVERSAL_CREDIT_LCWRA_OUTPUTS[
+                            "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant"
+                        ]["axiom"]: decimal_output(429.80),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 1
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
+    assert [
+        (item["output"], item["compared"])
+        for item in report.output_summary
+        if item["compared"]
+    ] == [
+        (
+            "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant",
+            1,
+        )
+    ]
+
+
+def test_compare_outputs_skips_rebalanced_universal_credit_lcwra_health_element():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_LCWRA_element": 426.5063 * 12,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-lcwra-element": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_LCWRA_OUTPUTS[
+                            "lcwra_element_standard_lcwra_claimant"
+                        ]["axiom"]: decimal_output(217.26),
+                        UNIVERSAL_CREDIT_LCWRA_OUTPUTS[
+                            "lcwra_element_pre_2026_severe_conditions_or_terminally_ill_claimant"
+                        ]["axiom"]: decimal_output(429.80),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 0
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
 
 
 def test_compare_outputs_classifies_known_policyengine_universal_credit_rates():
