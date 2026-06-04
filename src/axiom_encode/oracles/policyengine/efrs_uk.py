@@ -50,6 +50,8 @@ PENSION_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2002/1792/6.yaml")
 PENSION_CREDIT_BASE = "uk:regulations/uksi/2002/1792/6"
 UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
+WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/2012/5/8.yaml")
+WELFARE_REFORM_ACT_SECTION_8_BASE = "uk:statutes/ukpga/2012/5/8"
 
 PERSONAL_ALLOWANCE_OUTPUTS = {
     "personal_allowance": {
@@ -254,6 +256,27 @@ UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_AWARD_OUTPUTS = {
+    "universal_credit_maximum_amount": {
+        "axiom": f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#universal_credit_maximum_amount",
+        "pe": "uc_maximum_amount",
+        "pe_transform": "annual_to_monthly",
+    },
+    "universal_credit_amounts_to_be_deducted": {
+        "axiom": (
+            f"{WELFARE_REFORM_ACT_SECTION_8_BASE}"
+            "#universal_credit_amounts_to_be_deducted"
+        ),
+        "pe": "uc_income_reduction",
+        "pe_transform": "annual_to_monthly",
+    },
+    "universal_credit_award_amount": {
+        "axiom": f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#universal_credit_award_amount",
+        "pe": "universal_credit_pre_benefit_cap",
+        "pe_transform": "annual_to_monthly",
+    },
+}
+
 UNIVERSAL_CREDIT_2026_RULESPEC_RATES = {
     "standard_allowance_single_under_25": 338.58,
     "standard_allowance_single_25_or_over": 424.90,
@@ -391,7 +414,30 @@ SURFACE_SPECS = {
             "uc_maximum_childcare_element_amount",
         ),
     ),
+    "universal-credit-award": UKEFRSSurfaceSpec(
+        program=WELFARE_REFORM_ACT_SECTION_8_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_AWARD_OUTPUTS,
+        pe_variables=(
+            "is_uc_eligible",
+            "uc_carer_element",
+            "uc_child_element",
+            "uc_childcare_element",
+            "uc_disability_elements",
+            "uc_housing_costs_element",
+            "uc_income_reduction",
+            "uc_maximum_amount",
+            "uc_standard_allowance",
+            "universal_credit_pre_benefit_cap",
+        ),
+    ),
 }
+
+UNIVERSAL_CREDIT_REGULATION_36_SURFACES = frozenset(
+    surface
+    for surface, spec in SURFACE_SPECS.items()
+    if spec.program == UNIVERSAL_CREDIT_PROGRAM_PATH
+)
 
 SKIPPED_SURFACES: list[dict[str, str]] = []
 
@@ -771,7 +817,7 @@ def compare_uk_efrs(
     for selected_surface in surfaces:
         spec = SURFACE_SPECS[selected_surface]
         if (
-            selected_surface.startswith("universal-credit-")
+            selected_surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES
             and universal_credit_program is not None
         ):
             program = universal_credit_program.resolve()
@@ -1682,7 +1728,7 @@ def run_axiom_surface(
     axiom_rules_path: Path,
     surface: str,
 ) -> list[dict[str, Any]]:
-    if surface.startswith("universal-credit-"):
+    if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return run_axiom_parameter_outputs(
             program=program,
             request=request,
@@ -1840,7 +1886,9 @@ def build_axiom_request(
         )
     if surface == "pension-credit":
         return build_pension_credit_request(pe_data=pe_data, year=year)
-    if surface.startswith("universal-credit-"):
+    if surface == "universal-credit-award":
+        return build_universal_credit_award_request(pe_data=pe_data, year=year)
+    if surface in UNIVERSAL_CREDIT_REGULATION_36_SURFACES:
         return build_universal_credit_request(
             pe_data=pe_data,
             year=year,
@@ -2127,6 +2175,40 @@ def build_universal_credit_request(
     }
 
 
+def build_universal_credit_award_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-award"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_award_inputs(row).items():
+            inputs.append(
+                input_record(
+                    f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"] for spec in UNIVERSAL_CREDIT_AWARD_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def project_personal_allowance_inputs(row: Any) -> dict[str, Any]:
     adjusted_net_income = money(row_value(row, "adjusted_net_income"))
     gift_aid_grossed_up = money(row_value(row, "gift_aid_grossed_up", 0))
@@ -2206,6 +2288,37 @@ def project_state_pension_credit_qualifying_age_inputs(row: Any) -> dict[str, An
         "pensionable_age": state_pension_age,
         "pensionable_age_for_woman_born_same_day": state_pension_age,
         "claimant_age": money(row_value(row, "age", 0)),
+    }
+
+
+def project_universal_credit_award_inputs(row: Any) -> dict[str, Any]:
+    is_uc_eligible = bool(row_value(row, "is_uc_eligible", False))
+
+    def monthly(name: str) -> float:
+        return money(row_value(row, name, 0)) / MONTHS_IN_YEAR
+
+    def eligible_monthly(name: str) -> float:
+        return monthly(name) if is_uc_eligible else 0.0
+
+    return {
+        "amount_included_under_section_9_standard_allowance": eligible_monthly(
+            "uc_standard_allowance"
+        ),
+        "amount_included_under_section_10_responsibility_for_children_and_young_persons": eligible_monthly(
+            "uc_child_element"
+        ),
+        "amount_included_under_section_11_housing_costs": eligible_monthly(
+            "uc_housing_costs_element"
+        ),
+        "amount_included_under_section_12_other_particular_needs_or_circumstances": (
+            eligible_monthly("uc_disability_elements")
+            + eligible_monthly("uc_childcare_element")
+            + eligible_monthly("uc_carer_element")
+        ),
+        "earned_income_deduction_calculated_in_prescribed_manner": eligible_monthly(
+            "uc_income_reduction"
+        ),
+        "unearned_income_deduction_calculated_in_prescribed_manner": 0.0,
     }
 
 
@@ -2416,6 +2529,13 @@ def compare_outputs(
             "EFRS component outputs are divided by 12, and EFRS category "
             "variables select the matching standard-allowance, child-element, "
             "carer, LCWRA, and childcare-cap rows.",
+            "Welfare Reform Act 2012 section 8 Universal Credit award "
+            "comparison projects annual PolicyEngine component outputs into "
+            "monthly section 8 maximum-amount buckets, gates those buckets by "
+            "PolicyEngine's is_uc_eligible predicate to match uc_maximum_amount, "
+            "and projects PolicyEngine's capped uc_income_reduction as the "
+            "prescribed income deduction because PolicyEngine exposes the final "
+            "deduction rather than the exact statutory earned/unearned split.",
             "The protected LCWRA Regulation 36 table amount is compared only "
             "when PolicyEngine exposes the raw protected amount. Current "
             "PolicyEngine UK EFRS outputs apply the July 2025 UC rebalancing "

@@ -22,10 +22,12 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     PERSONAL_ALLOWANCE_PROGRAM_PATH,
     STATE_PENSION_CREDIT_QUALIFYING_AGE_OUTPUTS,
     STATE_PENSION_CREDIT_SECTION_1_BASE,
+    UNIVERSAL_CREDIT_AWARD_OUTPUTS,
     UNIVERSAL_CREDIT_CHILD_ELEMENT_OUTPUTS,
     UNIVERSAL_CREDIT_LCWRA_OUTPUTS,
     UNIVERSAL_CREDIT_STANDARD_ALLOWANCE_OUTPUTS,
     WEEKS_IN_YEAR,
+    WELFARE_REFORM_ACT_SECTION_8_BASE,
     build_child_benefit_request,
     build_income_tax_income_base_request,
     build_national_insurance_class_1_request,
@@ -33,6 +35,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_personal_allowance_request,
     build_state_pension_credit_qualifying_age_request,
     build_uk_efrs_coverage_report,
+    build_universal_credit_award_request,
     build_universal_credit_request,
     compare_outputs,
     compare_uk_efrs,
@@ -45,6 +48,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     project_pension_credit_inputs,
     project_personal_allowance_inputs,
     project_state_pension_credit_qualifying_age_inputs,
+    project_universal_credit_award_inputs,
     require_policyengine_uk_versions,
     select_person_indices,
 )
@@ -582,6 +586,96 @@ def test_universal_credit_request_queries_monthly_table_amounts():
     ]
 
 
+def test_universal_credit_award_projection_uses_monthly_eligible_components():
+    projected = project_universal_credit_award_inputs(
+        {
+            "is_uc_eligible": True,
+            "uc_standard_allowance": 1_200,
+            "uc_child_element": 2_400,
+            "uc_disability_elements": 600,
+            "uc_housing_costs_element": 360,
+            "uc_childcare_element": 120,
+            "uc_carer_element": 60,
+            "uc_income_reduction": 300,
+        }
+    )
+
+    assert projected == {
+        "amount_included_under_section_9_standard_allowance": 100,
+        "amount_included_under_section_10_responsibility_for_children_and_young_persons": 200,
+        "amount_included_under_section_11_housing_costs": 30,
+        "amount_included_under_section_12_other_particular_needs_or_circumstances": 65,
+        "earned_income_deduction_calculated_in_prescribed_manner": 25,
+        "unearned_income_deduction_calculated_in_prescribed_manner": 0.0,
+    }
+
+    assert project_universal_credit_award_inputs(
+        {
+            "is_uc_eligible": False,
+            "uc_standard_allowance": 1_200,
+            "uc_child_element": 2_400,
+            "uc_income_reduction": 300,
+        }
+    ) == {
+        "amount_included_under_section_9_standard_allowance": 0.0,
+        "amount_included_under_section_10_responsibility_for_children_and_young_persons": 0.0,
+        "amount_included_under_section_11_housing_costs": 0.0,
+        "amount_included_under_section_12_other_particular_needs_or_circumstances": 0.0,
+        "earned_income_deduction_calculated_in_prescribed_manner": 0.0,
+        "unearned_income_deduction_calculated_in_prescribed_manner": 0.0,
+    }
+
+
+def test_universal_credit_award_request_projects_section_8_inputs():
+    request = build_universal_credit_award_request(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "benunit_weight": 1,
+                    "is_uc_eligible": True,
+                    "uc_standard_allowance": 1_200,
+                    "uc_child_element": 2_400,
+                    "uc_disability_elements": 600,
+                    "uc_housing_costs_element": 360,
+                    "uc_childcare_element": 120,
+                    "uc_carer_element": 60,
+                    "uc_income_reduction": 300,
+                }
+            ],
+            "benunit_ids": [11],
+        },
+        year=2026,
+    )
+
+    assert request["mode"] == "explain"
+    assert request["queries"] == [
+        {
+            "entity_id": "benunit_11",
+            "period": {
+                "period_kind": "month",
+                "name": "benefit_month",
+                "start": "2026-04-01",
+                "end": "2026-04-30",
+            },
+            "outputs": list(
+                output["axiom"] for output in UNIVERSAL_CREDIT_AWARD_OUTPUTS.values()
+            ),
+        }
+    ]
+    inputs_by_name = {
+        record["name"]: record["value"] for record in request["dataset"]["inputs"]
+    }
+    assert inputs_by_name[
+        f"{WELFARE_REFORM_ACT_SECTION_8_BASE}#input.amount_included_under_section_12_other_particular_needs_or_circumstances"
+    ] == {
+        "kind": "decimal",
+        "value": "65.0",
+    }
+
+
 def test_universal_credit_child_element_request_filters_to_positive_rows():
     request = build_universal_credit_request(
         pe_data={
@@ -811,6 +905,18 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
         "uc_carer_element",
         "uc_standard_allowance",
         "uc_standard_allowance_claimant_type",
+    )
+    assert policyengine_benunit_variables_for_surfaces(["universal-credit-award"]) == (
+        "is_uc_eligible",
+        "uc_carer_element",
+        "uc_child_element",
+        "uc_childcare_element",
+        "uc_disability_elements",
+        "uc_housing_costs_element",
+        "uc_income_reduction",
+        "uc_maximum_amount",
+        "uc_standard_allowance",
+        "universal_credit_pre_benefit_cap",
     )
 
 
@@ -1197,6 +1303,47 @@ def test_compare_outputs_compares_raw_protected_universal_credit_lcwra_amount():
             1,
         )
     ]
+
+
+def test_compare_outputs_transforms_universal_credit_award_outputs_monthly():
+    report = compare_outputs(
+        pe_data={
+            "persons": [],
+            "person_ids": [],
+            "benunits": [
+                {
+                    "benunit_id": 11,
+                    "uc_maximum_amount": 12_000,
+                    "uc_income_reduction": 3_600,
+                    "universal_credit_pre_benefit_cap": 8_400,
+                },
+            ],
+            "benunit_ids": [11],
+        },
+        axiom_outputs_by_surface={
+            "universal-credit-award": [
+                {
+                    "outputs": {
+                        UNIVERSAL_CREDIT_AWARD_OUTPUTS[
+                            "universal_credit_maximum_amount"
+                        ]["axiom"]: decimal_output(1_000),
+                        UNIVERSAL_CREDIT_AWARD_OUTPUTS[
+                            "universal_credit_amounts_to_be_deducted"
+                        ]["axiom"]: decimal_output(300),
+                        UNIVERSAL_CREDIT_AWARD_OUTPUTS["universal_credit_award_amount"][
+                            "axiom"
+                        ]: decimal_output(700),
+                    }
+                }
+            ]
+        },
+        tolerance=0.01,
+        relative_tolerance=2e-7,
+    )
+
+    assert report.compared_values == 3
+    assert report.mismatches == []
+    assert report.oracle_divergences == []
 
 
 def test_compare_outputs_skips_rebalanced_universal_credit_lcwra_health_element():
