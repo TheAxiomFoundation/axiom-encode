@@ -34,7 +34,7 @@ from .ecps_tax import (
 DEFAULT_DATASET = "enhanced_frs_2023_24"
 WEEKS_IN_YEAR = 52
 MONTHS_IN_YEAR = 12
-POLICYENGINE_UK_VERSION = "2.88.42"
+POLICYENGINE_UK_VERSION = "2.88.43"
 
 NATIONAL_INSURANCE_SECTION_8_PROGRAM_PATH = Path("statutes/ukpga/1992/4/8.yaml")
 NATIONAL_INSURANCE_SECTION_8_BASE = "uk:statutes/ukpga/1992/4/8"
@@ -62,6 +62,8 @@ UNIVERSAL_CREDIT_PROGRAM_PATH = Path("regulations/uksi/2013/376/36.yaml")
 UNIVERSAL_CREDIT_BASE = "uk:regulations/uksi/2013/376/36"
 UNIVERSAL_CREDIT_REGULATION_22_PROGRAM_PATH = Path("regulations/uksi/2013/376/22.yaml")
 UNIVERSAL_CREDIT_REGULATION_22_BASE = "uk:regulations/uksi/2013/376/22"
+UNIVERSAL_CREDIT_REGULATION_32_PROGRAM_PATH = Path("regulations/uksi/2013/376/32.yaml")
+UNIVERSAL_CREDIT_REGULATION_32_BASE = "uk:regulations/uksi/2013/376/32"
 UNIVERSAL_CREDIT_REGULATION_34_PROGRAM_PATH = Path("regulations/uksi/2013/376/34.yaml")
 UNIVERSAL_CREDIT_REGULATION_34_BASE = "uk:regulations/uksi/2013/376/34"
 UNIVERSAL_CREDIT_REGULATION_72_PROGRAM_PATH = Path("regulations/uksi/2013/376/72.yaml")
@@ -371,6 +373,16 @@ UNIVERSAL_CREDIT_CHILDCARE_OUTPUTS = {
     },
 }
 
+UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS = {
+    "work_condition_met_for_assessment_period": {
+        "axiom": (
+            f"{UNIVERSAL_CREDIT_REGULATION_32_BASE}"
+            "#work_condition_met_for_assessment_period"
+        ),
+        "pe": "uc_childcare_work_condition",
+    },
+}
+
 UNIVERSAL_CREDIT_CHILDCARE_ELEMENT_OUTPUTS = {
     "childcare_costs_element_amount": {
         "axiom": f"{UNIVERSAL_CREDIT_REGULATION_34_BASE}#childcare_costs_element_amount",
@@ -480,6 +492,7 @@ class UKEFRSSurfaceSpec:
     entity: str
     outputs: dict[str, dict[str, Any]]
     pe_variables: tuple[str, ...]
+    projection_person_variables: tuple[str, ...] = ()
 
 
 SURFACE_SPECS = {
@@ -664,6 +677,16 @@ SURFACE_SPECS = {
         pe_variables=(
             "uc_childcare_element_eligible_children",
             "uc_maximum_childcare_element_amount",
+        ),
+    ),
+    "universal-credit-childcare-work-condition": UKEFRSSurfaceSpec(
+        program=UNIVERSAL_CREDIT_REGULATION_32_PROGRAM_PATH,
+        entity="benunit",
+        outputs=UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS,
+        pe_variables=("uc_childcare_work_condition",),
+        projection_person_variables=(
+            "in_work",
+            "is_adult",
         ),
     ),
     "universal-credit-childcare-element": UKEFRSSurfaceSpec(
@@ -1238,6 +1261,10 @@ def load_local_policyengine_uk_data(
                 period=year,
                 map_to="benunit",
             ).values
+        merged_benunits = add_universal_credit_childcare_work_projection_columns(
+            merged_benunits,
+            merged,
+        )
         benunit_records = table_records(merged_benunits)
         selected_benunit_ids = ()
         if person_ids:
@@ -1304,6 +1331,51 @@ def add_policyengine_uk_benunit_weights(
         ],
         errors="ignore",
     )
+
+
+def add_universal_credit_childcare_work_projection_columns(
+    benunit: Any,
+    person: Any,
+) -> Any:
+    required = {"person_benunit_id", "is_adult", "in_work"}
+    if not required.issubset(set(person.columns)):
+        return benunit
+    projection = person[["person_benunit_id"]].copy()
+    is_adult = person["is_adult"].astype(bool)
+    in_work = person["in_work"].astype(bool)
+    projection["uc_childcare_adult_count"] = is_adult.astype(int)
+    projection["uc_childcare_adult_in_work_count"] = (is_adult & in_work).astype(int)
+    projection["uc_childcare_adult_not_in_work_count"] = (is_adult & ~in_work).astype(
+        int
+    )
+    by_benunit = projection.groupby("person_benunit_id", dropna=False).sum()
+    by_benunit["uc_childcare_any_adult_in_work"] = (
+        by_benunit["uc_childcare_adult_in_work_count"] > 0
+    )
+    by_benunit["uc_childcare_all_adults_in_work"] = (
+        by_benunit["uc_childcare_adult_not_in_work_count"] == 0
+    )
+    by_benunit = by_benunit[
+        [
+            "uc_childcare_adult_count",
+            "uc_childcare_any_adult_in_work",
+            "uc_childcare_all_adults_in_work",
+        ]
+    ].reset_index()
+    merged = benunit.merge(
+        by_benunit,
+        left_on="benunit_id",
+        right_on="person_benunit_id",
+        how="left",
+    ).drop(columns=["person_benunit_id"], errors="ignore")
+    merged["uc_childcare_adult_count"] = merged["uc_childcare_adult_count"].fillna(0)
+    merged["uc_childcare_any_adult_in_work"] = merged[
+        "uc_childcare_any_adult_in_work"
+    ].fillna(False)
+    merged["uc_childcare_all_adults_in_work"] = merged[
+        "uc_childcare_all_adults_in_work"
+    ].fillna(True)
+    return merged
 
 
 def resolve_policyengine_uk_dataset_reference(dataset: str) -> str:
@@ -1434,6 +1506,8 @@ def policyengine_variables_for_surfaces(
         spec = SURFACE_SPECS[surface]
         if spec.entity == entity:
             variables.update(spec.pe_variables)
+        if entity == "person":
+            variables.update(spec.projection_person_variables)
     return tuple(sorted(variables))
 
 
@@ -2212,6 +2286,11 @@ def build_axiom_request(
             pe_data=pe_data,
             year=year,
         )
+    if surface == "universal-credit-childcare-work-condition":
+        return build_universal_credit_childcare_work_condition_request(
+            pe_data=pe_data,
+            year=year,
+        )
     if surface == "universal-credit-award":
         return build_universal_credit_award_request(pe_data=pe_data, year=year)
     if surface == "universal-credit-housing-costs":
@@ -2746,6 +2825,43 @@ def build_universal_credit_childcare_element_request(
     }
 
 
+def build_universal_credit_childcare_work_condition_request(
+    *, pe_data: dict[str, Any], year: int
+) -> dict[str, Any]:
+    interval = benefit_month_interval(year)
+    inputs: list[dict[str, Any]] = []
+    queries: list[dict[str, Any]] = []
+    for row in rows_for_surface(pe_data, "universal-credit-childcare-work-condition"):
+        entity_id = benunit_entity_id(int(row_value(row, "benunit_id")))
+        for name, value in project_universal_credit_childcare_work_condition_inputs(
+            row
+        ).items():
+            inputs.append(
+                input_record(
+                    f"{UNIVERSAL_CREDIT_REGULATION_32_BASE}#input.{name}",
+                    entity_id,
+                    interval,
+                    value,
+                )
+            )
+        queries.append(
+            {
+                "entity_id": entity_id,
+                "period": interval,
+                "outputs": [
+                    spec["axiom"]
+                    for spec in UNIVERSAL_CREDIT_CHILDCARE_WORK_CONDITION_OUTPUTS.values()
+                ],
+            }
+        )
+
+    return {
+        "mode": "explain",
+        "dataset": {"inputs": inputs, "relations": []},
+        "queries": queries,
+    }
+
+
 def build_universal_credit_award_request(
     *, pe_data: dict[str, Any], year: int
 ) -> dict[str, Any]:
@@ -3165,6 +3281,37 @@ def project_universal_credit_childcare_element_inputs(row: Any) -> dict[str, Any
     }
 
 
+def project_universal_credit_childcare_work_condition_inputs(
+    row: Any,
+) -> dict[str, Any]:
+    adult_count = int(money(row_value(row, "uc_childcare_adult_count", 0)))
+    return {
+        "claimant_in_paid_work": bool(
+            row_value(row, "uc_childcare_any_adult_in_work", False)
+        ),
+        "claimant_ceased_paid_work_in_assessment_period": False,
+        "claimant_ceased_paid_work_in_previous_assessment_period": False,
+        "assessment_period_is_first_or_second_assessment_period_in_relation_to_award": False,
+        "claimant_ceased_paid_work_in_month_immediately_preceding_award_commencement": False,
+        "claimant_receiving_statutory_sick_pay": False,
+        "claimant_receiving_statutory_maternity_pay": False,
+        "claimant_receiving_statutory_paternity_pay": False,
+        "claimant_receiving_statutory_adoption_pay": False,
+        "claimant_receiving_statutory_shared_parental_pay": False,
+        "claimant_receiving_statutory_parental_bereavement_pay": False,
+        "claimant_receiving_statutory_neonatal_care_pay": False,
+        "claimant_receiving_maternity_allowance": False,
+        "claimant_has_offer_of_paid_work_due_to_start_before_end_of_next_assessment_period": False,
+        "claimant_is_member_of_couple": adult_count > 1,
+        "other_member_in_paid_work": bool(
+            row_value(row, "uc_childcare_all_adults_in_work", False)
+        ),
+        "other_member_has_limited_capability_for_work": False,
+        "other_member_has_regular_and_substantial_caring_responsibilities_for_severely_disabled_person": False,
+        "other_member_temporarily_absent_from_claimants_household": False,
+    }
+
+
 def project_universal_credit_housing_costs_inputs(row: Any) -> dict[str, Any]:
     monthly_housing_costs = money(row_value(row, "uc_housing_costs_element", 0)) / (
         MONTHS_IN_YEAR
@@ -3564,6 +3711,12 @@ def compare_outputs(
             "uc_maximum_childcare_element_amount divided by 12 as the regulation "
             "36 maximum, and projects excluded, reimbursed, and other-support "
             "amounts to zero.",
+            "Universal Credit Regulation 32 childcare work-condition comparison "
+            "aggregates PolicyEngine person-level is_adult and in_work outputs "
+            "within each benefit unit, projects statutory treated-as-in-work and "
+            "other-unable-to-provide-childcare exceptions false, and compares "
+            "the resulting RuleSpec work-condition judgment against "
+            "PolicyEngine's uc_childcare_work_condition.",
             "The protected LCWRA Regulation 36 table amount is compared only "
             "when PolicyEngine exposes the raw protected amount. Current "
             "PolicyEngine UK EFRS outputs apply the July 2025 UC rebalancing "
