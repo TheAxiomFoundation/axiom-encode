@@ -19106,6 +19106,131 @@ rules:
     assert pipeline._check_embedded_scalar_literals(rules_file) == []
 
 
+def test_embedded_formula_numeric_guard_allows_source_backed_ascii_fraction_parameters(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    content = """format: rulespec/v1
+module:
+  summary: The paper should be shredded into strips no wider than 5/16 inch. Microfilmed data must be shredded to a 1/35 inch by 3/8 inch strip.
+rules:
+  - name: paper_shredding_max_strip_width_inches
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2021-06-01'
+        formula: |-
+          5 / 16
+  - name: microfilmed_data_shredded_strip_width_inches
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2021-06-01'
+        formula: |-
+          1 / 35
+  - name: microfilmed_data_shredded_strip_length_inches
+    kind: parameter
+    dtype: Float
+    versions:
+      - effective_from: '2021-06-01'
+        formula: |-
+          3 / 8
+"""
+
+    assert pipeline._collect_embedded_scalar_literals(content) == []
+
+
+def test_embedded_formula_numeric_guard_allows_extracted_parameter_scalar_equality(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    content = """format: rulespec/v1
+rules:
+  - name: reapplication_verification_rate_after_qc_refusal
+    kind: parameter
+    dtype: Rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us-sc/manual/dss/snap-policy-manual/page-278
+              excerpt: "subject to 100% verification of eligibility requirements"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          1.00
+  - name: reapplication_subject_to_full_verification_after_qc_refusal
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-sc/manual/dss/snap-policy-manual/page-278
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-sc:policies/dss/snap-policy-manual/page-278#reapplication_verification_rate_after_qc_refusal
+              output: reapplication_verification_rate_after_qc_refusal
+              hash: sha256:local
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          household_reapplies_after_refusal_to_cooperate_in_qc_review
+          and reapplication_verification_rate_after_qc_refusal == 1.00
+          and not household_is_eligible_for_expedited_service
+"""
+
+    assert pipeline._collect_embedded_scalar_literals(content) == []
+
+
+def test_embedded_formula_numeric_guard_rejects_unextracted_scalar_equality(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    content = """format: rulespec/v1
+rules:
+  - name: reapplication_subject_to_full_verification_after_qc_refusal
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          household_reapplies_after_refusal_to_cooperate_in_qc_review
+          and reapplication_verification_rate_after_qc_refusal == 1.00
+          and not household_is_eligible_for_expedited_service
+"""
+
+    assert pipeline._collect_embedded_scalar_literals(content) == [
+        (
+            1,
+            "reapplication_subject_to_full_verification_after_qc_refusal",
+            "1.00",
+            "and reapplication_verification_rate_after_qc_refusal == 1.00",
+        ),
+    ]
+
+
 def test_embedded_formula_numeric_guard_allows_map_arm_keys(tmp_path):
     rules_file = tmp_path / "rules.yaml"
     rules_file.write_text(
