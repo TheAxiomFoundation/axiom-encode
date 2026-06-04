@@ -60,6 +60,7 @@ from .harness.encoding_db import (
     ReviewResults,
 )
 from .harness.evals import (
+    _canonical_uk_legislation_tail,
     _eval_result_from_payload,
     evaluate_artifact,
     load_eval_suite_manifest,
@@ -22408,6 +22409,42 @@ def _read_corpus_citation_paths_from_rulespec(path: Path) -> set[str]:
     return declared
 
 
+def _canonical_corpus_citation_path_alias(citation_path: str) -> str:
+    """Return a comparable alias for corpus paths that name the same source."""
+    parts = [part for part in citation_path.strip().strip("/").split("/") if part]
+    if (
+        len(parts) >= 3
+        and parts[0] == "uk"
+        and parts[1]
+        in {
+            "regulation",
+            "regulations",
+            "statute",
+            "statutes",
+        }
+    ):
+        source_kind = {
+            "regulations": "regulation",
+            "statutes": "statute",
+        }.get(parts[1], parts[1])
+        tail = _canonical_uk_legislation_tail(parts[2:])
+        if tail:
+            return "/".join([parts[0], source_kind, *tail])
+    return citation_path.strip().strip("/")
+
+
+def _corpus_citation_paths_overlap(incoming: set[str], existing: set[str]) -> bool:
+    if incoming & existing:
+        return True
+    incoming_aliases = {
+        _canonical_corpus_citation_path_alias(path) for path in incoming
+    }
+    existing_aliases = {
+        _canonical_corpus_citation_path_alias(path) for path in existing
+    }
+    return bool(incoming_aliases & existing_aliases)
+
+
 def _enforce_no_apply_collision(*, source_file: Path, target_file: Path) -> None:
     """Refuse to overwrite an existing RuleSpec that encodes a different corpus citation.
 
@@ -22426,7 +22463,7 @@ def _enforce_no_apply_collision(*, source_file: Path, target_file: Path) -> None
     existing = _read_corpus_citation_paths_from_rulespec(target_file)
     if not incoming or not existing:
         return
-    if incoming & existing:
+    if _corpus_citation_paths_overlap(incoming, existing):
         return
     raise RuntimeError(
         "Refusing to overwrite "
