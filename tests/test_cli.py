@@ -59,6 +59,7 @@ from axiom_encode.cli import (
     _repair_colorado_snap_401_tests,
     _repair_colorado_snap_2072,
     _repair_colorado_snap_2072_tests,
+    _repair_colorado_snap_policy_composition,
     _repair_colorado_snap_program_tests,
     _repair_employer_scoped_entities,
     _repair_float_keyed_indexed_parameter_values,
@@ -6988,6 +6989,14 @@ rules:
 imports:
   - us:policies/usda/snap/fy-2026-cola/income-eligibility-standards
 rules:
+  - name: snap_gross_income_limit_165_percent_fpl_table_max_household_size
+    kind: parameter
+    dtype: Count
+    source: 10 CCR 2506-1 section 4.401(A)(4)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          8
   - name: snap_elderly_disabled_separate_household_allowed
     kind: derived
     entity: Person
@@ -7005,6 +7014,11 @@ rules:
         _repair_colorado_snap_401(rules_file)
 
         payload = yaml.safe_load(rules_file.read_text())
+        assert not any(
+            item["name"]
+            == "snap_gross_income_limit_165_percent_fpl_table_max_household_size"
+            for item in payload["rules"]
+        )
         limit_rule = next(
             item
             for item in payload["rules"]
@@ -7038,6 +7052,55 @@ rules:
             "and co_resident_gross_income <= "
             "co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
         )
+
+    def test_repair_colorado_snap_policy_composition_extracts_boarder_table_bound(
+        self, tmp_path
+    ):
+        rules_file = tmp_path / "fy-2026-benefit-calculation.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/6
+  - us-co:regulations/10-ccr-2506-1/4.407.61
+rules:
+  - name: max_allotment_for_number_of_boarders
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Colorado SNAP FY 2026 benefit calculation composition
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          if number_of_boarders <= 0:
+              0
+          else:
+              snap_maximum_allotment_table[max(min(number_of_boarders, 8), 1)]
+              + (max(number_of_boarders - 8, 0) * snap_maximum_allotment_additional_member)
+"""
+        )
+
+        _repair_colorado_snap_policy_composition(rules_file)
+
+        payload = yaml.safe_load(rules_file.read_text())
+        max_size_rule = next(
+            item
+            for item in payload["rules"]
+            if item["name"] == "snap_maximum_allotment_table_max_household_size"
+        )
+        assert max_size_rule["kind"] == "parameter"
+        assert max_size_rule["dtype"] == "Count"
+        assert max_size_rule["versions"][0]["formula"] == "8"
+        boarder_rule = next(
+            item
+            for item in payload["rules"]
+            if item["name"] == "max_allotment_for_number_of_boarders"
+        )
+        formula = boarder_rule["versions"][0]["formula"]
+        assert "number_of_boarders, 8" not in formula
+        assert "number_of_boarders - 8" not in formula
+        assert "snap_maximum_allotment_table_max_household_size" in formula
 
     def test_repair_colorado_snap_401_tests_uses_co_resident_group_size(self, tmp_path):
         test_file = tmp_path / "4.401.test.yaml"
