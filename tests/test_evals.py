@@ -321,6 +321,18 @@ def test_subparagraph_coverage_checklist_requires_exact_corpus_source_keys():
         ),
         ("us/statute/26/1/a/1", "statutes/26/1/a/1.yaml"),
         ("us/regulation/7/273/8", "regulations/7-cfr/273/8.yaml"),
+        (
+            "uk/statute/legislation.gov.uk/ukpga/1992/4/section/8",
+            "statutes/ukpga/1992/4/8.yaml",
+        ),
+        (
+            "uk/regulation/legislation.gov.uk/uksi/2013/376/regulation/36",
+            "regulations/uksi/2013/376/36.yaml",
+        ),
+        (
+            "uk/regulation/legislation.gov.uk/uksi/2013/376/schedule/5/paragraph/2",
+            "regulations/uksi/2013/376/schedule/5/paragraph/2.yaml",
+        ),
     ],
 )
 def test_source_identifier_handles_dotted_leaf_segments(citation, expected):

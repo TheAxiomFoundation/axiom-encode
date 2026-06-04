@@ -162,6 +162,19 @@ def test_collision_guard_allows_overwrite_with_same_citation_path(tmp_path: Path
     _enforce_no_apply_collision(source_file=source, target_file=target)
 
 
+def test_collision_guard_allows_uk_legislation_gov_alias(tmp_path: Path):
+    source = _write_rulespec(
+        tmp_path / "src.yaml",
+        corpus_citation_path="uk/statute/ukpga/1992/4/8",
+    )
+    target = _write_rulespec(
+        tmp_path / "target.yaml",
+        corpus_citation_path="uk/statute/legislation.gov.uk/ukpga/1992/4/section/8",
+    )
+
+    _enforce_no_apply_collision(source_file=source, target_file=target)
+
+
 def test_collision_guard_refuses_overwrite_with_different_citation_path(
     tmp_path: Path,
 ):

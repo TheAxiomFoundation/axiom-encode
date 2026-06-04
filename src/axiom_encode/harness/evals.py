@@ -145,6 +145,8 @@ _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
     "statute": "statutes",
     "statutes": "statutes",
 }
+_UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
+_UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
 _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
 _CODEX_LONG_SOURCE_CHAR_THRESHOLD = 40_000
@@ -3351,6 +3353,8 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
         tail = parts[1:]
         if tail:
             root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[0], parts[0])
+            if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
+                tail = _canonical_uk_legislation_tail(tail)
             return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
     if len(parts) >= 3:
         root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
@@ -3358,6 +3362,8 @@ def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
             tail = parts[2:]
             if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
                 tail = _canonical_us_regulation_tail(tail)
+            if parts[0] == "uk":
+                tail = _canonical_uk_legislation_tail(tail)
             if tail:
                 if _preserve_state_statute_dotted_leaf(parts[0], root, tail):
                     return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
@@ -3416,6 +3422,19 @@ def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:
     if title.isdigit():
         return [f"{title}-cfr", *tail[1:]]
     return tail
+
+
+def _canonical_uk_legislation_tail(tail: list[str]) -> list[str]:
+    """Map official legislation.gov.uk corpus paths to canonical UK RuleSpec paths."""
+    normalized = list(tail)
+    if normalized and normalized[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
+        normalized = normalized[1:]
+    if (
+        len(normalized) >= 2
+        and normalized[-2].lower() in _UK_LEGISLATION_SECTION_TOKENS
+    ):
+        normalized = [*normalized[:-2], normalized[-1]]
+    return normalized
 
 
 def _canonical_target_ref_prefix(
