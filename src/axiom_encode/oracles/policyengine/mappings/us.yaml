@@ -14112,6 +14112,18 @@ prefixes:
     mapping_type: not_comparable
     rationale: Tennessee DHS SNAP manual pages encode state administrative procedures, verification rules, disqualification predicates, eligibility subtests, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
 
+  - legal_id_prefix: us-nc:policies/dhhs/fns/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: North Carolina DHHS FNS manual sections encode state SNAP administrative procedures, verification rules, simplified nutrition assistance procedures, eligibility subtests, notices, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
+
+  - legal_id_prefix: us-sc:policies/dss/snap-policy-manual/
+    country: us
+    program: snap
+    mapping_type: not_comparable
+    rationale: South Carolina DSS SNAP manual sections encode state administrative procedures, verification rules, work-requirement predicates, notices, disqualification branches, and other generated policy intermediates. PolicyEngine does not expose one-to-one variables for this manual-page surface; exact direct mappings should be added later only for individually verified outputs.
+
   - legal_id_prefix: us-al:policies/dhr/poe/
     country: us
     program: snap
