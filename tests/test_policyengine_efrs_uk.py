@@ -33,6 +33,7 @@ from axiom_encode.oracles.policyengine.efrs_uk import (
     build_universal_credit_request,
     compare_outputs,
     compare_uk_efrs,
+    normalize_policyengine_entity,
     policyengine_benunit_variables_for_surfaces,
     policyengine_person_variables_for_surfaces,
     project_child_benefit_inputs,
@@ -113,6 +114,14 @@ class FakePolicyEngineVariable:
         self.entity = entity
         self.adds = adds
         self.subtracts = subtracts
+
+
+class FakePolicyEngineEntity:
+    key = "benunit"
+
+
+def test_normalize_policyengine_entity_accepts_entity_objects():
+    assert normalize_policyengine_entity(FakePolicyEngineEntity()) == "benunit"
 
 
 def test_personal_allowance_projection_matches_policyengine_gift_aid_taper():

@@ -1194,10 +1194,10 @@ def discover_policyengine_uk_variables(
 def load_policyengine_uk_variables() -> list[Any]:
     require_policyengine_uk_versions(command="uk-efrs-coverage")
     try:
-        from policyengine.tax_benefit_models.uk import uk_latest
+        from policyengine_uk import CountryTaxBenefitSystem
     except ImportError as exc:  # pragma: no cover - optional runtime dependency
         raise SystemExit(policyengine_uk_install_message("uk-efrs-coverage")) from exc
-    return list(uk_latest.variables)
+    return list(CountryTaxBenefitSystem().variables.values())
 
 
 def parse_policyengine_uk_variable_sources(
@@ -1275,6 +1275,8 @@ def variable_attribute(raw_variable: Any, name: str, default: Any = None) -> Any
 
 
 def normalize_policyengine_entity(value: Any) -> str:
+    if hasattr(value, "key"):
+        return str(value.key).strip().lower()
     text = str(value or "").strip()
     if "." in text:
         text = text.rsplit(".", 1)[-1]
