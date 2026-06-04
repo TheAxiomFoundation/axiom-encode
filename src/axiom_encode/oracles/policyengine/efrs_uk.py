@@ -105,6 +105,11 @@ INCOME_TAX_INCOME_BASE_OUTPUTS = {
         "axiom": f"{INCOME_TAX_SECTION_23_BASE}#total_income",
         "pe": "total_income",
     },
+    "net_income": {
+        "axiom": f"{INCOME_TAX_SECTION_23_BASE}#net_income",
+        "pe": "adjusted_net_income",
+        "applies": "income_tax_net_income_comparable",
+    },
     "income_tax_liability": {
         "axiom": f"{INCOME_TAX_SECTION_23_BASE}#income_tax_liability",
         "pe": "income_tax",
@@ -297,6 +302,7 @@ SURFACE_SPECS = {
         entity="person",
         outputs=INCOME_TAX_INCOME_BASE_OUTPUTS,
         pe_variables=(
+            "adjusted_net_income",
             *INCOME_TAX_INCOME_BASE_COMPONENTS,
             *INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
             *INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
@@ -1954,6 +1960,14 @@ def build_income_tax_income_base_request(
                     money(component["amount_charged_to_income_tax"]),
                 )
             )
+            inputs.append(
+                input_record(
+                    f"{INCOME_TAX_SECTION_23_BASE}#input.relief_deducted_under_section_24",
+                    payment_id,
+                    interval,
+                    money(component["relief_deducted_under_section_24"]),
+                )
+            )
         for name, value in project_income_tax_section_23_inputs(row).items():
             inputs.append(
                 input_record(
@@ -2122,14 +2136,27 @@ def project_income_tax_income_base_components(row: Any) -> list[dict[str, Any]]:
         {
             "name": name,
             "amount_charged_to_income_tax": money(row_value(row, name, 0)),
+            "relief_deducted_under_section_24": 0.0,
         }
         for name in INCOME_TAX_INCOME_BASE_COMPONENTS
     ]
-    return [
+    nonzero_components = [
         component
         for component in components
         if money(component["amount_charged_to_income_tax"])
     ]
+    if not nonzero_components:
+        return []
+    total_income = sum(
+        money(component["amount_charged_to_income_tax"])
+        for component in nonzero_components
+    )
+    adjusted_net_income = money(row_value(row, "adjusted_net_income", total_income))
+    nonzero_components[0]["relief_deducted_under_section_24"] = max(
+        0.0,
+        total_income - adjusted_net_income,
+    )
+    return nonzero_components
 
 
 def project_income_tax_section_23_inputs(row: Any) -> dict[str, Any]:
@@ -2142,6 +2169,7 @@ def project_income_tax_section_23_inputs(row: Any) -> dict[str, Any]:
         for name in INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS
     )
     return {
+        "net_income_taken_as_zero_under_section_24b": False,
         "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances": additions,
         "tax_reductions_listed_in_section_26": reductions,
         "additional_tax_amounts_listed_in_section_30": 0.0,
@@ -2384,6 +2412,12 @@ def compare_outputs(
             "PolicyEngine UK EFRS outputs apply the July 2025 UC rebalancing "
             "scenario for existing claimants, so those rebalanced health-element "
             "values are not treated as the same surface.",
+            "Income Tax Act 2007 section 23 net-income comparison projects "
+            "PolicyEngine UK's adjusted_net_income into section 24 reliefs only "
+            "for rows with non-negative income components where adjusted net "
+            "income does not exceed total income. Rows with loss semantics are "
+            "skipped because RuleSpec section 23 net_income cannot exceed the "
+            "section 23 total_income output.",
             "Income Tax Act 2007 section 23 final-liability comparison collapses "
             "PolicyEngine's income_tax_additions into the RuleSpec step-4 tax "
             "input and PolicyEngine's income_tax_subtractions into the section "
@@ -2421,6 +2455,13 @@ def output_applies(spec: dict[str, Any], row: Any) -> bool:
         return True
     if applies == "positive_pe_output":
         return policyengine_output_value(spec, row) > 0
+    if applies == "income_tax_net_income_comparable":
+        return all(
+            money(row_value(row, name, 0)) >= 0
+            for name in INCOME_TAX_INCOME_BASE_COMPONENTS
+        ) and money(row_value(row, "adjusted_net_income", 0)) <= money(
+            row_value(row, "total_income", 0)
+        )
     if applies == "uc_first_child_element":
         return (
             policyengine_output_value(spec, row) > 0

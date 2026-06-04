@@ -202,16 +202,32 @@ def test_income_tax_income_base_projection_uses_income_components():
         {
             "name": "employment_income",
             "amount_charged_to_income_tax": 30_000,
+            "relief_deducted_under_section_24": 0.0,
         },
         {
             "name": "private_pension_income",
             "amount_charged_to_income_tax": 2_000,
+            "relief_deducted_under_section_24": 0.0,
         },
         {
             "name": "savings_interest_income",
             "amount_charged_to_income_tax": 100,
+            "relief_deducted_under_section_24": 0.0,
         },
     ]
+
+
+def test_income_tax_income_base_projection_projects_net_income_relief():
+    components = project_income_tax_income_base_components(
+        {
+            "employment_income": 30_000,
+            "private_pension_income": 2_000,
+            "adjusted_net_income": 31_250,
+        }
+    )
+
+    assert components[0]["relief_deducted_under_section_24"] == 750
+    assert components[1]["relief_deducted_under_section_24"] == 0.0
 
 
 def test_income_tax_section_23_projection_uses_pe_liability_components():
@@ -226,10 +242,34 @@ def test_income_tax_section_23_projection_uses_pe_liability_components():
     )
 
     assert projected == {
+        "net_income_taken_as_zero_under_section_24b": False,
         "tax_calculated_at_applicable_rates_on_income_remaining_after_allowances": 5_000,
         "tax_reductions_listed_in_section_26": 150,
         "additional_tax_amounts_listed_in_section_30": 0.0,
     }
+
+
+def test_income_tax_net_income_output_skips_negative_component_rows():
+    spec = INCOME_TAX_INCOME_BASE_OUTPUTS["net_income"]
+
+    assert efrs_uk.output_applies(
+        spec,
+        {
+            "total_income": 31_250,
+            "adjusted_net_income": 31_250,
+            "employment_income": 30_000,
+            "private_pension_income": 1_250,
+        },
+    )
+    assert not efrs_uk.output_applies(
+        spec,
+        {
+            "total_income": 14_483.34,
+            "adjusted_net_income": 17_287.67,
+            "employment_income": 17_287.67,
+            "self_employment_income": -2_804.33,
+        },
+    )
 
 
 def test_income_tax_income_base_request_projects_section_23_relation():
@@ -240,6 +280,7 @@ def test_income_tax_income_base_request_projects_section_23_relation():
                     "person_id": 7,
                     "employment_income": 30_000,
                     "private_pension_income": 2_000,
+                    "adjusted_net_income": 31_250,
                     "income_tax_pre_charges": 4_500,
                     "CB_HITC": 300,
                     "personal_pension_contributions_tax": 200,
@@ -294,6 +335,15 @@ def test_income_tax_income_base_request_projects_section_23_relation():
     assert inputs[
         f"{INCOME_TAX_SECTION_23_BASE}#input.amount_charged_to_income_tax:person_7_income_employment_income"
     ] == {"kind": "decimal", "value": "30000.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_23_BASE}#input.relief_deducted_under_section_24:person_7_income_employment_income"
+    ] == {"kind": "decimal", "value": "750.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_23_BASE}#input.relief_deducted_under_section_24:person_7_income_private_pension_income"
+    ] == {"kind": "decimal", "value": "0.0"}
+    assert inputs[
+        f"{INCOME_TAX_SECTION_23_BASE}#input.net_income_taken_as_zero_under_section_24b:person_7"
+    ] == {"kind": "bool", "value": False}
     assert inputs[
         f"{INCOME_TAX_SECTION_23_BASE}#input.tax_calculated_at_applicable_rates_on_income_remaining_after_allowances:person_7"
     ] == {"kind": "decimal", "value": "5000.0"}
@@ -709,6 +759,7 @@ def test_policyengine_variables_for_surfaces_deduplicates_person_variables():
                 *INCOME_TAX_INCOME_BASE_COMPONENTS,
                 *INCOME_TAX_SECTION_23_ADDITION_COMPONENTS,
                 *INCOME_TAX_SECTION_23_REDUCTION_COMPONENTS,
+                "adjusted_net_income",
                 "income_tax",
                 "total_income",
             )
