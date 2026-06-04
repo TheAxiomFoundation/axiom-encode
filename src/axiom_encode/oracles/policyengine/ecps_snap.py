@@ -114,7 +114,6 @@ JURISDICTION_CONFIGS = {
         member_entity_type="Person",
         temp_prefix="co-snap-pe-ecps-",
         display_name="Colorado SNAP",
-        additional_relation_ids=("member_of_household",),
     ),
     "us-ca": JurisdictionConfig(
         jurisdiction="us-ca",
